@@ -6,6 +6,7 @@ LineageStore (handle persistence), and OperationJournal (crash-recovery entries)
 
 from __future__ import annotations
 
+import json
 import uuid
 from pathlib import Path
 from typing import Callable
@@ -17,8 +18,10 @@ from .models import (
     AuditEvent,
     CollaborationHandle,
     ConsultRequest,
+    DialogueReadResult,
     DialogueReplyResult,
     DialogueStartResult,
+    DialogueTurnSummary,
     OperationJournalEntry,
     RepoIdentity,
 )
@@ -423,3 +426,59 @@ class DialogueController:
             if isinstance(t, dict) and t.get("status") == "completed"
         )
         return completed_count + 1
+
+    def read(self, collaboration_id: str) -> DialogueReadResult:
+        """Read dialogue state for a given collaboration_id.
+
+        Combines lineage store handle data with Codex thread/read history.
+        Spec: contracts.md §Dialogue Read, delivery.md §R2 in-scope.
+        """
+        handle = self._lineage_store.get(collaboration_id)
+        if handle is None:
+            raise ValueError(
+                f"Handle not found for read: no handle with collaboration_id. "
+                f"Got: {collaboration_id!r:.100}"
+            )
+
+        resolved_root = Path(handle.repo_root)
+        runtime = self._control_plane.get_advisory_runtime(resolved_root)
+
+        # Read thread history from Codex
+        thread_data = runtime.session.read_thread(handle.codex_thread_id)
+        thread = thread_data.get("thread", {})
+        raw_turns = thread.get("turns", [])
+
+        turns: list[DialogueTurnSummary] = []
+        seq = 0
+        for raw_turn in raw_turns:
+            if not isinstance(raw_turn, dict):
+                continue
+            # Only include completed turns (contracts.md:266)
+            if raw_turn.get("status") != "completed":
+                continue
+            seq += 1
+            agent_message = raw_turn.get("agentMessage", "")
+            position = ""
+            context_size = 0
+            if isinstance(agent_message, str) and agent_message:
+                try:
+                    parsed = json.loads(agent_message)
+                    position = parsed.get("position", "")
+                except (ValueError, AttributeError):
+                    position = agent_message[:200]
+            turns.append(
+                DialogueTurnSummary(
+                    turn_sequence=seq,
+                    position=position,
+                    context_size=context_size,
+                    timestamp=str(raw_turn.get("createdAt", "")),
+                )
+            )
+
+        return DialogueReadResult(
+            collaboration_id=collaboration_id,
+            status=handle.status,
+            turn_count=len(turns),
+            created_at=handle.created_at,
+            turns=tuple(turns),
+        )

@@ -370,3 +370,62 @@ class TestRecoverPendingOperations:
         # Handle stays active (not marked unknown — dispatch didn't happen)
         handle = store.get(start.collaboration_id)
         assert handle.status == "active"
+
+
+from server.models import DialogueReadResult, DialogueTurnSummary
+
+
+class TestDialogueRead:
+    def test_read_returns_dialogue_state(self, tmp_path: Path) -> None:
+        focus = tmp_path / "focus.py"
+        focus.write_text("print('focus')\n", encoding="utf-8")
+        controller, _, _, _ = _build_dialogue_stack(tmp_path)
+        start_result = controller.start(tmp_path)
+        controller.reply(
+            collaboration_id=start_result.collaboration_id,
+            objective="First turn",
+            explicit_paths=(Path("focus.py"),),
+        )
+
+        read_result = controller.read(start_result.collaboration_id)
+
+        assert isinstance(read_result, DialogueReadResult)
+        assert read_result.collaboration_id == start_result.collaboration_id
+        assert read_result.status == "active"
+        assert read_result.created_at is not None
+
+    def test_read_includes_turn_history(self, tmp_path: Path) -> None:
+        focus = tmp_path / "focus.py"
+        focus.write_text("print('focus')\n", encoding="utf-8")
+        session = FakeRuntimeSession()
+        # Configure read_thread to return turn history
+        session.read_thread_response = {
+            "thread": {
+                "id": "thr-start",
+                "turns": [
+                    {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "agentMessage": '{"position":"First","evidence":[],"uncertainties":[],"follow_up_branches":[]}',
+                        "createdAt": "2026-03-28T00:01:00Z",
+                    },
+                ],
+            },
+        }
+        controller, _, _, _ = _build_dialogue_stack(tmp_path, session=session)
+        start_result = controller.start(tmp_path)
+        controller.reply(
+            collaboration_id=start_result.collaboration_id,
+            objective="First turn",
+            explicit_paths=(Path("focus.py"),),
+        )
+
+        read_result = controller.read(start_result.collaboration_id)
+
+        assert read_result.turn_count >= 1
+        assert len(read_result.turns) >= 1
+
+    def test_read_raises_on_unknown_collaboration_id(self, tmp_path: Path) -> None:
+        controller, _, _, _ = _build_dialogue_stack(tmp_path)
+        with pytest.raises(ValueError, match="Handle not found"):
+            controller.read("nonexistent")
