@@ -50,6 +50,7 @@ class FakeRuntimeSession:
         self.last_output_schema: dict[str, object] | None = None
         self.read_account_calls = 0
         self.run_turn_calls = 0
+        self.completed_turn_count: int = 0
 
     def initialize(self) -> RuntimeHandshake:
         if self.initialize_error is not None:
@@ -93,6 +94,7 @@ class FakeRuntimeSession:
         if self.run_turn_error is not None:
             raise self.run_turn_error
         self.run_turn_calls += 1
+        self.completed_turn_count += 1
         self.last_prompt_text = prompt_text
         self.last_output_schema = output_schema
         return TurnExecutionResult(
@@ -104,10 +106,14 @@ class FakeRuntimeSession:
         self.closed = True
 
     def read_thread(self, thread_id: str) -> dict:
+        turns = [
+            {"id": f"turn-{i + 1}", "status": "completed"}
+            for i in range(self.completed_turn_count)
+        ]
         return {
             "thread": {
                 "id": thread_id,
-                "turns": [],
+                "turns": turns,
             },
         }
 

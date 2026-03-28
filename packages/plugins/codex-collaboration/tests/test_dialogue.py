@@ -97,3 +97,100 @@ class TestDialogueStart:
         controller, _, _, _ = _build_dialogue_stack(tmp_path, session=session)
         with pytest.raises(RuntimeError):
             controller.start(tmp_path)
+
+
+from server.models import ConsultRequest, DialogueReplyResult
+
+
+class TestDialogueReply:
+    def test_reply_returns_dialogue_reply_result(self, tmp_path: Path) -> None:
+        focus = tmp_path / "focus.py"
+        focus.write_text("print('focus')\n", encoding="utf-8")
+        controller, _, _, _ = _build_dialogue_stack(tmp_path)
+        start_result = controller.start(tmp_path)
+
+        reply_result = controller.reply(
+            collaboration_id=start_result.collaboration_id,
+            objective="Review focus.py",
+            explicit_paths=(Path("focus.py"),),
+        )
+
+        assert isinstance(reply_result, DialogueReplyResult)
+        assert reply_result.collaboration_id == start_result.collaboration_id
+        assert reply_result.turn_sequence == 1
+        assert reply_result.position is not None
+        assert reply_result.context_size > 0
+
+    def test_reply_increments_turn_sequence(self, tmp_path: Path) -> None:
+        focus = tmp_path / "focus.py"
+        focus.write_text("print('focus')\n", encoding="utf-8")
+        controller, _, _, _ = _build_dialogue_stack(tmp_path)
+        start_result = controller.start(tmp_path)
+
+        reply1 = controller.reply(
+            collaboration_id=start_result.collaboration_id,
+            objective="First turn",
+            explicit_paths=(Path("focus.py"),),
+        )
+        reply2 = controller.reply(
+            collaboration_id=start_result.collaboration_id,
+            objective="Second turn",
+            explicit_paths=(Path("focus.py"),),
+        )
+
+        assert reply1.turn_sequence == 1
+        assert reply2.turn_sequence == 2
+
+    def test_reply_journals_before_dispatch(self, tmp_path: Path) -> None:
+        focus = tmp_path / "focus.py"
+        focus.write_text("print('focus')\n", encoding="utf-8")
+        controller, _, _, journal = _build_dialogue_stack(tmp_path)
+        start_result = controller.start(tmp_path)
+        controller.reply(
+            collaboration_id=start_result.collaboration_id,
+            objective="Test turn",
+            explicit_paths=(Path("focus.py"),),
+        )
+        # After successful reply, all operations should be completed (no unresolved)
+        unresolved = journal.list_unresolved(session_id="sess-1")
+        assert len(unresolved) == 0
+
+    def test_reply_emits_dialogue_turn_audit_event(self, tmp_path: Path) -> None:
+        focus = tmp_path / "focus.py"
+        focus.write_text("print('focus')\n", encoding="utf-8")
+        controller, _, _, journal = _build_dialogue_stack(tmp_path)
+        start_result = controller.start(tmp_path)
+        controller.reply(
+            collaboration_id=start_result.collaboration_id,
+            objective="Test turn",
+            explicit_paths=(Path("focus.py"),),
+        )
+        audit_path = journal.plugin_data_path / "audit" / "events.jsonl"
+        events = [json.loads(line) for line in audit_path.read_text().strip().split("\n")]
+        turn_events = [e for e in events if e["action"] == "dialogue_turn"]
+        assert len(turn_events) == 1
+        assert turn_events[0]["collaboration_id"] == start_result.collaboration_id
+        assert "turn_id" in turn_events[0]
+
+    def test_reply_raises_on_unknown_collaboration_id(self, tmp_path: Path) -> None:
+        controller, _, _, _ = _build_dialogue_stack(tmp_path)
+        with pytest.raises(ValueError, match="Handle not found"):
+            controller.reply(
+                collaboration_id="nonexistent",
+                objective="Should fail",
+            )
+
+    def test_reply_uses_same_context_assembly_as_consult(self, tmp_path: Path) -> None:
+        focus = tmp_path / "focus.py"
+        focus.write_text("print('focus')\n", encoding="utf-8")
+        session = FakeRuntimeSession()
+        controller, _, _, _ = _build_dialogue_stack(tmp_path, session=session)
+        start_result = controller.start(tmp_path)
+        controller.reply(
+            collaboration_id=start_result.collaboration_id,
+            objective="Review focus.py",
+            explicit_paths=(Path("focus.py"),),
+        )
+        # Verify the prompt contains the assembled packet (same pipeline as consult)
+        assert session.last_prompt_text is not None
+        assert "focus.py" in session.last_prompt_text
