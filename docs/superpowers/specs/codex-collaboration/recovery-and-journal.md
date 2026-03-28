@@ -104,7 +104,7 @@ An audit event is emitted for every state transition that crosses a trust or cap
 ### Advisory Runtime Crash
 
 1. Restart the advisory runtime.
-2. Rebuild handle mappings from the lineage store.
+2. Rebuild handle mappings from the [lineage store](contracts.md#lineage-store).
 3. Use `thread/read` and `thread/resume` to recover the latest completed state.
 4. Reload any `stale_advisory_context` marker from the operation journal and preserve the post-promotion injection requirement for the next advisory turn.
 5. Mark any pending server requests as canceled.
