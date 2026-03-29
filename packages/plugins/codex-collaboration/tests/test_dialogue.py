@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from server.control_plane import ControlPlane, load_repo_identity
-from server.dialogue import DialogueController
+from server.dialogue import CommittedTurnParseError, DialogueController
 from server.journal import OperationJournal
 from server.lineage_store import LineageStore
 from server.models import RepoIdentity
@@ -1006,3 +1006,141 @@ class TestReplyRunTurnFailure:
         unresolved = journal.list_unresolved(session_id="sess-1")
         turn_entries = [e for e in unresolved if e.operation == "turn_dispatch"]
         assert len(turn_entries) == 1
+
+
+class TestReplyParseFailure:
+    def test_raises_committed_turn_parse_error_and_leaves_handle_active(
+        self, tmp_path: Path
+    ) -> None:
+        """Malformed agent message → CommittedTurnParseError; handle stays active."""
+        focus = tmp_path / "focus.py"
+        focus.write_text("print('focus')\n", encoding="utf-8")
+
+        session = FakeRuntimeSession(agent_message="not valid json {{{{")
+        controller, _, store, _, _ = _build_dialogue_stack(tmp_path, session=session)
+        start = controller.start(tmp_path)
+
+        with pytest.raises(CommittedTurnParseError, match="turn committed"):
+            controller.reply(
+                collaboration_id=start.collaboration_id,
+                objective="Review focus.py",
+                explicit_paths=(Path("focus.py"),),
+            )
+
+        assert store.get(start.collaboration_id).status == "active"
+
+    def test_completes_journal_writes_store_and_emits_audit(self, tmp_path: Path) -> None:
+        """Parse failure still finalizes all durable state."""
+        focus = tmp_path / "focus.py"
+        focus.write_text("print('focus')\n", encoding="utf-8")
+
+        session = FakeRuntimeSession(agent_message="not valid json {{{{")
+        controller, _, store, journal, turn_store = _build_dialogue_stack(
+            tmp_path, session=session
+        )
+        start = controller.start(tmp_path)
+
+        with pytest.raises(CommittedTurnParseError):
+            controller.reply(
+                collaboration_id=start.collaboration_id,
+                objective="Review focus.py",
+                explicit_paths=(Path("focus.py"),),
+            )
+
+        # Journal fully resolved
+        unresolved = journal.list_unresolved(session_id="sess-1")
+        turn_entries = [e for e in unresolved if e.operation == "turn_dispatch"]
+        assert len(turn_entries) == 0
+
+        # TurnStore has metadata
+        assert turn_store.get(start.collaboration_id, turn_sequence=1) is not None
+
+        # Audit event emitted
+        audit_path = journal.plugin_data_path / "audit" / "events.jsonl"
+        events = [json.loads(line) for line in audit_path.read_text().strip().split("\n")]
+        turn_events = [e for e in events if e["action"] == "dialogue_turn"]
+        assert len(turn_events) == 1
+        assert turn_events[0]["collaboration_id"] == start.collaboration_id
+
+    def test_read_returns_fallback_position_without_integrity_error(
+        self, tmp_path: Path
+    ) -> None:
+        """After parse failure, read() uses the raw-message fallback and does not
+        raise a metadata integrity error."""
+        focus = tmp_path / "focus.py"
+        focus.write_text("print('focus')\n", encoding="utf-8")
+
+        session = FakeRuntimeSession(agent_message="not valid json {{{{")
+        controller, _, _, _, _ = _build_dialogue_stack(tmp_path, session=session)
+        start = controller.start(tmp_path)
+
+        with pytest.raises(CommittedTurnParseError):
+            controller.reply(
+                collaboration_id=start.collaboration_id,
+                objective="Review focus.py",
+                explicit_paths=(Path("focus.py"),),
+            )
+
+        # Configure read_thread with the committed turn's malformed message
+        session.read_thread_response = {
+            "thread": {
+                "id": "thr-start",
+                "turns": [
+                    {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "agentMessage": "not valid json {{{{",
+                        "createdAt": "2026-03-29T00:00:00Z",
+                    },
+                ],
+            },
+        }
+
+        # read() should NOT raise RuntimeError — it uses the raw-message fallback
+        read_result = controller.read(start.collaboration_id)
+        assert read_result.turn_count == 1
+        # Fallback position is agent_message[:200]
+        assert read_result.turns[0].position == "not valid json {{{{"
+
+    def test_follow_up_reply_uses_next_turn_sequence(self, tmp_path: Path) -> None:
+        """First reply commits but fails parsing. Second reply succeeds at turn 2."""
+        focus = tmp_path / "focus.py"
+        focus.write_text("print('focus')\n", encoding="utf-8")
+
+        class MalformedThenValidSession(FakeRuntimeSession):
+            """First run_turn returns malformed JSON, second returns valid."""
+            def __init__(self) -> None:
+                super().__init__()
+                self._first_call = True
+
+            def run_turn(self, **kwargs: object) -> object:
+                if self._first_call:
+                    self._first_call = False
+                    self.run_turn_calls += 1
+                    self.completed_turn_count += 1
+                    from server.models import TurnExecutionResult
+                    return TurnExecutionResult(
+                        turn_id="turn-1",
+                        agent_message="not valid json {{{{",
+                    )
+                return super().run_turn(**kwargs)
+
+        session = MalformedThenValidSession()
+        controller, _, _, _, _ = _build_dialogue_stack(tmp_path, session=session)
+        start = controller.start(tmp_path)
+
+        # First reply: commits but parse fails
+        with pytest.raises(CommittedTurnParseError):
+            controller.reply(
+                collaboration_id=start.collaboration_id,
+                objective="First turn",
+                explicit_paths=(Path("focus.py"),),
+            )
+
+        # Second reply: should be turn_sequence=2
+        reply2 = controller.reply(
+            collaboration_id=start.collaboration_id,
+            objective="Second turn",
+            explicit_paths=(Path("focus.py"),),
+        )
+        assert reply2.turn_sequence == 2

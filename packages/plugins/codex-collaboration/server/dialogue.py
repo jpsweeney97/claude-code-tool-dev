@@ -246,10 +246,6 @@ class DialogueController:
             session_id=self._session_id,
         )
 
-        position, evidence, uncertainties, follow_up_branches = parse_consult_response(
-            turn_result.agent_message
-        )
-
         # Metadata store: MUST write before journal completed
         self._turn_store.write(
             collaboration_id,
@@ -283,6 +279,20 @@ class DialogueController:
                 turn_id=turn_result.turn_id,
             )
         )
+
+        # Parse projection — all durable state is committed above.
+        # If parsing fails, the turn is committed and readable via dialogue.read.
+        try:
+            position, evidence, uncertainties, follow_up_branches = (
+                parse_consult_response(turn_result.agent_message)
+            )
+        except (ValueError, AttributeError) as exc:
+            raise CommittedTurnParseError(
+                f"Reply turn committed but response parsing failed: {exc}. "
+                f"The turn is durably recorded. Use codex.dialogue.read to "
+                f"inspect the committed turn. Blind retry will create a "
+                f"duplicate follow-up turn, not replay this one."
+            ) from exc
 
         return DialogueReplyResult(
             collaboration_id=collaboration_id,
