@@ -128,3 +128,31 @@ def test_operation_journal_entry_dispatched_phase() -> None:
     assert entry.phase == "dispatched"
     assert entry.turn_sequence == 1
     assert entry.codex_thread_id == "thr-1"
+
+
+def test_operation_journal_entry_has_context_size_field() -> None:
+    entry = OperationJournalEntry(
+        idempotency_key="rt-1:thr-1:1",
+        operation="turn_dispatch",
+        phase="intent",
+        collaboration_id="collab-1",
+        created_at="2026-03-28T00:00:00Z",
+        repo_root="/repo",
+        codex_thread_id="thr-1",
+        turn_sequence=1,
+        runtime_id="rt-1",
+        context_size=4096,
+    )
+    assert entry.context_size == 4096
+
+
+def test_operation_journal_entry_context_size_defaults_to_none() -> None:
+    entry = OperationJournalEntry(
+        idempotency_key="sess-1:collab-1",
+        operation="thread_creation",
+        phase="intent",
+        collaboration_id="collab-1",
+        created_at="2026-03-28T00:00:00Z",
+        repo_root="/repo",
+    )
+    assert entry.context_size is None

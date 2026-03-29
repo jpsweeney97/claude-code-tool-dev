@@ -237,3 +237,4 @@ class OperationJournalEntry:
     codex_thread_id: str | None = None  # thread_creation: set at dispatched; turn_dispatch: set at intent
     turn_sequence: int | None = None  # turn_dispatch only
     runtime_id: str | None = None  # turn_dispatch only
+    context_size: int | None = None  # turn_dispatch only, set at intent (pre-dispatch)
