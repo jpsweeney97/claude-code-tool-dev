@@ -286,6 +286,69 @@ class DialogueController:
             context_size=packet.context_size,
         )
 
+    def recover_startup(self) -> None:
+        """One-shot startup recovery coordinator.
+
+        Order:
+        (1) reconcile unresolved journal entries
+        (2) reattach remaining active handles not already touched by phase 1
+
+        Per contracts.md:141-151 (crash recovery contract).
+
+        Rollout boundary: pre-fix dialogues (turns dispatched before TurnStore)
+        cannot continue after deployment. The journal is session-bounded, so
+        fresh sessions have no pre-fix data. Mid-session code upgrades require
+        ending the session and starting fresh. The read() integrity error is the
+        enforcement signal if this boundary is violated.
+
+        Session-ID stability is an external wiring contract: the caller must
+        ensure this controller receives the same session_id used before the restart.
+        This method does not validate session_id — an empty store is valid for
+        a new session.
+        """
+        # Phase 1: reconcile unresolved journal entries
+        recovered_cids = set(self.recover_pending_operations())
+
+        # Phase 2: enumerate remaining active handles and reattach.
+        # Skip handles already resumed by phase 1 to avoid double-resume.
+        # Quarantine any handle with incomplete TurnStore metadata.
+        active_handles = self._lineage_store.list(status="active")
+        for handle in active_handles:
+            if handle.collaboration_id in recovered_cids:
+                continue
+            try:
+                runtime = self._control_plane.get_advisory_runtime(
+                    Path(handle.repo_root)
+                )
+                thread_data = runtime.session.read_thread(handle.codex_thread_id)
+
+                # Metadata completeness check
+                raw_turns = thread_data.get("thread", {}).get("turns", [])
+                completed_count = sum(
+                    1 for t in raw_turns
+                    if isinstance(t, dict) and t.get("status") == "completed"
+                )
+                if completed_count > 0:
+                    metadata = self._turn_store.get_all(handle.collaboration_id)
+                    if len(metadata) < completed_count:
+                        self._lineage_store.update_status(
+                            handle.collaboration_id, "unknown"
+                        )
+                        continue
+
+                resumed_thread_id = runtime.session.resume_thread(
+                    handle.codex_thread_id
+                )
+                self._lineage_store.update_runtime(
+                    handle.collaboration_id,
+                    runtime_id=runtime.runtime_id,
+                    codex_thread_id=resumed_thread_id,
+                )
+            except Exception:
+                self._lineage_store.update_status(
+                    handle.collaboration_id, "unknown"
+                )
+
     def recover_pending_operations(self) -> list[str]:
         """Scan journal for incomplete operations and resolve them deterministically.
 
