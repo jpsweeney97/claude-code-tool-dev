@@ -30,6 +30,15 @@ from .prompt_builder import CONSULT_OUTPUT_SCHEMA, build_consult_turn_text, pars
 from .turn_store import TurnStore
 
 
+class CommittedTurnParseError(RuntimeError):
+    """Turn dispatched and committed, but response parsing failed.
+
+    The turn is durably recorded (journal completed, TurnStore written, audit
+    emitted). Use ``codex.dialogue.read`` to inspect the committed turn.
+    Blind retry will create a duplicate follow-up turn, not replay this one.
+    """
+
+
 class DialogueController:
     """Implements codex.dialogue.start, .reply, .read, and crash recovery."""
 
