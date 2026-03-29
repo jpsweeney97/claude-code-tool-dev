@@ -558,7 +558,15 @@ class TestDialogueRead:
         focus = tmp_path / "focus.py"
         focus.write_text("print('focus')\n", encoding="utf-8")
         session = FakeRuntimeSession()
-        # Configure read_thread to return turn history
+        controller, _, _, _, _ = _build_dialogue_stack(tmp_path, session=session)
+        start_result = controller.start(tmp_path)
+        reply_result = controller.reply(
+            collaboration_id=start_result.collaboration_id,
+            objective="First turn",
+            explicit_paths=(Path("focus.py"),),
+        )
+
+        # Configure read_thread AFTER reply() so _derive_turn_sequence is unaffected
         session.read_thread_response = {
             "thread": {
                 "id": "thr-start",
@@ -572,22 +580,17 @@ class TestDialogueRead:
                 ],
             },
         }
-        controller, _, _, _, _ = _build_dialogue_stack(tmp_path, session=session)
-        start_result = controller.start(tmp_path)
-        controller.reply(
-            collaboration_id=start_result.collaboration_id,
-            objective="First turn",
-            explicit_paths=(Path("focus.py"),),
-        )
 
         read_result = controller.read(start_result.collaboration_id)
 
         assert read_result.turn_count >= 1
         assert len(read_result.turns) >= 1
+        # context_size is now real, not 0
+        assert read_result.turns[0].context_size == reply_result.context_size
 
     def test_read_raises_on_unknown_collaboration_id(self, tmp_path: Path) -> None:
         controller, _, _, _, _ = _build_dialogue_stack(tmp_path)
-        with pytest.raises(ValueError, match="Handle not found"):
+        with pytest.raises(ValueError, match="Read failed: handle not found"):
             controller.read("nonexistent")
 
     def test_read_works_on_unknown_handle(self, tmp_path: Path) -> None:
@@ -609,3 +612,91 @@ class TestDialogueRead:
 
         read_result = controller.read(start.collaboration_id)
         assert read_result.status == "completed"
+
+    def test_read_returns_real_context_size_from_store(self, tmp_path: Path) -> None:
+        focus = tmp_path / "focus.py"
+        focus.write_text("print('focus')\n", encoding="utf-8")
+        session = FakeRuntimeSession()
+        controller, _, _, _, turn_store = _build_dialogue_stack(tmp_path, session=session)
+        start = controller.start(tmp_path)
+
+        reply_result = controller.reply(
+            collaboration_id=start.collaboration_id,
+            objective="First turn",
+            explicit_paths=(Path("focus.py"),),
+        )
+
+        # Configure thread/read to match the completed turn
+        session.read_thread_response = {
+            "thread": {
+                "id": "thr-start",
+                "turns": [
+                    {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "agentMessage": '{"position":"Pos","evidence":[],"uncertainties":[],"follow_up_branches":[]}',
+                        "createdAt": "2026-03-28T00:01:00Z",
+                    },
+                ],
+            },
+        }
+
+        read_result = controller.read(start.collaboration_id)
+        assert read_result.turn_count == 1
+        assert len(read_result.turns) == 1
+        assert read_result.turns[0].context_size == reply_result.context_size
+        assert read_result.turns[0].context_size > 0
+
+    def test_read_raises_on_missing_metadata_for_post_fix_turn(self, tmp_path: Path) -> None:
+        """In a post-fix session (some turns have metadata), a completed turn
+        with no metadata store entry is an integrity failure."""
+        session = FakeRuntimeSession()
+        session.read_thread_response = {
+            "thread": {
+                "id": "thr-start",
+                "turns": [
+                    {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "agentMessage": '{"position":"Pos","evidence":[],"uncertainties":[],"follow_up_branches":[]}',
+                        "createdAt": "2026-03-28T00:01:00Z",
+                    },
+                    {
+                        "id": "turn-2",
+                        "status": "completed",
+                        "agentMessage": '{"position":"Pos2","evidence":[],"uncertainties":[],"follow_up_branches":[]}',
+                        "createdAt": "2026-03-28T00:02:00Z",
+                    },
+                ],
+            },
+        }
+        controller, _, _, _, turn_store = _build_dialogue_stack(tmp_path, session=session)
+        start = controller.start(tmp_path)
+
+        # Write metadata for turn 1 but NOT turn 2 — partial metadata = post-fix session
+        turn_store.write(start.collaboration_id, turn_sequence=1, context_size=4096)
+
+        with pytest.raises(RuntimeError, match="Turn metadata integrity"):
+            controller.read(start.collaboration_id)
+
+    def test_read_raises_on_pre_fix_turn_without_metadata(self, tmp_path: Path) -> None:
+        """A pre-fix turn (no TurnStore entry) triggers the same integrity error."""
+        session = FakeRuntimeSession()
+        session.read_thread_response = {
+            "thread": {
+                "id": "thr-start",
+                "turns": [
+                    {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "agentMessage": '{"position":"Legacy","evidence":[],"uncertainties":[],"follow_up_branches":[]}',
+                        "createdAt": "2026-03-28T00:01:00Z",
+                    },
+                ],
+            },
+        }
+        controller, _, _, _, _ = _build_dialogue_stack(tmp_path, session=session)
+        start = controller.start(tmp_path)
+
+        with pytest.raises(RuntimeError, match="Turn metadata integrity"):
+            controller.read(start.collaboration_id)
