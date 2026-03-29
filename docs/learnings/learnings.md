@@ -114,3 +114,11 @@ When a codebase has gates or checks (precondition guards, transition validators,
 **Insight:** When a worktree directory is removed while the session's CWD is inside it, all subsequent bash commands fail — the shell can't initialize in a non-existent directory. The `ExitWorktree` tool handles this cleanly by resetting the session CWD before removing the directory. Raw `git worktree remove` from within the worktree (or from the main repo while the session CWD points to the worktree) leaves the session stranded.
 
 **Implication:** Always use `ExitWorktree` to clean up worktrees created by `EnterWorktree`, never raw `git worktree remove`. When finishing work in a worktree: merge from the main repo, then `ExitWorktree action: "remove"` to reset CWD and clean up atomically.
+
+### 2026-03-29 [workflow, pattern]
+
+**Context:** After squash-merging PR #89, local `main` was 9 commits ahead / 1 behind `origin/main`. Needed to reset local main to match the remote without risking worktree state.
+
+**Insight:** Use `git branch -f` from another branch to move a ref safely: `git switch <other>`, `git branch -f main origin/main`, `git switch main`. This avoids `git reset --hard` which can silently discard uncommitted work if the worktree is dirty. The ref move is a no-op on the working tree — the checkout only happens on the final `switch`.
+
+**Implication:** Prefer `branch -f` over `reset --hard` when reconciling a diverged local branch with its remote after squash-merge. Especially relevant when the local branch might have uncommitted or staged changes.
