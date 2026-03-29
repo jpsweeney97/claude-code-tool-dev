@@ -67,7 +67,9 @@ class TestStartupRecoveryCoordinator:
         assert handle.codex_thread_id == "thr-start-resumed"
 
     def test_journal_reconciled_before_reattach(self, tmp_path: Path) -> None:
-        """Unresolved journal entries resolved first, then remaining active handles reattached."""
+        """Phase 1 resolves journal (quarantines unconfirmed turn_dispatch),
+        then phase 2 reattaches both the clean active handle and the
+        eligible unknown handle (zero completed turns → Option C)."""
         from server.models import OperationJournalEntry
 
         session = FakeRuntimeSession()
@@ -102,16 +104,69 @@ class TestStartupRecoveryCoordinator:
 
         controller.recover_startup()
 
+        # Phase 1 quarantines h1 to unknown (unconfirmed turn).
+        # Phase 2 picks up h1 as eligible unknown (zero completed) and reattaches.
         h1 = store.get(start1.collaboration_id)
-        assert h1.status == "unknown"
+        assert h1.status == "active"
+        assert h1.codex_thread_id == "thr-start-resumed"
 
         h2 = store.get(start2.collaboration_id)
         assert h2.status == "active"
         assert h2.codex_thread_id == "thr-start-resumed"
 
+    def test_confirmed_turn_dispatch_does_not_suppress_phase_2_reattach(
+        self, tmp_path: Path
+    ) -> None:
+        """Phase 1 confirms a turn_dispatch and repairs TurnStore metadata.
+        Phase 2 must still resume the handle — turn_dispatch reconciliation
+        does not perform reattach (unlike thread_creation dispatched)."""
+        from server.models import OperationJournalEntry
+
+        session = FakeRuntimeSession()
+        session.read_thread_response = {
+            "thread": {
+                "id": "thr-start",
+                "turns": [
+                    {"id": "t1", "status": "completed", "agentMessage": "", "createdAt": ""},
+                ],
+            },
+        }
+        controller, _, store, journal, turn_store, session = _recovery_stack(
+            tmp_path, session=session
+        )
+
+        start = controller.start(tmp_path)
+
+        journal.write_phase(
+            OperationJournalEntry(
+                idempotency_key="rt-1:thr-start:1",
+                operation="turn_dispatch",
+                phase="intent",
+                collaboration_id=start.collaboration_id,
+                created_at="2026-03-28T00:01:00Z",
+                repo_root=str(tmp_path.resolve()),
+                codex_thread_id="thr-start",
+                turn_sequence=1,
+                runtime_id="rt-1",
+                context_size=4096,
+            ),
+            session_id="sess-1",
+        )
+
+        controller.recover_startup()
+
+        # Phase 1 should have confirmed the turn and repaired metadata
+        context_size = turn_store.get(start.collaboration_id, turn_sequence=1)
+        assert context_size == 4096
+
+        # Phase 2 should have resumed the handle with fresh runtime
+        handle = store.get(start.collaboration_id)
+        assert handle.status == "active"
+        assert handle.codex_thread_id == "thr-start-resumed"
+
     def test_does_not_double_resume_handles_from_phase_1(self, tmp_path: Path) -> None:
-        """Handles recovered by journal reconciliation (phase 1) are skipped
-        during bulk reattach (phase 3) to avoid double-resume churn."""
+        """thread_creation recovered by phase 1 (full reattach with resume_thread)
+        is skipped during phase 2 to avoid double-resume churn."""
         from server.models import OperationJournalEntry
 
         session = FakeRuntimeSession()

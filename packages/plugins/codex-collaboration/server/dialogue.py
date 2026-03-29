@@ -392,7 +392,9 @@ class DialogueController:
         """Scan journal for incomplete operations and resolve them deterministically.
 
         Called on controller startup after crash. Returns collaboration_ids
-        of handles that were recovered or affected.
+        of handles that were fully reattached (resume_thread + update_runtime)
+        by phase 1. Handles only reconciled (journal resolved, metadata repaired,
+        or quarantined) are NOT included — they still need phase-2 reattach.
 
         Ownership: DialogueController reconciles dialogue journal entries.
         ControlPlane owns advisory runtime restart, thread/resume, and update_runtime.
@@ -406,7 +408,6 @@ class DialogueController:
                     recovered.append(cid)
             elif entry.operation == "turn_dispatch":
                 self._recover_turn_dispatch(entry)
-                recovered.append(entry.collaboration_id)
         return recovered
 
     def _recover_thread_creation(self, entry: OperationJournalEntry) -> str | None:
