@@ -183,6 +183,36 @@ class TestDialogueReply:
                 objective="Should fail",
             )
 
+    def test_reply_rejects_completed_handle(self, tmp_path: Path) -> None:
+        controller, _, store, _, _ = _build_dialogue_stack(tmp_path)
+        start = controller.start(tmp_path)
+        store.update_status(start.collaboration_id, "completed")
+        with pytest.raises(ValueError, match="handle not active"):
+            controller.reply(
+                collaboration_id=start.collaboration_id,
+                objective="Should fail",
+            )
+
+    def test_reply_rejects_unknown_handle(self, tmp_path: Path) -> None:
+        controller, _, store, _, _ = _build_dialogue_stack(tmp_path)
+        start = controller.start(tmp_path)
+        store.update_status(start.collaboration_id, "unknown")
+        with pytest.raises(ValueError, match="handle not active"):
+            controller.reply(
+                collaboration_id=start.collaboration_id,
+                objective="Should fail",
+            )
+
+    def test_reply_rejects_crashed_handle(self, tmp_path: Path) -> None:
+        controller, _, store, _, _ = _build_dialogue_stack(tmp_path)
+        start = controller.start(tmp_path)
+        store.update_status(start.collaboration_id, "crashed")
+        with pytest.raises(ValueError, match="handle not active"):
+            controller.reply(
+                collaboration_id=start.collaboration_id,
+                objective="Should fail",
+            )
+
     def test_reply_uses_same_context_assembly_as_consult(self, tmp_path: Path) -> None:
         focus = tmp_path / "focus.py"
         focus.write_text("print('focus')\n", encoding="utf-8")
@@ -559,3 +589,23 @@ class TestDialogueRead:
         controller, _, _, _, _ = _build_dialogue_stack(tmp_path)
         with pytest.raises(ValueError, match="Handle not found"):
             controller.read("nonexistent")
+
+    def test_read_works_on_unknown_handle(self, tmp_path: Path) -> None:
+        session = FakeRuntimeSession()
+        session.read_thread_response = {"thread": {"id": "thr-start", "turns": []}}
+        controller, _, store, _, _ = _build_dialogue_stack(tmp_path, session=session)
+        start = controller.start(tmp_path)
+        store.update_status(start.collaboration_id, "unknown")
+
+        read_result = controller.read(start.collaboration_id)
+        assert read_result.status == "unknown"
+
+    def test_read_works_on_completed_handle(self, tmp_path: Path) -> None:
+        session = FakeRuntimeSession()
+        session.read_thread_response = {"thread": {"id": "thr-start", "turns": []}}
+        controller, _, store, _, _ = _build_dialogue_stack(tmp_path, session=session)
+        start = controller.start(tmp_path)
+        store.update_status(start.collaboration_id, "completed")
+
+        read_result = controller.read(start.collaboration_id)
+        assert read_result.status == "completed"
