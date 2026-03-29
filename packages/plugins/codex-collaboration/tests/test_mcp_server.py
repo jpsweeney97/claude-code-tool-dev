@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from server.dialogue import CommittedTurnParseError
 from server.mcp_server import McpServer, TOOL_DEFINITIONS
 
 
@@ -74,6 +75,42 @@ class FakeDialogueController:
             follow_up_branches=(),
             turn_sequence=1,
             context_size=100,
+        )
+
+    def read(self, collaboration_id: str) -> object:
+        from server.models import DialogueReadResult
+        return DialogueReadResult(
+            collaboration_id=collaboration_id,
+            status="active",
+            turn_count=0,
+            created_at="2026-03-28T00:00:00Z",
+            turns=(),
+        )
+
+
+class FakeDialogueControllerWithParseError:
+    """Dialogue controller that raises CommittedTurnParseError on reply."""
+    def __init__(self) -> None:
+        self.startup_called = False
+
+    def recover_startup(self) -> None:
+        self.startup_called = True
+
+    def start(self, repo_root: Path) -> object:
+        from server.models import DialogueStartResult
+        return DialogueStartResult(
+            collaboration_id="c1",
+            runtime_id="r1",
+            status="active",
+            created_at="2026-03-28T00:00:00Z",
+        )
+
+    def reply(self, **kwargs: object) -> object:
+        raise CommittedTurnParseError(
+            "Reply turn committed but response parsing failed: bad json. "
+            "The turn is durably recorded. Use codex.dialogue.read to "
+            "inspect the committed turn. Blind retry will create a "
+            "duplicate follow-up turn, not replay this one."
         )
 
     def read(self, collaboration_id: str) -> object:
@@ -206,3 +243,35 @@ class TestStartup:
         server.startup()
         server.startup()  # second call should be a no-op
         assert controller.startup_called is True
+
+
+class TestCommittedTurnParseErrorSurfacing:
+    def test_mcp_surfaces_committed_turn_parse_guidance(self) -> None:
+        """MCP error text contains both 'turn committed' and 'codex.dialogue.read'."""
+        server = McpServer(
+            control_plane=FakeControlPlane(),
+            dialogue_controller=FakeDialogueControllerWithParseError(),
+        )
+        server.handle_request({
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "initialize",
+            "params": {"protocolVersion": "2024-11-05", "clientInfo": {"name": "test"}},
+        })
+        response = server.handle_request({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "codex.dialogue.reply",
+                "arguments": {
+                    "collaboration_id": "c1",
+                    "objective": "test",
+                },
+            },
+        })
+
+        assert response["result"]["isError"] is True
+        error_text = response["result"]["content"][0]["text"]
+        assert "turn committed" in error_text.lower()
+        assert "codex.dialogue.read" in error_text
