@@ -50,6 +50,8 @@ class FakeRuntimeSession:
         self.last_output_schema: dict[str, object] | None = None
         self.read_account_calls = 0
         self.run_turn_calls = 0
+        self.completed_turn_count: int = 0
+        self.read_thread_response: dict | None = None
 
     def initialize(self) -> RuntimeHandshake:
         if self.initialize_error is not None:
@@ -93,6 +95,7 @@ class FakeRuntimeSession:
         if self.run_turn_error is not None:
             raise self.run_turn_error
         self.run_turn_calls += 1
+        self.completed_turn_count += 1
         self.last_prompt_text = prompt_text
         self.last_output_schema = output_schema
         return TurnExecutionResult(
@@ -102,6 +105,23 @@ class FakeRuntimeSession:
 
     def close(self) -> None:
         self.closed = True
+
+    def read_thread(self, thread_id: str) -> dict:
+        if self.read_thread_response is not None:
+            return self.read_thread_response
+        turns = [
+            {"id": f"turn-{i + 1}", "status": "completed"}
+            for i in range(self.completed_turn_count)
+        ]
+        return {
+            "thread": {
+                "id": thread_id,
+                "turns": turns,
+            },
+        }
+
+    def resume_thread(self, thread_id: str) -> str:
+        return f"{thread_id}-resumed"
 
 
 def _compat_result() -> CompatCheckResult:
@@ -451,3 +471,56 @@ def test_codex_consult_rejects_network_widening_in_r1(tmp_path: Path) -> None:
                 network_access=True,
             )
         )
+
+
+def test_get_advisory_runtime_returns_cached_runtime(tmp_path: Path) -> None:
+    session = FakeRuntimeSession()
+    plane = ControlPlane(
+        plugin_data_path=tmp_path / "plugin-data",
+        runtime_factory=lambda _repo_root: session,
+        compat_checker=_compat_result,
+        repo_identity_loader=_repo_identity,
+        clock=lambda: 100.0,
+        uuid_factory=lambda: "uuid-1",
+    )
+
+    runtime = plane.get_advisory_runtime(tmp_path)
+
+    assert runtime is not None
+    assert runtime.runtime_id == "uuid-1"
+    assert runtime.session is session
+
+
+def test_get_advisory_runtime_raises_on_failure(tmp_path: Path) -> None:
+    session = FakeRuntimeSession(initialize_error=RuntimeError("init boom"))
+    plane = ControlPlane(
+        plugin_data_path=tmp_path / "plugin-data",
+        runtime_factory=lambda _repo_root: session,
+        compat_checker=_compat_result,
+        repo_identity_loader=_repo_identity,
+    )
+
+    with pytest.raises(RuntimeError, match="initialize failed"):
+        plane.get_advisory_runtime(tmp_path)
+
+
+def test_invalidate_runtime_drops_cache(tmp_path: Path) -> None:
+    session1 = FakeRuntimeSession()
+    session2 = FakeRuntimeSession()
+    sessions = iter((session1, session2))
+    plane = ControlPlane(
+        plugin_data_path=tmp_path / "plugin-data",
+        runtime_factory=lambda _repo_root: next(sessions),
+        compat_checker=_compat_result,
+        repo_identity_loader=_repo_identity,
+        uuid_factory=iter(("rt-1", "rt-2")).__next__,
+    )
+
+    rt1 = plane.get_advisory_runtime(tmp_path)
+    assert rt1.runtime_id == "rt-1"
+
+    plane.invalidate_runtime(tmp_path)
+    assert session1.closed is True
+
+    rt2 = plane.get_advisory_runtime(tmp_path)
+    assert rt2.runtime_id == "rt-2"

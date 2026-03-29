@@ -172,5 +172,19 @@ class AppServerRuntimeSession:
                     notifications=tuple(notifications),
                 )
 
+    def read_thread(self, thread_id: str) -> dict[str, Any]:
+        """Read thread state and turn history via thread/read."""
+        return self._client.request("thread/read", {"threadId": thread_id})
+
+    def resume_thread(self, thread_id: str) -> str:
+        """Resume a thread after crash recovery. Returns the (possibly new) thread ID."""
+        result = self._client.request("thread/resume", {"threadId": thread_id})
+        thread = result.get("thread")
+        if not isinstance(thread, dict) or not isinstance(thread.get("id"), str):
+            raise RuntimeError(
+                f"Thread resume failed: malformed thread response. Got: {thread!r:.100}"
+            )
+        return str(thread["id"])
+
     def close(self) -> None:
         self._client.close()

@@ -188,6 +188,39 @@ Runtime Milestone `R1` is the first runtime-bearing milestone. It is not identic
 - If a `stale_advisory_context` marker is present before an advisory turn, the next advisory turn injects the workspace-changed summary and clears the marker after successful dispatch
 - No R1 path depends on `turn/steer`, automatic thread fork, delegation, or promotion
 
+### Runtime Milestone R2 (Dialogue Foundation)
+
+R2 implements the lineage store (delivery step 3) and the minimum dialogue surface (delivery step 4, minus fork). It also introduces MCP server scaffolding for tool exposure and dialogue operation journaling.
+
+**In scope**
+
+- Lineage store implementation per [contracts.md §Lineage Store](contracts.md#lineage-store): session-partitioned append-only JSONL at `${CLAUDE_PLUGIN_DATA}/lineage/<claude_session_id>/`, crash-safe semantics, lifecycle management, and advisory runtime rotation mapping
+- MCP server scaffolding (`mcp_server.py`): tool registration and serialized request dispatch for all R2 tools plus existing R1 capabilities (`codex.status`, `codex.consult`). **Serialization invariant:** the control plane processes one tool call at a time; concurrent MCP requests are queued, not processed in parallel
+- `codex.dialogue.start`: create a durable dialogue thread in the advisory runtime, persist handle in lineage store, return [Dialogue Start](contracts.md#dialogue-start) response shape
+- `codex.dialogue.reply`: continue a dialogue turn on an existing handle, dispatch via advisory runtime using the same context assembly pipeline as consultation, return [Dialogue Reply](contracts.md#dialogue-reply) response shape
+- `codex.dialogue.read`: read dialogue state for a given `collaboration_id` from lineage store data plus Codex `thread/read`, return [Dialogue Read](contracts.md#dialogue-read) response shape
+- Operation journal entries for all dispatched dialogue operations: journal-before-dispatch per [recovery-and-journal.md §Write Ordering](recovery-and-journal.md#write-ordering). `dialogue.start` uses thread-creation idempotency key (`claude_session_id` + `collaboration_id`); `dialogue.reply` uses turn-dispatch key (`runtime_id` + `thread_id` + `turn_sequence`). See [§Idempotency Keys](recovery-and-journal.md#idempotency-keys). Trim on completion.
+- Audit events for `dialogue_turn` with required fields per [recovery-and-journal.md §Write Triggers](recovery-and-journal.md#write-triggers): `collaboration_id`, `runtime_id`, `turn_id`
+- Context assembly reuse: dialogue turns use the same advisory profile, assembler, redactor, trimmer, and budget caps as consultation
+
+**Deferred**
+
+- `codex.dialogue.fork` and tree reconstruction in `codex.dialogue.read` — see [decisions.md §Dialogue Fork Scope](decisions.md#dialogue-fork-scope)
+- Hook guard integration for dialogue tool calls
+- Delegation runtime, worktree orchestration, and promotion
+- `turn/steer`-based coherence
+
+**Acceptance gates**
+
+- Lineage store persists handles to disk (append-only JSONL) and recovers them after a simulated process crash within a session, including discarding incomplete trailing records
+- `codex.dialogue.start` creates a fresh advisory thread and returns a valid [Dialogue Start](contracts.md#dialogue-start) response backed by a persisted handle
+- `codex.dialogue.reply` dispatches a turn on an existing handle and returns a valid [Dialogue Reply](contracts.md#dialogue-reply) response
+- `codex.dialogue.read` returns the current state of a dialogue matching the [Dialogue Read](contracts.md#dialogue-read) shape, from lineage store data plus Codex thread history
+- MCP server exposes all R2 tools (`codex.dialogue.start`, `.reply`, `.read`) plus R1 tools (`codex.status`, `codex.consult`) with serialized dispatch
+- Dialogue turns are journaled before dispatch and replayed idempotently after simulated crash
+- Audit events are emitted for dialogue turns with required fields
+- No R2 path depends on fork, delegation, promotion, or hook guard enforcement
+
 ### Not in First Slice
 
 - Analytics

@@ -12,8 +12,9 @@ authorities:
   contracts:
     description: >-
       MCP tool surface, logical data model types (CollaborationHandle,
-      DelegationJob, PendingServerRequest), audit event schema, typed
-      rejection and response shapes, and protocol message formats.
+      DelegationJob, PendingServerRequest), lineage store persistence
+      contract, audit event schema, typed rejection and response shapes,
+      and protocol message formats.
     default_claims: [interface_contract]
 
   promotion-contract:

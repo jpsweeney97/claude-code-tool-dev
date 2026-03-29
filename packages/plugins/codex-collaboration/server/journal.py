@@ -8,7 +8,7 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .models import AuditEvent, StaleAdvisoryContextMarker
+from .models import AuditEvent, OperationJournalEntry, StaleAdvisoryContextMarker
 
 
 def default_plugin_data_path() -> Path:
@@ -74,6 +74,79 @@ class OperationJournal:
 
         with self._audit_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(asdict(event), sort_keys=True) + "\n")
+
+    def write_phase(self, entry: OperationJournalEntry, *, session_id: str) -> None:
+        """Append a phased journal record with fsync."""
+        path = self._operations_path(session_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(asdict(entry), sort_keys=True) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+
+    def list_unresolved(self, *, session_id: str) -> list[OperationJournalEntry]:
+        """Return entries whose terminal phase is not 'completed'.
+
+        Replays the full log, grouping by idempotency_key, and returns only
+        the terminal-phase record for keys that are not yet completed.
+        """
+        terminal = self._terminal_phases(session_id)
+        return [
+            entry for entry in terminal.values()
+            if entry.phase != "completed"
+        ]
+
+    def check_idempotency(
+        self, key: str, *, session_id: str
+    ) -> OperationJournalEntry | None:
+        """Return the terminal-phase record for this key, or None."""
+        terminal = self._terminal_phases(session_id)
+        return terminal.get(key)
+
+    def compact(self, *, session_id: str) -> None:
+        """Atomic rewrite: keep only unresolved keys, each as its terminal record.
+
+        Completed keys are removed entirely. Stale intent/dispatched rows for
+        unresolved keys are collapsed to a single terminal-phase record.
+        Uses temp-file-rename with fsync for crash safety.
+        """
+        path = self._operations_path(session_id)
+        if not path.exists():
+            return
+        terminal = self._terminal_phases(session_id)
+        remaining = [
+            entry for entry in terminal.values()
+            if entry.phase != "completed"
+        ]
+        tmp = path.with_suffix(".tmp")
+        with tmp.open("w", encoding="utf-8") as handle:
+            for entry in remaining:
+                handle.write(json.dumps(asdict(entry), sort_keys=True) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        tmp.rename(path)
+
+    def _terminal_phases(self, session_id: str) -> dict[str, OperationJournalEntry]:
+        """Replay the log and return the last record per idempotency key."""
+        path = self._operations_path(session_id)
+        if not path.exists():
+            return {}
+        terminal: dict[str, OperationJournalEntry] = {}
+        with path.open(encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                entry = OperationJournalEntry(**record)
+                terminal[entry.idempotency_key] = entry
+        return terminal
+
+    def _operations_path(self, session_id: str) -> Path:
+        return self._journal_dir / "operations" / f"{session_id}.jsonl"
 
     def timestamp(self) -> str:
         """Return the current UTC timestamp as ISO 8601."""

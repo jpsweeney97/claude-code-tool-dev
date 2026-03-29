@@ -199,6 +199,21 @@ class ControlPlane:
             context_size=packet.context_size,
         )
 
+    def get_advisory_runtime(self, repo_root: Path) -> AdvisoryRuntimeState:
+        """Bootstrap and return the advisory runtime for a repo root.
+
+        Raises RuntimeError if the runtime cannot be established.
+        Used by DialogueController for shared runtime access.
+        """
+        resolved_root = repo_root.resolve()
+        runtime = self._bootstrap_runtime(resolved_root, strict=True)
+        assert runtime is not None  # strict=True guarantees non-None or raises
+        return runtime
+
+    def invalidate_runtime(self, repo_root: Path) -> None:
+        """Drop a cached runtime. Public wrapper for error recovery paths."""
+        self._invalidate_runtime(repo_root.resolve())
+
     def close(self) -> None:
         """Close all cached runtimes."""
 
