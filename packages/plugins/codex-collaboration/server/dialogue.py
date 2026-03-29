@@ -27,6 +27,7 @@ from .models import (
 )
 from .journal import OperationJournal
 from .prompt_builder import CONSULT_OUTPUT_SCHEMA, build_consult_turn_text, parse_consult_response
+from .turn_store import TurnStore
 
 
 class DialogueController:
@@ -39,6 +40,7 @@ class DialogueController:
         lineage_store: LineageStore,
         journal: OperationJournal,
         session_id: str,
+        turn_store: TurnStore,
         repo_identity_loader: Callable[[Path], RepoIdentity] | None = None,
         uuid_factory: Callable[[], str] | None = None,
     ) -> None:
@@ -46,6 +48,7 @@ class DialogueController:
         self._lineage_store = lineage_store
         self._journal = journal
         self._session_id = session_id
+        self._turn_store = turn_store
         self._repo_identity_loader = repo_identity_loader or load_repo_identity
         self._uuid_factory = uuid_factory or (lambda: str(uuid.uuid4()))
 
@@ -148,12 +151,20 @@ class DialogueController:
 
         Spec: contracts.md §Dialogue Reply, delivery.md §R2 in-scope.
         Context assembly reuse: same pipeline as consultation.
+
+        Write ordering invariant: metadata store write MUST happen before
+        journal completed. See plan doc §Key invariants.
         """
         handle = self._lineage_store.get(collaboration_id)
         if handle is None:
             raise ValueError(
-                f"Handle not found for reply: no handle with collaboration_id. "
-                f"Got: {collaboration_id!r:.100}"
+                f"Reply failed: handle not found. "
+                f"Got: collaboration_id={collaboration_id!r:.100}"
+            )
+        if handle.status != "active":
+            raise ValueError(
+                f"Reply failed: handle not active. "
+                f"Got: status={handle.status!r}, collaboration_id={collaboration_id!r:.100}"
             )
 
         resolved_root = Path(handle.repo_root)
@@ -194,6 +205,7 @@ class DialogueController:
                 codex_thread_id=handle.codex_thread_id,
                 turn_sequence=turn_sequence,
                 runtime_id=runtime.runtime_id,
+                context_size=packet.context_size,
             ),
             session_id=self._session_id,
         )
@@ -220,12 +232,20 @@ class DialogueController:
                 codex_thread_id=handle.codex_thread_id,
                 turn_sequence=turn_sequence,
                 runtime_id=runtime.runtime_id,
+                context_size=packet.context_size,
             ),
             session_id=self._session_id,
         )
 
         position, evidence, uncertainties, follow_up_branches = parse_consult_response(
             turn_result.agent_message
+        )
+
+        # Metadata store: MUST write before journal completed
+        self._turn_store.write(
+            collaboration_id,
+            turn_sequence=turn_sequence,
+            context_size=packet.context_size,
         )
 
         # Phase 3: completed

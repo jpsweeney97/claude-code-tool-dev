@@ -12,6 +12,7 @@ from server.dialogue import DialogueController
 from server.journal import OperationJournal
 from server.lineage_store import LineageStore
 from server.models import RepoIdentity
+from server.turn_store import TurnStore
 
 # Import FakeRuntimeSession and helpers from the control plane tests.
 # These will be moved to conftest.py in a cleanup pass; for now we import directly.
@@ -23,7 +24,7 @@ def _build_dialogue_stack(
     *,
     session: FakeRuntimeSession | None = None,
     session_id: str = "sess-1",
-) -> tuple[DialogueController, ControlPlane, LineageStore, OperationJournal]:
+) -> tuple[DialogueController, ControlPlane, LineageStore, OperationJournal, TurnStore]:
     """Wire up a full dialogue stack with test doubles."""
     session = session or FakeRuntimeSession()
     plugin_data = tmp_path / "plugin-data"
@@ -40,6 +41,7 @@ def _build_dialogue_stack(
         journal=journal,
     )
     store = LineageStore(plugin_data, session_id)
+    turn_store = TurnStore(plugin_data, session_id)
     controller = DialogueController(
         control_plane=plane,
         lineage_store=store,
@@ -47,13 +49,14 @@ def _build_dialogue_stack(
         session_id=session_id,
         repo_identity_loader=_repo_identity,
         uuid_factory=iter((f"collab-{session_id}", *(f"id-{i}" for i in range(100)))).__next__,
+        turn_store=turn_store,
     )
-    return controller, plane, store, journal
+    return controller, plane, store, journal, turn_store
 
 
 class TestDialogueStart:
     def test_start_returns_dialogue_start_result(self, tmp_path: Path) -> None:
-        controller, _, _, _ = _build_dialogue_stack(tmp_path)
+        controller, _, _, _, _ = _build_dialogue_stack(tmp_path)
         result = controller.start(tmp_path)
         assert result.collaboration_id == "collab-sess-1"
         assert result.status == "active"
@@ -61,7 +64,7 @@ class TestDialogueStart:
         assert result.created_at is not None
 
     def test_start_persists_handle_in_lineage_store(self, tmp_path: Path) -> None:
-        controller, _, store, _ = _build_dialogue_stack(tmp_path)
+        controller, _, store, _, _ = _build_dialogue_stack(tmp_path)
         result = controller.start(tmp_path)
         handle = store.get(result.collaboration_id)
         assert handle is not None
@@ -70,7 +73,7 @@ class TestDialogueStart:
         assert handle.claude_session_id == "sess-1"
 
     def test_start_journals_before_dispatch(self, tmp_path: Path) -> None:
-        controller, _, _, journal = _build_dialogue_stack(tmp_path)
+        controller, _, _, journal, _ = _build_dialogue_stack(tmp_path)
         result = controller.start(tmp_path)
         # After successful completion, all phases written (intent → dispatched → completed)
         unresolved = journal.list_unresolved(session_id="sess-1")
@@ -79,7 +82,7 @@ class TestDialogueStart:
     def test_start_does_not_emit_audit_event(self, tmp_path: Path) -> None:
         """Thread creation is not a trust boundary crossing — no audit event.
         See contracts.md §Audit Event Actions (dialogue_start is not defined)."""
-        controller, _, _, journal = _build_dialogue_stack(tmp_path)
+        controller, _, _, journal, _ = _build_dialogue_stack(tmp_path)
         controller.start(tmp_path)
         audit_path = journal.plugin_data_path / "audit" / "events.jsonl"
         if audit_path.exists():
@@ -88,13 +91,13 @@ class TestDialogueStart:
 
     def test_start_creates_thread_on_runtime(self, tmp_path: Path) -> None:
         session = FakeRuntimeSession()
-        controller, _, _, _ = _build_dialogue_stack(tmp_path, session=session)
+        controller, _, _, _, _ = _build_dialogue_stack(tmp_path, session=session)
         controller.start(tmp_path)
         assert "start" in session.started_threads
 
     def test_start_invalidates_runtime_on_thread_failure(self, tmp_path: Path) -> None:
         session = FakeRuntimeSession(initialize_error=RuntimeError("boom"))
-        controller, _, _, _ = _build_dialogue_stack(tmp_path, session=session)
+        controller, _, _, _, _ = _build_dialogue_stack(tmp_path, session=session)
         with pytest.raises(RuntimeError):
             controller.start(tmp_path)
 
@@ -106,7 +109,7 @@ class TestDialogueReply:
     def test_reply_returns_dialogue_reply_result(self, tmp_path: Path) -> None:
         focus = tmp_path / "focus.py"
         focus.write_text("print('focus')\n", encoding="utf-8")
-        controller, _, _, _ = _build_dialogue_stack(tmp_path)
+        controller, _, _, _, _ = _build_dialogue_stack(tmp_path)
         start_result = controller.start(tmp_path)
 
         reply_result = controller.reply(
@@ -124,7 +127,7 @@ class TestDialogueReply:
     def test_reply_increments_turn_sequence(self, tmp_path: Path) -> None:
         focus = tmp_path / "focus.py"
         focus.write_text("print('focus')\n", encoding="utf-8")
-        controller, _, _, _ = _build_dialogue_stack(tmp_path)
+        controller, _, _, _, _ = _build_dialogue_stack(tmp_path)
         start_result = controller.start(tmp_path)
 
         reply1 = controller.reply(
@@ -144,7 +147,7 @@ class TestDialogueReply:
     def test_reply_journals_before_dispatch(self, tmp_path: Path) -> None:
         focus = tmp_path / "focus.py"
         focus.write_text("print('focus')\n", encoding="utf-8")
-        controller, _, _, journal = _build_dialogue_stack(tmp_path)
+        controller, _, _, journal, _ = _build_dialogue_stack(tmp_path)
         start_result = controller.start(tmp_path)
         controller.reply(
             collaboration_id=start_result.collaboration_id,
@@ -158,7 +161,7 @@ class TestDialogueReply:
     def test_reply_emits_dialogue_turn_audit_event(self, tmp_path: Path) -> None:
         focus = tmp_path / "focus.py"
         focus.write_text("print('focus')\n", encoding="utf-8")
-        controller, _, _, journal = _build_dialogue_stack(tmp_path)
+        controller, _, _, journal, _ = _build_dialogue_stack(tmp_path)
         start_result = controller.start(tmp_path)
         controller.reply(
             collaboration_id=start_result.collaboration_id,
@@ -173,8 +176,8 @@ class TestDialogueReply:
         assert "turn_id" in turn_events[0]
 
     def test_reply_raises_on_unknown_collaboration_id(self, tmp_path: Path) -> None:
-        controller, _, _, _ = _build_dialogue_stack(tmp_path)
-        with pytest.raises(ValueError, match="Handle not found"):
+        controller, _, _, _, _ = _build_dialogue_stack(tmp_path)
+        with pytest.raises(ValueError, match="Reply failed: handle not found"):
             controller.reply(
                 collaboration_id="nonexistent",
                 objective="Should fail",
@@ -184,7 +187,7 @@ class TestDialogueReply:
         focus = tmp_path / "focus.py"
         focus.write_text("print('focus')\n", encoding="utf-8")
         session = FakeRuntimeSession()
-        controller, _, _, _ = _build_dialogue_stack(tmp_path, session=session)
+        controller, _, _, _, _ = _build_dialogue_stack(tmp_path, session=session)
         start_result = controller.start(tmp_path)
         controller.reply(
             collaboration_id=start_result.collaboration_id,
@@ -195,11 +198,55 @@ class TestDialogueReply:
         assert session.last_prompt_text is not None
         assert "focus.py" in session.last_prompt_text
 
+    def test_reply_persists_context_size_in_turn_store(self, tmp_path: Path) -> None:
+        focus = tmp_path / "focus.py"
+        focus.write_text("print('focus')\n", encoding="utf-8")
+        controller, _, _, _, turn_store = _build_dialogue_stack(tmp_path)
+        start_result = controller.start(tmp_path)
+
+        reply_result = controller.reply(
+            collaboration_id=start_result.collaboration_id,
+            objective="Review focus.py",
+            explicit_paths=(Path("focus.py"),),
+        )
+
+        stored = turn_store.get(start_result.collaboration_id, turn_sequence=1)
+        assert stored is not None
+        assert stored == reply_result.context_size
+        assert stored > 0
+
+    def test_reply_journal_intent_carries_context_size(self, tmp_path: Path) -> None:
+        focus = tmp_path / "focus.py"
+        focus.write_text("print('focus')\n", encoding="utf-8")
+
+        class CrashAfterIntent(FakeRuntimeSession):
+            """Crash after intent is written but before run_turn executes."""
+            def run_turn(self, **kwargs: object) -> object:
+                raise RuntimeError("crash after intent")
+
+        session = CrashAfterIntent()
+        controller, _, _, journal, _ = _build_dialogue_stack(tmp_path, session=session)
+        start_result = controller.start(tmp_path)
+
+        with pytest.raises(RuntimeError, match="crash after intent"):
+            controller.reply(
+                collaboration_id=start_result.collaboration_id,
+                objective="Review focus.py",
+                explicit_paths=(Path("focus.py"),),
+            )
+
+        # Intent entry should carry context_size (non-None, > 0)
+        unresolved = journal.list_unresolved(session_id="sess-1")
+        turn_intents = [e for e in unresolved if e.operation == "turn_dispatch"]
+        assert len(turn_intents) == 1
+        assert turn_intents[0].context_size is not None
+        assert turn_intents[0].context_size > 0
+
 
 class TestRecoverPendingOperations:
     def test_recover_thread_creation_at_intent_phase(self, tmp_path: Path) -> None:
         """Crash before thread/start — intent only. Recovery resolves as no-op."""
-        controller, _, store, journal = _build_dialogue_stack(tmp_path)
+        controller, _, store, journal, _ = _build_dialogue_stack(tmp_path)
 
         # Manually write an intent entry (simulating crash before dispatch)
         journal.write_phase(
@@ -225,7 +272,7 @@ class TestRecoverPendingOperations:
         """Crash after thread/start but before lineage persist.
         Recovery performs thread/read + thread/resume reattach, then persists handle."""
         session = FakeRuntimeSession()
-        controller, _, store, journal = _build_dialogue_stack(tmp_path, session=session)
+        controller, _, store, journal, _ = _build_dialogue_stack(tmp_path, session=session)
 
         # Manually write intent + dispatched entries
         journal.write_phase(
@@ -277,7 +324,7 @@ class TestRecoverPendingOperations:
                 "turns": [{"id": "t1", "status": "completed", "agentMessage": "", "createdAt": ""}],
             },
         }
-        controller, _, store, journal = _build_dialogue_stack(tmp_path, session=session)
+        controller, _, store, journal, _ = _build_dialogue_stack(tmp_path, session=session)
 
         # Set up: create a real handle first
         start = controller.start(tmp_path)
@@ -314,7 +361,7 @@ class TestRecoverPendingOperations:
         session.read_thread_response = {
             "thread": {"id": "thr-start", "turns": []},
         }
-        controller, _, store, journal = _build_dialogue_stack(tmp_path, session=session)
+        controller, _, store, journal, _ = _build_dialogue_stack(tmp_path, session=session)
         start = controller.start(tmp_path)
 
         # Manually write dispatched turn_dispatch
@@ -344,7 +391,7 @@ class TestRecoverPendingOperations:
 
     def test_recover_intent_only_turn_dispatch(self, tmp_path: Path) -> None:
         """Crash before run_turn. Intent-only turn_dispatch resolved as no-op."""
-        controller, _, store, journal = _build_dialogue_stack(tmp_path)
+        controller, _, store, journal, _ = _build_dialogue_stack(tmp_path)
         start = controller.start(tmp_path)
 
         journal.write_phase(
@@ -379,7 +426,7 @@ class TestDialogueRead:
     def test_read_returns_dialogue_state(self, tmp_path: Path) -> None:
         focus = tmp_path / "focus.py"
         focus.write_text("print('focus')\n", encoding="utf-8")
-        controller, _, _, _ = _build_dialogue_stack(tmp_path)
+        controller, _, _, _, _ = _build_dialogue_stack(tmp_path)
         start_result = controller.start(tmp_path)
         controller.reply(
             collaboration_id=start_result.collaboration_id,
@@ -412,7 +459,7 @@ class TestDialogueRead:
                 ],
             },
         }
-        controller, _, _, _ = _build_dialogue_stack(tmp_path, session=session)
+        controller, _, _, _, _ = _build_dialogue_stack(tmp_path, session=session)
         start_result = controller.start(tmp_path)
         controller.reply(
             collaboration_id=start_result.collaboration_id,
@@ -426,6 +473,6 @@ class TestDialogueRead:
         assert len(read_result.turns) >= 1
 
     def test_read_raises_on_unknown_collaboration_id(self, tmp_path: Path) -> None:
-        controller, _, _, _ = _build_dialogue_stack(tmp_path)
+        controller, _, _, _, _ = _build_dialogue_stack(tmp_path)
         with pytest.raises(ValueError, match="Handle not found"):
             controller.read("nonexistent")

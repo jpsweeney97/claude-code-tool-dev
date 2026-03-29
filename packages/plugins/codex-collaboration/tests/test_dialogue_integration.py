@@ -15,6 +15,7 @@ from server.dialogue import DialogueController
 from server.journal import OperationJournal
 from server.lineage_store import LineageStore
 from server.models import OperationJournalEntry
+from server.turn_store import TurnStore
 
 from tests.test_control_plane import FakeRuntimeSession, _compat_result, _repo_identity
 
@@ -38,6 +39,7 @@ def _full_stack(
         journal=journal,
     )
     store = LineageStore(plugin_data, "sess-1")
+    turn_store = TurnStore(plugin_data, "sess-1")
     dialogue_uuids = iter((f"collab-{i}" for i in range(100)))
     controller = DialogueController(
         control_plane=plane,
@@ -46,6 +48,7 @@ def _full_stack(
         session_id="sess-1",
         repo_identity_loader=_repo_identity,
         uuid_factory=lambda: next(dialogue_uuids),
+        turn_store=turn_store,
     )
     return controller, plane, store, journal, session
 
@@ -263,6 +266,90 @@ class TestAuditEvents:
         assert len(turn_events) >= 1
         assert turn_events[0]["collaboration_id"] == start.collaboration_id
         assert "runtime_id" in turn_events[0]
+
+
+class TestTurnStoreWriteOrdering:
+    """The metadata store write must land before journal completed.
+    A crash in that window must leave the journal unresolved so recovery can repair."""
+
+    def test_crash_after_store_write_before_completed_is_recoverable(
+        self, tmp_path: Path
+    ) -> None:
+        focus = tmp_path / "focus.py"
+        focus.write_text("print('focus')\n", encoding="utf-8")
+
+        session = FakeRuntimeSession()
+        controller, plane, store, journal, session = _full_stack(tmp_path, session=session)
+        start = controller.start(tmp_path)
+
+        # Perform a normal reply to establish one completed turn
+        r1 = controller.reply(
+            collaboration_id=start.collaboration_id,
+            objective="First turn",
+            explicit_paths=(Path("focus.py"),),
+        )
+        assert r1.turn_sequence == 1
+
+        # Now manually simulate a partial second reply:
+        # Write intent + dispatched + store entry, but NOT completed
+        turn_store = TurnStore(tmp_path / "plugin-data", "sess-1")
+        idem_key = "rt-1:thr-start:2"
+        journal.write_phase(
+            OperationJournalEntry(
+                idempotency_key=idem_key,
+                operation="turn_dispatch",
+                phase="intent",
+                collaboration_id=start.collaboration_id,
+                created_at="2026-03-28T00:02:00Z",
+                repo_root=str(tmp_path.resolve()),
+                codex_thread_id="thr-start",
+                turn_sequence=2,
+                runtime_id="rt-1",
+                context_size=5000,
+            ),
+            session_id="sess-1",
+        )
+        journal.write_phase(
+            OperationJournalEntry(
+                idempotency_key=idem_key,
+                operation="turn_dispatch",
+                phase="dispatched",
+                collaboration_id=start.collaboration_id,
+                created_at="2026-03-28T00:02:00Z",
+                repo_root=str(tmp_path.resolve()),
+                codex_thread_id="thr-start",
+                turn_sequence=2,
+                runtime_id="rt-1",
+                context_size=5000,
+            ),
+            session_id="sess-1",
+        )
+        # Store write landed (before completed)
+        turn_store.write(start.collaboration_id, turn_sequence=2, context_size=5000)
+
+        # Journal is unresolved (dispatched, not completed)
+        unresolved = journal.list_unresolved(session_id="sess-1")
+        assert len(unresolved) == 1
+        assert unresolved[0].idempotency_key == idem_key
+
+        # Configure thread/read to confirm 2 completed turns
+        session.read_thread_response = {
+            "thread": {
+                "id": "thr-start",
+                "turns": [
+                    {"id": "t1", "status": "completed", "agentMessage": "", "createdAt": ""},
+                    {"id": "t2", "status": "completed", "agentMessage": "", "createdAt": ""},
+                ],
+            },
+        }
+
+        # Recovery confirms the turn and resolves the journal
+        controller.recover_pending_operations()
+        unresolved = journal.list_unresolved(session_id="sess-1")
+        assert len(unresolved) == 0
+
+        # Store entry survived — read can use it
+        assert turn_store.get(start.collaboration_id, turn_sequence=2) == 5000
 
 
 class TestNoForkInR2:
