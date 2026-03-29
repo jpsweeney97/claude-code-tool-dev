@@ -389,9 +389,15 @@ class TestRecoverPendingOperations:
         unresolved = journal.list_unresolved(session_id="sess-1")
         assert len(unresolved) == 0
 
-    def test_recover_intent_only_turn_dispatch(self, tmp_path: Path) -> None:
-        """Crash before run_turn. Intent-only turn_dispatch resolved as no-op."""
-        controller, _, store, journal, _ = _build_dialogue_stack(tmp_path)
+    def test_recover_intent_only_turn_dispatch_marks_unknown(self, tmp_path: Path) -> None:
+        """Crash before run_turn. Intent-only turn_dispatch: thread/read check
+        does not confirm the turn. Handle marked 'unknown' (ambiguous, not no-op)."""
+        session = FakeRuntimeSession()
+        # thread/read shows no completed turns at turn_sequence=1
+        session.read_thread_response = {
+            "thread": {"id": "thr-start", "turns": []},
+        }
+        controller, _, store, journal, _ = _build_dialogue_stack(tmp_path, session=session)
         start = controller.start(tmp_path)
 
         journal.write_phase(
@@ -405,18 +411,95 @@ class TestRecoverPendingOperations:
                 codex_thread_id="thr-start",
                 turn_sequence=1,
                 runtime_id="rt-sess-1",
+                context_size=4096,
             ),
             session_id="sess-1",
         )
 
         controller.recover_pending_operations()
 
-        # Intent-only — dispatch never happened, resolved as completed
         unresolved = journal.list_unresolved(session_id="sess-1")
         assert len(unresolved) == 0
-        # Handle stays active (not marked unknown — dispatch didn't happen)
+        handle = store.get(start.collaboration_id)
+        assert handle.status == "unknown"
+
+    def test_recover_intent_turn_dispatch_confirmed_repairs_store(self, tmp_path: Path) -> None:
+        """Intent-phase turn_dispatch but thread/read confirms the turn completed.
+        Recovery resolves the journal and repairs the metadata store."""
+        session = FakeRuntimeSession()
+        session.read_thread_response = {
+            "thread": {
+                "id": "thr-start",
+                "turns": [
+                    {"id": "t1", "status": "completed", "agentMessage": "", "createdAt": "2026-03-28T00:01:30Z"},
+                ],
+            },
+        }
+        controller, _, store, journal, turn_store = _build_dialogue_stack(tmp_path, session=session)
+        start = controller.start(tmp_path)
+
+        journal.write_phase(
+            OperationJournalEntry(
+                idempotency_key="rt-sess-1:thr-start:1",
+                operation="turn_dispatch",
+                phase="intent",
+                collaboration_id=start.collaboration_id,
+                created_at="2026-03-28T00:01:00Z",
+                repo_root=str(tmp_path.resolve()),
+                codex_thread_id="thr-start",
+                turn_sequence=1,
+                runtime_id="rt-sess-1",
+                context_size=4096,
+            ),
+            session_id="sess-1",
+        )
+
+        controller.recover_pending_operations()
+
+        unresolved = journal.list_unresolved(session_id="sess-1")
+        assert len(unresolved) == 0
         handle = store.get(start.collaboration_id)
         assert handle.status == "active"
+        # Metadata store repaired with context_size from journal intent
+        assert turn_store.get(start.collaboration_id, turn_sequence=1) == 4096
+
+    def test_recover_dispatched_turn_dispatch_confirmed_repairs_store(
+        self, tmp_path: Path
+    ) -> None:
+        """Dispatched-phase turn_dispatch, turn confirmed. Recovery resolves and repairs store."""
+        session = FakeRuntimeSession()
+        session.read_thread_response = {
+            "thread": {
+                "id": "thr-start",
+                "turns": [
+                    {"id": "t1", "status": "completed", "agentMessage": "", "createdAt": ""},
+                ],
+            },
+        }
+        controller, _, store, journal, turn_store = _build_dialogue_stack(tmp_path, session=session)
+        start = controller.start(tmp_path)
+
+        journal.write_phase(
+            OperationJournalEntry(
+                idempotency_key="rt-sess-1:thr-start:1",
+                operation="turn_dispatch",
+                phase="dispatched",
+                collaboration_id=start.collaboration_id,
+                created_at="2026-03-28T00:01:00Z",
+                repo_root=str(tmp_path.resolve()),
+                codex_thread_id="thr-start",
+                turn_sequence=1,
+                runtime_id="rt-sess-1",
+                context_size=4096,
+            ),
+            session_id="sess-1",
+        )
+
+        controller.recover_pending_operations()
+
+        unresolved = journal.list_unresolved(session_id="sess-1")
+        assert len(unresolved) == 0
+        assert turn_store.get(start.collaboration_id, turn_sequence=1) == 4096
 
 
 from server.models import DialogueReadResult, DialogueTurnSummary

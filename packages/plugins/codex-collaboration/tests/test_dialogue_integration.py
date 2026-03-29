@@ -232,12 +232,12 @@ class TestJournalIdempotency:
         assert unresolved[0].operation == "turn_dispatch"
         assert unresolved[0].phase == "intent"
 
-        # Recovery resolves intent-only turn as no-op (handle stays active)
+        # intent-only turn_dispatch with no thread/read confirmation → unknown
         controller.recover_pending_operations()
         unresolved = journal.list_unresolved(session_id="sess-1")
         assert len(unresolved) == 0
         handle = store.get(start.collaboration_id)
-        assert handle.status == "active"
+        assert handle.status == "unknown"
 
 
 class TestAuditEvents:

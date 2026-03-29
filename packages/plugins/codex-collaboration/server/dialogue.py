@@ -375,47 +375,52 @@ class DialogueController:
     def _recover_turn_dispatch(self, entry: OperationJournalEntry) -> None:
         """Recover a pending turn_dispatch entry.
 
-        intent: dispatch never happened — resolve as no-op (handle stays active).
-        dispatched: check thread/read for completed turn at turn_sequence.
-          - If completed: resolve.
-          - If not: mark handle 'unknown' (not 'crashed' — runtime crash not confirmed).
+        Both intent and dispatched phases verify via thread/read:
+        - Confirmed (completed turn at turn_sequence): resolve journal, repair metadata store.
+        - Unconfirmed: mark handle 'unknown' (ambiguous — dispatch may or may not have happened).
+
+        Does NOT silently treat intent as no-op. Absence of evidence is not
+        evidence of absence: a crash between run_turn() call and journal write
+        leaves an intent record even though dispatch occurred.
         """
-        if entry.phase == "intent":
-            # Dispatch never happened. No state change to handle.
-            self._journal.write_phase(
-                OperationJournalEntry(
-                    idempotency_key=entry.idempotency_key,
-                    operation=entry.operation,
-                    phase="completed",
-                    collaboration_id=entry.collaboration_id,
-                    created_at=entry.created_at,
-                    repo_root=entry.repo_root,
-                ),
-                session_id=self._session_id,
-            )
-            return
-
-        # dispatched: check if turn completed via thread/read
         handle = self._lineage_store.get(entry.collaboration_id)
-        if handle is not None and entry.codex_thread_id is not None:
-            try:
-                runtime = self._control_plane.get_advisory_runtime(Path(entry.repo_root))
-                thread_data = runtime.session.read_thread(entry.codex_thread_id)
-                raw_turns = thread_data.get("thread", {}).get("turns", [])
-                completed_count = sum(
-                    1 for t in raw_turns
-                    if isinstance(t, dict) and t.get("status") == "completed"
-                )
-                turn_confirmed = (
-                    entry.turn_sequence is not None
-                    and completed_count >= entry.turn_sequence
-                )
-            except Exception:
-                turn_confirmed = False
+        if handle is None:
+            raise RuntimeError(
+                f"Recovery integrity failure: no handle for turn_dispatch entry. "
+                f"Got: collaboration_id={entry.collaboration_id!r:.100}"
+            )
+        if entry.codex_thread_id is None:
+            raise RuntimeError(
+                f"Recovery integrity failure: no codex_thread_id in turn_dispatch entry. "
+                f"Got: idempotency_key={entry.idempotency_key!r:.100}"
+            )
 
-            if not turn_confirmed:
-                # Outcome uncertain — mark handle 'unknown' per contracts.md §Handle Lifecycle
-                self._lineage_store.update_status(entry.collaboration_id, "unknown")
+        try:
+            runtime = self._control_plane.get_advisory_runtime(Path(entry.repo_root))
+            thread_data = runtime.session.read_thread(entry.codex_thread_id)
+            raw_turns = thread_data.get("thread", {}).get("turns", [])
+            completed_count = sum(
+                1 for t in raw_turns
+                if isinstance(t, dict) and t.get("status") == "completed"
+            )
+            turn_confirmed = (
+                entry.turn_sequence is not None
+                and completed_count >= entry.turn_sequence
+            )
+        except Exception:
+            turn_confirmed = False
+
+        if turn_confirmed:
+            # Repair metadata store if entry has context_size
+            if entry.context_size is not None and entry.turn_sequence is not None:
+                self._turn_store.write(
+                    entry.collaboration_id,
+                    turn_sequence=entry.turn_sequence,
+                    context_size=entry.context_size,
+                )
+        else:
+            # Outcome uncertain — mark handle 'unknown' per contracts.md §Handle Lifecycle
+            self._lineage_store.update_status(entry.collaboration_id, "unknown")
 
         self._journal.write_phase(
             OperationJournalEntry(
