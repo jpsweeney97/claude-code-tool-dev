@@ -48,6 +48,12 @@ class FakeControlPlane:
 
 
 class FakeDialogueController:
+    def __init__(self) -> None:
+        self.startup_called = False
+
+    def recover_startup(self) -> None:
+        self.startup_called = True
+
     def start(self, repo_root: Path) -> object:
         from server.models import DialogueStartResult
         return DialogueStartResult(
@@ -179,3 +185,24 @@ class TestMcpServer:
                 },
             })
             assert "result" in response
+
+
+class TestStartup:
+    def test_startup_calls_recover_startup(self) -> None:
+        controller = FakeDialogueController()
+        server = McpServer(
+            control_plane=FakeControlPlane(),
+            dialogue_controller=controller,
+        )
+        server.startup()
+        assert controller.startup_called is True
+
+    def test_startup_is_idempotent(self) -> None:
+        controller = FakeDialogueController()
+        server = McpServer(
+            control_plane=FakeControlPlane(),
+            dialogue_controller=controller,
+        )
+        server.startup()
+        server.startup()  # second call should be a no-op
+        assert controller.startup_called is True

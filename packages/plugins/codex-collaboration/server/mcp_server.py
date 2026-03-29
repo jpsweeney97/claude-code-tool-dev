@@ -87,6 +87,14 @@ class McpServer:
         self._control_plane = control_plane
         self._dialogue_controller = dialogue_controller
         self._initialized = False
+        self._recovery_completed = False
+
+    def startup(self) -> None:
+        """One-shot startup recovery. Idempotent — second call is a no-op."""
+        if self._recovery_completed:
+            return
+        self._dialogue_controller.recover_startup()
+        self._recovery_completed = True
 
     def handle_request(self, request: dict[str, Any]) -> dict[str, Any]:
         """Process a single JSON-RPC 2.0 request and return the response."""
@@ -105,7 +113,8 @@ class McpServer:
         return _error_response(req_id, -32601, f"Method not found: {method}")
 
     def run(self) -> None:
-        """Main loop: read JSON-RPC from stdin, write responses to stdout."""
+        """Main loop: run startup recovery, then read JSON-RPC from stdin."""
+        self.startup()
         for line in sys.stdin:
             line = line.strip()
             if not line:
