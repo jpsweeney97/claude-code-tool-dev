@@ -700,3 +700,183 @@ class TestDialogueRead:
 
         with pytest.raises(RuntimeError, match="Turn metadata integrity"):
             controller.read(start.collaboration_id)
+
+
+class TestBestEffortRepairTurn:
+    def test_repairs_metadata_and_journal_when_turn_confirmed(self, tmp_path: Path) -> None:
+        """Fresh runtime confirms the turn completed. Repair writes TurnStore
+        metadata and resolves the journal entry. Handle status is not changed."""
+        session = FakeRuntimeSession()
+        # After repair bootstraps a fresh runtime, thread/read shows 1 completed turn
+        session.read_thread_response = {
+            "thread": {
+                "id": "thr-start",
+                "turns": [
+                    {"id": "t1", "status": "completed", "agentMessage": "", "createdAt": ""},
+                ],
+            },
+        }
+        controller, _, store, journal, turn_store = _build_dialogue_stack(
+            tmp_path, session=session
+        )
+        start = controller.start(tmp_path)
+        # Simulate: handle already marked unknown by reply() exception path
+        store.update_status(start.collaboration_id, "unknown")
+
+        # Build the intent entry that reply() would have created
+        intent_entry = OperationJournalEntry(
+            idempotency_key="rt-sess-1:thr-start:1",
+            operation="turn_dispatch",
+            phase="intent",
+            collaboration_id=start.collaboration_id,
+            created_at="2026-03-29T00:00:00Z",
+            repo_root=str(tmp_path.resolve()),
+            codex_thread_id="thr-start",
+            turn_sequence=1,
+            runtime_id="rt-sess-1",
+            context_size=4096,
+        )
+        # Write the intent to journal (simulating what reply() does before run_turn)
+        journal.write_phase(intent_entry, session_id="sess-1")
+
+        controller._best_effort_repair_turn(intent_entry)
+
+        # Journal resolved
+        unresolved = journal.list_unresolved(session_id="sess-1")
+        assert len(unresolved) == 0
+        # TurnStore repaired
+        assert turn_store.get(start.collaboration_id, turn_sequence=1) == 4096
+        # Handle NOT reactivated — stays unknown
+        assert store.get(start.collaboration_id).status == "unknown"
+
+    def test_emits_dialogue_turn_audit_when_turn_confirmed(self, tmp_path: Path) -> None:
+        """Confirmed inline repair must also emit the required dialogue_turn audit."""
+        session = FakeRuntimeSession()
+        session.read_thread_response = {
+            "thread": {
+                "id": "thr-start",
+                "turns": [
+                    {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "agentMessage": "",
+                        "createdAt": "2026-03-29T00:00:00Z",
+                    },
+                ],
+            },
+        }
+        controller, _, store, journal, _ = _build_dialogue_stack(
+            tmp_path, session=session
+        )
+        start = controller.start(tmp_path)
+        store.update_status(start.collaboration_id, "unknown")
+
+        intent_entry = OperationJournalEntry(
+            idempotency_key="rt-sess-1:thr-start:1",
+            operation="turn_dispatch",
+            phase="intent",
+            collaboration_id=start.collaboration_id,
+            created_at="2026-03-29T00:00:00Z",
+            repo_root=str(tmp_path.resolve()),
+            codex_thread_id="thr-start",
+            turn_sequence=1,
+            runtime_id="rt-sess-1",
+            context_size=4096,
+        )
+        journal.write_phase(intent_entry, session_id="sess-1")
+
+        controller._best_effort_repair_turn(intent_entry)
+
+        audit_path = journal.plugin_data_path / "audit" / "events.jsonl"
+        events = [json.loads(line) for line in audit_path.read_text().strip().split("\n")]
+        turn_events = [e for e in events if e["action"] == "dialogue_turn"]
+        assert len(turn_events) == 1
+        assert turn_events[0]["collaboration_id"] == start.collaboration_id
+        assert turn_events[0]["runtime_id"] == "rt-sess-1"
+        assert turn_events[0]["turn_id"] == "turn-1"
+        assert turn_events[0]["context_size"] == 4096
+
+    def test_leaves_journal_unresolved_when_turn_not_confirmed(self, tmp_path: Path) -> None:
+        """Thread/read shows zero completed turns. Repair leaves journal unresolved
+        for later startup recovery. Handle status is not changed."""
+        session = FakeRuntimeSession()
+        session.read_thread_response = {
+            "thread": {"id": "thr-start", "turns": []},
+        }
+        controller, _, store, journal, turn_store = _build_dialogue_stack(
+            tmp_path, session=session
+        )
+        start = controller.start(tmp_path)
+        store.update_status(start.collaboration_id, "unknown")
+
+        intent_entry = OperationJournalEntry(
+            idempotency_key="rt-sess-1:thr-start:1",
+            operation="turn_dispatch",
+            phase="intent",
+            collaboration_id=start.collaboration_id,
+            created_at="2026-03-29T00:00:00Z",
+            repo_root=str(tmp_path.resolve()),
+            codex_thread_id="thr-start",
+            turn_sequence=1,
+            runtime_id="rt-sess-1",
+            context_size=4096,
+        )
+        journal.write_phase(intent_entry, session_id="sess-1")
+
+        controller._best_effort_repair_turn(intent_entry)
+
+        # Journal stays unresolved — startup recovery will handle it
+        unresolved = journal.list_unresolved(session_id="sess-1")
+        turn_entries = [e for e in unresolved if e.operation == "turn_dispatch"]
+        assert len(turn_entries) == 1
+        # No TurnStore write
+        assert turn_store.get(start.collaboration_id, turn_sequence=1) is None
+
+    def test_swallows_exception_when_inspection_fails(self, tmp_path: Path) -> None:
+        """If get_advisory_runtime or read_thread raises, the repair silently
+        gives up. Journal stays unresolved. No exception escapes."""
+        session = FakeRuntimeSession(
+            initialize_error=RuntimeError("codex down")
+        )
+        controller, plane, store, journal, turn_store = _build_dialogue_stack(
+            tmp_path, session=session
+        )
+        # Manually create a handle (start() would fail with initialize_error)
+        from server.models import CollaborationHandle
+        handle = CollaborationHandle(
+            collaboration_id="collab-sess-1",
+            capability_class="advisory",
+            runtime_id="rt-old",
+            codex_thread_id="thr-start",
+            claude_session_id="sess-1",
+            repo_root=str(tmp_path.resolve()),
+            created_at="2026-03-29T00:00:00Z",
+            status="unknown",
+        )
+        store.create(handle)
+
+        intent_entry = OperationJournalEntry(
+            idempotency_key="rt-old:thr-start:1",
+            operation="turn_dispatch",
+            phase="intent",
+            collaboration_id="collab-sess-1",
+            created_at="2026-03-29T00:00:00Z",
+            repo_root=str(tmp_path.resolve()),
+            codex_thread_id="thr-start",
+            turn_sequence=1,
+            runtime_id="rt-old",
+            context_size=4096,
+        )
+        journal.write_phase(intent_entry, session_id="sess-1")
+
+        # Invalidate the runtime so get_advisory_runtime has to bootstrap fresh
+        # The fresh bootstrap will hit initialize_error
+        plane.invalidate_runtime(tmp_path.resolve())
+
+        # Must not raise
+        controller._best_effort_repair_turn(intent_entry)
+
+        # Journal stays unresolved
+        unresolved = journal.list_unresolved(session_id="sess-1")
+        turn_entries = [e for e in unresolved if e.operation == "turn_dispatch"]
+        assert len(turn_entries) == 1

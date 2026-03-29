@@ -524,6 +524,80 @@ class DialogueController:
         )
         return completed_count + 1
 
+    def _best_effort_repair_turn(
+        self, intent_entry: OperationJournalEntry
+    ) -> None:
+        """Best-effort inspect and repair a turn after run_turn() failure.
+
+        Called only from reply() exception path. Does NOT reactivate the handle.
+        If inspection confirms the turn completed, writes TurnStore metadata,
+        resolves the journal entry, and attempts to emit the matching
+        dialogue_turn audit event when a usable string turn_id can be
+        recovered from thread/read. Otherwise leaves the entry unresolved
+        for startup recovery.
+
+        All exceptions are swallowed — this is best-effort cleanup.
+        """
+        try:
+            runtime = self._control_plane.get_advisory_runtime(
+                Path(intent_entry.repo_root)
+            )
+            thread_data = runtime.session.read_thread(intent_entry.codex_thread_id)
+            raw_turns = thread_data.get("thread", {}).get("turns", [])
+            completed_turns = [
+                t for t in raw_turns
+                if isinstance(t, dict) and t.get("status") == "completed"
+            ]
+            completed_count = len(completed_turns)
+            turn_confirmed = (
+                intent_entry.turn_sequence is not None
+                and completed_count >= intent_entry.turn_sequence
+            )
+        except Exception:
+            return
+
+        if not turn_confirmed:
+            return
+
+        turn_id = None
+        if intent_entry.turn_sequence is not None:
+            turn_index = intent_entry.turn_sequence - 1
+            if 0 <= turn_index < len(completed_turns):
+                candidate_turn_id = completed_turns[turn_index].get("id")
+                if isinstance(candidate_turn_id, str) and candidate_turn_id:
+                    turn_id = candidate_turn_id
+
+        if intent_entry.context_size is not None and intent_entry.turn_sequence is not None:
+            self._turn_store.write(
+                intent_entry.collaboration_id,
+                turn_sequence=intent_entry.turn_sequence,
+                context_size=intent_entry.context_size,
+            )
+        self._journal.write_phase(
+            OperationJournalEntry(
+                idempotency_key=intent_entry.idempotency_key,
+                operation=intent_entry.operation,
+                phase="completed",
+                collaboration_id=intent_entry.collaboration_id,
+                created_at=intent_entry.created_at,
+                repo_root=intent_entry.repo_root,
+            ),
+            session_id=self._session_id,
+        )
+        if turn_id is not None and intent_entry.runtime_id is not None:
+            self._journal.append_audit_event(
+                AuditEvent(
+                    event_id=self._uuid_factory(),
+                    timestamp=self._journal.timestamp(),
+                    actor="claude",
+                    action="dialogue_turn",
+                    collaboration_id=intent_entry.collaboration_id,
+                    runtime_id=intent_entry.runtime_id,
+                    context_size=intent_entry.context_size,
+                    turn_id=turn_id,
+                )
+            )
+
     def read(self, collaboration_id: str) -> DialogueReadResult:
         """Read dialogue state for a given collaboration_id.
 
