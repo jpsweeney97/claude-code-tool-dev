@@ -143,11 +143,17 @@ Fork-specific operations (`get_children`, `get_parent`, tree reconstruction) are
 When an advisory runtime crashes ([recovery-and-journal.md §Advisory Runtime Crash](recovery-and-journal.md#advisory-runtime-crash)):
 
 1. The control plane restarts the advisory runtime.
-2. The control plane reads all handles with `status: active` from the lineage store for the current session and repo root.
-3. For each active handle, the control plane uses Codex `thread/read` on the handle's `codex_thread_id` to recover the latest completed state, then `thread/resume` to reattach the thread in the replacement runtime.
-4. The control plane calls `update_runtime` on each recovered handle to point to the new runtime instance. If `thread/resume` yields a new thread identity, the handle's `codex_thread_id` must also be updated.
-5. Pending server requests associated with crashed handles are marked canceled.
-6. Claude may continue from the last completed turn. Forking from the interrupted snapshot requires `codex.dialogue.fork` to be in scope.
+2. The control plane reads all handles with `status: active` and all eligible handles with `status: unknown` from the lineage store for the current session and repo root.
+3. Eligibility for an `unknown` handle is:
+   - zero completed turns, OR
+   - complete TurnStore metadata for every completed turn,
+   and in either case successful `thread/read` followed by `thread/resume`.
+4. For each enumerated handle, the control plane uses Codex `thread/read` on the handle's `codex_thread_id` to recover the latest completed state, then `thread/resume` to reattach the thread in the replacement runtime.
+5. The control plane calls `update_runtime` on each recovered handle to point to the new runtime instance. If `thread/resume` yields a new thread identity, the handle's `codex_thread_id` must also be updated.
+6. Pending server requests associated with crashed handles are marked canceled.
+7. Claude may continue from the last completed turn. Forking from the interrupted snapshot requires `codex.dialogue.fork` to be in scope.
+
+Future producers of `status: unknown` must either be compatible with this eligibility predicate or introduce stronger provenance before they can participate in startup reattach.
 
 The lineage store does not participate in crash detection or runtime restart — those are control plane responsibilities. The store's role is providing the handle data needed for step 2.
 

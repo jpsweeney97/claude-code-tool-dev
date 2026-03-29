@@ -310,9 +310,13 @@ class DialogueController:
 
         Order:
         (1) reconcile unresolved journal entries
-        (2) reattach remaining active handles not already touched by phase 1
+        (2) reattach remaining active AND eligible unknown handles
 
         Per contracts.md:141-151 (crash recovery contract).
+
+        Unknown handles are eligible for reattach if:
+        - they have no completed turns (vacuous metadata check), OR
+        - all completed turns have corresponding TurnStore metadata
 
         Rollout boundary: pre-fix dialogues (turns dispatched before TurnStore)
         cannot continue after deployment. The journal is session-bounded, so
@@ -328,11 +332,14 @@ class DialogueController:
         # Phase 1: reconcile unresolved journal entries
         recovered_cids = set(self.recover_pending_operations())
 
-        # Phase 2: enumerate remaining active handles and reattach.
+        # Phase 2: enumerate active and unknown handles for reattach.
         # Skip handles already resumed by phase 1 to avoid double-resume.
         # Quarantine any handle with incomplete TurnStore metadata.
+        # Unknown handles are eligible for reattach if metadata is complete
+        # (or if they have no completed turns to check).
         active_handles = self._lineage_store.list(status="active")
-        for handle in active_handles:
+        unknown_handles = self._lineage_store.list(status="unknown")
+        for handle in active_handles + unknown_handles:
             if handle.collaboration_id in recovered_cids:
                 continue
             try:
@@ -363,6 +370,10 @@ class DialogueController:
                     runtime_id=runtime.runtime_id,
                     codex_thread_id=resumed_thread_id,
                 )
+                if handle.status == "unknown":
+                    self._lineage_store.update_status(
+                        handle.collaboration_id, "active"
+                    )
             except Exception:
                 self._lineage_store.update_status(
                     handle.collaboration_id, "unknown"
@@ -386,6 +397,7 @@ class DialogueController:
                     recovered.append(cid)
             elif entry.operation == "turn_dispatch":
                 self._recover_turn_dispatch(entry)
+                recovered.append(entry.collaboration_id)
         return recovered
 
     def _recover_thread_creation(self, entry: OperationJournalEntry) -> str | None:

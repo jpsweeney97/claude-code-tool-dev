@@ -224,6 +224,105 @@ class TestStartupRecoveryCoordinator:
         assert handle.status == "active"
         assert handle.codex_thread_id == "thr-start-resumed"
 
+    def test_reattaches_unknown_handle_with_no_completed_turns(self, tmp_path: Path) -> None:
+        """Unknown handle with zero completed turns: eligible for reattach.
+        No metadata completeness check needed."""
+        session = FakeRuntimeSession()
+        session.read_thread_response = {
+            "thread": {"id": "thr-start", "turns": []},
+        }
+        controller, _, store, _, _, session = _recovery_stack(tmp_path, session=session)
+
+        start = controller.start(tmp_path)
+        store.update_status(start.collaboration_id, "unknown")
+
+        controller.recover_startup()
+
+        handle = store.get(start.collaboration_id)
+        assert handle.status == "active"
+        assert handle.codex_thread_id == "thr-start-resumed"
+
+    def test_reattaches_unknown_handle_with_complete_metadata(self, tmp_path: Path) -> None:
+        """Unknown handle with completed turns and complete TurnStore metadata:
+        eligible for reattach, restored to active."""
+        session = FakeRuntimeSession()
+        session.read_thread_response = {
+            "thread": {
+                "id": "thr-start",
+                "turns": [
+                    {"id": "t1", "status": "completed", "agentMessage": "", "createdAt": ""},
+                ],
+            },
+        }
+        controller, _, store, _, turn_store, session = _recovery_stack(
+            tmp_path, session=session
+        )
+
+        start = controller.start(tmp_path)
+        # Write complete metadata, then mark unknown
+        turn_store.write(start.collaboration_id, turn_sequence=1, context_size=4096)
+        store.update_status(start.collaboration_id, "unknown")
+
+        controller.recover_startup()
+
+        handle = store.get(start.collaboration_id)
+        assert handle.status == "active"
+        assert handle.codex_thread_id == "thr-start-resumed"
+
+    def test_keeps_unknown_handle_unknown_when_metadata_incomplete(self, tmp_path: Path) -> None:
+        """Unknown handle with completed turns but missing TurnStore entries:
+        not eligible for reattach, stays unknown."""
+        session = FakeRuntimeSession()
+        session.read_thread_response = {
+            "thread": {
+                "id": "thr-start",
+                "turns": [
+                    {"id": "t1", "status": "completed", "agentMessage": "", "createdAt": ""},
+                    {"id": "t2", "status": "completed", "agentMessage": "", "createdAt": ""},
+                ],
+            },
+        }
+        controller, _, store, _, turn_store, session = _recovery_stack(
+            tmp_path, session=session
+        )
+
+        start = controller.start(tmp_path)
+        # Only 1 of 2 metadata entries — incomplete
+        turn_store.write(start.collaboration_id, turn_sequence=1, context_size=4096)
+        store.update_status(start.collaboration_id, "unknown")
+
+        controller.recover_startup()
+
+        handle = store.get(start.collaboration_id)
+        assert handle.status == "unknown"
+
+    def test_keeps_unknown_handle_unknown_when_reattach_fails(self, tmp_path: Path) -> None:
+        """Unknown handle where read_thread or resume_thread raises:
+        stays unknown. Exception does not propagate."""
+        session = FakeRuntimeSession(
+            initialize_error=RuntimeError("codex unreachable")
+        )
+        controller, _, store, _, _, session = _recovery_stack(tmp_path, session=session)
+
+        # Manually create an unknown handle (can't use start() with initialize_error)
+        from server.models import CollaborationHandle
+        handle = CollaborationHandle(
+            collaboration_id="collab-0",
+            capability_class="advisory",
+            runtime_id="rt-old",
+            codex_thread_id="thr-start",
+            claude_session_id="sess-1",
+            repo_root=str(tmp_path.resolve()),
+            created_at="2026-03-29T00:00:00Z",
+            status="unknown",
+        )
+        store.create(handle)
+
+        # Should not raise
+        controller.recover_startup()
+
+        assert store.get("collab-0").status == "unknown"
+
     def test_no_op_when_no_handles_or_journal(self, tmp_path: Path) -> None:
         """Startup recovery is safe on a fresh session with no data."""
         controller, _, _, _, _, _ = _recovery_stack(tmp_path)
