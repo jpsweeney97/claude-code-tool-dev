@@ -163,6 +163,15 @@ class DialogueController:
 
         Write ordering invariant: metadata store write MUST happen before
         journal completed. See plan doc §Key invariants.
+
+        Failure semantics:
+        - run_turn() raises: handle quarantined to 'unknown', best-effort
+          metadata/journal/audit repair via _best_effort_repair_turn(),
+          original exception re-raised. Handle is NOT reactivated inline;
+          startup recovery handles eligible unknown handles.
+        - parse_consult_response() raises: all durable state (TurnStore,
+          journal, audit) is committed before parsing. Raises
+          CommittedTurnParseError. Handle stays 'active'.
         """
         handle = self._lineage_store.get(collaboration_id)
         if handle is None:
