@@ -203,21 +203,19 @@ class DialogueController:
         # Phase 1: intent — journal before dispatch (turn-dispatch key)
         idempotency_key = f"{runtime.runtime_id}:{handle.codex_thread_id}:{turn_sequence}"
         created_at = self._journal.timestamp()
-        self._journal.write_phase(
-            OperationJournalEntry(
-                idempotency_key=idempotency_key,
-                operation="turn_dispatch",
-                phase="intent",
-                collaboration_id=collaboration_id,
-                created_at=created_at,
-                repo_root=str(resolved_root),
-                codex_thread_id=handle.codex_thread_id,
-                turn_sequence=turn_sequence,
-                runtime_id=runtime.runtime_id,
-                context_size=packet.context_size,
-            ),
-            session_id=self._session_id,
+        intent_entry = OperationJournalEntry(
+            idempotency_key=idempotency_key,
+            operation="turn_dispatch",
+            phase="intent",
+            collaboration_id=collaboration_id,
+            created_at=created_at,
+            repo_root=str(resolved_root),
+            codex_thread_id=handle.codex_thread_id,
+            turn_sequence=turn_sequence,
+            runtime_id=runtime.runtime_id,
+            context_size=packet.context_size,
         )
+        self._journal.write_phase(intent_entry, session_id=self._session_id)
 
         try:
             turn_result = runtime.session.run_turn(
@@ -227,6 +225,8 @@ class DialogueController:
             )
         except Exception:
             self._control_plane.invalidate_runtime(resolved_root)
+            self._lineage_store.update_status(collaboration_id, "unknown")
+            self._best_effort_repair_turn(intent_entry)
             raise
 
         # Phase 2: dispatched — turn executed

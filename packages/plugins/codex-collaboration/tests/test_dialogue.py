@@ -880,3 +880,129 @@ class TestBestEffortRepairTurn:
         unresolved = journal.list_unresolved(session_id="sess-1")
         turn_entries = [e for e in unresolved if e.operation == "turn_dispatch"]
         assert len(turn_entries) == 1
+
+
+class TestReplyRunTurnFailure:
+    def test_marks_handle_unknown_and_blocks_retry(self, tmp_path: Path) -> None:
+        """run_turn raises -> handle quarantined -> second reply rejected."""
+        focus = tmp_path / "focus.py"
+        focus.write_text("print('focus')\n", encoding="utf-8")
+
+        session = FakeRuntimeSession(run_turn_error=RuntimeError("dispatch failed"))
+        # After quarantine, best-effort repair sees no completed turns
+        session.read_thread_response = {
+            "thread": {"id": "thr-start", "turns": []},
+        }
+        controller, _, store, _, _ = _build_dialogue_stack(tmp_path, session=session)
+        start = controller.start(tmp_path)
+
+        with pytest.raises(RuntimeError, match="dispatch failed"):
+            controller.reply(
+                collaboration_id=start.collaboration_id,
+                objective="Should fail",
+                explicit_paths=(Path("focus.py"),),
+            )
+
+        # Handle is now unknown
+        assert store.get(start.collaboration_id).status == "unknown"
+
+        # Second reply blocked by lifecycle guard
+        with pytest.raises(ValueError, match="handle not active"):
+            controller.reply(
+                collaboration_id=start.collaboration_id,
+                objective="Should be rejected",
+            )
+
+    def test_repairs_metadata_when_completed_turn_is_visible(self, tmp_path: Path) -> None:
+        """run_turn raises, but fresh runtime shows the turn completed.
+        TurnStore repaired, journal resolved, handle stays unknown, read() works."""
+        focus = tmp_path / "focus.py"
+        focus.write_text("print('focus')\n", encoding="utf-8")
+
+        class FailThenSucceedSession(FakeRuntimeSession):
+            """First run_turn raises, but read_thread shows the turn completed."""
+            def __init__(self) -> None:
+                super().__init__()
+                self._run_turn_failed = False
+
+            def run_turn(self, **kwargs: object) -> object:
+                if not self._run_turn_failed:
+                    self._run_turn_failed = True
+                    # Simulate: Codex processed the turn but connection dropped
+                    self.completed_turn_count += 1
+                    raise RuntimeError("connection lost after dispatch")
+                return super().run_turn(**kwargs)
+
+        session = FailThenSucceedSession()
+        controller, _, store, journal, turn_store = _build_dialogue_stack(
+            tmp_path, session=session
+        )
+        start = controller.start(tmp_path)
+
+        with pytest.raises(RuntimeError, match="connection lost after dispatch"):
+            controller.reply(
+                collaboration_id=start.collaboration_id,
+                objective="Review focus.py",
+                explicit_paths=(Path("focus.py"),),
+            )
+
+        # Handle quarantined
+        assert store.get(start.collaboration_id).status == "unknown"
+        # But metadata repaired (turn was confirmed via thread/read)
+        assert turn_store.get(start.collaboration_id, turn_sequence=1) is not None
+        # Journal resolved
+        unresolved = journal.list_unresolved(session_id="sess-1")
+        turn_entries = [e for e in unresolved if e.operation == "turn_dispatch"]
+        assert len(turn_entries) == 0
+
+        # read() works without integrity error
+        session.read_thread_response = {
+            "thread": {
+                "id": "thr-start",
+                "turns": [
+                    {"id": "t1", "status": "completed", "agentMessage": "", "createdAt": ""},
+                ],
+            },
+        }
+        read_result = controller.read(start.collaboration_id)
+        assert read_result.turn_count == 1
+
+    def test_preserves_original_exception_when_inspection_fails(self, tmp_path: Path) -> None:
+        """run_turn raises and best-effort repair also fails.
+        Original exception is re-raised, handle is unknown, journal unresolved."""
+        focus = tmp_path / "focus.py"
+        focus.write_text("print('focus')\n", encoding="utf-8")
+
+        class AlwaysFailSession(FakeRuntimeSession):
+            """run_turn fails, and subsequent initialize (for fresh runtime) also fails."""
+            _run_turn_raised = False
+
+            def run_turn(self, **kwargs: object) -> object:
+                self._run_turn_raised = True
+                raise RuntimeError("original dispatch error")
+
+            def initialize(self) -> object:
+                if self._run_turn_raised:
+                    # Fresh runtime bootstrap also fails
+                    raise RuntimeError("codex unreachable")
+                return super().initialize()
+
+        session = AlwaysFailSession()
+        controller, _, store, journal, _ = _build_dialogue_stack(
+            tmp_path, session=session
+        )
+        start = controller.start(tmp_path)
+
+        with pytest.raises(RuntimeError, match="original dispatch error"):
+            controller.reply(
+                collaboration_id=start.collaboration_id,
+                objective="Should fail",
+                explicit_paths=(Path("focus.py"),),
+            )
+
+        # Handle quarantined
+        assert store.get(start.collaboration_id).status == "unknown"
+        # Journal unresolved (repair failed)
+        unresolved = journal.list_unresolved(session_id="sess-1")
+        turn_entries = [e for e in unresolved if e.operation == "turn_dispatch"]
+        assert len(turn_entries) == 1
