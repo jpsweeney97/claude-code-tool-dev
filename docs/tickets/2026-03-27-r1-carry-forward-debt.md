@@ -26,28 +26,29 @@ Source: R1 handoff document, review findings #1-10, downstream risks A-E.
 | 3 | Concurrent consult safety | `control_plane.py:65` — `_advisory_runtimes` dict has no `threading.Lock`. Multiple `.get()`, `[]`, `.pop()` without synchronization. | Low | Parked | R2 MCP server uses serialized dispatch (one tool call at a time). Concurrent safety is not needed while serialization invariant holds. Revisit only if serialization is relaxed. |
 | 4 | `AuditEvent` schema expansion | `models.py:149-151` — missing `job_id`, `request_id`, `artifact_hash`, `decision`, `causal_parent`. Currently uses `extra: dict[str, Any]`. | Deferred | Parked | Dialogue events only need existing fields (`collaboration_id`, `runtime_id`, `turn_id`). Add delegation-specific fields before delegation events land. |
 | 5 | Policy fingerprint parameterization | `control_plane.py:346-357` — `build_policy_fingerprint()` uses hardcoded material dict (`transport_mode`, `sandbox_level`, etc.). | Deferred | Parked | Blocks advisory widening, not dialogue. No change needed for R2. |
-| 6 | Redaction pattern coverage | `context_assembly.py:40-45` — 4 patterns (OpenAI `sk-*`, Bearer, PEM, `password=`). Missing: AWS `AKIA*`, GitHub `ghp_`/`gho_`/`github_pat_`, base64 credentials. | Medium | **Promoted** → `T-20260330-01` | Same assembly path for dialogue and consultation. Promoted at T3/T4 decision gate. |
-| 7 | Non-UTF-8 file read hardening | `context_assembly.py:345` — `read_text(encoding="utf-8")` without `try/except UnicodeDecodeError`. Binary file reference crashes the entire assembly pipeline. | Medium | **Closed** → `e6792de8` | Fixed: byte-prefix sniff + UnicodeDecodeError catch returns placeholder. 216 tests passing. |
+| 6 | Redaction pattern coverage | `context_assembly.py` `_SECRET_PATTERNS` — 4 patterns (OpenAI `sk-*`, Bearer, PEM, `password=`). Missing: AWS `AKIA*`, GitHub `ghp_`/`gho_`/`github_pat_`, base64 credentials. | Medium | **Promoted** → `T-20260330-01` | Same assembly path for dialogue and consultation. Promoted at T3/T4 decision gate. |
+| 7 | Non-UTF-8 file read hardening | `context_assembly.py` `_read_file_excerpt()` — `read_text(encoding="utf-8")` without decode error handling. Binary file reference crashed the entire assembly pipeline. | Medium | **Closed** → `e6792de8` | Fixed: byte-prefix sniff + UnicodeDecodeError catch returns `_BINARY_PLACEHOLDER`. 216 tests passing. |
 
 ## Classification Key
 
 | Classification | Meaning | Action |
 |---|---|---|
 | **Parked** | Not a pre-dialogue blocker. Revisit when the relevant capability enters scope or the risk profile changes. | No action before R2. |
-| **Existing gap** | Affects all context assembly equally (dialogue and consultation). Not dialogue-specific, but the risk exists today. | Fix opportunistically or add to R2 scope at T4 decision gate. |
+| **Promoted** | Assessed at T3/T4 decision gate and moved to a dedicated ticket. | Track in the referenced ticket. |
+| **Closed** | Fixed and landed on main. | No further action. |
 
-## Decision Gate (T4 input)
+## Decision Gate (T4 input) — Resolved 2026-03-30
 
-Before freezing R2 scope in T4, review items classified as **existing gap** (items 6 and 7):
+Both items classified as **existing gap** (items 6 and 7) were assessed against shared context assembly paths. Both were promoted:
 
-- If the team judges that either gap undermines trustworthy context assembly enough to warrant pre-dialogue fixing, promote it to R2 scope.
-- If neither is promoted, they remain here as open backlog items with no milestone assignment.
+- **Item 7** fixed immediately as standalone bugfix (`e6792de8`). Binary/non-UTF-8 references now return a placeholder instead of crashing the packet.
+- **Item 6** promoted to `T-20260330-01` for targeted redaction hardening scoped to low-ambiguity credential patterns.
 
 ## Acceptance Criteria
 
 - [x] All 7 items have a classification (parked or existing gap)
 - [x] Any items promoted to pre-dialogue blockers are noted for T4 scope inclusion
-- [ ] This ticket replaces handoff-only tracking — the handoff is archived
+- [x] This ticket replaces handoff-only tracking — the handoff is archived (R1 handoff archived at `docs/handoffs/archive/`)
 
 ## Resolution Log
 

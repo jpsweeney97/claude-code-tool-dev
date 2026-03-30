@@ -19,7 +19,7 @@ Item 7 (non-UTF-8 file crash) landed as a standalone bugfix at `e6792de8` — bi
 
 ## Problem
 
-`_SECRET_PATTERNS` in `context_assembly.py:40-45` covers 4 pattern families: `sk-*`, `Bearer`, PEM blocks, and `key=value` assignments with 4 keywords. Common credential forms pass through unredacted into Codex prompts:
+`_SECRET_PATTERNS` in `context_assembly.py` covers 4 pattern families: `sk-*`, `Bearer`, PEM blocks, and `key=value` assignments with 4 keywords. Common credential forms pass through unredacted into Codex prompts:
 
 | Leaked form | Example | Risk |
 |-------------|---------|------|
@@ -74,8 +74,8 @@ Key differences from `redact.py` context:
 
 | Resource | Location | Purpose |
 |----------|----------|---------|
-| Current patterns | `context_assembly.py:40-45` | Starting point |
-| Internal precedent | `context-injection/redact.py:86-116` | Pattern reference (adapt, don't copy) |
-| Secret taxonomy | `cross-model/scripts/secret_taxonomy.py:69` | Broader classification reference |
+| Current patterns | `context_assembly.py` `_SECRET_PATTERNS` | Starting point |
+| Internal precedent | `context-injection/redact.py` `_API_KEY_PREFIX_RE` through `_CREDENTIAL_RE` | Pattern reference (adapt, don't copy) |
+| Secret taxonomy | `cross-model/scripts/secret_taxonomy.py` | Broader classification reference |
 | R1 carry-forward ticket | `docs/tickets/2026-03-27-r1-carry-forward-debt.md` | Parent tracking artifact |
 | Item 7 fix | `e6792de8` | Binary file hardening (closed) |
