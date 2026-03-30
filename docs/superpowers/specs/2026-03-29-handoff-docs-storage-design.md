@@ -47,14 +47,18 @@ Every handoff state change gets its own commit:
 | Create | `/save`, `/quicksave` | `docs(handoff): save <title>` | `docs/handoffs/<filename>.md` |
 | Archive | `/load` | `docs(handoff): archive <filename>` | Move from `docs/handoffs/` to `docs/handoffs/archive/` |
 
-Implementation: a new `scripts/auto_commit.py` (~30 lines) encapsulates the git commit logic. Skills call this script instead of inline git commands. The script:
+**Responsibility split:** the skill owns file operations (write, move); `auto_commit.py` owns only the commit.
+
+`scripts/auto_commit.py` (~30 lines):
 
 1. Checks git state (detached HEAD, rebase in progress, no git repo)
-2. Stages only the specified file(s)
+2. Stages only the specified file(s) — or accepts `--staged` when files are already staged
 3. Commits with the provided message and Claude's author identity
 4. Returns success/failure with a human-readable reason
 
-For archive moves, use `git mv` (handles both the delete and add in one operation).
+**Create flow:** skill writes file → calls `auto_commit.py <file> "<message>"`
+
+**Archive flow:** skill runs `git mv source dest` (stages automatically) → calls `auto_commit.py --staged "<message>"`. If `git mv` fails (file is untracked — e.g., loaded from legacy location), skill falls back to `mv` + calls `auto_commit.py <old_path> <new_path> "<message>"` to stage both the add and remove.
 
 Edge cases (enforced by `auto_commit.py`, not skill prose):
 
@@ -88,6 +92,8 @@ Auto-pruning is disabled for `docs/handoffs/`. The archive accumulates; git hist
 
 The `cleanup.py` SessionStart hook prunes session-state files only and stops touching handoff/archive directories.
 
+At ~200+ archived files, linear search in `/search` and `/triage` may slow noticeably. Users can prune manually (`trash docs/handoffs/archive/2025-*.md && git add -A docs/handoffs/archive/ && git commit -m "docs(handoff): prune old archives"`) or filter by date range in `/search`.
+
 ## Code Change Scope
 
 ### Handoff plugin (`packages/plugins/handoff/`)
@@ -96,10 +102,10 @@ The `cleanup.py` SessionStart hook prunes session-state files only and stops tou
 
 | File | Changes |
 |------|---------|
-| `scripts/project_paths.py` | `get_handoffs_dir()` returns `root/docs/handoffs` |
+| `scripts/project_paths.py` | `get_handoffs_dir()` returns `root/docs/handoffs`; add `get_legacy_handoffs_dir()` returning `root/.claude/handoffs` |
 | `scripts/cleanup.py` | Remove `get_project_root()`, `get_handoffs_dir()`, and `prune_old_handoffs()` entirely; keep only `prune_old_state_files()` and `main()` |
 | `scripts/auto_commit.py` | **New file.** Testable git commit logic (~30 lines): check state, stage file, commit with message |
-| `scripts/quality_check.py` | `is_handoff_path()` matches `docs/handoffs` as path components |
+| `scripts/quality_check.py` | `is_handoff_path()` matching rule and `.archive` → `archive` rename (see below) |
 | `scripts/search.py` | `.archive` → `archive` |
 | `scripts/triage.py` | `.archive` → `archive` |
 | `references/handoff-contract.md` | Storage location, archive path, retention policy |
@@ -120,7 +126,7 @@ The `cleanup.py` SessionStart hook prunes session-state files only and stops tou
 
 | File | Changes |
 |------|---------|
-| `tests/test_project_paths.py` | Assert `docs/handoffs` instead of `.claude/handoffs` |
+| `tests/test_project_paths.py` | Assert `docs/handoffs` instead of `.claude/handoffs`; add test for `get_legacy_handoffs_dir()` |
 | `tests/test_cleanup.py` | Remove handoff pruning tests and path function tests; keep session-state tests |
 | `tests/test_quality_check.py` | Assert `docs/handoffs` pattern matching; add near-miss test cases (see below) |
 | `tests/test_auto_commit.py` | **New file.** Tests for git state checks, narrow staging, edge cases |
@@ -140,27 +146,57 @@ The `cleanup.py` SessionStart hook prunes session-state files only and stops tou
 
 ### Legacy location fallback
 
-The `/load` and `/search` skills check `docs/handoffs/` first. If no handoffs are found, they also check `<project_root>/.claude/handoffs/` and warn:
+`project_paths.py` exports `get_legacy_handoffs_dir()` → `root/.claude/handoffs`. This gives scripts a testable function for the fallback path.
+
+**Where the fallback logic lives:**
+
+| Component | Fallback approach | Rationale |
+|-----------|-------------------|-----------|
+| `search.py` | Checks both directories (primary then legacy) | Script has directory scanning logic already; adding a second directory is natural |
+| `triage.py` | Checks both directories (primary then legacy) | Same as search |
+| `/load` skill | Bash `ls` on primary, then legacy if empty | Simple directory existence check — no edge cases that need a Python script |
+
+When handoffs are found at the legacy location, all three emit:
 
 > "Found handoffs at legacy location `.claude/handoffs/`. Run `/save` to migrate — the next save will write to `docs/handoffs/`."
 
-This prevents orphaning existing handoffs for other plugin consumers who upgrade. No automated file migration — the warning is self-documenting and the old files expire or get superseded naturally.
+No automated file migration — the warning is self-documenting and the old files expire or get superseded naturally.
 
-### `is_handoff_path()` test coverage
+### `is_handoff_path()` matching rule
 
-Add near-miss test cases for the path detection in `quality_check.py`:
+The current implementation walks `path.parts` looking for `.claude` → `handoffs` adjacency. The new rule:
 
-| Path | Expected |
-|------|----------|
-| `<root>/docs/handoffs/2026-03-29.md` | Match |
-| `<root>/docs/handoffs/archive/2026-03-29.md` | Match |
-| `<root>/docs/handoffs-v2/foo.md` | No match |
-| `<root>/other-docs/handoffs/foo.md` | No match |
-| `<root>/docs/handoffs/foo.txt` | No match (only `.md`) |
+**Match when `docs` and `handoffs` are adjacent path components, the file extension is `.md`, and the file is a direct child of `handoffs/` or `handoffs/archive/`.**
+
+This also requires renaming the archive check inside `is_handoff_path()`: the current `if ".archive" in parts` becomes `if "archive" in parts` (same rename as `search.py` and `triage.py`).
+
+Near-miss test cases:
+
+| Path | Expected | Why |
+|------|----------|-----|
+| `<root>/docs/handoffs/2026-03-29.md` | Match | Active handoff |
+| `<root>/docs/handoffs/archive/2026-03-29.md` | Match | Archived handoff |
+| `<root>/docs/handoffs-v2/foo.md` | No match | `handoffs-v2` is not `handoffs` |
+| `<root>/other-docs/handoffs/foo.md` | No match | `other-docs` is not `docs` |
+| `<root>/docs/handoffs/foo.txt` | No match | Not `.md` |
+| `<root>/docs/handoffs/subdir/deep/foo.md` | No match | Not direct child of `handoffs/` or `archive/` |
 
 ### Ordering constraint
 
 All code changes, contract updates, reference doc updates, and skill updates land in a single commit. The handoff contract has runtime precedence over skill text — a stale contract with old paths would override correct skill text. Atomic commit prevents any window of contract-code disagreement.
+
+Post-edit verification (run before committing):
+
+```bash
+# No stale path references in contract or format-reference
+grep -r '\.claude/handoffs' packages/plugins/handoff/references/
+# No stale archive references
+grep -r '\.archive' packages/plugins/handoff/references/
+# No stale retention periods
+grep -rE '30.day|90.day' packages/plugins/handoff/references/
+```
+
+All three commands should return empty (no matches).
 
 ### Not changed (historical)
 
