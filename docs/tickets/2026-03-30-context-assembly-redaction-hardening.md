@@ -48,10 +48,10 @@ These affect the production consult path and the dialogue path equally — `cont
 
 ## Internal precedent
 
-`context-injection/redact.py:86-116` has battle-tested patterns for all of the above. Adapt, don't copy — the false-positive tolerance differs.
+`context-injection/redact.py` (`_JWT_RE` through `_CREDENTIAL_RE`) has battle-tested patterns for all of the above. Adapt, don't copy — the false-positive tolerance differs.
 
 Key differences from `redact.py` context:
-- `redact.py` operates on scout evidence snippets (small, targeted reads) — over-redaction is explicitly acceptable (`redact.py:85`)
+- `redact.py` operates on scout evidence snippets (small, targeted reads) — over-redaction is explicitly acceptable (see comment above `_JWT_RE`)
 - `context_assembly.py` operates on the full Codex prompt — over-redaction means Codex can't see the code it needs to reason about
 - Patterns must be tuned for code content: variable names, comments, documentation examples
 

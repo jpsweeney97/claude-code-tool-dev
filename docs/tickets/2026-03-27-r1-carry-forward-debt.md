@@ -34,6 +34,7 @@ Source: R1 handoff document, review findings #1-10, downstream risks A-E.
 | Classification | Meaning | Action |
 |---|---|---|
 | **Parked** | Not a pre-dialogue blocker. Revisit when the relevant capability enters scope or the risk profile changes. | No action before R2. |
+| **Existing gap** (historical) | Affects all context assembly equally (dialogue and consultation). Pre-resolution classification for items 6 and 7 that triggered the T4 decision gate. | Superseded — all items resolved to Promoted or Closed on 2026-03-30. |
 | **Promoted** | Assessed at T3/T4 decision gate and moved to a dedicated ticket. | Track in the referenced ticket. |
 | **Closed** | Fixed and landed on main. | No further action. |
 
