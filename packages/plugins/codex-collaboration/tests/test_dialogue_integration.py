@@ -152,7 +152,7 @@ class TestJournalIdempotency:
 
     def test_crash_after_dispatch_leaves_dispatched_entry(self, tmp_path: Path) -> None:
         """Crash after thread/start but before lineage persist. Journal has dispatched entry."""
-        controller, _, store, journal, _ = _full_stack(tmp_path)
+        controller, _, store, journal, session = _full_stack(tmp_path)
 
         # Start succeeds (creates intent + dispatched + handle + completed normally)
         start = controller.start(tmp_path)
@@ -188,7 +188,8 @@ class TestJournalIdempotency:
         assert "orphan-1" in recovered
         handle = store.get("orphan-1")
         assert handle is not None
-        assert handle.codex_thread_id == "thr-orphan-resumed"
+        assert handle.codex_thread_id == "thr-orphan"
+        assert session.resumed_threads == ["thr-orphan"]
         unresolved = journal.list_unresolved(session_id="sess-1")
         assert len(unresolved) == 0
 

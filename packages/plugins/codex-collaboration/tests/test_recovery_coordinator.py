@@ -64,7 +64,8 @@ class TestStartupRecoveryCoordinator:
 
         handle = store.get(start.collaboration_id)
         assert handle is not None
-        assert handle.codex_thread_id == "thr-start-resumed"
+        assert handle.codex_thread_id == "thr-start"
+        assert session.resumed_threads == ["thr-start"]
 
     def test_journal_reconciled_before_reattach(self, tmp_path: Path) -> None:
         """Phase 1 resolves journal (quarantines unconfirmed turn_dispatch),
@@ -108,11 +109,12 @@ class TestStartupRecoveryCoordinator:
         # Phase 2 picks up h1 as eligible unknown (zero completed) and reattaches.
         h1 = store.get(start1.collaboration_id)
         assert h1.status == "active"
-        assert h1.codex_thread_id == "thr-start-resumed"
+        assert h1.codex_thread_id == "thr-start"
 
         h2 = store.get(start2.collaboration_id)
         assert h2.status == "active"
-        assert h2.codex_thread_id == "thr-start-resumed"
+        assert h2.codex_thread_id == "thr-start"
+        assert session.resumed_threads.count("thr-start") == 2
 
     def test_confirmed_turn_dispatch_does_not_suppress_phase_2_reattach(
         self, tmp_path: Path
@@ -159,10 +161,11 @@ class TestStartupRecoveryCoordinator:
         context_size = turn_store.get(start.collaboration_id, turn_sequence=1)
         assert context_size == 4096
 
-        # Phase 2 should have resumed the handle with fresh runtime
+        # Phase 2 should still resume the handle after phase-1 reconciliation.
         handle = store.get(start.collaboration_id)
         assert handle.status == "active"
-        assert handle.codex_thread_id == "thr-start-resumed"
+        assert handle.codex_thread_id == "thr-start"
+        assert session.resumed_threads == ["thr-start"]
 
     def test_does_not_double_resume_handles_from_phase_1(self, tmp_path: Path) -> None:
         """thread_creation recovered by phase 1 (full reattach with resume_thread)
@@ -277,7 +280,8 @@ class TestStartupRecoveryCoordinator:
 
         handle = store.get(start.collaboration_id)
         assert handle.status == "active"
-        assert handle.codex_thread_id == "thr-start-resumed"
+        assert handle.codex_thread_id == "thr-start"
+        assert session.resumed_threads == ["thr-start"]
 
     def test_reattaches_unknown_handle_with_no_completed_turns(self, tmp_path: Path) -> None:
         """Unknown handle with zero completed turns: eligible for reattach.
@@ -295,7 +299,8 @@ class TestStartupRecoveryCoordinator:
 
         handle = store.get(start.collaboration_id)
         assert handle.status == "active"
-        assert handle.codex_thread_id == "thr-start-resumed"
+        assert handle.codex_thread_id == "thr-start"
+        assert session.resumed_threads == ["thr-start"]
 
     def test_reattaches_unknown_handle_with_complete_metadata(self, tmp_path: Path) -> None:
         """Unknown handle with completed turns and complete TurnStore metadata:
@@ -322,7 +327,8 @@ class TestStartupRecoveryCoordinator:
 
         handle = store.get(start.collaboration_id)
         assert handle.status == "active"
-        assert handle.codex_thread_id == "thr-start-resumed"
+        assert handle.codex_thread_id == "thr-start"
+        assert session.resumed_threads == ["thr-start"]
 
     def test_keeps_unknown_handle_unknown_when_metadata_incomplete(self, tmp_path: Path) -> None:
         """Unknown handle with completed turns but missing TurnStore entries:

@@ -46,6 +46,7 @@ class FakeRuntimeSession:
         )
         self.closed = False
         self.started_threads: list[str] = []
+        self.resumed_threads: list[str] = []
         self.last_prompt_text: str | None = None
         self.last_output_schema: dict[str, object] | None = None
         self.read_account_calls = 0
@@ -121,7 +122,8 @@ class FakeRuntimeSession:
         }
 
     def resume_thread(self, thread_id: str) -> str:
-        return f"{thread_id}-resumed"
+        self.resumed_threads.append(thread_id)
+        return thread_id
 
 
 def _compat_result() -> CompatCheckResult:

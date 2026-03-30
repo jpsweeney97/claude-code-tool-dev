@@ -78,20 +78,20 @@ def test_read_thread_returns_turns() -> None:
     )
 
 
-def test_resume_thread_returns_new_thread_id() -> None:
+def test_resume_thread_returns_thread_id_from_response() -> None:
     from server.runtime import AppServerRuntimeSession
 
     client = _StubClientForThreadOps(
         responses={
             "thread/resume": {
-                "thread": {"id": "thr-resumed"},
+                "thread": {"id": "thr-1"},
             },
         }
     )
     session = AppServerRuntimeSession(repo_root=Path("/repo"))
     session._client = client
-    new_thread_id = session.resume_thread("thr-1")
-    assert new_thread_id == "thr-resumed"
+    resumed_thread_id = session.resume_thread("thr-1")
+    assert resumed_thread_id == "thr-1"
     assert client.requests[0] == ("thread/resume", {"threadId": "thr-1"})
 
 

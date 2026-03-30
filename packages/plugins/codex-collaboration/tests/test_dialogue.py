@@ -334,8 +334,8 @@ class TestRecoverPendingOperations:
         assert "orphan-2" in recovered
         handle = store.get("orphan-2")
         assert handle is not None
-        # Handle uses the resumed thread_id, not the original
-        assert handle.codex_thread_id == "thr-orphan-resumed"
+        assert handle.codex_thread_id == "thr-orphan"
+        assert session.resumed_threads == ["thr-orphan"]
         assert handle.status == "active"
         unresolved = journal.list_unresolved(session_id="sess-1")
         assert len(unresolved) == 0
