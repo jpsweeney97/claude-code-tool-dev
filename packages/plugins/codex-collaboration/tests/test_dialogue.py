@@ -531,6 +531,54 @@ class TestRecoverPendingOperations:
         assert len(unresolved) == 0
         assert turn_store.get(start.collaboration_id, turn_sequence=1) == 4096
 
+    def test_recover_dispatched_turn_dispatch_confirmed_emits_audit(
+        self, tmp_path: Path
+    ) -> None:
+        """Confirmed startup recovery must emit dialogue_turn audit when turn_id is recoverable."""
+        session = FakeRuntimeSession()
+        session.read_thread_response = {
+            "thread": {
+                "id": "thr-start",
+                "turns": [
+                    {
+                        "id": "t1",
+                        "status": "completed",
+                        "agentMessage": "",
+                        "createdAt": "",
+                    },
+                ],
+            },
+        }
+        controller, _, _, journal, _ = _build_dialogue_stack(tmp_path, session=session)
+        start = controller.start(tmp_path)
+
+        journal.write_phase(
+            OperationJournalEntry(
+                idempotency_key="rt-sess-1:thr-start:1",
+                operation="turn_dispatch",
+                phase="dispatched",
+                collaboration_id=start.collaboration_id,
+                created_at="2026-03-28T00:01:00Z",
+                repo_root=str(tmp_path.resolve()),
+                codex_thread_id="thr-start",
+                turn_sequence=1,
+                runtime_id="rt-sess-1",
+                context_size=4096,
+            ),
+            session_id="sess-1",
+        )
+
+        controller.recover_pending_operations()
+
+        audit_path = journal.plugin_data_path / "audit" / "events.jsonl"
+        events = [json.loads(line) for line in audit_path.read_text().strip().split("\n")]
+        turn_events = [e for e in events if e["action"] == "dialogue_turn"]
+        assert len(turn_events) == 1
+        assert turn_events[0]["collaboration_id"] == start.collaboration_id
+        assert turn_events[0]["runtime_id"] == "rt-sess-1"
+        assert turn_events[0]["turn_id"] == "t1"
+        assert turn_events[0]["context_size"] == 4096
+
 
 from server.models import DialogueReadResult, DialogueTurnSummary
 

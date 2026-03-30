@@ -503,18 +503,27 @@ class DialogueController:
             runtime = self._control_plane.get_advisory_runtime(Path(entry.repo_root))
             thread_data = runtime.session.read_thread(entry.codex_thread_id)
             raw_turns = thread_data.get("thread", {}).get("turns", [])
-            completed_count = sum(
-                1 for t in raw_turns
+            completed_turns = [
+                t for t in raw_turns
                 if isinstance(t, dict) and t.get("status") == "completed"
-            )
+            ]
+            completed_count = len(completed_turns)
             turn_confirmed = (
                 entry.turn_sequence is not None
                 and completed_count >= entry.turn_sequence
             )
         except Exception:
+            completed_turns = []
             turn_confirmed = False
 
+        turn_id = None
         if turn_confirmed:
+            if entry.turn_sequence is not None:
+                turn_index = entry.turn_sequence - 1
+                if 0 <= turn_index < len(completed_turns):
+                    candidate_turn_id = completed_turns[turn_index].get("id")
+                    if isinstance(candidate_turn_id, str) and candidate_turn_id:
+                        turn_id = candidate_turn_id
             # Repair metadata store if entry has context_size
             if entry.context_size is not None and entry.turn_sequence is not None:
                 self._turn_store.write(
@@ -537,6 +546,19 @@ class DialogueController:
             ),
             session_id=self._session_id,
         )
+        if turn_id is not None and entry.runtime_id is not None:
+            self._journal.append_audit_event(
+                AuditEvent(
+                    event_id=self._uuid_factory(),
+                    timestamp=self._journal.timestamp(),
+                    actor="claude",
+                    action="dialogue_turn",
+                    collaboration_id=entry.collaboration_id,
+                    runtime_id=entry.runtime_id,
+                    context_size=entry.context_size,
+                    turn_id=turn_id,
+                )
+            )
 
     def _next_turn_sequence(
         self,
