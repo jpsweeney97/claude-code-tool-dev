@@ -16,7 +16,7 @@ Synthesize handoff content into durable Phase 0 learning entries. The `distill.p
 
 | Input | Behavior |
 |-------|----------|
-| `/distill` | Most recent handoff in `~/.claude/handoffs/<project>/` (non-recursive, skip `.archive/`) |
+| `/distill` | Most recent handoff in `<project_root>/.claude/handoffs/` (non-recursive, skip `.archive/`) |
 | `/distill <path>` | Specific handoff file at `<path>` |
 | `--include-section <name>` | Add section to extraction scope (e.g., `--include-section Context`) |
 
@@ -27,7 +27,7 @@ Synthesize handoff content into durable Phase 0 learning entries. The `distill.p
 If path provided, validate it exists. If not:
 
 ```bash
-ls -t ~/.claude/handoffs/<project>/*.md | head -1
+ls -t "$(git rev-parse --show-toplevel)/.claude/handoffs"/*.md | head -1
 ```
 
 Skip `.archive/` subdirectory. Use the project name from the current working directory (same as other handoff skills).
@@ -195,7 +195,7 @@ Write each confirmed entry to `docs/learnings/learnings.md` in this format:
 **User:** `/distill`
 
 **Actions:**
-1. Find most recent handoff: `~/.claude/handoffs/my-project/2026-02-27_14-30_api-redesign.md`
+1. Find most recent handoff: `<project_root>/.claude/handoffs/2026-02-27_14-30_api-redesign.md`
 2. Run distill.py, get 4 candidates: 2 NEW (Decisions), 1 NEW (Learnings), 1 NEW (Gotchas)
 3. Synthesize each into Phase 0 paragraph
 4. No semantic duplicates found
@@ -207,7 +207,7 @@ Write each confirmed entry to `docs/learnings/learnings.md` in this format:
 
 ### Example 2: Re-distilling after content update
 
-**User:** `/distill ~/.claude/handoffs/my-project/2026-02-27_14-30_api-redesign.md`
+**User:** `/distill <project_root>/.claude/handoffs/2026-02-27_14-30_api-redesign.md`
 
 **Actions:**
 1. Run distill.py, get 4 candidates: 3 EXACT_DUP_SOURCE, 1 UPDATED_SOURCE

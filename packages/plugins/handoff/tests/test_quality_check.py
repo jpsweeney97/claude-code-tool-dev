@@ -115,10 +115,9 @@ def _make_hook_input(file_path: str, content: str) -> dict:
 
 
 HANDOFF_PATH = str(
-    Path.home()
+    Path("/tmp/test-project")
     / ".claude"
     / "handoffs"
-    / "test-project"
     / "2026-02-26_16-00_test.md"
 )
 
@@ -580,43 +579,37 @@ class TestValidate:
 class TestIsHandoffPath:
     """Tests for is_handoff_path — file path detection."""
 
-    def test_valid_path(self) -> None:
+    def test_valid_project_local_path(self) -> None:
         assert is_handoff_path(HANDOFF_PATH) is True
 
+    def test_valid_any_project_root(self) -> None:
+        path = "/Users/jp/Projects/myproject/.claude/handoffs/2026-02-26_test.md"
+        assert is_handoff_path(path) is True
+
     def test_archive_rejected(self) -> None:
-        path = str(
-            Path.home()
-            / ".claude"
-            / "handoffs"
-            / "proj"
-            / ".archive"
-            / "test.md"
-        )
+        path = "/tmp/proj/.claude/handoffs/.archive/test.md"
         assert is_handoff_path(path) is False
 
     def test_non_handoff_directory(self) -> None:
         assert is_handoff_path("/tmp/random/file.md") is False
 
     def test_non_md_file(self) -> None:
-        path = str(
-            Path.home() / ".claude" / "handoffs" / "proj" / "file.txt"
-        )
+        path = "/tmp/proj/.claude/handoffs/file.txt"
         assert is_handoff_path(path) is False
 
     def test_nested_too_deep(self) -> None:
-        path = str(
-            Path.home()
-            / ".claude"
-            / "handoffs"
-            / "proj"
-            / "sub"
-            / "file.md"
-        )
+        """File nested under a subdirectory of handoffs/ is rejected."""
+        path = "/tmp/proj/.claude/handoffs/sub/file.md"
         assert is_handoff_path(path) is False
 
-    def test_directly_in_handoffs_dir(self) -> None:
-        """File at handoffs/ level (no project dir) is rejected."""
-        path = str(Path.home() / ".claude" / "handoffs" / "file.md")
+    def test_no_claude_parent_rejected(self) -> None:
+        """handoffs/ without .claude/ parent is not a valid handoff path."""
+        path = "/tmp/handoffs/file.md"
+        assert is_handoff_path(path) is False
+
+    def test_handoffs_without_file_rejected(self) -> None:
+        """Path ending at handoffs/ directory itself is rejected."""
+        path = "/tmp/proj/.claude/handoffs/"
         assert is_handoff_path(path) is False
 
 
@@ -709,10 +702,9 @@ class TestMain:
     def test_archive_path_silent(self) -> None:
         """Archive path is not validated."""
         archive_path = str(
-            Path.home()
+            Path("/tmp/test-project")
             / ".claude"
             / "handoffs"
-            / "test-project"
             / ".archive"
             / "old.md"
         )

@@ -32,7 +32,7 @@ Create comprehensive session reports that preserve the full context future-Claud
 - Resume from handoffs (that's the `load` skill)
 - Replace proper documentation (handoffs are ephemeral, docs are permanent)
 - Reproduce the raw conversation transcript — but decisions, reasoning chains, codebase knowledge, and user preferences should be captured with enough depth and evidence to be fully actionable
-- Work across different machines (handoffs are local to `~/.claude/`)
+- Work across different machines (handoffs are local to the project directory)
 
 **STOP:** If unclear whether session has meaningful content, ask: "Should I create a handoff? This session seems light on decisions/changes."
 
@@ -49,15 +49,15 @@ Create comprehensive session reports that preserve the full context future-Claud
 | Assumption | Required? | Fallback |
 |------------|-----------|----------|
 | Git repository | No | Omit `branch` and `commit` fields from frontmatter |
-| Write access to `~/.claude/handoffs/` | Yes | **STOP** and ask for alternative path |
-| Project name determinable | No | Use parent directory name; if ambiguous, ask user |
+| Write access to `<project_root>/.claude/handoffs/` | Yes | **STOP** and ask for alternative path |
+| Project root determinable | No | Use current directory; if ambiguous, ask user |
 
-**STOP:** If `~/.claude/handoffs/` doesn't exist and cannot be created, ask: "I can't write to ~/.claude/handoffs/. Where should I save handoffs?"
+**STOP:** If `<project_root>/.claude/handoffs/` doesn't exist and cannot be created, ask: "I can't write to .claude/handoffs/. Where should I save handoffs?"
 
 ## Outputs
 
 **Artifacts:**
-- Markdown file at `~/.claude/handoffs/<project>/YYYY-MM-DD_HH-MM_<slug>.md`
+- Markdown file at `<project_root>/.claude/handoffs/YYYY-MM-DD_HH-MM_<slug>.md`
 - Frontmatter with session metadata (date, time, created_at, project, title, files)
 - Body with all 13 required sections (placeholder content when not applicable)
 
@@ -65,7 +65,7 @@ Create comprehensive session reports that preserve the full context future-Claud
 
 | Check | Expected |
 |-------|----------|
-| File exists at expected path | `ls ~/.claude/handoffs/<project>/YYYY-MM-DD_HH-MM_*.md` returns file |
+| File exists at expected path | `ls $(git rev-parse --show-toplevel)/.claude/handoffs/YYYY-MM-DD_HH-MM_*.md` returns file |
 | Frontmatter parses as valid YAML | No YAML syntax errors |
 | Required fields present | `date`, `time`, `created_at`, `session_id`, `project`, `title`, `type` all have values |
 | Body line count | >=400 for all sessions, >=500 for complex |
@@ -104,8 +104,8 @@ Create comprehensive session reports that preserve the full context future-Claud
    - Use the current time when the handoff is created
 
 5. **Write permission check:**
-   - If `~/.claude/handoffs/<project>/` is writable (or can be created), write handoff there.
-   - Otherwise, **STOP** and ask: "Can't write to ~/.claude/handoffs/. Where should I save this handoff?"
+   - If `<project_root>/.claude/handoffs/` is writable (or can be created), write handoff there.
+   - Otherwise, **STOP** and ask: "Can't write to .claude/handoffs/. Where should I save this handoff?"
 
 ## Procedure
 
@@ -139,8 +139,8 @@ When user runs `/save [title]` or confirms a signal phrase offer:
    - **Default to inclusion.** If you're unsure whether something belongs, include it.
 
 6. **Determine output path:**
-   - If `~/.claude/handoffs/<project>/` is not writable, **STOP** and ask for alternative path
-   - If project name is ambiguous (not in git, generic directory name), ask user to specify
+   - Resolve project root: `$(git rev-parse --show-toplevel)` (falls back to cwd if not in a git repo)
+   - If `<project_root>/.claude/handoffs/` is not writable, **STOP** and ask for alternative path
 
 7. **Generate markdown** with frontmatter per [format-reference.md](../../references/format-reference.md) and [handoff-contract.md](../../references/handoff-contract.md):
    - Include `session_id:` with the UUID from step 2
@@ -148,7 +148,7 @@ When user runs `/save [title]` or confirms a signal phrase offer:
    - Per chain protocol in [handoff-contract.md](../../references/handoff-contract.md): read `~/.claude/.session-state/handoff-<session_id>` — if exists, set `resumed_from` to its content
    - Use fallbacks for optional fields (see Inputs → Constraints/Assumptions)
 
-8. **Write file** to `~/.claude/handoffs/<project>/YYYY-MM-DD_HH-MM_<slug>.md`
+8. **Write file** to `<project_root>/.claude/handoffs/YYYY-MM-DD_HH-MM_<slug>.md`
 
 9. **Cleanup state file** per chain protocol in [handoff-contract.md](../../references/handoff-contract.md):
    - `trash` the state file at `~/.claude/.session-state/handoff-<session_id>` if it exists. If `trash` fails, warn the user that the state file persists but do not block — the 24-hour TTL will clean it up.
@@ -162,14 +162,14 @@ When user runs `/save [title]` or confirms a signal phrase offer:
 
 After creating handoff, verify:
 
-- [ ] File exists at `~/.claude/handoffs/<project>/YYYY-MM-DD_HH-MM_<slug>.md`
+- [ ] File exists at `<project_root>/.claude/handoffs/YYYY-MM-DD_HH-MM_<slug>.md`
 - [ ] Frontmatter parses as valid YAML
 - [ ] Required fields present and non-blank: date, time, created_at, session_id, project, title, type (hook-enforced)
 - [ ] All 13 required sections present (hook-enforced)
 - [ ] At least 1 of {Decisions, Changes, Learnings} has substantive content (hook-enforced)
 - [ ] Body line count >= 400 (hook-enforced)
 
-**Quick check:** Run `ls ~/.claude/handoffs/<project>/` and confirm new file appears. If not, check write permissions.
+**Quick check:** Run `ls "$(git rev-parse --show-toplevel)/.claude/handoffs/"` and confirm new file appears. If not, check write permissions.
 
 **If verification fails:** Do not report success. Check Troubleshooting section and resolve before confirming.
 
@@ -177,18 +177,18 @@ After creating handoff, verify:
 
 ### Handoff file not created
 
-**Symptoms:** `/save` completes but no file appears at `~/.claude/handoffs/<project>/`
+**Symptoms:** `/save` completes but no file appears at `<project_root>/.claude/handoffs/`
 
 **Likely causes:**
-- Permission denied on `~/.claude/` directory
-- Project name couldn't be determined (not in git, ambiguous directory)
+- Permission denied on project `.claude/` directory
+- Project root couldn't be determined (not in git, ambiguous directory)
 - Disk full or path too long
 
 **Next steps:**
-1. Check if `~/.claude/handoffs/` exists: `ls -la ~/.claude/handoffs/`
-2. Check write permissions: `touch ~/.claude/handoffs/test && trash ~/.claude/handoffs/test`
+1. Check if `.claude/handoffs/` exists: `ls -la "$(git rev-parse --show-toplevel)/.claude/handoffs/"`
+2. Check write permissions: `touch "$(git rev-parse --show-toplevel)/.claude/handoffs/test" && trash "$(git rev-parse --show-toplevel)/.claude/handoffs/test"`
 3. If permissions issue, ask user for alternative path
-4. If project undetermined, ask user to specify project name
+4. If project root undetermined, ask user to specify
 
 ### Handoff content missing key decisions
 

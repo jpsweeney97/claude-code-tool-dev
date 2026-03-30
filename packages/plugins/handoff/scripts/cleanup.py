@@ -36,11 +36,11 @@ def _trash(path: Path) -> bool:
         return False  # PermissionError, trash failure, or timeout — skip
 
 
-def get_project_name() -> str:
-    """Get project name from git root directory, falling back to current directory name.
+def get_project_root() -> Path:
+    """Get project root directory from git, falling back to cwd.
 
     Fallback is intentional for non-git directories. For corrupted repos or
-    missing git binary, the fallback may resolve to the wrong project name —
+    missing git binary, the fallback may resolve to the wrong directory —
     accepted because cleanup targets are scoped to individual files with
     age-based pruning (misidentification doesn't delete wrong-age files).
     """
@@ -52,7 +52,7 @@ def get_project_name() -> str:
             timeout=5,
         )
         if result.returncode == 0:
-            return Path(result.stdout.strip()).name
+            return Path(result.stdout.strip())
         # Non-zero return: not a git repo, or git error. Fall back to cwd.
     except subprocess.TimeoutExpired:
         pass  # Git hanging (disk issue, corrupted repo). Fall back to cwd.
@@ -60,12 +60,12 @@ def get_project_name() -> str:
         pass  # Git binary not installed. Fall back to cwd.
     except OSError:
         pass  # PermissionError or other OS-level issue. Fall back to cwd.
-    return Path.cwd().name
+    return Path.cwd()
 
 
 def get_handoffs_dir() -> Path:
-    """Get handoffs directory: ~/.claude/handoffs/<project>/"""
-    return Path.home() / ".claude" / "handoffs" / get_project_name()
+    """Get handoffs directory: <project_root>/.claude/handoffs/"""
+    return get_project_root() / ".claude" / "handoffs"
 
 
 def prune_old_handoffs(handoffs_dir: Path, max_age_days: int = 30) -> list[Path]:

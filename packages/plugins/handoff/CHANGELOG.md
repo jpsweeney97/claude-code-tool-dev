@@ -6,6 +6,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+- **BREAKING:** Handoff storage moved from global `~/.claude/handoffs/<project>/` to project-local `<project_root>/.claude/handoffs/`. Existing handoffs at the old location will expire naturally via retention policy (30/90 days). Session-state files remain at `~/.claude/.session-state/`.
+
 ### Fixed
 - Organize tickets into subdirectories and fix triage subdirectory bug
 - Add warnings for silent coercions and error handling in `triage.main()`

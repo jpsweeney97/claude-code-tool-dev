@@ -2,7 +2,7 @@
 """PostToolUse hook: validates handoff/checkpoint quality after Write.
 
 Reads PostToolUse JSON from stdin. If the written file is a handoff or
-checkpoint (path under ~/.claude/handoffs/<project>/), validates:
+checkpoint (path under <project_root>/.claude/handoffs/), validates:
 - Required frontmatter fields present, non-blank, and valid
 - Required sections present (13 for handoffs, 5 for checkpoints)
 - Line count within range (400+ for handoffs, 20-80 for checkpoints)
@@ -351,28 +351,26 @@ def validate(content: str) -> list[Issue]:
 def is_handoff_path(file_path: str) -> bool:
     """Check if file is a handoff/checkpoint (not archived).
 
-    Valid paths: ~/.claude/handoffs/<project>/<file>.md
-    Invalid: archive paths, non-.md files, nested paths, other directories.
+    Valid paths: <project_root>/.claude/handoffs/<file>.md
+    Invalid: archive paths, non-.md files, nested paths, paths without .claude parent.
     """
     path = Path(file_path)
-    handoffs_dir = Path.home() / ".claude" / "handoffs"
-
-    try:
-        relative = path.relative_to(handoffs_dir)
-    except ValueError:
-        return False
 
     if path.suffix != ".md":
         return False
 
-    if ".archive" in relative.parts:
-        return False
+    parts = path.parts
+    for i in range(len(parts) - 1):
+        if parts[i] == ".claude" and parts[i + 1] == "handoffs":
+            remaining = parts[i + 2:]
+            # Must be exactly one part after "handoffs" (the filename)
+            if len(remaining) != 1:
+                return False
+            if ".archive" in parts:
+                return False
+            return True
 
-    # Must be exactly: <project>/<file>.md (2 parts)
-    if len(relative.parts) != 2:
-        return False
-
-    return True
+    return False
 
 
 def format_output(issues: list[Issue]) -> str:

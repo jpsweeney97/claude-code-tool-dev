@@ -49,7 +49,7 @@ Continue work from a previous handoff.
 ## Outputs
 
 **Artifacts:**
-- Archived handoff at `~/.claude/handoffs/<project>/.archive/<filename>`
+- Archived handoff at `<project_root>/.claude/handoffs/.archive/<filename>`
 - State file at `~/.claude/.session-state/handoff-<session_id>`
 
 **Side Effects:**
@@ -109,7 +109,7 @@ When user runs `/load [path]`:
 2. **Locate handoff:**
    - If path provided: validate it exists, use that handoff
    - If no path:
-     1. Use Bash: `ls $HOME/.claude/handoffs/<project>/*.md 2>/dev/null` (shell glob is non-recursive — unlike the Glob tool, it won't descend into `.archive/`)
+     1. Use Bash: `ls "$(git rev-parse --show-toplevel)/.claude/handoffs"/*.md 2>/dev/null` (shell glob is non-recursive — unlike the Glob tool, it won't descend into `.archive/`)
      2. If no output, report "No handoffs found for this project" and **STOP**
      3. Select most recent by filename (format: `YYYY-MM-DD_HH-MM_*.md`)
 
@@ -122,7 +122,7 @@ When user runs `/load [path]`:
    - Offer: "Continue with [first next step/action]?"
 
 5. **Archive the handoff:**
-   - Create `~/.claude/handoffs/<project>/.archive/` if needed
+   - Create `<project_root>/.claude/handoffs/.archive/` if needed
    - Move handoff to `.archive/<filename>`
 
 6. **Write state file:**
@@ -133,7 +133,7 @@ When user runs `/load [path]`:
 
 When user runs `/list-handoffs`:
 
-1. Use Bash: `ls $HOME/.claude/handoffs/<project>/*.md 2>/dev/null` (shell glob is non-recursive — unlike the Glob tool, it won't descend into `.archive/`)
+1. Use Bash: `ls "$(git rev-parse --show-toplevel)/.claude/handoffs"/*.md 2>/dev/null` (shell glob is non-recursive — unlike the Glob tool, it won't descend into `.archive/`)
 2. If no output, report "No handoffs found for this project" and **STOP**
 3. Read frontmatter from each file
 4. Format as table: date, title, type, branch
@@ -142,9 +142,9 @@ When user runs `/list-handoffs`:
 ## Storage
 
 See [format-reference.md](../../references/format-reference.md) for:
-- Storage location (`~/.claude/handoffs/<project>/`)
+- Storage location (`<project_root>/.claude/handoffs/`)
 - Filename format (`YYYY-MM-DD_HH-MM_<slug>.md`)
-- Archive location (`~/.claude/handoffs/<project>/.archive/`)
+- Archive location (`<project_root>/.claude/handoffs/.archive/`)
 - Retention policies (30 days active, 90 days archive)
 
 See also [handoff-contract.md](../../references/handoff-contract.md) for storage conventions, retention policies, and filename format.
@@ -170,7 +170,7 @@ After loading, verify:
 - [ ] Type displayed on load ("Resuming from **checkpoint**:" or "Resuming from **handoff**:")
 - [ ] User offered continuation prompt
 
-**Quick check:** `ls ~/.claude/handoffs/<project>/.archive/` shows the archived file.
+**Quick check:** `ls "$(git rev-parse --show-toplevel)/.claude/handoffs/.archive/"` shows the archived file.
 
 ## Troubleshooting
 
@@ -185,7 +185,7 @@ After loading, verify:
 
 **Next steps:**
 1. Run `/list-handoffs` to see available handoffs for current project
-2. Check `~/.claude/handoffs/` directly: `ls ~/.claude/handoffs/`
+2. Check handoffs directory directly: `ls "$(git rev-parse --show-toplevel)/.claude/handoffs/"`
 3. If found in different project, use `/load <full-path>`
 
 ### Archive directory not created
@@ -197,8 +197,8 @@ After loading, verify:
 - Disk full
 
 **Next steps:**
-1. Check write permissions on `~/.claude/handoffs/<project>/`
-2. Create `.archive/` manually if needed: `mkdir ~/.claude/handoffs/<project>/.archive`
+1. Check write permissions on `<project_root>/.claude/handoffs/`
+2. Create `.archive/` manually if needed: `mkdir "$(git rev-parse --show-toplevel)/.claude/handoffs/.archive"`
 
 ### State file not created
 

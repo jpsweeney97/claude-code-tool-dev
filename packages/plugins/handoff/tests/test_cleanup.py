@@ -9,35 +9,35 @@ from unittest.mock import patch
 from scripts.cleanup import (
     _trash,
     get_handoffs_dir,
-    get_project_name,
+    get_project_root,
     main,
     prune_old_handoffs,
     prune_old_state_files,
 )
 
 
-class TestGetProjectName:
-    """Tests for get_project_name."""
+class TestGetProjectRoot:
+    """Tests for get_project_root."""
 
     def test_git_success(self) -> None:
         mock_result = subprocess.CompletedProcess(
             args=[], returncode=0, stdout="/home/user/my-project\n"
         )
         with patch("scripts.cleanup.subprocess.run", return_value=mock_result):
-            assert get_project_name() == "my-project"
+            assert get_project_root() == Path("/home/user/my-project")
 
     def test_git_not_installed_falls_back(self) -> None:
         with patch(
             "scripts.cleanup.subprocess.run", side_effect=FileNotFoundError
         ):
-            assert get_project_name() == Path.cwd().name
+            assert get_project_root() == Path.cwd()
 
     def test_git_timeout_falls_back(self) -> None:
         with patch(
             "scripts.cleanup.subprocess.run",
             side_effect=subprocess.TimeoutExpired("git", 5),
         ):
-            assert get_project_name() == Path.cwd().name
+            assert get_project_root() == Path.cwd()
 
     def test_git_oserror_falls_back(self) -> None:
         """I2: PermissionError on git binary must not escape to main()."""
@@ -45,24 +45,24 @@ class TestGetProjectName:
             "scripts.cleanup.subprocess.run",
             side_effect=PermissionError("not executable"),
         ):
-            assert get_project_name() == Path.cwd().name
+            assert get_project_root() == Path.cwd()
 
     def test_not_a_repo_falls_back(self) -> None:
         mock_result = subprocess.CompletedProcess(
             args=[], returncode=128, stdout="", stderr="not a git repository"
         )
         with patch("scripts.cleanup.subprocess.run", return_value=mock_result):
-            assert get_project_name() == Path.cwd().name
+            assert get_project_root() == Path.cwd()
 
 
 class TestGetHandoffsDir:
     """Tests for get_handoffs_dir path composition."""
 
-    def test_composes_path_from_project_name(self) -> None:
-        """T1: Verify path composition logic — ~/.claude/handoffs/<project>/."""
-        with patch("scripts.cleanup.get_project_name", return_value="my-project"):
+    def test_composes_path_from_project_root(self) -> None:
+        """T1: Verify path composition logic — <project_root>/.claude/handoffs/."""
+        with patch("scripts.cleanup.get_project_root", return_value=Path("/home/user/my-project")):
             result = get_handoffs_dir()
-        assert result == Path.home() / ".claude" / "handoffs" / "my-project"
+        assert result == Path("/home/user/my-project") / ".claude" / "handoffs"
 
 
 class TestPruneOldHandoffs:

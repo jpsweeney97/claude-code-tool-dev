@@ -27,7 +27,7 @@ Fast state capture for context-pressure session cycling. Produces 22-55 line doc
 
 1. **Check prerequisites:**
    - Determine project name per [handoff-contract.md](../../references/handoff-contract.md) (git root name or cwd name).
-   - Verify `~/.claude/handoffs/<project>/` is writable. If not writable and cannot be created, **STOP** per contract Write Permission section.
+   - Verify `<project_root>/.claude/handoffs/` is writable. If not writable and cannot be created, **STOP** per contract Write Permission section.
    - If session has no work done (no files read, no changes, no progress), ask: "Nothing to quicksave — create one anyway?"
    - If user declines, **STOP**.
 
@@ -54,7 +54,7 @@ Fast state capture for context-pressure session cycling. Produces 22-55 line doc
    - If user wants full handoff, **STOP** and suggest they run `/save`.
    - **Scope limitation:** The guardrail only detects consecutive checkpoints within a single resume chain (connected via `resumed_from`). Cross-session checkpoints without `/load` between them do not trigger the guardrail.
 
-6. **Write file** to `~/.claude/handoffs/<project>/YYYY-MM-DD_HH-MM_checkpoint-<slug>.md`
+6. **Write file** to `<project_root>/.claude/handoffs/YYYY-MM-DD_HH-MM_checkpoint-<slug>.md`
    - Use frontmatter from [handoff-contract.md](../../references/handoff-contract.md) with `type: checkpoint`
    - Title: `"Checkpoint: <descriptive-title>"`
    - Populate frontmatter `files:` from file paths listed in the Active Files section
@@ -98,12 +98,12 @@ Fast state capture for context-pressure session cycling. Produces 22-55 line doc
 
 **Likely causes:**
 - Project name detection failed (not in a git repo, ambiguous directory)
-- Write permission denied on `~/.claude/handoffs/<project>/`
+- Write permission denied on `<project_root>/.claude/handoffs/`
 
 **Next steps:**
 1. Check project detection: `git rev-parse --show-toplevel 2>/dev/null || pwd`
-2. Check permissions: `ls -la ~/.claude/handoffs/`
-3. Create directory manually if needed: `mkdir -p ~/.claude/handoffs/<project>`
+2. Check permissions: `ls -la "$(git rev-parse --show-toplevel)/.claude/handoffs/"`
+3. Create directory manually if needed: `mkdir -p "$(git rev-parse --show-toplevel)/.claude/handoffs"`
 
 ### Missing resumed_from
 
