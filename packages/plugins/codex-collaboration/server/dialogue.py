@@ -662,7 +662,7 @@ class DialogueController:
             if raw_turn.get("status") != "completed":
                 continue
             seq += 1
-            agent_message = raw_turn.get("agentMessage", "")
+            agent_message = self._read_turn_agent_message(raw_turn)
             position = ""
             if isinstance(agent_message, str) and agent_message:
                 try:
@@ -687,7 +687,7 @@ class DialogueController:
                     turn_sequence=seq,
                     position=position,
                     context_size=context_size,
-                    timestamp=str(raw_turn.get("createdAt", "")),
+                    timestamp=self._read_turn_timestamp(raw_turn),
                 )
             )
 
@@ -698,3 +698,39 @@ class DialogueController:
             created_at=handle.created_at,
             turns=tuple(turns),
         )
+
+    @staticmethod
+    def _read_turn_agent_message(raw_turn: dict[str, object]) -> str:
+        """Extract agent message text from legacy or live thread/read turn shapes."""
+        agent_message = raw_turn.get("agentMessage")
+        if isinstance(agent_message, str):
+            return agent_message
+
+        items = raw_turn.get("items")
+        if isinstance(items, list):
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                if item.get("type") != "agentMessage":
+                    continue
+                text = item.get("text")
+                if isinstance(text, str):
+                    return text
+        return ""
+
+    @staticmethod
+    def _read_turn_timestamp(raw_turn: dict[str, object]) -> str:
+        """Extract turn timestamp when the runtime exposes one."""
+        created_at = raw_turn.get("createdAt")
+        if isinstance(created_at, str):
+            return created_at
+
+        items = raw_turn.get("items")
+        if isinstance(items, list):
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                nested_created_at = item.get("createdAt")
+                if isinstance(nested_created_at, str):
+                    return nested_created_at
+        return ""

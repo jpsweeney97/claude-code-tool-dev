@@ -588,6 +588,57 @@ class TestDialogueRead:
         # context_size is now real, not 0
         assert read_result.turns[0].context_size == reply_result.context_size
 
+    def test_read_extracts_position_from_nested_agent_message_item(
+        self, tmp_path: Path
+    ) -> None:
+        focus = tmp_path / "focus.py"
+        focus.write_text("print('focus')\n", encoding="utf-8")
+        session = FakeRuntimeSession()
+        controller, _, _, _, _ = _build_dialogue_stack(tmp_path, session=session)
+        start_result = controller.start(tmp_path)
+        reply_result = controller.reply(
+            collaboration_id=start_result.collaboration_id,
+            objective="First turn",
+            explicit_paths=(Path("focus.py"),),
+        )
+
+        session.read_thread_response = {
+            "thread": {
+                "id": "thr-start",
+                "turns": [
+                    {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "items": [
+                            {
+                                "id": "item-1",
+                                "type": "userMessage",
+                                "content": [
+                                    {
+                                        "type": "text",
+                                        "text": "First turn",
+                                        "text_elements": [],
+                                    }
+                                ],
+                            },
+                            {
+                                "id": "item-2",
+                                "type": "agentMessage",
+                                "text": '{"position":"Nested","evidence":[],"uncertainties":[],"follow_up_branches":[]}',
+                            },
+                        ],
+                    },
+                ],
+            },
+        }
+
+        read_result = controller.read(start_result.collaboration_id)
+
+        assert read_result.turn_count == 1
+        assert read_result.turns[0].position == "Nested"
+        assert read_result.turns[0].context_size == reply_result.context_size
+        assert read_result.turns[0].timestamp == ""
+
     def test_read_raises_on_unknown_collaboration_id(self, tmp_path: Path) -> None:
         controller, _, _, _, _ = _build_dialogue_stack(tmp_path)
         with pytest.raises(ValueError, match="Read failed: handle not found"):
