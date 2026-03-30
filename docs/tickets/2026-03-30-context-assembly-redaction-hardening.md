@@ -25,7 +25,7 @@ Item 7 (non-UTF-8 file crash) was closed immediately as a standalone bugfix at `
 |-------------|---------|------|
 | AWS access keys | `AKIAIOSFODNN7EXAMPLE` | Bare prefix, no `key=` wrapper needed |
 | GitHub tokens | `ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx` | Bare prefix |
-| GitHub app tokens | `gho_*`, `github_pat_*` | Bare prefix |
+| GitHub app tokens | `gho_*` | Bare prefix |
 | Basic auth headers | `Authorization: Basic dXNlcjpwYXNz` | Header form, not caught by `Bearer` pattern |
 | URL-embedded credentials | `https://user:pass@host.com/path` | Userinfo in URL |
 
@@ -34,7 +34,7 @@ These affect the production consult path and the dialogue path equally — `cont
 ## Scope
 
 **In scope:**
-- Port low-ambiguity prefix patterns to `_SECRET_PATTERNS`: `AKIA*`, `ghp_`, `gho_`, `ghs_`, `ghr_`, `github_pat_`
+- Port low-ambiguity prefix patterns to `_SECRET_PATTERNS`: `AKIA*`, `ghp_`, `gho_`, `ghs_`, `ghr_`
 - Add `Authorization: Basic` header pattern (explicit header form only, not free-floating `basic` text)
 - Add URL userinfo pattern (`://user:pass@`)
 - Add false-positive regression tests against code-like content
@@ -44,6 +44,7 @@ These affect the production consult path and the dialogue path equally — `cont
 - Blind parity with `context-injection/redact.py` — that module is tuned for excerpt safety where over-redaction is acceptable. This path feeds the full Codex prompt where over-redaction loses meaningful content.
 - Broader `_CREDENTIAL_RE` keyword expansion (14 keywords in `redact.py`) — evaluate only after prefix patterns land and false-positive impact is assessed.
 - JWT detection — high false-positive risk in code content (base64-heavy strings).
+- `github_pat_` fine-grained PAT detection — GitHub Docs confirm the prefix exists but do not publish the token grammar (length, suffix structure). Community-observed regex (`github_pat_[a-zA-Z0-9]{22}_[a-zA-Z0-9]{59}`) is not authoritative. Defer until GitHub publishes an official format spec or the community regex is validated against a larger sample.
 - Shared redaction module extraction — acknowledged duplication, not worth the cross-package dependency for this scope.
 
 ## Internal precedent
@@ -58,7 +59,7 @@ Key differences from `redact.py` context:
 ## Acceptance criteria
 
 - [ ] `AKIA*` bare keys redacted in assembled packets
-- [ ] `ghp_`, `gho_`, `ghs_`, `ghr_`, `github_pat_` tokens redacted
+- [ ] `ghp_`, `gho_`, `ghs_`, `ghr_` tokens redacted
 - [ ] `Authorization: Basic` headers redacted
 - [ ] URL userinfo (`://user:pass@host`) redacted
 - [ ] False-positive regression: code containing `basic_auth_setup`, `basic_config`, and similar patterns NOT redacted
