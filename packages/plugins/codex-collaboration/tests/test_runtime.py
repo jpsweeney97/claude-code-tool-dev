@@ -72,7 +72,10 @@ def test_read_thread_returns_turns() -> None:
     result = session.read_thread("thr-1")
     assert result["thread"]["id"] == "thr-1"
     assert len(result["thread"]["turns"]) == 1
-    assert client.requests[0] == ("thread/read", {"threadId": "thr-1"})
+    assert client.requests[0] == (
+        "thread/read",
+        {"threadId": "thr-1", "includeTurns": True},
+    )
 
 
 def test_resume_thread_returns_new_thread_id() -> None:

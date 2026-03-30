@@ -174,7 +174,10 @@ class AppServerRuntimeSession:
 
     def read_thread(self, thread_id: str) -> dict[str, Any]:
         """Read thread state and turn history via thread/read."""
-        return self._client.request("thread/read", {"threadId": thread_id})
+        return self._client.request(
+            "thread/read",
+            {"threadId": thread_id, "includeTurns": True},
+        )
 
     def resume_thread(self, thread_id: str) -> str:
         """Resume a thread after crash recovery. Returns the (possibly new) thread ID."""
