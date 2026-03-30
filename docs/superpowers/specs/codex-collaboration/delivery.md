@@ -231,6 +231,25 @@ Current implemented rollout target: **dev-repo internal use**.
 - Out of scope for this rollout target: packaged-plugin structure, delegation/execution components, promotion wiring, and broader production hardening gates
 - Risk acceptance for remaining R1/R2 parked debt lives in `docs/tickets/2026-03-27-r1-carry-forward-debt.md`
 
+### Post-R2 Supersession Packets
+
+Post-R2 work is decomposed into the following execution packets:
+
+| Packet | Ticket | Purpose |
+|---|---|---|
+| 2a | `T-20260330-02` | Plugin shell, minimal packaged consult flow, `codex.status` integration |
+| 2b | `T-20260330-03` | Shared safety substrate, profiles, learnings, analytics emission, benchmark contract |
+| 3 | `T-20260330-04` | Dialogue parity and context-injection retirement decision |
+| 4 | `T-20260330-05` | Execution-domain foundation |
+| 5 | `T-20260330-06` | Promotion flow and delegate UX |
+| 6/7 | `T-20260330-07` | Analytics dashboard, reviewer, migration, and cutover |
+
+After packet `2b` is stable, packets `3` and `4` may proceed in parallel.
+Dialogue is the adoption gate. The execution domain is the completion gate.
+
+The context-injection retirement decision is governed by
+[dialogue-supersession-benchmark.md](dialogue-supersession-benchmark.md).
+
 ### Not in First Slice
 
 - Analytics

@@ -24,6 +24,20 @@ This design is a greenfield replacement. It does **not** preserve the current cr
 
 The existing `cross-model` package is only useful as a list of failure modes to avoid. The new system defines its own logical contracts and storage model.
 
+## Supersession Direction
+
+As of 2026-03-30, `codex-collaboration` is the sole planned successor to the
+`cross-model` plugin. `cross-model` remains a migration inventory and a source
+of failure modes to avoid; it is not a co-equal long-term surface.
+
+`context-injection` is retired by default for codex-collaboration dialogue
+flows. Reconsider that decision only if the fixed benchmark contract in
+[dialogue-supersession-benchmark.md](dialogue-supersession-benchmark.md) shows
+that Claude-side scouting is materially worse.
+
+Analytics are rebuilt on codex-collaboration's audit and event model rather
+than ported from cross-model's JSONL schema.
+
 ## Accepted Tradeoffs
 
 ### T1: Security Isolation vs. Operational Simplicity

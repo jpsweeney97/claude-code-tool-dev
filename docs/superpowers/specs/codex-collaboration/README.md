@@ -36,7 +36,8 @@ The design uses a split-runtime model: one long-lived advisory App Server runtim
 | 4 | [advisory-runtime-policy.md](advisory-runtime-policy.md) | advisory-policy | Policy fingerprints, privilege widening/narrowing, freeze-and-rotate, reap conditions |
 | 5 | [recovery-and-journal.md](recovery-and-journal.md) | recovery-contract | Two-log architecture, idempotency keys, crash recovery, concurrency limits, retention |
 | 6 | [delivery.md](delivery.md) | delivery | Build sequence, compatibility policy, plugin structure, test strategy |
-| 7 | [decisions.md](decisions.md) | decisions | Greenfield rules, accepted tradeoffs, architecture option analysis, open questions |
+| 7 | [dialogue-supersession-benchmark.md](dialogue-supersession-benchmark.md) | delivery | Fixed-corpus benchmark contract for retiring context-injection by default |
+| 8 | [decisions.md](decisions.md) | decisions | Greenfield rules, accepted tradeoffs, architecture option analysis, open questions |
 
 ## Cross-Reference Conventions
 
