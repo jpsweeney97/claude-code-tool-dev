@@ -117,7 +117,7 @@ Test explicitly that `api_key = AKIAIOSFODNN7EXAMPLE` produces exactly one `[red
 Item 6 is closed. `context_assembly.py` now applies the redaction rules in the ticket's required order, preserves structure for Basic auth headers and URL userinfo, and retains assignment labels when prefix and keyword rules overlap.
 
 Verification:
-- `uv run pytest packages/plugins/codex-collaboration/tests` → 219 passed
+- `uv run pytest packages/plugins/codex-collaboration/tests` → 220 passed
 - `uv run ruff check packages/plugins/codex-collaboration/server/context_assembly.py packages/plugins/codex-collaboration/tests/test_context_assembly.py` → passed
 
 ## Parked debt (not in scope)
