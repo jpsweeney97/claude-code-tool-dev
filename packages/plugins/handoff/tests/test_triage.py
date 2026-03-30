@@ -452,7 +452,7 @@ class TestGenerateReport:
         tickets_dir.mkdir()
 
         handoffs_dir = tmp_path / "handoffs"
-        archive_dir = handoffs_dir / ".archive"
+        archive_dir = handoffs_dir / "archive"
         archive_dir.mkdir(parents=True)
         (archive_dir / "archived.md").write_text(HANDOFF_WITH_OPEN_QUESTIONS)
 

@@ -43,11 +43,21 @@ def get_project_name() -> tuple[str, str]:
 
 
 def get_handoffs_dir() -> Path:
-    """Get handoffs directory: <project_root>/.claude/handoffs/"""
+    """Get handoffs directory: <project_root>/docs/handoffs/"""
     root, _ = get_project_root()
-    return root / ".claude" / "handoffs"
+    return root / "docs" / "handoffs"
 
 
 def get_archive_dir() -> Path:
     """Return the archive directory for the current project's handoffs."""
-    return get_handoffs_dir() / ".archive"
+    return get_handoffs_dir() / "archive"
+
+
+def get_legacy_handoffs_dir() -> Path:
+    """Get legacy handoffs directory: <project_root>/.claude/handoffs/
+
+    Used by search, triage, and load for fallback discovery of
+    pre-migration handoff files.
+    """
+    root, _ = get_project_root()
+    return root / ".claude" / "handoffs"

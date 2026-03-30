@@ -1,6 +1,7 @@
 ---
 name: quicksave
 description: Used when user runs /quicksave to save session state quickly under context pressure. Fast, lightweight alternative to /save. Use when user says "quicksave", "checkpoint", "save state", "quick save", or is running low on context.
+allowed-tools: Write, Read, Bash
 ---
 
 **Session ID:** ${CLAUDE_SESSION_ID}
@@ -27,7 +28,7 @@ Fast state capture for context-pressure session cycling. Produces 22-55 line doc
 
 1. **Check prerequisites:**
    - Determine project name per [handoff-contract.md](../../references/handoff-contract.md) (git root name or cwd name).
-   - Verify `<project_root>/.claude/handoffs/` is writable. If not writable and cannot be created, **STOP** per contract Write Permission section.
+   - Verify `<project_root>/docs/handoffs/` is writable. If not writable and cannot be created, **STOP** per contract Write Permission section.
    - If session has no work done (no files read, no changes, no progress), ask: "Nothing to quicksave — create one anyway?"
    - If user declines, **STOP**.
 
@@ -54,11 +55,17 @@ Fast state capture for context-pressure session cycling. Produces 22-55 line doc
    - If user wants full handoff, **STOP** and suggest they run `/save`.
    - **Scope limitation:** The guardrail only detects consecutive checkpoints within a single resume chain (connected via `resumed_from`). Cross-session checkpoints without `/load` between them do not trigger the guardrail.
 
-6. **Write file** to `<project_root>/.claude/handoffs/YYYY-MM-DD_HH-MM_checkpoint-<slug>.md`
+6. **Write file** to `<project_root>/docs/handoffs/YYYY-MM-DD_HH-MM_checkpoint-<slug>.md`
    - Use frontmatter from [handoff-contract.md](../../references/handoff-contract.md) with `type: checkpoint`
    - Title: `"Checkpoint: <descriptive-title>"`
    - Populate frontmatter `files:` from file paths listed in the Active Files section
    - Required sections (5) are always included — use placeholder content for thin sessions (e.g., "No commands run yet" for Verification Snapshot). Conditional sections (3) are omitted when not applicable.
+
+   **Auto-commit the checkpoint:**
+   ```bash
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/auto_commit.py" -m "docs(handoff): save <title>" "<file_path>"
+   ```
+   If the commit fails, warn but continue.
 
 7. **Cleanup state file** per chain protocol:
    - `trash` the state file at `~/.claude/.session-state/handoff-<session_id>` if it exists. If `trash` fails, warn the user that the state file persists but do not block — the 24-hour TTL will clean it up.
@@ -98,12 +105,12 @@ Fast state capture for context-pressure session cycling. Produces 22-55 line doc
 
 **Likely causes:**
 - Project name detection failed (not in a git repo, ambiguous directory)
-- Write permission denied on `<project_root>/.claude/handoffs/`
+- Write permission denied on `<project_root>/docs/handoffs/`
 
 **Next steps:**
 1. Check project detection: `git rev-parse --show-toplevel 2>/dev/null || pwd`
-2. Check permissions: `ls -la "$(git rev-parse --show-toplevel)/.claude/handoffs/"`
-3. Create directory manually if needed: `mkdir -p "$(git rev-parse --show-toplevel)/.claude/handoffs"`
+2. Check permissions: `ls -la "$(git rev-parse --show-toplevel)/docs/handoffs/"`
+3. Create directory manually if needed: `mkdir -p "$(git rev-parse --show-toplevel)/docs/handoffs"`
 
 ### Missing resumed_from
 

@@ -8,6 +8,7 @@ import pytest
 from scripts.project_paths import (
     get_archive_dir,
     get_handoffs_dir,
+    get_legacy_handoffs_dir,
     get_project_name,
     get_project_root,
 )
@@ -83,22 +84,34 @@ class TestGetProjectName:
 class TestGetHandoffsDir:
     """Tests for get_handoffs_dir."""
 
-    def test_returns_project_local_handoffs_path(self) -> None:
+    def test_returns_docs_handoffs_path(self) -> None:
         with patch(
             "scripts.project_paths.get_project_root",
             return_value=(Path("/Users/jp/Projects/myproject"), "git"),
         ):
             result = get_handoffs_dir()
-        assert result == Path("/Users/jp/Projects/myproject") / ".claude" / "handoffs"
+        assert result == Path("/Users/jp/Projects/myproject") / "docs" / "handoffs"
 
 
 class TestGetArchiveDir:
     def test_returns_archive_subdir(self) -> None:
         result = get_archive_dir()
-        assert result.name == ".archive"
+        assert result.name == "archive"
         assert result.parent.name == "handoffs"
 
     def test_is_child_of_handoffs_dir(self) -> None:
         archive = get_archive_dir()
         handoffs = get_handoffs_dir()
         assert archive.parent == handoffs
+
+
+class TestGetLegacyHandoffsDir:
+    """Tests for get_legacy_handoffs_dir — fallback path for pre-migration files."""
+
+    def test_returns_claude_handoffs_path(self) -> None:
+        with patch(
+            "scripts.project_paths.get_project_root",
+            return_value=(Path("/Users/jp/Projects/myproject"), "git"),
+        ):
+            result = get_legacy_handoffs_dir()
+        assert result == Path("/Users/jp/Projects/myproject") / ".claude" / "handoffs"

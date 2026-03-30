@@ -1160,10 +1160,10 @@ class TestRecursiveGlobPatterns:
         assert require_gitflow.is_file_allowed("/a/src/main.py") is False
 
     def test_double_star_handoffs(self, monkeypatch):
-        """**/.claude/handoffs/** should match nested handoff files."""
-        monkeypatch.setenv("GITFLOW_ALLOW_FILES", "**/.claude/handoffs/**")
-        assert require_gitflow.is_file_allowed("/Users/jp/.claude/handoffs/proj/file.md") is True
-        assert require_gitflow.is_file_allowed("/Users/jp/.claude/settings.json") is False
+        """**/docs/** should match handoff files in docs/handoffs/."""
+        monkeypatch.setenv("GITFLOW_ALLOW_FILES", "**/docs/**")
+        assert require_gitflow.is_file_allowed("/Users/jp/Projects/myproject/docs/handoffs/file.md") is True
+        assert require_gitflow.is_file_allowed("/Users/jp/Projects/myproject/src/main.py") is False
 
     def test_mixed_patterns(self, monkeypatch):
         """Mix of ** and simple patterns should work together."""

@@ -27,7 +27,7 @@ claude plugin install ./packages/plugins/handoff
 | **Deferred work tracking** | `/defer`, `/triage` | Extract work items from conversation into structured tickets. Audit ticket health, detect orphaned items, organize by priority. |
 | **Knowledge extraction** | `/distill` | Synthesize durable insights from handoff documents into a project learnings file with deduplication. |
 | **Handoff search** | `/search` | Query past handoffs by keyword or regex across active and archived files. |
-| **Automatic maintenance** | *(hooks)* | Prune old handoffs (30d), archives (90d), and state files (24h) at session start. Validate handoff format on write. |
+| **Automatic maintenance** | *(hooks)* | Prune state files (24h) at session start. Validate handoff format on write. |
 
 ## Components
 
@@ -35,7 +35,7 @@ claude plugin install ./packages/plugins/handoff
 
 | Skill | Trigger Phrases | Purpose |
 |-------|----------------|---------|
-| **save** | `/save`, "wrap this up", "new session", "handoff" | Full session report (13 sections, 400+ lines). Writes to `<project_root>/.claude/handoffs/`. |
+| **save** | `/save`, "wrap this up", "new session", "handoff" | Full session report (13 sections, 400+ lines). Writes to `<project_root>/docs/handoffs/`. |
 | **load** | `/load`, "continue from where we left off" | Resume from a previous handoff. Archives the source file, writes a state file for chain linking. |
 | **quicksave** | `/quicksave`, "checkpoint", "save state" | Lightweight checkpoint (22-55 lines, 5 sections). Warns on 3rd consecutive checkpoint. |
 | **defer** | `/defer`, "track these for later", "create tickets" | Extract deferred work items from conversation into ticket files in `docs/tickets/`. |
@@ -47,7 +47,7 @@ claude plugin install ./packages/plugins/handoff
 
 | Event | Script | Behavior |
 |-------|--------|----------|
-| **SessionStart** | `cleanup.py` | Silently prunes handoffs >30d, archives >90d, state files >24h. Always exits 0. |
+| **SessionStart** | `cleanup.py` | Silently prunes state files >24h. Always exits 0. |
 | **PostToolUse** (Write) | `quality_check.py` | Validates handoff/checkpoint frontmatter, required sections, and line count. Non-blocking — outputs feedback via `additionalContext`. |
 
 ### Scripts
@@ -56,6 +56,7 @@ Core logic lives in `scripts/`. Skills handle UX and judgment; scripts handle de
 
 | Script | Purpose | Called By |
 |--------|---------|-----------|
+| `auto_commit.py` | Narrow-scope git commit for handoff files | `/save`, `/load`, `/quicksave` skills |
 | `cleanup.py` | Archive pruning and state file TTL | SessionStart hook |
 | `quality_check.py` | Handoff/checkpoint format validation | PostToolUse hook |
 | `defer.py` | Ticket ID allocation, rendering, writing | `/defer` skill |
@@ -73,13 +74,13 @@ Core logic lives in `scripts/`. Skills handle UX and judgment; scripts handle de
 
 | Location | Contents | Retention |
 |----------|----------|-----------|
-| `<project_root>/.claude/handoffs/` | Active handoffs and checkpoints | 30 days |
-| `<project_root>/.claude/handoffs/.archive/` | Archived handoffs (moved by `/load`) | 90 days |
+| `<project_root>/docs/handoffs/` | Active handoffs and checkpoints | No auto-prune (git-tracked) |
+| `<project_root>/docs/handoffs/archive/` | Archived handoffs (moved by `/load`) | No auto-prune (git-tracked) |
 | `~/.claude/.session-state/handoff-<UUID>` | Chain protocol state files | 24 hours |
 | `docs/tickets/` | Deferred work tickets | Permanent |
 | `docs/learnings/learnings.md` | Distilled knowledge entries | Permanent |
 
-**Note:** By default, `.claude/handoffs/` may be gitignored by your project. To track handoff files in git, add `!.claude/handoffs/` to your project's `.gitignore`.
+Handoff files are git-tracked and auto-committed on create and archive. Use `git log --grep='docs(handoff):'` to view handoff history.
 
 ### Handoff Frontmatter
 
@@ -120,7 +121,7 @@ Tickets created by `/defer` include:
 ```
 Session 1:
   /save                              → Creates handoff document
-                                        (<project_root>/.claude/handoffs/2026-03-09_14-30_feature-work.md)
+                                        (<project_root>/docs/handoffs/2026-03-09_14-30_feature-work.md)
 
 Session 2:
   /load                              → Loads most recent handoff, archives it
@@ -184,8 +185,8 @@ Session 2:
 │  SessionStart → cleanup (prune old files)          │
 │  PostToolUse  → quality_check (validate format)    │
 ├─ Storage ─────────────────────────────────────────┤
-│  Active:  <project_root>/.claude/handoffs/  (30d)  │
-│  Archive: <project_root>/.claude/handoffs/.archive/│
+│  Active:  <project_root>/docs/handoffs/         │
+│  Archive: <project_root>/docs/handoffs/archive/  │
 │  State:   ~/.claude/.session-state/handoff-<UUID>  │
 └─ References ──────────────────────────────────────┘
    handoff-contract.md  format-reference.md

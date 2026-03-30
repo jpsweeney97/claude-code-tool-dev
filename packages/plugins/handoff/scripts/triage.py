@@ -17,13 +17,13 @@ try:
     from scripts.ticket_parsing import parse_ticket
     from scripts.provenance import read_provenance, session_matches
     from scripts.handoff_parsing import parse_frontmatter, parse_sections, section_name
-    from scripts.project_paths import get_handoffs_dir
+    from scripts.project_paths import get_handoffs_dir, get_legacy_handoffs_dir
 except ModuleNotFoundError:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     from scripts.ticket_parsing import parse_ticket  # type: ignore[no-redef]
     from scripts.provenance import read_provenance, session_matches  # type: ignore[no-redef]
     from scripts.handoff_parsing import parse_frontmatter, parse_sections, section_name  # type: ignore[no-redef]
-    from scripts.project_paths import get_handoffs_dir  # type: ignore[no-redef]
+    from scripts.project_paths import get_handoffs_dir, get_legacy_handoffs_dir  # type: ignore[no-redef]
 
 
 class OpenTicket(TypedDict):
@@ -49,6 +49,7 @@ class TriageReport(TypedDict):
     matched_items: list[MatchResult]
     match_counts: dict[str, int]
     skipped_prose_count: int
+    legacy_warning: str | None
 
 
 # 6-state enum
@@ -245,7 +246,9 @@ def match_orphan_item(
 _LOOKBACK_DAYS = 30  # P1-3: design requires 30-day scan window
 
 
-def _scan_handoff_dirs(handoffs_dir: Path) -> list[Path]:
+def _scan_handoff_dirs(
+    handoffs_dir: Path, *, archive_name: str = "archive",
+) -> list[Path]:
     """Collect handoff files from active and archive directories.
 
     P1-3 fix: filters to files modified within the last _LOOKBACK_DAYS days.
@@ -253,7 +256,7 @@ def _scan_handoff_dirs(handoffs_dir: Path) -> list[Path]:
     cutoff = time.time() - (_LOOKBACK_DAYS * 86400)
     paths: list[Path] = []
 
-    for search_dir in [handoffs_dir, handoffs_dir / ".archive"]:
+    for search_dir in [handoffs_dir, handoffs_dir / archive_name]:
         if not search_dir.exists():
             continue
         for p in sorted(search_dir.glob("*.md")):
@@ -297,6 +300,25 @@ def generate_report(
         all_items.extend(items)
         total_skipped_prose += skipped
 
+    # Legacy fallback: also scan .claude/handoffs/ for pre-migration files
+    legacy_found = False
+    try:
+        legacy_dir = get_legacy_handoffs_dir()
+        if legacy_dir.exists():
+            for path in _scan_handoff_dirs(legacy_dir, archive_name=".archive"):
+                try:
+                    text = path.read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError) as exc:
+                    warnings.warn(f"Cannot read handoff file {path}: {exc}", stacklevel=2)
+                    continue
+                items, skipped = extract_handoff_items(text, path.name)
+                if items:
+                    legacy_found = True
+                all_items.extend(items)
+                total_skipped_prose += skipped
+    except Exception:
+        pass  # Legacy check is best-effort
+
     # Match each item — separate orphaned from matched (P1-1)
     orphaned: list[MatchResult] = []
     matched: list[MatchResult] = []
@@ -309,12 +331,20 @@ def generate_report(
         else:
             matched.append(result)
 
+    legacy_warning = None
+    if legacy_found:
+        legacy_warning = (
+            "Found handoffs at legacy location `.claude/handoffs/`. "
+            "Run `/save` to migrate — the next save will write to `docs/handoffs/`."
+        )
+
     return {
         "open_tickets": open_tickets,
         "orphaned_items": orphaned,
         "matched_items": matched,
         "match_counts": counts,
         "skipped_prose_count": total_skipped_prose,
+        "legacy_warning": legacy_warning,
     }
 
 

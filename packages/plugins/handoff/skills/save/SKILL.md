@@ -1,7 +1,7 @@
 ---
 name: save
 description: Used when user says "wrap this up", "new session", "almost out of context", "save", "next session", or "handoff"; when stopping work with context to preserve.
-allowed-tools: Write, Read, Edit, Glob, Grep
+allowed-tools: Write, Read, Edit, Glob, Grep, Bash
 ---
 
 **Session ID:** ${CLAUDE_SESSION_ID}
@@ -49,15 +49,15 @@ Create comprehensive session reports that preserve the full context future-Claud
 | Assumption | Required? | Fallback |
 |------------|-----------|----------|
 | Git repository | No | Omit `branch` and `commit` fields from frontmatter |
-| Write access to `<project_root>/.claude/handoffs/` | Yes | **STOP** and ask for alternative path |
+| Write access to `<project_root>/docs/handoffs/` | Yes | **STOP** and ask for alternative path. If `docs/handoffs/` doesn't exist, create it with `mkdir -p`. |
 | Project root determinable | No | Use current directory; if ambiguous, ask user |
 
-**STOP:** If `<project_root>/.claude/handoffs/` doesn't exist and cannot be created, ask: "I can't write to .claude/handoffs/. Where should I save handoffs?"
+**STOP:** If `<project_root>/docs/handoffs/` doesn't exist and cannot be created, ask: "I can't write to docs/handoffs/. Where should I save handoffs?"
 
 ## Outputs
 
 **Artifacts:**
-- Markdown file at `<project_root>/.claude/handoffs/YYYY-MM-DD_HH-MM_<slug>.md`
+- Markdown file at `<project_root>/docs/handoffs/YYYY-MM-DD_HH-MM_<slug>.md`
 - Frontmatter with session metadata (date, time, created_at, project, title, files)
 - Body with all 13 required sections (placeholder content when not applicable)
 
@@ -65,7 +65,7 @@ Create comprehensive session reports that preserve the full context future-Claud
 
 | Check | Expected |
 |-------|----------|
-| File exists at expected path | `ls $(git rev-parse --show-toplevel)/.claude/handoffs/YYYY-MM-DD_HH-MM_*.md` returns file |
+| File exists at expected path | `ls $(git rev-parse --show-toplevel)/docs/handoffs/YYYY-MM-DD_HH-MM_*.md` returns file |
 | Frontmatter parses as valid YAML | No YAML syntax errors |
 | Required fields present | `date`, `time`, `created_at`, `session_id`, `project`, `title`, `type` all have values |
 | Body line count | >=400 for all sessions, >=500 for complex |
@@ -104,8 +104,8 @@ Create comprehensive session reports that preserve the full context future-Claud
    - Use the current time when the handoff is created
 
 5. **Write permission check:**
-   - If `<project_root>/.claude/handoffs/` is writable (or can be created), write handoff there.
-   - Otherwise, **STOP** and ask: "Can't write to .claude/handoffs/. Where should I save this handoff?"
+   - If `<project_root>/docs/handoffs/` is writable (or can be created), write handoff there.
+   - Otherwise, **STOP** and ask: "Can't write to docs/handoffs/. Where should I save this handoff?"
 
 ## Procedure
 
@@ -140,7 +140,7 @@ When user runs `/save [title]` or confirms a signal phrase offer:
 
 6. **Determine output path:**
    - Resolve project root: `$(git rev-parse --show-toplevel)` (falls back to cwd if not in a git repo)
-   - If `<project_root>/.claude/handoffs/` is not writable, **STOP** and ask for alternative path
+   - If `<project_root>/docs/handoffs/` is not writable, **STOP** and ask for alternative path
 
 7. **Generate markdown** with frontmatter per [format-reference.md](../../references/format-reference.md) and [handoff-contract.md](../../references/handoff-contract.md):
    - Include `session_id:` with the UUID from step 2
@@ -148,7 +148,13 @@ When user runs `/save [title]` or confirms a signal phrase offer:
    - Per chain protocol in [handoff-contract.md](../../references/handoff-contract.md): read `~/.claude/.session-state/handoff-<session_id>` — if exists, set `resumed_from` to its content
    - Use fallbacks for optional fields (see Inputs → Constraints/Assumptions)
 
-8. **Write file** to `<project_root>/.claude/handoffs/YYYY-MM-DD_HH-MM_<slug>.md`
+8. **Write file** to `<project_root>/docs/handoffs/YYYY-MM-DD_HH-MM_<slug>.md`
+
+   **Auto-commit the handoff:**
+   ```bash
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/auto_commit.py" -m "docs(handoff): save <title>" "<file_path>"
+   ```
+   If the commit fails, warn: "Handoff saved but not committed — <reason>". The file is already written; only the commit is skipped.
 
 9. **Cleanup state file** per chain protocol in [handoff-contract.md](../../references/handoff-contract.md):
    - `trash` the state file at `~/.claude/.session-state/handoff-<session_id>` if it exists. If `trash` fails, warn the user that the state file persists but do not block — the 24-hour TTL will clean it up.
@@ -162,14 +168,14 @@ When user runs `/save [title]` or confirms a signal phrase offer:
 
 After creating handoff, verify:
 
-- [ ] File exists at `<project_root>/.claude/handoffs/YYYY-MM-DD_HH-MM_<slug>.md`
+- [ ] File exists at `<project_root>/docs/handoffs/YYYY-MM-DD_HH-MM_<slug>.md`
 - [ ] Frontmatter parses as valid YAML
 - [ ] Required fields present and non-blank: date, time, created_at, session_id, project, title, type (hook-enforced)
 - [ ] All 13 required sections present (hook-enforced)
 - [ ] At least 1 of {Decisions, Changes, Learnings} has substantive content (hook-enforced)
 - [ ] Body line count >= 400 (hook-enforced)
 
-**Quick check:** Run `ls "$(git rev-parse --show-toplevel)/.claude/handoffs/"` and confirm new file appears. If not, check write permissions.
+**Quick check:** Run `ls "$(git rev-parse --show-toplevel)/docs/handoffs/"` and confirm new file appears. If not, check write permissions.
 
 **If verification fails:** Do not report success. Check Troubleshooting section and resolve before confirming.
 
@@ -177,16 +183,16 @@ After creating handoff, verify:
 
 ### Handoff file not created
 
-**Symptoms:** `/save` completes but no file appears at `<project_root>/.claude/handoffs/`
+**Symptoms:** `/save` completes but no file appears at `<project_root>/docs/handoffs/`
 
 **Likely causes:**
-- Permission denied on project `.claude/` directory
+- Permission denied on project `docs/` directory
 - Project root couldn't be determined (not in git, ambiguous directory)
 - Disk full or path too long
 
 **Next steps:**
-1. Check if `.claude/handoffs/` exists: `ls -la "$(git rev-parse --show-toplevel)/.claude/handoffs/"`
-2. Check write permissions: `touch "$(git rev-parse --show-toplevel)/.claude/handoffs/test" && trash "$(git rev-parse --show-toplevel)/.claude/handoffs/test"`
+1. Check if `docs/handoffs/` exists: `ls -la "$(git rev-parse --show-toplevel)/docs/handoffs/"`
+2. Check write permissions: `touch "$(git rev-parse --show-toplevel)/docs/handoffs/test" && trash "$(git rev-parse --show-toplevel)/docs/handoffs/test"`
 3. If permissions issue, ask user for alternative path
 4. If project root undetermined, ask user to specify
 

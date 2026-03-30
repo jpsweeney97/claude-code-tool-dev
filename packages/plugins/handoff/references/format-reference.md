@@ -55,18 +55,18 @@ files:
 
 ## Storage
 
-**Location:** `<project_root>/.claude/handoffs/`
+**Location:** `<project_root>/docs/handoffs/`
 
 **Filename:** `YYYY-MM-DD_HH-MM_<title-slug>.md`
 
-**Archive:** `<project_root>/.claude/handoffs/.archive/`
+**Archive:** `<project_root>/docs/handoffs/archive/`
 
 ## Retention
 
 | Location | Retention |
 |----------|-----------|
-| Active handoffs (`<project_root>/.claude/handoffs/`) | 30 days |
-| Archived handoffs (`<project_root>/.claude/handoffs/.archive/`) | 90 days |
+| Active handoffs (`<project_root>/docs/handoffs/`) | No auto-prune |
+| Archived handoffs (`<project_root>/docs/handoffs/archive/`) | No auto-prune |
 | State files (`~/.claude/.session-state/handoff-*`) | 24 hours |
 
 ## Example: New Session
@@ -506,7 +506,7 @@ date: 2026-01-15
 time: "16:45"
 created_at: "2026-01-15T16:45:00Z"
 session_id: f9e8d7c6-b5a4-3210-fedc-ba0987654321
-resumed_from: <project_root>/.claude/handoffs/.archive/2026-01-15_14-30_rate-limiting-system-architecture-and-initial-implementation.md
+resumed_from: <project_root>/docs/handoffs/archive/2026-01-15_14-30_rate-limiting-system-architecture-and-initial-implementation.md
 project: api-gateway
 branch: feat/rate-limiting
 commit: c3d4e5f

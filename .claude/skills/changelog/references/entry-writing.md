@@ -52,7 +52,7 @@ For each relevant handoff:
 ```bash
 # Derive project name from repo root
 PROJECT_NAME=$(basename "$(git rev-parse --show-toplevel)")
-ARCHIVE_DIR=~/.claude/handoffs/$PROJECT_NAME/.archive
+ARCHIVE_DIR=$(git rev-parse --show-toplevel)/docs/handoffs/archive
 
 # List files, filter by date
 ls "$ARCHIVE_DIR" | grep "^YYYY-MM"

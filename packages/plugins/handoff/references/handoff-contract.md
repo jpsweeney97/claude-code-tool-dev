@@ -40,7 +40,7 @@ files:
 The chain protocol enables `resumed_from` tracking across sessions. Three skills participate:
 
 **Resume (load) — writes state:**
-1. Archive the handoff to `<project_root>/.claude/handoffs/.archive/<filename>`
+1. Archive the handoff to `<project_root>/docs/handoffs/archive/<filename>`
 2. Write archive path to `~/.claude/.session-state/handoff-<session_id>`
 
 **Save/Quicksave (save, quicksave) — reads and cleans state:**
@@ -54,8 +54,8 @@ The chain protocol enables `resumed_from` tracking across sessions. Three skills
 
 | Location | Format | Retention |
 |----------|--------|-----------|
-| `<project_root>/.claude/handoffs/` | `YYYY-MM-DD_HH-MM_<slug>.md` | 30 days |
-| `<project_root>/.claude/handoffs/.archive/` | Same | 90 days |
+| `<project_root>/docs/handoffs/` | `YYYY-MM-DD_HH-MM_<slug>.md` | No auto-prune |
+| `<project_root>/docs/handoffs/archive/` | Same | No auto-prune |
 | `~/.claude/.session-state/handoff-<UUID>` | Plain text (path) | 24 hours |
 
 **Filename slug:** Lowercase, hyphens for spaces, no special characters. Checkpoints use `checkpoint-<slug>`, full handoffs use `<slug>` directly.
@@ -66,7 +66,7 @@ The project root determines where handoff files are stored. Resolved by:
 1. `git rev-parse --show-toplevel` (if in a git repo)
 2. Current working directory (fallback)
 
-The full project root path is used for storage resolution — handoff files live at `<project_root>/.claude/handoffs/`.
+The full project root path is used for storage resolution — handoff files live at `<project_root>/docs/handoffs/`.
 
 ## Git Detection
 
@@ -74,7 +74,7 @@ If `.git/` exists in current or parent directories, include `branch` and `commit
 
 ## Write Permission
 
-If `<project_root>/.claude/handoffs/` is not writable (or cannot be created), **STOP** and ask: "Can't write to <project_root>/.claude/handoffs/. Where should I save this?"
+If `<project_root>/docs/handoffs/` is not writable (or cannot be created), **STOP** and ask: "Can't write to <project_root>/docs/handoffs/. Where should I save this?"
 
 ## Precedence
 

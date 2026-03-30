@@ -171,7 +171,7 @@ Mine the handoff archive for session context, decisions, and intent behind chang
 
 Scope: Project {project-name} — date range: {date-range}
 
-The handoff archive lives at ~/.claude/handoffs/{project-name}/.archive/. Filenames follow YYYY-MM-DD_HH-MM_<title-slug>.md.
+The handoff archive lives at <project_root>/docs/handoffs/archive/. Filenames follow YYYY-MM-DD_HH-MM_<title-slug>.md.
 
 If the archive directory doesn't exist, write a note explaining the gap and stop — there's no handoff data to mine.
 

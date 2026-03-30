@@ -1,7 +1,7 @@
 ---
 name: load
 description: Used when continuing from a previous session; when user runs `/load` to load the most recent handoff, or `/load <path>` for a specific handoff.
-allowed-tools: Write, Read, Edit, Glob, Grep
+allowed-tools: Write, Read, Edit, Glob, Grep, Bash
 ---
 
 **Session ID:** ${CLAUDE_SESSION_ID}
@@ -49,7 +49,7 @@ Continue work from a previous handoff.
 ## Outputs
 
 **Artifacts:**
-- Archived handoff at `<project_root>/.claude/handoffs/.archive/<filename>`
+- Archived handoff at `<project_root>/docs/handoffs/archive/<filename>`
 - State file at `~/.claude/.session-state/handoff-<session_id>`
 
 **Side Effects:**
@@ -61,7 +61,7 @@ Continue work from a previous handoff.
 | Check | Expected |
 |-------|----------|
 | Handoff content displayed | User sees full handoff context |
-| Original archived | File moved to `.archive/` |
+| Original archived | File moved to `archive/` |
 | State file created | Path recorded for next handoff's `resumed_from` |
 | Next step offered | "Continue with [next step]?" |
 
@@ -90,9 +90,9 @@ Continue work from a previous handoff.
    - If project name ambiguous or undeterminable: ask user to specify.
 
 4. **Archive directory:**
-   - If `.archive/` exists: move handoff there.
-   - If `.archive/` doesn't exist: create it, then move handoff.
-   - If cannot create `.archive/`: warn user but continue (handoff still readable).
+   - If `archive/` exists: move handoff there.
+   - If `archive/` doesn't exist: create it, then move handoff.
+   - If cannot create `archive/`: warn user but continue (handoff still readable).
 
 5. **State file creation:**
    - If `~/.claude/.session-state/` writable: write state file with archive path.
@@ -109,9 +109,13 @@ When user runs `/load [path]`:
 2. **Locate handoff:**
    - If path provided: validate it exists, use that handoff
    - If no path:
-     1. Use Bash: `ls "$(git rev-parse --show-toplevel)/.claude/handoffs"/*.md 2>/dev/null` (shell glob is non-recursive — unlike the Glob tool, it won't descend into `.archive/`)
-     2. If no output, report "No handoffs found for this project" and **STOP**
-     3. Select most recent by filename (format: `YYYY-MM-DD_HH-MM_*.md`)
+     1. Use Bash: `ls "$(git rev-parse --show-toplevel)/docs/handoffs"/*.md 2>/dev/null` (shell glob is non-recursive — unlike the Glob tool, it won't descend into `archive/`)
+     2. If no output from primary location, check legacy location:
+        1. `ls "$(git rev-parse --show-toplevel)/.claude/handoffs"/*.md 2>/dev/null`
+        2. If found, report: "Found handoffs at legacy location `.claude/handoffs/`. Run `/save` to migrate — the next save will write to `docs/handoffs/`."
+        3. Use the legacy file for this load
+     3. If still no output, report "No handoffs found for this project" and **STOP**
+     4. Select most recent by filename (format: `YYYY-MM-DD_HH-MM_*.md`)
 
 3. **Read handoff content**
 
@@ -122,8 +126,20 @@ When user runs `/load [path]`:
    - Offer: "Continue with [first next step/action]?"
 
 5. **Archive the handoff:**
-   - Create `<project_root>/.claude/handoffs/.archive/` if needed
-   - Move handoff to `.archive/<filename>`
+   - Create `<project_root>/docs/handoffs/archive/` if needed
+   - Move handoff to `archive/<filename>`
+
+   **Auto-commit the archive:**
+   ```bash
+   git mv "<source_path>" "<archive_path>"
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/auto_commit.py" -m "docs(handoff): archive <filename>" --staged "<archive_path>"
+   ```
+   If `git mv` fails (file is untracked — e.g., loaded from legacy `.claude/handoffs/`), fall back:
+   ```bash
+   mv "<source_path>" "<archive_path>"
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/auto_commit.py" -m "docs(handoff): archive <filename>" "<archive_path>"
+   ```
+   If the commit fails, warn: "Handoff archived but not committed — <reason>".
 
 6. **Write state file:**
    - Create `~/.claude/.session-state/` if needed
@@ -133,7 +149,7 @@ When user runs `/load [path]`:
 
 When user runs `/list-handoffs`:
 
-1. Use Bash: `ls "$(git rev-parse --show-toplevel)/.claude/handoffs"/*.md 2>/dev/null` (shell glob is non-recursive — unlike the Glob tool, it won't descend into `.archive/`)
+1. Use Bash: `ls "$(git rev-parse --show-toplevel)/docs/handoffs"/*.md 2>/dev/null` (shell glob is non-recursive — unlike the Glob tool, it won't descend into `archive/`)
 2. If no output, report "No handoffs found for this project" and **STOP**
 3. Read frontmatter from each file
 4. Format as table: date, title, type, branch
@@ -142,10 +158,10 @@ When user runs `/list-handoffs`:
 ## Storage
 
 See [format-reference.md](../../references/format-reference.md) for:
-- Storage location (`<project_root>/.claude/handoffs/`)
+- Storage location (`<project_root>/docs/handoffs/`)
 - Filename format (`YYYY-MM-DD_HH-MM_<slug>.md`)
-- Archive location (`<project_root>/.claude/handoffs/.archive/`)
-- Retention policies (30 days active, 90 days archive)
+- Archive location (`<project_root>/docs/handoffs/archive/`)
+- Retention policies (No auto-prune)
 
 See also [handoff-contract.md](../../references/handoff-contract.md) for storage conventions, retention policies, and filename format.
 
@@ -153,24 +169,22 @@ See also [handoff-contract.md](../../references/handoff-contract.md) for storage
 
 The plugin's SessionStart hook runs silently at session start:
 
-1. Prunes handoffs older than 30 days
-2. Prunes archived handoffs older than 90 days
-3. Prunes state files older than 24 hours
-4. Produces no output (no auto-inject, no prompts)
+1. Prunes state files older than 24 hours
+2. Produces no output (no auto-inject, no prompts)
 
-This is automatic — no user action required.
+This is automatic — no user action required. Handoffs and archives are not auto-pruned.
 
 ## Verification
 
 After loading, verify:
 
 - [ ] Handoff content displayed to user
-- [ ] Original file moved to `.archive/`
+- [ ] Original file moved to `archive/`
 - [ ] State file exists at `~/.claude/.session-state/handoff-<session_id>`
 - [ ] Type displayed on load ("Resuming from **checkpoint**:" or "Resuming from **handoff**:")
 - [ ] User offered continuation prompt
 
-**Quick check:** `ls "$(git rev-parse --show-toplevel)/.claude/handoffs/.archive/"` shows the archived file.
+**Quick check:** `ls "$(git rev-parse --show-toplevel)/docs/handoffs/archive/"` shows the archived file.
 
 ## Troubleshooting
 
@@ -179,13 +193,13 @@ After loading, verify:
 **Symptoms:** `/load` says "No handoffs found" or finds wrong handoff
 
 **Likely causes:**
-- Handoff older than 30 days (auto-pruned by retention policy)
+- Handoff was archived (check `docs/handoffs/archive/`)
 - Running from different project directory than where handoff was created
 - Handoff saved with different project name
 
 **Next steps:**
 1. Run `/list-handoffs` to see available handoffs for current project
-2. Check handoffs directory directly: `ls "$(git rev-parse --show-toplevel)/.claude/handoffs/"`
+2. Check handoffs directory directly: `ls "$(git rev-parse --show-toplevel)/docs/handoffs/"`
 3. If found in different project, use `/load <full-path>`
 
 ### Archive directory not created
@@ -197,8 +211,8 @@ After loading, verify:
 - Disk full
 
 **Next steps:**
-1. Check write permissions on `<project_root>/.claude/handoffs/`
-2. Create `.archive/` manually if needed: `mkdir "$(git rev-parse --show-toplevel)/.claude/handoffs/.archive"`
+1. Check write permissions on `<project_root>/docs/handoffs/`
+2. Create `archive/` manually if needed: `mkdir "$(git rev-parse --show-toplevel)/docs/handoffs/archive"`
 
 ### State file not created
 

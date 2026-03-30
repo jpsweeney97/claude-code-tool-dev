@@ -8,129 +8,9 @@ from unittest.mock import patch
 
 from scripts.cleanup import (
     _trash,
-    get_handoffs_dir,
-    get_project_root,
     main,
-    prune_old_handoffs,
     prune_old_state_files,
 )
-
-
-class TestGetProjectRoot:
-    """Tests for get_project_root."""
-
-    def test_git_success(self) -> None:
-        mock_result = subprocess.CompletedProcess(
-            args=[], returncode=0, stdout="/home/user/my-project\n"
-        )
-        with patch("scripts.cleanup.subprocess.run", return_value=mock_result):
-            assert get_project_root() == Path("/home/user/my-project")
-
-    def test_git_not_installed_falls_back(self) -> None:
-        with patch(
-            "scripts.cleanup.subprocess.run", side_effect=FileNotFoundError
-        ):
-            assert get_project_root() == Path.cwd()
-
-    def test_git_timeout_falls_back(self) -> None:
-        with patch(
-            "scripts.cleanup.subprocess.run",
-            side_effect=subprocess.TimeoutExpired("git", 5),
-        ):
-            assert get_project_root() == Path.cwd()
-
-    def test_git_oserror_falls_back(self) -> None:
-        """I2: PermissionError on git binary must not escape to main()."""
-        with patch(
-            "scripts.cleanup.subprocess.run",
-            side_effect=PermissionError("not executable"),
-        ):
-            assert get_project_root() == Path.cwd()
-
-    def test_not_a_repo_falls_back(self) -> None:
-        mock_result = subprocess.CompletedProcess(
-            args=[], returncode=128, stdout="", stderr="not a git repository"
-        )
-        with patch("scripts.cleanup.subprocess.run", return_value=mock_result):
-            assert get_project_root() == Path.cwd()
-
-
-class TestGetHandoffsDir:
-    """Tests for get_handoffs_dir path composition."""
-
-    def test_composes_path_from_project_root(self) -> None:
-        """T1: Verify path composition logic — <project_root>/.claude/handoffs/."""
-        with patch("scripts.cleanup.get_project_root", return_value=Path("/home/user/my-project")):
-            result = get_handoffs_dir()
-        assert result == Path("/home/user/my-project") / ".claude" / "handoffs"
-
-
-class TestPruneOldHandoffs:
-    """Tests for prune_old_handoffs — baseline behavior."""
-
-    def test_nonexistent_dir_returns_empty(self, tmp_path: Path) -> None:
-        assert prune_old_handoffs(tmp_path / "nope") == []
-
-    def test_recent_files_not_deleted(self, tmp_path: Path) -> None:
-        recent = tmp_path / "recent.md"
-        recent.write_text("content")
-        with patch("scripts.cleanup.subprocess.run") as mock_run:
-            result = prune_old_handoffs(tmp_path, max_age_days=30)
-        assert result == []
-        mock_run.assert_not_called()
-
-    def test_non_md_files_ignored(self, tmp_path: Path) -> None:
-        txt = tmp_path / "old.txt"
-        txt.write_text("content")
-        old_time = time.time() - (31 * 24 * 60 * 60)
-        os.utime(txt, (old_time, old_time))
-        with patch("scripts.cleanup.subprocess.run") as mock_run:
-            result = prune_old_handoffs(tmp_path, max_age_days=30)
-        assert result == []
-        mock_run.assert_not_called()
-
-    def test_stat_oserror_skipped(self, tmp_path: Path) -> None:
-        """P2 test: stat failures on individual files don't crash the function (I7/R1)."""
-        old = tmp_path / "old.md"
-        old.write_text("content")
-        target_str = str(old)
-
-        orig_stat = Path.stat
-
-        hit = False
-
-        def selective_stat(self_path: Path, *args: object, **kwargs: object) -> os.stat_result:
-            """Raise OSError only for the target file, not for glob internals."""
-            nonlocal hit
-            if str(self_path) == target_str:
-                hit = True
-                raise OSError("permission denied")
-            return orig_stat(self_path, *args, **kwargs)
-
-        with patch("scripts.cleanup.Path.stat", autospec=True, side_effect=selective_stat):
-            result = prune_old_handoffs(tmp_path, max_age_days=30)
-        assert hit is True, "Patch must exercise the target file's stat() path"
-        assert result == []
-
-    def test_failed_trash_not_in_deleted(self, tmp_path: Path) -> None:
-        """C1 regression: files not trashed must not appear in deleted list."""
-        old = tmp_path / "old.md"
-        old.write_text("content")
-        old_time = time.time() - (31 * 24 * 60 * 60)
-        os.utime(old, (old_time, old_time))
-        with patch("scripts.cleanup._trash", return_value=False):
-            result = prune_old_handoffs(tmp_path, max_age_days=30)
-        assert result == [], "File should not be in deleted list when trash fails"
-
-    def test_old_files_deleted(self, tmp_path: Path) -> None:
-        old = tmp_path / "old.md"
-        old.write_text("content")
-        old_time = time.time() - (31 * 24 * 60 * 60)
-        os.utime(old, (old_time, old_time))
-        with patch("scripts.cleanup._trash", return_value=True) as mock_trash:
-            result = prune_old_handoffs(tmp_path, max_age_days=30)
-        assert result == [old]
-        mock_trash.assert_called_once_with(old)
 
 
 class TestTrash:
@@ -277,22 +157,13 @@ class TestMain:
     """Tests for main entry point."""
 
     def test_always_returns_zero(self) -> None:
-        """B4: main() must return 0 even when internals raise."""
-        with patch("scripts.cleanup.get_handoffs_dir", side_effect=RuntimeError("unexpected")):
+        """main() must return 0 even when internals raise."""
+        with patch("scripts.cleanup.prune_old_state_files", side_effect=RuntimeError("unexpected")):
             assert main() == 0
 
-    def test_calls_both_prune_functions(self, tmp_path: Path) -> None:
-        """R7: main() must call prune_old_handoffs twice and prune_old_state_files once."""
-        handoffs_dir = tmp_path / "handoffs"
-        handoffs_dir.mkdir()
-        with (
-            patch("scripts.cleanup.get_handoffs_dir", return_value=handoffs_dir),
-            patch("scripts.cleanup.prune_old_handoffs") as mock_handoffs,
-            patch("scripts.cleanup.prune_old_state_files") as mock_state,
-        ):
+    def test_calls_prune_state_files_only(self) -> None:
+        """main() calls prune_old_state_files once. No handoff pruning."""
+        with patch("scripts.cleanup.prune_old_state_files") as mock_state:
             result = main()
         assert result == 0
-        assert mock_handoffs.call_count == 2
-        mock_handoffs.assert_any_call(handoffs_dir, max_age_days=30)
-        mock_handoffs.assert_any_call(handoffs_dir / ".archive", max_age_days=90)
         mock_state.assert_called_once_with(max_age_hours=24)

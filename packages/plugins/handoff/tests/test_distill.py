@@ -872,7 +872,7 @@ class TestPathIndependence:
             "## Decisions\n\n### Chose A\n\n**Choice:** A.\n\n"
         )
         path_a = tmp_path / "handoff.md"
-        path_b = tmp_path / ".archive" / "handoff.md"
+        path_b = tmp_path / "archive" / "handoff.md"
         path_b.parent.mkdir()
         path_a.write_text(content)
         path_b.write_text(content)

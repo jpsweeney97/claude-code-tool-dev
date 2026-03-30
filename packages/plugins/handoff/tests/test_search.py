@@ -252,7 +252,7 @@ class TestSearchHandoffs:
         assert len(results) == 2
 
     def test_searches_archive_subdirectory(self, tmp_path: Path) -> None:
-        archive = tmp_path / ".archive"
+        archive = tmp_path / "archive"
         archive.mkdir()
         _make_handoff(
             archive, "Archived", "2026-01-15",
@@ -344,7 +344,7 @@ class TestSearchCLI:
             handoffs_dir, "Session One", "2026-02-20",
             "## Decisions\n\n### Chose Python\n\nPython over Rust for speed of dev.\n"
         )
-        archive = handoffs_dir / ".archive"
+        archive = handoffs_dir / "archive"
         archive.mkdir()
         _make_handoff(
             archive, "Old Session", "2026-01-15",

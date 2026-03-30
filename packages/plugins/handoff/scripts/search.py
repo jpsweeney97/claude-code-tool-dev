@@ -16,11 +16,11 @@ from pathlib import Path
 # scripts.search. Do not remove without updating downstream imports.
 try:
     from scripts.handoff_parsing import HandoffFile, Section, parse_handoff
-    from scripts.project_paths import get_handoffs_dir, get_project_name
+    from scripts.project_paths import get_handoffs_dir, get_legacy_handoffs_dir, get_project_name
 except ModuleNotFoundError:  # Direct execution (python3 scripts/search.py)
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     from scripts.handoff_parsing import HandoffFile, Section, parse_handoff  # type: ignore[no-redef]
-    from scripts.project_paths import get_handoffs_dir, get_project_name  # type: ignore[no-redef]
+    from scripts.project_paths import get_handoffs_dir, get_legacy_handoffs_dir, get_project_name  # type: ignore[no-redef]
 
 
 def search_handoffs(
@@ -29,6 +29,7 @@ def search_handoffs(
     *,
     regex: bool = False,
     skipped: list[dict] | None = None,
+    archive_name: str = "archive",
 ) -> list[dict]:
     """Search handoff files for matching sections.
 
@@ -58,7 +59,7 @@ def search_handoffs(
     md_files: list[tuple[Path, bool]] = []
     for f in handoffs_dir.glob("*.md"):
         md_files.append((f, False))
-    archive_dir = handoffs_dir / ".archive"
+    archive_dir = handoffs_dir / archive_name
     if archive_dir.exists():
         for f in archive_dir.glob("*.md"):
             md_files.append((f, True))
@@ -115,6 +116,7 @@ def main(argv: list[str] | None = None) -> str:
             "skipped": [],
             "project_source": project_source,
             "error": f"Handoffs directory not found: {handoffs_dir}",
+            "legacy_warning": None,
         })
 
     skipped_files: list[dict] = []
@@ -128,7 +130,27 @@ def main(argv: list[str] | None = None) -> str:
             "skipped": skipped_files,
             "project_source": project_source,
             "error": f"Invalid regex: {e}",
+            "legacy_warning": None,
         })
+
+    # Legacy fallback: check .claude/handoffs/ for pre-migration files
+    legacy_warning = None
+    try:
+        legacy_dir = get_legacy_handoffs_dir()
+        if legacy_dir.exists():
+            legacy_results = search_handoffs(
+                legacy_dir, args.query, regex=args.regex,
+                skipped=skipped_files, archive_name=".archive",
+            )
+            if legacy_results:
+                legacy_warning = (
+                    "Found handoffs at legacy location `.claude/handoffs/`. "
+                    "Run `/save` to migrate — the next save will write to `docs/handoffs/`."
+                )
+                results.extend(legacy_results)
+                results.sort(key=lambda r: r["date"], reverse=True)
+    except Exception:
+        pass  # Legacy check is best-effort
 
     return json.dumps({
         "query": args.query,
@@ -137,6 +159,7 @@ def main(argv: list[str] | None = None) -> str:
         "skipped": skipped_files,
         "project_source": project_source,
         "error": None,
+        "legacy_warning": legacy_warning,
     })
 
 

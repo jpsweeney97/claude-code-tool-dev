@@ -7,7 +7,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Changed
-- **BREAKING:** Handoff storage moved from global `~/.claude/handoffs/<project>/` to project-local `<project_root>/.claude/handoffs/`. Existing handoffs at the old location will expire naturally via retention policy (30/90 days). Session-state files remain at `~/.claude/.session-state/`.
+- **BREAKING:** Handoff storage moved from `<project_root>/.claude/handoffs/` to `<project_root>/docs/handoffs/`. Handoffs are now git-tracked and auto-committed. Archive renamed from `.archive/` to `archive/`. No auto-pruning — git history manages lifecycle.
+- Cleanup hook (`cleanup.py`) no longer prunes handoff files — only session-state files (24h TTL)
+- `is_handoff_path()` now matches `docs/handoffs/` (active and archived) instead of `.claude/handoffs/`
+- `search.py` and `triage.py` check legacy `.claude/handoffs/` location as fallback
+
+### Added
+- `auto_commit.py` — testable git commit logic for handoff state changes
+- `get_legacy_handoffs_dir()` in `project_paths.py` for fallback discovery
+- `Bash` added to `allowed-tools` for save, load, quicksave skills
+- Legacy fallback warning when handoffs found at old location
 
 ### Fixed
 - Organize tickets into subdirectories and fix triage subdirectory bug

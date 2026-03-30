@@ -116,7 +116,7 @@ def _make_hook_input(file_path: str, content: str) -> dict:
 
 HANDOFF_PATH = str(
     Path("/tmp/test-project")
-    / ".claude"
+    / "docs"
     / "handoffs"
     / "2026-02-26_16-00_test.md"
 )
@@ -579,37 +579,52 @@ class TestValidate:
 class TestIsHandoffPath:
     """Tests for is_handoff_path — file path detection."""
 
-    def test_valid_project_local_path(self) -> None:
+    def test_valid_active_handoff(self) -> None:
         assert is_handoff_path(HANDOFF_PATH) is True
 
     def test_valid_any_project_root(self) -> None:
-        path = "/Users/jp/Projects/myproject/.claude/handoffs/2026-02-26_test.md"
+        path = "/Users/jp/Projects/myproject/docs/handoffs/2026-02-26_test.md"
         assert is_handoff_path(path) is True
 
-    def test_archive_rejected(self) -> None:
-        path = "/tmp/proj/.claude/handoffs/.archive/test.md"
-        assert is_handoff_path(path) is False
+    def test_valid_archived_handoff(self) -> None:
+        path = "/tmp/proj/docs/handoffs/archive/test.md"
+        assert is_handoff_path(path) is True
 
     def test_non_handoff_directory(self) -> None:
         assert is_handoff_path("/tmp/random/file.md") is False
 
     def test_non_md_file(self) -> None:
-        path = "/tmp/proj/.claude/handoffs/file.txt"
+        path = "/tmp/proj/docs/handoffs/file.txt"
         assert is_handoff_path(path) is False
 
     def test_nested_too_deep(self) -> None:
         """File nested under a subdirectory of handoffs/ is rejected."""
-        path = "/tmp/proj/.claude/handoffs/sub/file.md"
+        path = "/tmp/proj/docs/handoffs/subdir/deep/file.md"
         assert is_handoff_path(path) is False
 
-    def test_no_claude_parent_rejected(self) -> None:
-        """handoffs/ without .claude/ parent is not a valid handoff path."""
+    def test_no_docs_parent_rejected(self) -> None:
+        """handoffs/ without docs/ parent is not a valid handoff path."""
         path = "/tmp/handoffs/file.md"
         assert is_handoff_path(path) is False
 
     def test_handoffs_without_file_rejected(self) -> None:
         """Path ending at handoffs/ directory itself is rejected."""
-        path = "/tmp/proj/.claude/handoffs/"
+        path = "/tmp/proj/docs/handoffs/"
+        assert is_handoff_path(path) is False
+
+    def test_handoffs_variant_rejected(self) -> None:
+        """handoffs-v2 is not handoffs."""
+        path = "/tmp/proj/docs/handoffs-v2/foo.md"
+        assert is_handoff_path(path) is False
+
+    def test_other_docs_variant_rejected(self) -> None:
+        """other-docs is not docs."""
+        path = "/tmp/proj/other-docs/handoffs/foo.md"
+        assert is_handoff_path(path) is False
+
+    def test_legacy_path_rejected(self) -> None:
+        """Old .claude/handoffs/ path should not match."""
+        path = "/tmp/proj/.claude/handoffs/test.md"
         assert is_handoff_path(path) is False
 
 
@@ -699,19 +714,21 @@ class TestMain:
         assert result == 0
         assert output == ""
 
-    def test_archive_path_silent(self) -> None:
-        """Archive path is not validated."""
+    def test_archive_path_validates(self) -> None:
+        """Archive path IS validated (is_handoff_path matches it)."""
         archive_path = str(
             Path("/tmp/test-project")
-            / ".claude"
+            / "docs"
             / "handoffs"
-            / ".archive"
+            / "archive"
             / "old.md"
         )
+        content = _make_content()
         result, output = _run_main(
-            _make_hook_input(archive_path, "---\ntype: handoff\n---\nShort")
+            _make_hook_input(archive_path, content)
         )
         assert result == 0
+        # Valid content → no output (silent success)
         assert output == ""
 
     def test_missing_tool_input_key_silent(self) -> None:

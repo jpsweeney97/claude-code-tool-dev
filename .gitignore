@@ -36,7 +36,6 @@ __pycache__/
 .claude/worktrees/
 
 # Session artifacts
-.claude/handoffs/
 packages/plugins/plugin-dev/.claude/
 
 # Methodology rules - ignore all except frameworks.md
