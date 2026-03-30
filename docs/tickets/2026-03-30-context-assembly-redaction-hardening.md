@@ -56,6 +56,47 @@ Key differences from `redact.py` context:
 - `context_assembly.py` operates on the full Codex prompt — over-redaction means Codex can't see the code it needs to reason about
 - Patterns must be tuned for code content: variable names, comments, documentation examples
 
+## Implementation contract
+
+The current `_redact_text` is a flat `pattern.sub("[redacted]", ...)` loop with no ordering or capture-group awareness. Adding URL userinfo and Basic auth patterns requires a bounded local refactor. The contract below keeps this local — it does NOT introduce `redact.py`-scale staging, stats, or suppression.
+
+### Pattern thresholds
+
+Prefer `secret_taxonomy.py` per-family thresholds over `redact.py` generic thresholds. The taxonomy encodes actual token structures; the `redact.py` ingress threshold (`{10,}`) is deliberately loose because over-redaction is acceptable there.
+
+| Family | Pattern | Source |
+|--------|---------|--------|
+| AWS access key | `\bAKIA[A-Z0-9]{16}\b` | `secret_taxonomy.py:72` — exact 16 uppercase alnum, word-bounded |
+| GitHub tokens | `\b(?:ghp\|gho\|ghs\|ghr)_[A-Za-z0-9]{36,}\b` | `secret_taxonomy.py:114` — 36+ alphanumeric suffix, word-bounded |
+| Basic auth header | `(?i)(authorization\s*:\s*basic\s+)[A-Za-z0-9+/]{8,}=*` | `redact.py:97-98` — explicit header form only, group-preserving |
+| URL userinfo | `(://[^@/\s:]+:)([^@/\s]+)(@)` | `redact.py:106-107` — structural match, group-preserving |
+
+### Replacement format
+
+- **Prefix patterns** (AKIA, ghp/gho/ghs/ghr): flat `[redacted]` replacement. No structural context to preserve.
+- **Basic auth**: group-preserving — `Authorization: Basic [redacted]`. Preserve the header prefix so Codex sees this was an auth header.
+- **URL userinfo**: group-preserving — `://user:[redacted]@host`. Preserve URL structure so Codex sees this was a URL with credentials.
+- **Existing patterns** (sk-*, Bearer, PEM, keyword assignments): unchanged flat `[redacted]`.
+
+### Application order
+
+Most-specific-first to prevent double-match after replacement:
+
+1. PEM blocks (multi-line, most specific)
+2. URL userinfo (structural)
+3. Basic auth header (structural)
+4. AWS `AKIA` prefix (exact length, word-bounded)
+5. GitHub `gh*_` prefix (minimum length, word-bounded)
+6. `sk-*` prefix (existing)
+7. `Bearer` token (existing)
+8. Keyword assignment (`password=`, `token=`, etc.) — last, broadest
+
+This ordering ensures that a value like `api_key = AKIAIOSFODNN7EXAMPLE` is matched by the AKIA pattern (rule 4) before the keyword pattern (rule 8) can match the same substring. The keyword pattern then matches only the `api_key = [redacted]` residue, which is harmless because `[redacted]` is shorter than 16 uppercase alnum chars and won't re-match the AKIA pattern.
+
+### Overlap behavior
+
+Test explicitly that `api_key = AKIAIOSFODNN7EXAMPLE` produces exactly one `[redacted]` token and the label `api_key` survives intact.
+
 ## Acceptance criteria
 
 - [ ] `AKIA*` bare keys redacted in assembled packets
@@ -64,6 +105,9 @@ Key differences from `redact.py` context:
 - [ ] URL userinfo (`://user:pass@host`) redacted
 - [ ] False-positive regression: code containing `basic_auth_setup`, `basic_config`, and similar patterns NOT redacted
 - [ ] False-positive regression: variable names like `ghp_enabled` or `akia_prefix` NOT redacted (short suffixes below token-length minimum)
+- [ ] URL userinfo replacement preserves URL structure (`://user:[redacted]@host`)
+- [ ] Basic auth replacement preserves header prefix (`Authorization: Basic [redacted]`)
+- [ ] Overlap test: `api_key = AKIAIOSFODNN7EXAMPLE` produces one redaction with `api_key` label intact
 - [ ] Existing 4-pattern coverage preserved (no regression in current tests)
 - [ ] Item 6 marked closed in `T-20260327-01`
 
