@@ -53,6 +53,16 @@ def get_archive_dir() -> Path:
     return get_handoffs_dir() / "archive"
 
 
+def get_state_dir() -> Path:
+    """Get session state directory: <project_root>/docs/handoffs/.session-state/
+
+    State files are ephemeral bridge objects (24h TTL) linking resume→save
+    via the chain protocol. They live alongside handoff documents but are
+    gitignored to avoid tracking ephemeral session artifacts.
+    """
+    return get_handoffs_dir() / ".session-state"
+
+
 def get_legacy_handoffs_dir() -> Path:
     """Get legacy handoffs directory: <project_root>/.claude/handoffs/
 

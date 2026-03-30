@@ -17,6 +17,8 @@ import sys
 import time
 from pathlib import Path
 
+from scripts.project_paths import get_state_dir
+
 
 def _trash(path: Path) -> bool:
     """Attempt to move a file to trash. Returns True on success, False on failure.
@@ -36,7 +38,7 @@ def _trash(path: Path) -> bool:
 def prune_old_state_files(max_age_hours: int = 24, *, state_dir: Path | None = None) -> list[Path]:
     """Delete state files older than max_age_hours. Returns list of deleted files."""
     if state_dir is None:
-        state_dir = Path.home() / ".claude" / ".session-state"
+        state_dir = get_state_dir()
     if not state_dir.exists():
         return []
 

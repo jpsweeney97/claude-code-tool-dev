@@ -135,17 +135,16 @@ class TestPruneOldStateFiles:
         assert hit is True, "Patch must exercise the target file's stat() path"
         assert result == []
 
-    def test_default_state_dir_uses_home(self, tmp_path: Path) -> None:
-        """T3: When state_dir is None, resolves to ~/.claude/.session-state."""
-        fake_home = tmp_path / "fakehome"
-        state_dir = fake_home / ".claude" / ".session-state"
+    def test_default_state_dir_uses_project_local(self, tmp_path: Path) -> None:
+        """T3: When state_dir is None, resolves to <project_root>/docs/handoffs/.session-state."""
+        state_dir = tmp_path / "docs" / "handoffs" / ".session-state"
         state_dir.mkdir(parents=True)
         old = state_dir / "handoff-abc123"
         old.write_text("content")
         old_time = time.time() - (25 * 60 * 60)
         os.utime(old, (old_time, old_time))
         with (
-            patch("scripts.cleanup.Path.home", return_value=fake_home),
+            patch("scripts.cleanup.get_state_dir", return_value=state_dir),
             patch("scripts.cleanup._trash", return_value=True) as mock_trash,
         ):
             result = prune_old_state_files(max_age_hours=24)

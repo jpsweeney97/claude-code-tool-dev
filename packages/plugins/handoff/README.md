@@ -76,7 +76,7 @@ Core logic lives in `scripts/`. Skills handle UX and judgment; scripts handle de
 |----------|----------|-----------|
 | `<project_root>/docs/handoffs/` | Active handoffs and checkpoints | No auto-prune (git-tracked) |
 | `<project_root>/docs/handoffs/archive/` | Archived handoffs (moved by `/load`) | No auto-prune (git-tracked) |
-| `~/.claude/.session-state/handoff-<UUID>` | Chain protocol state files | 24 hours |
+| `<project_root>/docs/handoffs/.session-state/handoff-<UUID>` | Chain protocol state files | 24 hours |
 | `docs/tickets/` | Deferred work tickets | Permanent |
 | `docs/learnings/learnings.md` | Distilled knowledge entries | Permanent |
 
@@ -187,7 +187,7 @@ Session 2:
 ├─ Storage ─────────────────────────────────────────┤
 │  Active:  <project_root>/docs/handoffs/         │
 │  Archive: <project_root>/docs/handoffs/archive/  │
-│  State:   ~/.claude/.session-state/handoff-<UUID>  │
+│  State:   docs/handoffs/.session-state/handoff-<UUID>│
 └─ References ──────────────────────────────────────┘
    handoff-contract.md  format-reference.md
    synthesis-guide.md

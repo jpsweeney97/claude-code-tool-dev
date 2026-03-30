@@ -145,7 +145,7 @@ When user runs `/save [title]` or confirms a signal phrase offer:
 7. **Generate markdown** with frontmatter per [format-reference.md](../../references/format-reference.md) and [handoff-contract.md](../../references/handoff-contract.md):
    - Include `session_id:` with the UUID from step 2
    - Include `type: handoff` in frontmatter
-   - Per chain protocol in [handoff-contract.md](../../references/handoff-contract.md): read `~/.claude/.session-state/handoff-<session_id>` — if exists, set `resumed_from` to its content
+   - Per chain protocol in [handoff-contract.md](../../references/handoff-contract.md): read `<project_root>/docs/handoffs/.session-state/handoff-<session_id>` — if exists, set `resumed_from` to its content
    - Use fallbacks for optional fields (see Inputs → Constraints/Assumptions)
 
 8. **Write file** to `<project_root>/docs/handoffs/YYYY-MM-DD_HH-MM_<slug>.md`
@@ -157,7 +157,7 @@ When user runs `/save [title]` or confirms a signal phrase offer:
    If the commit fails, warn: "Handoff saved but not committed — <reason>". The file is already written; only the commit is skipped.
 
 9. **Cleanup state file** per chain protocol in [handoff-contract.md](../../references/handoff-contract.md):
-   - `trash` the state file at `~/.claude/.session-state/handoff-<session_id>` if it exists. If `trash` fails, warn the user that the state file persists but do not block — the 24-hour TTL will clean it up.
+   - `trash` the state file at `<project_root>/docs/handoffs/.session-state/handoff-<session_id>` if it exists. If `trash` fails, warn the user that the state file persists but do not block — the 24-hour TTL will clean it up.
 
 10. **Verify and confirm (brief summary only):**
     - Check file exists and frontmatter is valid

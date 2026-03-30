@@ -67,7 +67,7 @@ files:
 |----------|-----------|
 | Active handoffs (`<project_root>/docs/handoffs/`) | No auto-prune |
 | Archived handoffs (`<project_root>/docs/handoffs/archive/`) | No auto-prune |
-| State files (`~/.claude/.session-state/handoff-*`) | 24 hours |
+| State files (`<project_root>/docs/handoffs/.session-state/handoff-*`) | 24 hours |
 
 ## Example: New Session
 

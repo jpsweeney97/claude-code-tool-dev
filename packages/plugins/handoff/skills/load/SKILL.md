@@ -50,7 +50,7 @@ Continue work from a previous handoff.
 
 **Artifacts:**
 - Archived handoff at `<project_root>/docs/handoffs/archive/<filename>`
-- State file at `~/.claude/.session-state/handoff-<session_id>`
+- State file at `<project_root>/docs/handoffs/.session-state/handoff-<session_id>`
 
 **Side Effects:**
 - Original handoff moved to archive
@@ -95,7 +95,7 @@ Continue work from a previous handoff.
    - If cannot create `archive/`: warn user but continue (handoff still readable).
 
 5. **State file creation:**
-   - If `~/.claude/.session-state/` writable: write state file with archive path.
+   - If `<project_root>/docs/handoffs/.session-state/` writable: write state file with archive path.
    - If not writable: warn user (next handoff won't have `resumed_from` field).
 
 ## Procedure
@@ -132,18 +132,18 @@ When user runs `/load [path]`:
    **Auto-commit the archive:**
    ```bash
    git mv "<source_path>" "<archive_path>"
-   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/auto_commit.py" -m "docs(handoff): archive <filename>" --staged "<archive_path>"
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/auto_commit.py" -m "docs(handoff): archive <filename>" --staged "<source_path>" "<archive_path>"
    ```
    If `git mv` fails (file is untracked — e.g., loaded from legacy `.claude/handoffs/`), fall back:
    ```bash
    mv "<source_path>" "<archive_path>"
-   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/auto_commit.py" -m "docs(handoff): archive <filename>" "<archive_path>"
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/auto_commit.py" -m "docs(handoff): archive <filename>" "<source_path>" "<archive_path>"
    ```
    If the commit fails, warn: "Handoff archived but not committed — <reason>".
 
 6. **Write state file:**
-   - Create `~/.claude/.session-state/` if needed
-   - Write archive path to `~/.claude/.session-state/handoff-<session_id>` (using UUID from step 1)
+   - Create `<project_root>/docs/handoffs/.session-state/` if needed. If creating, also write a `.gitignore` inside it with content `*` followed by `!.gitignore` (state files are ephemeral and must not be git-tracked).
+   - Write archive path to `<project_root>/docs/handoffs/.session-state/handoff-<session_id>` (using UUID from step 1)
 
 ### List (`/list-handoffs`)
 
@@ -180,7 +180,7 @@ After loading, verify:
 
 - [ ] Handoff content displayed to user
 - [ ] Original file moved to `archive/`
-- [ ] State file exists at `~/.claude/.session-state/handoff-<session_id>`
+- [ ] State file exists at `<project_root>/docs/handoffs/.session-state/handoff-<session_id>`
 - [ ] Type displayed on load ("Resuming from **checkpoint**:" or "Resuming from **handoff**:")
 - [ ] User offered continuation prompt
 
@@ -219,12 +219,12 @@ After loading, verify:
 **Symptoms:** Next handoff missing `resumed_from` field
 
 **Likely causes:**
-- Permission denied on `~/.claude/.session-state/`
+- Permission denied on `<project_root>/docs/handoffs/.session-state/`
 - Session ended before state file written
 
 **Next steps:**
-1. Check if `~/.claude/.session-state/` exists
-2. Create manually if needed: `mkdir -p ~/.claude/.session-state`
+1. Check if `<project_root>/docs/handoffs/.session-state/` exists
+2. Create manually if needed: `mkdir -p "$(git rev-parse --show-toplevel)/docs/handoffs/.session-state"`
 
 ## Anti-Patterns
 

@@ -41,7 +41,7 @@ Fast state capture for context-pressure session cycling. Produces 22-55 line doc
    - Were any decisions made? → Decisions (if applicable)
 
 4. **Check state file** per chain protocol in [handoff-contract.md](../../references/handoff-contract.md):
-   - Read `~/.claude/.session-state/handoff-<session_id>`
+   - Read `<project_root>/docs/handoffs/.session-state/handoff-<session_id>`
    - If exists, set `resumed_from` to its content
 
 5. **Check consecutive checkpoint count via chain walk:**
@@ -68,7 +68,7 @@ Fast state capture for context-pressure session cycling. Produces 22-55 line doc
    If the commit fails, warn but continue.
 
 7. **Cleanup state file** per chain protocol:
-   - `trash` the state file at `~/.claude/.session-state/handoff-<session_id>` if it exists. If `trash` fails, warn the user that the state file persists but do not block — the 24-hour TTL will clean it up.
+   - `trash` the state file at `<project_root>/docs/handoffs/.session-state/handoff-<session_id>` if it exists. If `trash` fails, warn the user that the state file persists but do not block — the 24-hour TTL will clean it up.
 
 8. **Verify:** Confirm file exists and frontmatter is valid (required fields present per contract). Report: "Quicksave saved: `<path>`"
    - Do NOT reproduce content in chat. The file is the deliverable.

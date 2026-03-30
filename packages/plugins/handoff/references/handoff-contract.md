@@ -41,12 +41,12 @@ The chain protocol enables `resumed_from` tracking across sessions. Three skills
 
 **Resume (load) — writes state:**
 1. Archive the handoff to `<project_root>/docs/handoffs/archive/<filename>`
-2. Write archive path to `~/.claude/.session-state/handoff-<session_id>`
+2. Write archive path to `<project_root>/docs/handoffs/.session-state/handoff-<session_id>`
 
 **Save/Quicksave (save, quicksave) — reads and cleans state:**
-1. **Read:** Check `~/.claude/.session-state/handoff-<session_id>` — if exists, include path as `resumed_from` in frontmatter
+1. **Read:** Check `<project_root>/docs/handoffs/.session-state/handoff-<session_id>` — if exists, include path as `resumed_from` in frontmatter
 2. **Write:** Write the new handoff/checkpoint file
-3. **Cleanup:** Use `trash` to remove state file at `~/.claude/.session-state/handoff-<session_id>` (if exists). If `trash` fails, warn the user that the state file persists but do not block handoff/checkpoint creation — the 24-hour TTL will clean it up.
+3. **Cleanup:** Use `trash` to remove state file at `<project_root>/docs/handoffs/.session-state/handoff-<session_id>` (if exists). If `trash` fails, warn the user that the state file persists but do not block handoff/checkpoint creation — the 24-hour TTL will clean it up.
 
 **Invariant:** State files are created by load; the next save/quicksave reads them to populate `resumed_from`, then attempts cleanup via `trash`. If cleanup fails, the file may persist until TTL pruning (24 hours). A state file that persists beyond 24 hours is stale.
 
@@ -56,7 +56,7 @@ The chain protocol enables `resumed_from` tracking across sessions. Three skills
 |----------|--------|-----------|
 | `<project_root>/docs/handoffs/` | `YYYY-MM-DD_HH-MM_<slug>.md` | No auto-prune |
 | `<project_root>/docs/handoffs/archive/` | Same | No auto-prune |
-| `~/.claude/.session-state/handoff-<UUID>` | Plain text (path) | 24 hours |
+| `<project_root>/docs/handoffs/.session-state/handoff-<UUID>` | Plain text (path) | 24 hours |
 
 **Filename slug:** Lowercase, hyphens for spaces, no special characters. Checkpoints use `checkpoint-<slug>`, full handoffs use `<slug>` directly.
 
