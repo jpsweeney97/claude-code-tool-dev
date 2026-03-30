@@ -2,6 +2,7 @@
 name: adversarial-review
 description: Use when the user wants a structured adversarial review of a proposal, design, plan, approach, or decision. Trigger on requests like "adversarial review", "critique this", "stress test this proposal", "what's wrong with this approach", "red team this", or "poke holes in this". Analyze assumptions, failure modes, correctness, completeness, operational risk, maintainability, security or trust boundaries, and missed alternatives. Do not use for general code review, proofreading, or collaborative editing.
 argument-hint: "[target — e.g., 'the caching proposal' or 'the migration plan'. Omit to review the most recent proposal.]"
+context: fork
 ---
 
 # Adversarial Review

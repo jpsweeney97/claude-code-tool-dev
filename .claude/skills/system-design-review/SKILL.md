@@ -2,6 +2,8 @@
 name: system-design-review
 description: Review system architecture through design lenses to surface inherited defaults, underspecified decisions, tradeoffs, and cross-cutting tensions. Use when the user asks to "review this architecture", "review this design", "evaluate this system", "check this design for gaps", "what decisions did we inherit", "where are the gaps in this design", "what are the architectural concerns here", or "stress test this architecture", or wants an architectural assessment of a design doc, codebase, or verbal system description. Do not use for code-level bug review, incident post-mortems, debt prioritization, refactoring sequencing, or implementation-readiness audits.
 argument-hint: "[target — e.g., 'the auth service design doc', 'this codebase', or describe the system verbally. Omit to review the most recent design or proposal.]"
+context: fork
+
 ---
 
 # System Design Review
