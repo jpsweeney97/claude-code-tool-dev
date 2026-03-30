@@ -37,6 +37,8 @@ _TRIM_ORDER = {
     ],
 }
 _MAX_FILE_EXCERPT_BYTES = 4096
+_BINARY_SNIFF_BYTES = 8192
+_BINARY_PLACEHOLDER = "[binary or non-UTF-8 file \u2014 content not shown]"
 _SECRET_PATTERNS = (
     re.compile(r"sk-[A-Za-z0-9]{12,}"),
     re.compile(r"Bearer\s+[A-Za-z0-9._-]{12,}", re.IGNORECASE),
@@ -342,7 +344,13 @@ def _read_file_excerpt(repo_root: Path, path: Path) -> str:
         raise ContextAssemblyError(
             f"Context assembly failed: file reference missing. Got: {str(candidate)!r:.100}"
         )
-    raw = candidate.read_text(encoding="utf-8")
+    prefix = candidate.read_bytes()[:_BINARY_SNIFF_BYTES]
+    if b"\x00" in prefix:
+        return _BINARY_PLACEHOLDER
+    try:
+        raw = candidate.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return _BINARY_PLACEHOLDER
     excerpt = raw[:_MAX_FILE_EXCERPT_BYTES]
     if len(raw) > _MAX_FILE_EXCERPT_BYTES:
         excerpt = excerpt + "\n...[truncated]"

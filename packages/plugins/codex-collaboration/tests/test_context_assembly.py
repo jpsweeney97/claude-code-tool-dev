@@ -84,6 +84,78 @@ def test_assembly_redacts_secrets_from_files_and_snippets(tmp_path: Path) -> Non
     assert packet.payload.count("[redacted]") >= 4
 
 
+def test_assembly_handles_binary_file_in_explicit_paths(tmp_path: Path) -> None:
+    binary_path = tmp_path / "image.png"
+    binary_path.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")
+    request = ConsultRequest(
+        repo_root=tmp_path,
+        objective="Review the image reference",
+        explicit_paths=(Path("image.png"),),
+    )
+
+    packet = assemble_context_packet(
+        request,
+        _repo_identity(tmp_path),
+        profile="advisory",
+    )
+
+    assert "binary or non-UTF-8 file" in packet.payload
+
+
+def test_assembly_preserves_valid_files_alongside_binary(tmp_path: Path) -> None:
+    valid_path = tmp_path / "code.py"
+    valid_path.write_text("print('hello')\n", encoding="utf-8")
+    binary_path = tmp_path / "data.bin"
+    binary_path.write_bytes(b"\xff\xfe\x00\x01" * 100)
+    request = ConsultRequest(
+        repo_root=tmp_path,
+        objective="Review files",
+        explicit_paths=(Path("code.py"), Path("data.bin")),
+    )
+
+    packet = assemble_context_packet(
+        request,
+        _repo_identity(tmp_path),
+        profile="advisory",
+    )
+
+    assert "print('hello')" in packet.payload
+    assert "binary or non-UTF-8 file" in packet.payload
+
+
+def test_assembly_handles_binary_file_in_task_local_paths(tmp_path: Path) -> None:
+    binary_path = tmp_path / "compiled.wasm"
+    binary_path.write_bytes(b"\x00asm\x01\x00\x00\x00")
+    request = ConsultRequest(
+        repo_root=tmp_path,
+        objective="Review task context",
+        task_local_paths=(Path("compiled.wasm"),),
+    )
+
+    packet = assemble_context_packet(
+        request,
+        _repo_identity(tmp_path),
+        profile="advisory",
+    )
+
+    assert "binary or non-UTF-8 file" in packet.payload
+
+
+def test_assembly_rejects_missing_file(tmp_path: Path) -> None:
+    request = ConsultRequest(
+        repo_root=tmp_path,
+        objective="Reference a nonexistent file",
+        explicit_paths=(Path("does_not_exist.py"),),
+    )
+
+    with pytest.raises(ContextAssemblyError, match="file reference missing"):
+        assemble_context_packet(
+            request,
+            _repo_identity(tmp_path),
+            profile="advisory",
+        )
+
+
 def test_assembly_rejects_out_of_repo_paths(tmp_path: Path) -> None:
     outside = tmp_path.parent / "outside.txt"
     outside.write_text("nope\n", encoding="utf-8")
