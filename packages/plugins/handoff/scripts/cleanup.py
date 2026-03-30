@@ -17,7 +17,11 @@ import sys
 import time
 from pathlib import Path
 
-from scripts.project_paths import get_state_dir
+try:
+    from scripts.project_paths import get_state_dir
+except ModuleNotFoundError:  # Direct execution (python3 scripts/cleanup.py)
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from scripts.project_paths import get_state_dir  # type: ignore[no-redef]
 
 
 def _trash(path: Path) -> bool:
