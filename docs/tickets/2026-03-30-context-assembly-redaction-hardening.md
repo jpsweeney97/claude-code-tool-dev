@@ -3,7 +3,7 @@
 ```yaml
 id: T-20260330-01
 date: 2026-03-30
-status: open
+status: closed
 priority: medium
 tags: [codex-collaboration, hardening, context-assembly, redaction]
 blocked_by: []
@@ -76,7 +76,8 @@ Prefer `secret_taxonomy.py` per-family thresholds over `redact.py` generic thres
 - **Prefix patterns** (AKIA, ghp/gho/ghs/ghr): flat `[redacted]` replacement. No structural context to preserve.
 - **Basic auth**: group-preserving — `Authorization: Basic [redacted]`. Preserve the header prefix so Codex sees this was an auth header.
 - **URL userinfo**: group-preserving — `://user:[redacted]@host`. Preserve URL structure so Codex sees this was a URL with credentials.
-- **Existing patterns** (sk-*, Bearer, PEM, keyword assignments): unchanged flat `[redacted]`.
+- **Existing flat patterns** (sk-*, Bearer, PEM): unchanged `[redacted]` replacement.
+- **Keyword assignments**: preserve the assignment label (`api_key = [redacted]`) so overlap with prefix rules does not erase useful context.
 
 ### Application order
 
@@ -99,17 +100,25 @@ Test explicitly that `api_key = AKIAIOSFODNN7EXAMPLE` produces exactly one `[red
 
 ## Acceptance criteria
 
-- [ ] `AKIA*` bare keys redacted in assembled packets
-- [ ] `ghp_`, `gho_`, `ghs_`, `ghr_` tokens redacted
-- [ ] `Authorization: Basic` headers redacted
-- [ ] URL userinfo (`://user:pass@host`) redacted
-- [ ] False-positive regression: code containing `basic_auth_setup`, `basic_config`, and similar patterns NOT redacted
-- [ ] False-positive regression: variable names like `ghp_enabled` or `akia_prefix` NOT redacted (short suffixes below token-length minimum)
-- [ ] URL userinfo replacement preserves URL structure (`://user:[redacted]@host`)
-- [ ] Basic auth replacement preserves header prefix (`Authorization: Basic [redacted]`)
-- [ ] Overlap test: `api_key = AKIAIOSFODNN7EXAMPLE` produces one redaction with `api_key` label intact
-- [ ] Existing 4-pattern coverage preserved (no regression in current tests)
-- [ ] Item 6 marked closed in `T-20260327-01`
+- [x] `AKIA*` bare keys redacted in assembled packets
+- [x] `ghp_`, `gho_`, `ghs_`, `ghr_` tokens redacted
+- [x] `Authorization: Basic` headers redacted
+- [x] URL userinfo (`://user:pass@host`) redacted
+- [x] False-positive regression: code containing `basic_auth_setup`, `basic_config`, and similar patterns NOT redacted
+- [x] False-positive regression: variable names like `ghp_enabled` or `akia_prefix` NOT redacted (short suffixes below token-length minimum)
+- [x] URL userinfo replacement preserves URL structure (`://user:[redacted]@host`)
+- [x] Basic auth replacement preserves header prefix (`Authorization: Basic [redacted]`)
+- [x] Overlap test: `api_key = AKIAIOSFODNN7EXAMPLE` produces one redaction with `api_key` label intact
+- [x] Existing 4-pattern coverage preserved (no regression in current tests)
+- [x] Item 6 marked closed in `T-20260327-01`
+
+## Resolution
+
+Item 6 is closed. `context_assembly.py` now applies the redaction rules in the ticket's required order, preserves structure for Basic auth headers and URL userinfo, and retains assignment labels when prefix and keyword rules overlap.
+
+Verification:
+- `uv run pytest packages/plugins/codex-collaboration/tests` → 219 passed
+- `uv run ruff check packages/plugins/codex-collaboration/server/context_assembly.py packages/plugins/codex-collaboration/tests/test_context_assembly.py` → passed
 
 ## Parked debt (not in scope)
 

@@ -84,6 +84,114 @@ def test_assembly_redacts_secrets_from_files_and_snippets(tmp_path: Path) -> Non
     assert packet.payload.count("[redacted]") >= 4
 
 
+def test_assembly_redacts_low_ambiguity_credential_forms(tmp_path: Path) -> None:
+    file_path = tmp_path / "credentials.txt"
+    gh_suffix = "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
+    basic_secret = "dXNlcjpwYXNz"
+    url_secret = "supersecret"
+    file_path.write_text(
+        "aws_access_key_id = AKIAIOSFODNN7EXAMPLE\n"
+        f"github_pat = ghp_{gh_suffix}\n"
+        f"github_oauth = gho_{gh_suffix}\n"
+        f"github_server = ghs_{gh_suffix}\n"
+        f"github_refresh = ghr_{gh_suffix}\n"
+        f"basic_header = Authorization: Basic {basic_secret}\n"
+        f"url = https://build:{url_secret}@example.com/path\n",
+        encoding="utf-8",
+    )
+    request = ConsultRequest(
+        repo_root=tmp_path,
+        objective="Summarize credential handling",
+        explicit_paths=(Path("credentials.txt"),),
+    )
+
+    packet = assemble_context_packet(
+        request,
+        _repo_identity(tmp_path),
+        profile="advisory",
+    )
+
+    assert "AKIAIOSFODNN7EXAMPLE" not in packet.payload
+    assert f"ghp_{gh_suffix}" not in packet.payload
+    assert f"gho_{gh_suffix}" not in packet.payload
+    assert f"ghs_{gh_suffix}" not in packet.payload
+    assert f"ghr_{gh_suffix}" not in packet.payload
+    assert basic_secret not in packet.payload
+    assert url_secret not in packet.payload
+    assert "Authorization: Basic [redacted]" in packet.payload
+    assert "https://build:[redacted]@example.com/path" in packet.payload
+
+
+def test_assembly_does_not_redact_code_like_false_positives(tmp_path: Path) -> None:
+    file_path = tmp_path / "config.py"
+    file_path.write_text(
+        "basic_auth_setup = True\n"
+        "basic_config = {'mode': 'safe'}\n"
+        "ghp_enabled = False\n"
+        "akia_prefix = 'AKIA'\n",
+        encoding="utf-8",
+    )
+    request = ConsultRequest(
+        repo_root=tmp_path,
+        objective="Review config symbols",
+        explicit_paths=(Path("config.py"),),
+    )
+
+    packet = assemble_context_packet(
+        request,
+        _repo_identity(tmp_path),
+        profile="advisory",
+    )
+
+    assert "basic_auth_setup" in packet.payload
+    assert "basic_config" in packet.payload
+    assert "ghp_enabled" in packet.payload
+    assert "akia_prefix" in packet.payload
+
+
+def test_assembly_does_not_redact_off_by_one_akia_lengths(tmp_path: Path) -> None:
+    file_path = tmp_path / "akia_lengths.txt"
+    file_path.write_text(
+        "akia_short = AKIAIOSFODNN7EXAMPL\n"
+        "akia_long = AKIAIOSFODNN7EXAMPLE1\n",
+        encoding="utf-8",
+    )
+    request = ConsultRequest(
+        repo_root=tmp_path,
+        objective="Review AKIA length boundaries",
+        explicit_paths=(Path("akia_lengths.txt"),),
+    )
+
+    packet = assemble_context_packet(
+        request,
+        _repo_identity(tmp_path),
+        profile="advisory",
+    )
+
+    assert "AKIAIOSFODNN7EXAMPL" in packet.payload
+    assert "AKIAIOSFODNN7EXAMPLE1" in packet.payload
+
+
+def test_assembly_preserves_assignment_label_for_overlapping_redaction_rules(tmp_path: Path) -> None:
+    file_path = tmp_path / "overlap.txt"
+    file_path.write_text("api_key = AKIAIOSFODNN7EXAMPLE\n", encoding="utf-8")
+    request = ConsultRequest(
+        repo_root=tmp_path,
+        objective="Review overlapping redaction rules",
+        explicit_paths=(Path("overlap.txt"),),
+    )
+
+    packet = assemble_context_packet(
+        request,
+        _repo_identity(tmp_path),
+        profile="advisory",
+    )
+
+    assert "AKIAIOSFODNN7EXAMPLE" not in packet.payload
+    assert "api_key = [redacted]" in packet.payload
+    assert packet.payload.count("[redacted]") == 1
+
+
 def test_assembly_handles_binary_file_in_explicit_paths(tmp_path: Path) -> None:
     binary_path = tmp_path / "image.png"
     binary_path.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")

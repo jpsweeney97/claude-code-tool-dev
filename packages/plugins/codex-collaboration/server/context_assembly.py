@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -39,11 +40,43 @@ _TRIM_ORDER = {
 _MAX_FILE_EXCERPT_BYTES = 4096
 _BINARY_SNIFF_BYTES = 8192
 _BINARY_PLACEHOLDER = "[binary or non-UTF-8 file \u2014 content not shown]"
-_SECRET_PATTERNS = (
-    re.compile(r"sk-[A-Za-z0-9]{12,}"),
-    re.compile(r"Bearer\s+[A-Za-z0-9._-]{12,}", re.IGNORECASE),
-    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", re.DOTALL),
-    re.compile(r"(?i)(password|token|secret|api[_-]?key)\s*[:=]\s*['\"]?[^'\"\n]{6,}"),
+_REDACTED = "[redacted]"
+
+
+def _replace_prefixed_secret(match: re.Match[str]) -> str:
+    return match.group(1) + _REDACTED
+
+
+def _replace_url_userinfo(match: re.Match[str]) -> str:
+    return match.group(1) + _REDACTED + match.group(3)
+
+
+_SECRET_PATTERNS: tuple[
+    tuple[re.Pattern[str], str | Callable[[re.Match[str]], str]],
+    ...,
+] = (
+    (
+        re.compile(
+            r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----",
+            re.DOTALL,
+        ),
+        _REDACTED,
+    ),
+    (re.compile(r"(://[^@/\s:]+:)([^@/\s]+)(@)"), _replace_url_userinfo),
+    (
+        re.compile(r"(?i)(authorization\s*:\s*basic\s+)[A-Za-z0-9+/]{8,}=*"),
+        _replace_prefixed_secret,
+    ),
+    (re.compile(r"\bAKIA[A-Z0-9]{16}\b"), _REDACTED),
+    (re.compile(r"\b(?:ghp|gho|ghs|ghr)_[A-Za-z0-9]{36,}\b"), _REDACTED),
+    (re.compile(r"sk-[A-Za-z0-9]{12,}"), _REDACTED),
+    (re.compile(r"Bearer\s+[A-Za-z0-9._-]{12,}", re.IGNORECASE), _REDACTED),
+    (
+        re.compile(
+            r"(?i)((?:password|token|secret|api[_-]?key)\s*[:=]\s*)[\"']?([^\s\"']{6,})[\"']?"
+        ),
+        _replace_prefixed_secret,
+    ),
 )
 
 
@@ -359,8 +392,8 @@ def _read_file_excerpt(repo_root: Path, path: Path) -> str:
 
 def _redact_text(value: str) -> str:
     redacted = value
-    for pattern in _SECRET_PATTERNS:
-        redacted = pattern.sub("[redacted]", redacted)
+    for pattern, replacement in _SECRET_PATTERNS:
+        redacted = pattern.sub(replacement, redacted)
     return redacted
 
 
