@@ -36,6 +36,8 @@ The plugin was just migrated from global (`~/.claude/handoffs/<project>/`) to pr
 
 Path resolution is unchanged: `get_project_root()` returns git root, `get_handoffs_dir()` composes `root/docs/handoffs`.
 
+**Directory bootstrapping:** on first `/save` or `/quicksave`, the skill creates `docs/handoffs/` (and `docs/handoffs/archive/` on first `/load`) via `mkdir -p` if they don't exist. No `.gitkeep` needed — the directory gets committed with the first handoff file. The save skill already handles this pattern (check-and-create before writing).
+
 Session-state files remain at `~/.claude/.session-state/` (ephemeral, session-scoped).
 
 ### Git integration
@@ -58,7 +60,7 @@ Every handoff state change gets its own commit:
 
 **Create flow:** skill writes file → calls `auto_commit.py <file> "<message>"`
 
-**Archive flow:** skill runs `git mv source dest` (stages automatically) → calls `auto_commit.py --staged "<message>"`. If `git mv` fails (file is untracked — e.g., loaded from legacy location), skill falls back to `mv` + calls `auto_commit.py <old_path> <new_path> "<message>"` to stage both the add and remove.
+**Archive flow:** skill runs `git mv source dest` (stages automatically) → calls `auto_commit.py --staged "<message>"`. If `git mv` fails (file is untracked — e.g., loaded from legacy location at `.claude/handoffs/`, which is gitignored), skill falls back to `mv` + calls `auto_commit.py <new_path> "<message>"` to stage only the destination. The source deletion is invisible to git since it was gitignored — only the new file at `docs/handoffs/archive/` gets staged and committed.
 
 Edge cases (enforced by `auto_commit.py`, not skill prose):
 
@@ -68,7 +70,7 @@ Edge cases (enforced by `auto_commit.py`, not skill prose):
 | Dirty index (other staged files) | Commit only the handoff file (`git add <specific file>`, not `git add -A`) |
 | No git repo | Skip commit, warn user |
 
-Commit authorship: uses Claude's identity from the user's git config. This keeps handoff commits distinguishable in `git blame` and filterable in `git log`.
+Commit authorship: uses the user's existing git config as-is. No magic identity injection. If the user wants Claude-attributed commits, they configure their git author settings accordingly.
 
 The `docs(handoff):` commit prefix enables git log filtering:
 
@@ -103,7 +105,7 @@ At ~200+ archived files, linear search in `/search` and `/triage` may slow notic
 | File | Changes |
 |------|---------|
 | `scripts/project_paths.py` | `get_handoffs_dir()` returns `root/docs/handoffs`; add `get_legacy_handoffs_dir()` returning `root/.claude/handoffs` |
-| `scripts/cleanup.py` | Remove `get_project_root()`, `get_handoffs_dir()`, and `prune_old_handoffs()` entirely; keep only `prune_old_state_files()` and `main()` |
+| `scripts/cleanup.py` | Remove `get_project_root()`, `get_handoffs_dir()`, and `prune_old_handoffs()`; rewrite `main()` to call only `prune_old_state_files()` (remove the two `prune_old_handoffs()` calls at lines 126-129). Keep `_trash()` — it's used by `prune_old_state_files()` |
 | `scripts/auto_commit.py` | **New file.** Testable git commit logic (~30 lines): check state, stage file, commit with message |
 | `scripts/quality_check.py` | `is_handoff_path()` matching rule and `.archive` → `archive` rename (see below) |
 | `scripts/search.py` | `.archive` → `archive` |
@@ -113,14 +115,18 @@ At ~200+ archived files, linear search in `/search` and `/triage` may slow notic
 | `README.md` | Path references, retention table, gitignore note |
 | `CHANGELOG.md` | New entry |
 
-**Skill updates** (path changes + git commit steps):
+**Skill updates** (path changes + git commit steps + frontmatter):
 
-| Skill | Path changes | Git additions |
-|-------|-------------|---------------|
-| `save/SKILL.md` | ~18 path refs | Add `auto_commit.py` call after file write |
-| `load/SKILL.md` | ~12 path refs | Add `auto_commit.py` call after archive move; add legacy fallback (see below) |
-| `quicksave/SKILL.md` | Path refs | Add `auto_commit.py` call after file write |
-| `distill/SKILL.md` | Path refs | None (reads only) |
+| Skill | Path changes | Git additions | Frontmatter |
+|-------|-------------|---------------|-------------|
+| `save/SKILL.md` | ~18 path refs | Add `auto_commit.py` call after file write | Add `Bash` to `allowed-tools` |
+| `load/SKILL.md` | ~12 path refs | Add `auto_commit.py` call after archive move; add legacy fallback (see below) | Add `Bash` to `allowed-tools` |
+| `quicksave/SKILL.md` | Path refs | Add `auto_commit.py` call after file write | Add `Bash` to `allowed-tools` |
+| `distill/SKILL.md` | Path refs | None (reads only) | None |
+
+**Why `Bash` in `allowed-tools`:** skills call `auto_commit.py` and `git mv` via shell execution. Without `Bash` in `allowed-tools`, every `/save` and `/load` triggers a permission prompt — trading one friction point (`.claude/` write prompt) for another (Bash prompt). Adding `Bash` to `allowed-tools` auto-approves these calls.
+
+**Alternative considered:** PostToolUse hook on `Write` that auto-commits when the path matches `docs/handoffs/`. This would avoid the `Bash` dependency for creates, but the archive flow uses `git mv` (not `Write`), so the load skill still needs `Bash` regardless. One mechanism (`Bash` in `allowed-tools`) is simpler than two (hook for creates + `Bash` for archives).
 
 **Test updates:**
 
@@ -155,6 +161,7 @@ At ~200+ archived files, linear search in `/search` and `/triage` may slow notic
 | `search.py` | Checks both directories (primary then legacy) | Script has directory scanning logic already; adding a second directory is natural |
 | `triage.py` | Checks both directories (primary then legacy) | Same as search |
 | `/load` skill | Bash `ls` on primary, then legacy if empty | Simple directory existence check — no edge cases that need a Python script |
+| `quality_check.py` | **No fallback — matches `docs/handoffs/` only** | The plugin no longer writes to `.claude/handoffs/`. Quality check fires on `Write`, not on pre-existing files. Legacy files are read-only artifacts; validating them has no value. |
 
 When handoffs are found at the legacy location, all three emit:
 
@@ -198,6 +205,14 @@ grep -rE '30.day|90.day' packages/plugins/handoff/references/
 
 All three commands should return empty (no matches).
 
+### Rollback
+
+The atomic single-commit design makes rollback trivial: `git revert <commit>` undoes all changes. Committed handoff files remain in git history even after revert.
+
+### Changelog skill pre-existing bug
+
+The changelog skill references `~/.claude/handoffs/{project-name}/.archive/` — the global path from two migrations ago (pre-project-local). This design updates it to `docs/handoffs/archive/`, but the implementer should be aware this is a two-step jump, not a simple rename from the project-local path.
+
 ### Not changed (historical)
 
 Files in `docs/superpowers/plans/`, engram specs, and `.planning/` reference old paths but are historical records. Updating them would misrepresent what was true when they were written.
@@ -213,6 +228,9 @@ Files in `docs/superpowers/plans/`, engram specs, and `.planning/` reference old
 | Narrow commits (one file) | Avoid sweeping in unrelated staged work |
 | `archive/` not `.archive/` | Git-tracked, visible — no reason to hide |
 | Git logic in `auto_commit.py`, not skill prose | Edge case checks (detached HEAD, dirty index, no git) must be testable; prose instructions are non-deterministic |
+| `Bash` added to `allowed-tools` for save/load/quicksave | Skills call `auto_commit.py` and `git mv` via Bash; without auto-approval, every save/load prompts. PostToolUse hook alternative evaluated and declined (works for creates but not archives) |
+| `quality_check.py` matches `docs/handoffs/` only, no legacy fallback | Plugin no longer writes to `.claude/handoffs/`; quality check fires on Write, not Read; legacy files are read-only artifacts |
 | `**/.claude/handoffs/**` removed from `GITFLOW_ALLOW_FILES` | `**/docs/**` already covers `docs/handoffs/`; entry removed as part of docs/ migration (intentional, not accidental) |
-| Atomic commit for all changes | Contract has runtime precedence over skill text; stale contract with old paths would override correct skills |
-| Claude author identity on auto-commits | Keeps handoff commits distinguishable in `git blame` and filterable in `git log` |
+| Atomic commit for all changes | Contract has runtime precedence over skill text; stale contract with old paths would override correct skills. Rollback via `git revert <commit>` |
+| User's existing git config for authorship | No magic identity injection; user configures git author settings if they want Claude-attributed commits |
+| Directory bootstrapping via `mkdir -p` in skills | No `.gitkeep` needed; directory committed with first handoff file |
