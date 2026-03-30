@@ -40,9 +40,9 @@ Source: R1 handoff document, review findings #1-10, downstream risks A-E.
 
 ## Decision Gate (T4 input) — Resolved 2026-03-30
 
-Both items classified as **existing gap** (items 6 and 7) were assessed against shared context assembly paths. Both were promoted:
+Both items classified as **existing gap** (items 6 and 7) were assessed against shared context assembly paths and selected for action:
 
-- **Item 7** fixed immediately as standalone bugfix (`e6792de8`). Binary/non-UTF-8 references now return a placeholder instead of crashing the packet.
+- **Item 7** closed immediately as standalone bugfix (`e6792de8`). Binary/non-UTF-8 references now return a placeholder instead of crashing the packet.
 - **Item 6** promoted to `T-20260330-01` for targeted redaction hardening scoped to low-ambiguity credential patterns.
 
 ## Acceptance Criteria

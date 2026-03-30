@@ -13,9 +13,9 @@ effort: small
 
 ## Context
 
-T3/T4 decision gate from the post-R2 hardening framework. Items 6 and 7 from the R1 carry-forward debt ticket (`T-20260327-01`) were assessed against shared context assembly paths. Both were promoted.
+T3/T4 decision gate from the post-R2 hardening framework. Items 6 and 7 from the R1 carry-forward debt ticket (`T-20260327-01`) were assessed against shared context assembly paths.
 
-Item 7 (non-UTF-8 file crash) landed as a standalone bugfix at `e6792de8` — binary/non-UTF-8 references now return a placeholder instead of crashing the entire packet. This ticket covers item 6 only.
+Item 7 (non-UTF-8 file crash) was closed immediately as a standalone bugfix at `e6792de8`. Item 6 (redaction coverage) was promoted into this ticket as the next work packet.
 
 ## Problem
 
