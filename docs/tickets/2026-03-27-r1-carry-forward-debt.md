@@ -45,6 +45,21 @@ Both items classified as **existing gap** (items 6 and 7) were assessed against 
 - **Item 7** closed immediately as standalone bugfix (`e6792de8`). Binary/non-UTF-8 references now return a placeholder instead of crashing the packet.
 - **Item 6** was promoted to `T-20260330-01` and is now closed there after the targeted redaction hardening was implemented and verified.
 
+## Release Posture — R1/R2 Dev-Repo Internal Use
+
+`Parked` remains the backlog classification for items 1-5. The table below is the
+explicit release acceptance for the current rollout target: R1/R2 internal use
+from the dev repo, not packaged-plugin rollout. If an invalidation trigger fires,
+re-review the item before shipping the triggering change.
+
+| Item | Accepted risk | Blast radius if undetected | Invalidation trigger | Re-review condition | Owner |
+|------|---------------|----------------------------|----------------------|---------------------|-------|
+| 1 | Missing explicit bootstrap assertions are accepted while advisory runtime bootstrap still depends only on `initialize` and `account/read`, both of which already fail closed via live checks. | Startup can fail later or with less precise diagnostics if a new bootstrap-critical method is added without tightening the bootstrap contract. | Any new App Server method becomes required before the advisory runtime is considered usable. | Any change to the bootstrap sequence in `ControlPlane._probe_runtime()` or equivalent startup flow. | Author of the bootstrap-surface change |
+| 2 | Explicit `close()` plus invalidation-on-failure is accepted for short-lived internal sessions. | Orphaned local app-server processes can survive until process exit or manual cleanup. | Process ownership, shutdown semantics, or recovery assumptions change. | Any change to `JsonRpcClient` lifecycle management or to how runtimes are retained across sessions. | Author of the lifecycle change |
+| 3 | No locking is required while MCP dispatch remains serialized and dialogue turn sequencing relies on that invariant. | Advisory runtime cache access and turn sequencing can race, producing duplicate or misordered turns. | Tool dispatch stops being single-threaded or concurrent advisory turns become possible. | Any change to MCP dispatch serialization or dialogue turn-sequence derivation assumptions. | Author of the dispatch-model change |
+| 4 | The minimal `AuditEvent` shape is accepted while only `consult` and `dialogue_turn` events are first-class. | New audit event families can ship with under-specified structure and become hard to query or export consistently. | A new audit action needs typed fields beyond `extra`, or an external consumer depends on richer schema. | The first non-`consult`/`dialogue_turn` audit producer or audit-consumer feature. | Author of the audit-surface change |
+| 5 | Hardcoded policy fingerprint inputs are accepted while advisory runtime policy remains read-only, no-network, approval=`never`, and reuse semantics stay unchanged. | Advisory runtime reuse can become unsound if the effective policy widens without invalidating the cached fingerprint. | Advisory widening or any change to the policy input surface or reuse semantics. | Any change to `request.network_access` handling, runtime approval/sandbox settings, or `build_policy_fingerprint()` material. | Author of the policy-surface change |
+
 ## Acceptance Criteria
 
 - [x] All 7 items have a classification (parked, promoted, or closed)

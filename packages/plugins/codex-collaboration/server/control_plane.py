@@ -130,6 +130,9 @@ class ControlPlane:
     def codex_consult(self, request: ConsultRequest) -> ConsultResult:
         """Execute a one-shot advisory consultation."""
 
+        # Release posture item 5 is accepted only while advisory turns stay
+        # read-only and no-network for R1/R2 dev-repo internal use. Any policy
+        # widening here must also revisit fingerprint invalidation semantics.
         if request.network_access:
             raise RuntimeError(
                 "Consult failed: advisory widening is not implemented in R1. "
@@ -175,6 +178,9 @@ class ControlPlane:
             self._invalidate_runtime(resolved_root)
             raise
         collaboration_id = self._uuid_factory()
+        # Release posture item 4 accepts the minimal audit schema only for the
+        # current consult/dialogue_turn families. Any new first-class audit
+        # action should revisit AuditEvent shape before it is emitted.
         self._journal.append_audit_event(
             AuditEvent(
                 event_id=self._uuid_factory(),
@@ -255,6 +261,10 @@ class ControlPlane:
         runtime_key = str(repo_root)
         session = existing_runtime.session if existing_runtime is not None else self._runtime_factory(repo_root)
         try:
+            # Release posture item 1 is accepted only while initialize +
+            # account/read remain the complete advisory bootstrap surface.
+            # Adding any new bootstrap-critical method should revisit the
+            # parked bootstrap assertion debt before rollout.
             handshake = existing_runtime.handshake if existing_runtime is not None else session.initialize()
         except Exception as exc:  # pragma: no cover - defensive path
             if existing_runtime is not None:
@@ -361,6 +371,9 @@ class ControlPlane:
 def build_policy_fingerprint() -> str:
     """Return the advisory runtime's immutable policy fingerprint."""
 
+    # Keep this material aligned with the actual advisory runtime policy
+    # inputs. R1/R2 dev-repo rollout accepts hardcoded values only while the
+    # request gate and runtime settings preserve this exact advisory posture.
     material = {
         "transport_mode": "stdio",
         "sandbox_level": "read_only",

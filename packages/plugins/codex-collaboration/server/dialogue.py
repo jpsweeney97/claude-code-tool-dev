@@ -190,7 +190,8 @@ class DialogueController:
         repo_identity = self._repo_identity_loader(resolved_root)
 
         # Derive turn_sequence from completed turns via thread/read (contracts.md:266).
-        # Safe under MCP serialization invariant — no concurrent turns to race with.
+        # Safe only while the MCP server keeps serialized dispatch for the
+        # accepted R1/R2 rollout posture — no concurrent advisory turns to race with.
         turn_sequence = self._next_turn_sequence(handle, runtime)
 
         # Build consult request for context assembly (reuse same pipeline)
@@ -275,7 +276,9 @@ class DialogueController:
             session_id=self._session_id,
         )
 
-        # Audit event (dialogue_turn per contracts.md §Audit Event Actions)
+        # Release posture item 4 accepts the minimal audit schema only for the
+        # current consult/dialogue_turn families. Any new first-class audit
+        # action should revisit AuditEvent shape before it is emitted.
         self._journal.append_audit_event(
             AuditEvent(
                 event_id=self._uuid_factory(),
