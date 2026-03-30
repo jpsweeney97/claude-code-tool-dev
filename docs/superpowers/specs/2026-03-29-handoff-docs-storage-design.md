@@ -67,8 +67,9 @@ Edge cases (enforced by `auto_commit.py`, not skill prose):
 | Situation | Behavior |
 |-----------|----------|
 | Detached HEAD / rebase in progress | Skip commit, warn: "Handoff saved but not committed — resolve git state first" |
-| Dirty index (other staged files) | Commit only the handoff file (`git add <specific file>`, not `git add -A`) |
+| Dirty index (other staged files) | Use `git commit --only <file>` to commit exactly the specified paths, ignoring anything else in the staging area |
 | No git repo | Skip commit, warn user |
+| Commit failure (pre-commit hook, lock contention, disk error) | Warn and continue — handoff file is already written, only the commit is skipped |
 
 Commit authorship: uses the user's existing git config as-is. No magic identity injection. If the user wants Claude-attributed commits, they configure their git author settings accordingly.
 
