@@ -9,6 +9,17 @@
           }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "mcp__plugin_codex-collaboration_codex-collaboration__codex\\.consult|mcp__plugin_codex-collaboration_codex-collaboration__codex\\.dialogue\\.start|mcp__plugin_codex-collaboration_codex-collaboration__codex\\.dialogue\\.reply",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/codex_guard.py\""
+          }
+        ]
+      }
     ]
   }
 }
