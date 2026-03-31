@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -40,44 +39,6 @@ _TRIM_ORDER = {
 _MAX_FILE_EXCERPT_BYTES = 4096
 _BINARY_SNIFF_BYTES = 8192
 _BINARY_PLACEHOLDER = "[binary or non-UTF-8 file \u2014 content not shown]"
-_REDACTED = "[redacted]"
-
-
-def _replace_prefixed_secret(match: re.Match[str]) -> str:
-    return match.group(1) + _REDACTED
-
-
-def _replace_url_userinfo(match: re.Match[str]) -> str:
-    return match.group(1) + _REDACTED + match.group(3)
-
-
-_SECRET_PATTERNS: tuple[
-    tuple[re.Pattern[str], str | Callable[[re.Match[str]], str]],
-    ...,
-] = (
-    (
-        re.compile(
-            r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----",
-            re.DOTALL,
-        ),
-        _REDACTED,
-    ),
-    (re.compile(r"(://[^@/\s:]+:)([^@/\s]+)(@)"), _replace_url_userinfo),
-    (
-        re.compile(r"(?i)(authorization\s*:\s*basic\s+)[A-Za-z0-9+/]{8,}=*"),
-        _replace_prefixed_secret,
-    ),
-    (re.compile(r"\bAKIA[A-Z0-9]{16}\b"), _REDACTED),
-    (re.compile(r"\b(?:ghp|gho|ghs|ghr)_[A-Za-z0-9]{36,}\b"), _REDACTED),
-    (re.compile(r"sk-[A-Za-z0-9]{12,}"), _REDACTED),
-    (re.compile(r"Bearer\s+[A-Za-z0-9._-]{12,}", re.IGNORECASE), _REDACTED),
-    (
-        re.compile(
-            r"(?i)((?:password|token|secret|api[_-]?key)\s*[:=]\s*)[\"']?([^\s\"']{6,})[\"']?"
-        ),
-        _replace_prefixed_secret,
-    ),
-)
 
 
 class ContextAssemblyError(RuntimeError):
@@ -251,7 +212,7 @@ def _render_packet(
         "relevant_repository_context": {
             "repository_identity": {
                 "repo_root": str(repo_identity.repo_root),
-                "branch": repo_identity.branch,
+                "branch": _redact_text(repo_identity.branch),
                 "head": repo_identity.head,
             },
         },
@@ -391,9 +352,51 @@ def _read_file_excerpt(repo_root: Path, path: Path) -> str:
 
 
 def _redact_text(value: str) -> str:
+    """Redact secrets using the shared taxonomy with per-match placeholder bypass.
+
+    Contextual families check each match independently against its local
+    100-char window. A placeholder near one match does NOT suppress redaction
+    of other matches of the same family elsewhere in the string.
+
+    Bypass decisions are evaluated against the pre-redaction snapshot of the
+    string from the start of each family's pass. This prevents injected
+    [REDACTED:value] markers from prior passes from triggering bypass for
+    unrelated matches in subsequent passes.
+
+    Templates that use backreferences (e.g. r"\\1[REDACTED:value]\\3") are
+    expanded via match.expand() so capture groups resolve correctly inside
+    the replacement function.
+    """
+    from .secret_taxonomy import FAMILIES, PLACEHOLDER_BYPASS_WINDOW
+
     redacted = value
-    for pattern, replacement in _SECRET_PATTERNS:
-        redacted = pattern.sub(replacement, redacted)
+    for family in FAMILIES:
+        if not family.redact_enabled:
+            continue
+        if family.tier == "contextual" and family.placeholder_bypass:
+            # Per-match bypass: each match is independently checked against
+            # its local window using the ORIGINAL value as context source.
+            # Using the original prevents [REDACTED:value] markers injected by
+            # prior passes from triggering the "[redact" bypass word and
+            # suppressing unrelated matches in subsequent family passes.
+            bypass_words = tuple(w.lower() for w in family.placeholder_bypass)
+
+            def _replace(
+                match: re.Match[str],
+                _bw: tuple[str, ...] = bypass_words,
+                _original: str = value,
+            ) -> str:
+                start = max(0, match.start() - PLACEHOLDER_BYPASS_WINDOW)
+                end = min(len(_original), match.end() + PLACEHOLDER_BYPASS_WINDOW)
+                context = _original[start:end].lower()
+                if any(word in context for word in _bw):
+                    return match.group(0)  # Keep original — placeholder context
+                return match.expand(family.redact_template)
+
+            redacted = family.pattern.sub(_replace, redacted)
+        else:
+            # Strict/broad tiers: always redact, no bypass
+            redacted = family.pattern.sub(family.redact_template, redacted)
     return redacted
 
 

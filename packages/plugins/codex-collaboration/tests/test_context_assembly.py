@@ -57,18 +57,28 @@ def test_assembly_trims_low_priority_categories_first(tmp_path: Path) -> None:
 
 
 def test_assembly_redacts_secrets_from_files_and_snippets(tmp_path: Path) -> None:
+    # sk- key needs 40+ chars after prefix for new taxonomy (openai_api_key family)
+    sk_key = "sk-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN"
+    # Bearer token needs 20+ chars for new taxonomy (bearer_auth_header family)
+    bearer_token = "Bearer abcdefghijklmnopqrst"
+    # PEM is redact_enabled=False in taxonomy (egress-only). Use JWT instead.
+    jwt = (
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+        "eyJzdWIiOiIxMjM0NTY3ODkwIn0."
+        "dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
+    )
     file_path = tmp_path / "secret.txt"
     file_path.write_text(
-        "token = sk-abcdefghijklmnopqrstuvwxyz\n"
+        f"api_secret = {sk_key}\n"
         "password = hunter2secret\n"
-        "-----BEGIN PRIVATE KEY-----\nsecret-material\n-----END PRIVATE KEY-----\n",
+        f"{jwt}\n",
         encoding="utf-8",
     )
     request = ConsultRequest(
         repo_root=tmp_path,
         objective="Summarize secret handling",
         explicit_paths=(Path("secret.txt"),),
-        explicit_snippets=("Bearer abcdefghijklmnop",),
+        explicit_snippets=(bearer_token,),
     )
 
     packet = assemble_context_packet(
@@ -77,11 +87,11 @@ def test_assembly_redacts_secrets_from_files_and_snippets(tmp_path: Path) -> Non
         profile="advisory",
     )
 
-    assert "sk-abcdefghijklmnopqrstuvwxyz" not in packet.payload
-    assert "Bearer abcdefghijklmnop" not in packet.payload
+    assert sk_key not in packet.payload
+    assert "abcdefghijklmnopqrst" not in packet.payload
     assert "hunter2secret" not in packet.payload
-    assert "BEGIN PRIVATE KEY" not in packet.payload
-    assert packet.payload.count("[redacted]") >= 4
+    assert jwt not in packet.payload
+    assert packet.payload.count("[REDACTED:value]") >= 4
 
 
 def test_assembly_redacts_low_ambiguity_credential_forms(tmp_path: Path) -> None:
@@ -89,14 +99,17 @@ def test_assembly_redacts_low_ambiguity_credential_forms(tmp_path: Path) -> None
     gh_suffix = "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
     basic_secret = "dXNlcjpwYXNz"
     url_secret = "supersecret"
+    # Use an AWS key without bypass words (AKIAIOSFODNN7EXAMPLE contains "EXAMPLE"
+    # which triggers placeholder bypass for nearby contextual tokens).
+    aws_key = "AKIAZXCVBNMQWERTYU10"
     file_path.write_text(
-        "aws_access_key_id = AKIAIOSFODNN7EXAMPLE\n"
+        f"aws_access_key_id = {aws_key}\n"
         f"github_pat = ghp_{gh_suffix}\n"
         f"github_oauth = gho_{gh_suffix}\n"
         f"github_server = ghs_{gh_suffix}\n"
         f"github_refresh = ghr_{gh_suffix}\n"
         f"basic_header = Authorization: Basic {basic_secret}\n"
-        f"url = https://build:{url_secret}@example.com/path\n",
+        f"url = https://build:{url_secret}@ci.internal/path\n",
         encoding="utf-8",
     )
     request = ConsultRequest(
@@ -111,15 +124,15 @@ def test_assembly_redacts_low_ambiguity_credential_forms(tmp_path: Path) -> None
         profile="advisory",
     )
 
-    assert "AKIAIOSFODNN7EXAMPLE" not in packet.payload
+    assert aws_key not in packet.payload
     assert f"ghp_{gh_suffix}" not in packet.payload
     assert f"gho_{gh_suffix}" not in packet.payload
     assert f"ghs_{gh_suffix}" not in packet.payload
     assert f"ghr_{gh_suffix}" not in packet.payload
     assert basic_secret not in packet.payload
     assert url_secret not in packet.payload
-    assert "Authorization: Basic [redacted]" in packet.payload
-    assert "https://build:[redacted]@example.com/path" in packet.payload
+    assert "Authorization: Basic [REDACTED:value]" in packet.payload
+    assert "://build:[REDACTED:value]@" in packet.payload
 
 
 def test_assembly_does_not_redact_code_like_false_positives(tmp_path: Path) -> None:
@@ -188,8 +201,8 @@ def test_assembly_preserves_assignment_label_for_overlapping_redaction_rules(tmp
     )
 
     assert "AKIAIOSFODNN7EXAMPLE" not in packet.payload
-    assert "api_key = [redacted]" in packet.payload
-    assert packet.payload.count("[redacted]") == 1
+    assert "api_key = [REDACTED:value]" in packet.payload
+    assert packet.payload.count("[REDACTED:value]") == 1
 
 
 def test_assembly_handles_binary_file_in_explicit_paths(tmp_path: Path) -> None:
@@ -361,3 +374,69 @@ def test_execution_profile_records_denied_categories_as_omitted(tmp_path: Path) 
     )
 
     assert "broad_repository_summaries" in packet.omitted_categories
+
+
+class TestTaxonomyBackedRedaction:
+    """Verify _redact_text uses the full secret taxonomy."""
+
+    def test_aws_key_redacted(self) -> None:
+        from server.context_assembly import _redact_text
+        result = _redact_text("key is AKIAIOSFODNN7EXAMPLE here")
+        assert "AKIAIOSFODNN7EXAMPLE" not in result
+        assert "[REDACTED:value]" in result
+
+    def test_gitlab_pat_redacted(self) -> None:
+        from server.context_assembly import _redact_text
+        pat = "glpat-" + "A" * 20
+        result = _redact_text(f"export TOKEN={pat}")
+        assert pat not in result
+
+    def test_slack_bot_token_redacted(self) -> None:
+        from server.context_assembly import _redact_text
+        result = _redact_text("token xoxb-1234567890-abcdef")
+        assert "xoxb-" not in result
+
+    def test_jwt_redacted(self) -> None:
+        from server.context_assembly import _redact_text
+        jwt = (
+            "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+            "eyJzdWIiOiIxMjM0NTY3ODkwIn0."
+            "dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
+        )
+        result = _redact_text(f"token: {jwt}")
+        assert jwt not in result
+
+    def test_placeholder_context_not_redacted(self) -> None:
+        from server.context_assembly import _redact_text
+        pat = "ghp_" + "A" * 36
+        text = f"for example the format is {pat}"
+        result = _redact_text(text)
+        # Contextual family with placeholder bypass — should NOT redact
+        assert pat in result
+
+    def test_per_match_bypass_does_not_suppress_real_tokens(self) -> None:
+        """One example token must not suppress redaction of a real token in the same string."""
+        from server.context_assembly import _redact_text
+        pat = "ghp_" + "A" * 36
+        real_pat = "ghp_" + "B" * 36
+        # First occurrence has "example" nearby, second does not.
+        # Separator is 110 chars to push "example" beyond the 100-char window of real_pat.
+        separator = "\n" + "x" * 110 + "\nproduction: "
+        text = f"example format: {pat}{separator}{real_pat}"
+        result = _redact_text(text)
+        # Example token kept, real token redacted
+        assert pat in result
+        assert real_pat not in result
+
+    def test_clean_text_unchanged(self) -> None:
+        from server.context_assembly import _redact_text
+        text = "This is a normal code review comment."
+        assert _redact_text(text) == text
+
+    def test_branch_name_redacted_in_render(self) -> None:
+        """repo_identity.branch passes through _redact_text."""
+        from server.context_assembly import _redact_text
+        # A branch name containing a secret pattern should be redacted
+        branch = "feature/password=hunter2abc"
+        result = _redact_text(branch)
+        assert "hunter2abc" not in result
