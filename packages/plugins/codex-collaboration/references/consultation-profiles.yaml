@@ -1,0 +1,126 @@
+# Consultation Profiles
+#
+# Version: 0.2.0
+# Reference: consultation-contract.md §14
+#
+# Named profiles resolve to a complete set of execution controls.
+# Resolution order: explicit flags > named profile > contract defaults.
+#
+# Explicit flags (-m, -s, -a, -t) override profile fields.
+# If a profile name cannot be resolved, the contract defaults (§8) apply.
+#
+# To add a local override (gitignored):
+#   Create consultation-profiles.local.yaml alongside this file.
+#   Local profiles merge with and override these defaults.
+#
+# Posture values: adversarial, collaborative, exploratory, evaluative, comparative
+# See design doc: docs/plans/2026-03-03-posture-taxonomy-and-composition.md
+
+profiles:
+
+  quick-check:
+    description: >
+      Fast sanity check or targeted question. Single-turn direct invocation.
+      Use when you want a quick second opinion without extended back-and-forth.
+    sandbox: read-only
+    approval_policy: never
+    reasoning_effort: medium
+    posture: collaborative
+    turn_budget: 1
+
+  collaborative-ideation:
+    description: >
+      Sustained brainstorming and idea generation over multiple turns. Build on
+      each other's proposals, combine approaches, explore "what if" scenarios.
+      Use when generating options, not evaluating them.
+    sandbox: read-only
+    approval_policy: never
+    reasoning_effort: high
+    posture: collaborative
+    turn_budget: 6
+
+  exploratory:
+    description: >
+      Open-ended research and ideation. Map the solution space without committing
+      to a direction. Use when exploring a new problem or approach.
+    sandbox: read-only
+    approval_policy: never
+    reasoning_effort: high
+    posture: exploratory
+    turn_budget: 6
+
+  deep-review:
+    description: >
+      Thorough multi-turn review with high reasoning effort. Use for architecture
+      review, plan evaluation, or detailed quality audit. Evaluative posture
+      covers both structural analysis and correctness verification.
+    sandbox: read-only
+    approval_policy: never
+    reasoning_effort: xhigh
+    posture: evaluative
+    turn_budget: 8
+
+  code-review:
+    description: >
+      Focused code or document review. Evaluative posture, read-only access.
+      Use when reviewing specific implementations that can be described in the
+      briefing material.
+    sandbox: read-only
+    approval_policy: never
+    reasoning_effort: high
+    posture: evaluative
+    turn_budget: 4
+
+  adversarial-challenge:
+    description: >
+      Challenge assumptions and stress-test decisions. Adversarial posture with
+      high reasoning effort. Use when you want Codex to attack your plan or
+      surface failure modes.
+    sandbox: read-only
+    approval_policy: never
+    reasoning_effort: xhigh
+    posture: adversarial
+    turn_budget: 6
+
+  planning:
+    description: >
+      Plan review and architectural design. Comparative posture for structured
+      trade-off analysis. Use when reviewing plans, making architectural decisions,
+      or exploring design trade-offs. Pairs with --plan flag for Step 0 question
+      decomposition.
+    sandbox: read-only
+    approval_policy: never
+    reasoning_effort: xhigh
+    posture: comparative
+    turn_budget: 8
+
+  decision-making:
+    description: >
+      Choose between N options with explicit criteria. Codex evaluates trade-offs,
+      surfaces unstated constraints, and ranks alternatives. Provide options and
+      evaluation criteria in the briefing material.
+    sandbox: read-only
+    approval_policy: never
+    reasoning_effort: xhigh
+    posture: comparative
+    turn_budget: 6
+
+  debugging:
+    description: >
+      Multi-phase debugging consultation. Explores the problem space, verifies
+      hypotheses against evidence, then collaboratively designs a fix. Provide
+      the error, reproduction steps, and relevant code in the briefing material.
+    sandbox: read-only
+    approval_policy: never
+    reasoning_effort: high
+    phases:
+      - posture: exploratory
+        target_turns: 2
+        description: Map the problem space — what could cause this?
+      - posture: evaluative
+        target_turns: 3
+        description: Verify hypotheses against evidence
+      - posture: collaborative
+        target_turns: 2
+        description: Design the fix together
+    turn_budget: 7
