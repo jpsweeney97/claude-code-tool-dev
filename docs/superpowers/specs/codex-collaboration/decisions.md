@@ -114,4 +114,28 @@ The [audit event model](contracts.md#auditevent) defines the record shape and [r
 
 ### `codex.consult` Surface
 
-Whether `codex.consult` should eventually be retired in favor of native review and task patterns plus a lighter structured wrapper remains open. The official plugin's native review thread is the closest comparison point, but the current spec still treats `codex.consult` as the primary structured second-opinion surface.
+**Resolved.** `codex.consult` remains a first-class MCP tool as the explicit
+one-shot advisory surface. It is not retired into `codex.dialogue` and it is
+not retired into a native-review wrapper over the official plugin.
+
+**Rationale:** The overlap between `codex.consult` and `codex.dialogue` is
+already factored into shared bootstrap, context-assembly, prompting, dispatch,
+and parsing helpers. The remaining differences are contract-level properties,
+not accidental duplication: consult keeps an ephemeral handle, avoids lineage,
+journal, and turn-store persistence, integrates post-promotion stale-context
+handling for advisory follow-up, and preserves consultation-specific audit
+semantics. Retiring consult into dialogue would either recreate those semantics
+as a "lightweight" dialogue mode or impose unnecessary persistence overhead on
+one-shot advisory questions.
+
+Native review from the official plugin also does not beat the current design.
+It does not natively enforce the structured advisory result required by this
+spec (`position`, `evidence`, `uncertainties`, `follow_up_branches`), so a
+wrapper would still need to rebuild schema enforcement locally. It also does
+not materially reduce the control-plane surface: the surrounding safety,
+context, coherence, and orchestration machinery would remain.
+
+**Re-evaluation trigger:** Reopen this decision only if upstream Codex adds
+native structured output enforcement matching the consult advisory contract, or
+if the advisory domain no longer needs consult's distinct ephemeral-handle,
+stale-context, and fork/coherence properties.
