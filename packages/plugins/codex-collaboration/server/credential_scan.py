@@ -3,7 +3,7 @@
 Tiers:
   strict:      Hard-block. High-confidence patterns (AWS keys, PEM, JWT).
   contextual:  Block unless placeholder/example words appear nearby.
-  broad:       Shadow telemetry only. No blocking.
+  broad:       Shadow (no blocking). Telemetry not yet wired.
 """
 
 from __future__ import annotations
@@ -14,6 +14,8 @@ from typing import Literal
 from .secret_taxonomy import (
     FAMILIES,
     PLACEHOLDER_BYPASS_WINDOW,
+    SecretFamily,
+    Tier,
     check_placeholder_bypass,
 )
 
@@ -23,11 +25,11 @@ class ScanResult:
     """Result of scanning text for credentials."""
 
     action: Literal["allow", "block", "shadow"]
-    tier: str | None
+    tier: Tier | None
     reason: str | None
 
 
-def _families_for_tier(tier: str) -> tuple:
+def _families_for_tier(tier: Tier) -> tuple[SecretFamily, ...]:
     return tuple(
         family
         for family in FAMILIES

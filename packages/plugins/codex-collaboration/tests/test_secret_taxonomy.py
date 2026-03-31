@@ -32,7 +32,7 @@ class TestFamilyStructure:
     def test_strict_families_have_no_placeholder_bypass(self) -> None:
         for family in FAMILIES:
             if family.tier == "strict":
-                assert family.placeholder_bypass == [], (
+                assert family.placeholder_bypass == (), (
                     f"strict family {family.name} must not have placeholder bypass"
                 )
 

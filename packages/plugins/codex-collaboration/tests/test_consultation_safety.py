@@ -43,19 +43,19 @@ class TestPolicyRouting:
 class TestExtractStrings:
     def test_content_fields_extracted(self) -> None:
         policy = ToolScanPolicy(
-            expected_fields={"repo_root"},
-            content_fields={"objective"},
+            expected_fields=frozenset({"repo_root"}),
+            content_fields=frozenset({"objective"}),
         )
         texts, unexpected = extract_strings(
             {"repo_root": "/tmp", "objective": "check this"}, policy
         )
         assert texts == ["check this"]
-        assert unexpected == []
+        assert unexpected == ()
 
     def test_expected_fields_skipped(self) -> None:
         policy = ToolScanPolicy(
-            expected_fields={"repo_root"},
-            content_fields={"objective"},
+            expected_fields=frozenset({"repo_root"}),
+            content_fields=frozenset({"objective"}),
         )
         texts, _ = extract_strings(
             {"repo_root": "/tmp/secret", "objective": "hello"}, policy
@@ -64,8 +64,8 @@ class TestExtractStrings:
 
     def test_unknown_fields_scanned_by_default(self) -> None:
         policy = ToolScanPolicy(
-            expected_fields=set(),
-            content_fields=set(),
+            expected_fields=frozenset(),
+            content_fields=frozenset(),
             scan_unknown_fields=True,
         )
         texts, unexpected = extract_strings({"surprise": "value"}, policy)
@@ -74,8 +74,8 @@ class TestExtractStrings:
 
     def test_unknown_fields_skipped_when_disabled(self) -> None:
         policy = ToolScanPolicy(
-            expected_fields=set(),
-            content_fields=set(),
+            expected_fields=frozenset(),
+            content_fields=frozenset(),
             scan_unknown_fields=False,
         )
         texts, unexpected = extract_strings({"surprise": "value"}, policy)
@@ -84,8 +84,8 @@ class TestExtractStrings:
 
     def test_nested_dicts_traversed(self) -> None:
         policy = ToolScanPolicy(
-            expected_fields=set(),
-            content_fields={"data"},
+            expected_fields=frozenset(),
+            content_fields=frozenset({"data"}),
         )
         texts, _ = extract_strings(
             {"data": {"nested": {"deep": "found"}}}, policy
@@ -94,16 +94,16 @@ class TestExtractStrings:
 
     def test_lists_traversed(self) -> None:
         policy = ToolScanPolicy(
-            expected_fields=set(),
-            content_fields={"items"},
+            expected_fields=frozenset(),
+            content_fields=frozenset({"items"}),
         )
         texts, _ = extract_strings({"items": ["a", "b"]}, policy)
         assert texts == ["a", "b"]
 
     def test_node_cap_raises(self) -> None:
         policy = ToolScanPolicy(
-            expected_fields=set(),
-            content_fields={"data"},
+            expected_fields=frozenset(),
+            content_fields=frozenset({"data"}),
         )
         huge = {"data": list(range(20000))}
         with pytest.raises(ToolInputLimitExceeded):
@@ -111,8 +111,8 @@ class TestExtractStrings:
 
     def test_char_cap_raises(self) -> None:
         policy = ToolScanPolicy(
-            expected_fields=set(),
-            content_fields={"data"},
+            expected_fields=frozenset(),
+            content_fields=frozenset({"data"}),
         )
         big_string = "x" * (300 * 1024)
         with pytest.raises(ToolInputLimitExceeded):

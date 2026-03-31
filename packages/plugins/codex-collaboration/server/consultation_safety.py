@@ -7,10 +7,11 @@ input before the MCP server processes it.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal
 
 from .credential_scan import scan_text
+from .secret_taxonomy import Tier
 
 _NODE_CAP = 10_000
 _CHAR_CAP = 256 * 1024
@@ -20,8 +21,8 @@ _CHAR_CAP = 256 * 1024
 class ToolScanPolicy:
     """Controls which tool_input fields are scanned for egress secrets."""
 
-    expected_fields: set[str]
-    content_fields: set[str]
+    expected_fields: frozenset[str]
+    content_fields: frozenset[str]
     scan_unknown_fields: bool = True
 
 
@@ -30,22 +31,20 @@ class ToolInputLimitExceeded(RuntimeError):
 
 
 CONSULT_POLICY = ToolScanPolicy(
-    expected_fields={"repo_root", "explicit_paths"},
-    content_fields={"objective", "profile"},
+    expected_fields=frozenset({"repo_root", "explicit_paths"}),
+    content_fields=frozenset({"objective", "profile"}),
 )
 
 DIALOGUE_START_POLICY = ToolScanPolicy(
-    expected_fields={"repo_root"},
-    content_fields={"profile"},
+    expected_fields=frozenset({"repo_root"}),
+    content_fields=frozenset({"profile"}),
 )
 
 DIALOGUE_REPLY_POLICY = ToolScanPolicy(
-    expected_fields={"collaboration_id", "explicit_paths"},
-    content_fields={"objective"},
-    # Actual reply schema: collaboration_id, objective, explicit_paths.
-    # No profile (stored on handle), no repo_root (not in reply schema),
-    # no message/supplementary_context (not yet exposed — forward-looking
-    # fields removed to match the real tool surface).
+    expected_fields=frozenset({"collaboration_id", "explicit_paths"}),
+    content_fields=frozenset({"objective"}),
+    # Reply schema: collaboration_id, objective, explicit_paths.
+    # No profile (stored on handle), no repo_root.
 )
 
 _TOOL_POLICY_MAP: dict[str, ToolScanPolicy] = {
@@ -60,7 +59,7 @@ def policy_for_tool(tool_name: str) -> ToolScanPolicy:
     return _TOOL_POLICY_MAP[tool_name]
 
 
-def extract_strings(tool_input: object, policy: ToolScanPolicy) -> tuple[list[str], list[str]]:
+def extract_strings(tool_input: object, policy: ToolScanPolicy) -> tuple[list[str], tuple[str, ...]]:
     """Extract string-bearing values selected by the scan policy.
 
     Returns (texts_to_scan, unexpected_fields).
@@ -122,7 +121,7 @@ def extract_strings(tool_input: object, policy: ToolScanPolicy) -> tuple[list[st
 
         raise TypeError(f"tool_input traversal failed: unsupported value. Got: {value!r:.100}")
 
-    return texts_to_scan, unexpected_fields
+    return texts_to_scan, tuple(unexpected_fields)
 
 
 _ACTION_RANK = {"block": 0, "shadow": 1, "allow": 2}
@@ -135,8 +134,8 @@ class SafetyVerdict:
 
     action: Literal["allow", "block", "shadow"]
     reason: str | None = None
-    tier: str | None = None
-    unexpected_fields: list[str] = field(default_factory=list)
+    tier: Tier | None = None
+    unexpected_fields: tuple[str, ...] = ()
 
 
 def check_tool_input(tool_input: object, policy: ToolScanPolicy) -> SafetyVerdict:
@@ -145,7 +144,7 @@ def check_tool_input(tool_input: object, policy: ToolScanPolicy) -> SafetyVerdic
 
     worst_action = "allow"
     worst_reason: str | None = None
-    worst_tier: str | None = None
+    worst_tier: Tier | None = None
 
     for text in texts:
         result = scan_text(text)
