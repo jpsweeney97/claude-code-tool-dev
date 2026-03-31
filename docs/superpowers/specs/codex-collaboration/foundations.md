@@ -22,6 +22,7 @@ authority: foundation
 - Give Claude a structured second-opinion lane to Codex.
 - Support durable, branchable, multi-turn Claude-to-Codex dialogues.
 - Support autonomous Codex task execution without weakening Claude's control.
+- Acknowledge where Codex-native primitives satisfy requirements without custom control-plane machinery, and document why this spec's approach was chosen where it overlaps.
 - Preserve strong trust boundaries around secrets, paths, sandboxing, and write surfaces.
 - Make crash recovery and lineage explicit.
 - Stay on stable App Server APIs where possible.
@@ -187,6 +188,8 @@ App Server enforces sandboxing, approval semantics, and thread/session state. Th
 
 ## Prompting Contract
 
+Native Codex review and task flows exist and handle basic prompting. This contract governs the spec's structured prompt packets, which carry additional metadata such as posture, effort, and supplementary context that native flows do not express.
+
 The plugin owns Codex-side prompt templates. Each capability builds a structured packet with:
 
 - Objective
@@ -199,6 +202,8 @@ The plugin owns Codex-side prompt templates. Each capability builds a structured
 The plugin does not rely on Codex-side skills, plugin discovery, or App Server collaboration modes for core behavior in v1. The stable baseline is: explicit prompt packets plus stable thread/turn APIs.
 
 ## Context Assembly Contract
+
+The official plugin assembles context through native app-server thread utilities. This contract applies to the spec's structured flows, which require richer assembly such as redaction, lineage injection, and profile-driven effort than native utilities provide.
 
 The control plane owns context selection, redaction, trimming, and final packet assembly for all Codex-facing calls. The caller provides the objective, user constraints, and optional candidate references such as file paths, artifact identifiers, or promoted summary material. Candidate references are hints, not entitlements: the control plane may omit, trim, or reject them as needed to satisfy the active capability profile, budget caps, and policy rules. The hook guard remains rejection-only: it validates the final assembled packet and may reject or escalate it, but it does not participate in context selection.
 

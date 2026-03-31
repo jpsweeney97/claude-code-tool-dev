@@ -11,6 +11,18 @@ Modular specification for `codex-collaboration`, a Claude Code plugin that gives
 
 The design uses a split-runtime model: one long-lived advisory App Server runtime for consultation and dialogue, and one ephemeral execution App Server runtime per delegation job, always isolated in its own git worktree. A control plane inside the plugin mediates all requests; Claude never interacts with App Server directly.
 
+## Relationship to Official Plugin
+
+The official OpenAI plugin (`openai/codex-plugin-cc`) provides a packaged local integration: local Codex CLI, local app server, shared auth and config, same-checkout execution, and native review, task, and thread utilities.
+
+This spec takes a different architectural approach. `codex-collaboration` centers a mediating control plane, structured capability flows, durable lineage, isolated execution, and explicit promotion back into the primary workspace.
+
+Where the surfaces overlap, the overlap is intentional. This spec adds structured contracts, trust enforcement, and recovery semantics that the official plugin does not provide.
+
+The official plugin is reference context for understanding the Codex integration landscape, not the architectural shell this spec converges toward.
+
+Official plugin comparison is pinned to upstream commit `9cb4fe4`. If upstream changes materially, re-evaluate comparison claims.
+
 ## Authority Model
 
 | Authority | Concern | Default Claims |

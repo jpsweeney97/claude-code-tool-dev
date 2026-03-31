@@ -7,320 +7,153 @@ authority: supporting
 
 # Official Plugin Rewrite Map
 
-Concrete rewrite map for reclassifying the `codex-collaboration` spec around
-the following integration principle:
+Concrete rewrite map for adding official-plugin context to the
+`codex-collaboration` spec. Governed by one integration principle:
 
-- **Baseline** means the default Claude Code <-> Codex integration should follow
-  the official OpenAI plugin model: local Codex CLI and app server, same local
-  auth/config, same checkout and machine environment, and native app-server
-  review/thread/task utilities first.
-- **Extension** means additive behavior kept only where Codex-native flows are
-  insufficient, such as durable dialogue lineage, isolated execution, explicit
-  promotion, or stronger trust and recovery guarantees.
-- **Delete** means stop treating the element as normative default behavior.
+- The **official OpenAI plugin** (`openai/codex-plugin-cc`, pinned at
+  `9cb4fe4`) is **reference context** — acknowledged, compared against, but not
+  the architectural shell this spec converges toward.
+- This spec retains **independent architectural authority**. The split-runtime
+  model, control plane, lineage, isolated execution, and promotion machinery
+  remain the spec's design center.
+- Where the spec's design overlaps with official plugin capabilities, the
+  overlap is **intentional** and the rationale is documented.
 
-This document is a rewrite artifact. It does not itself change authority or
-normative behavior in the packet.
+Changes are additive: relationship sections, comparison annotations, and one
+new decision record. No sections are deleted or structurally restructured.
 
 ## Rewrite Decisions
 
 ### README.md
 
-#### Rewrite the introduction
+#### Add a "Relationship to Official Plugin" section
 
-- Replace the opening description so the packet is no longer presented as the
-  default architecture for Claude Code <-> Codex integration.
-- State instead that the official OpenAI plugin is the baseline packaged local
-  integration model, and `codex-collaboration` specifies an extension layer for
-  capabilities that baseline does not provide.
+- Add a new section after the introduction (before "Authority Model") titled
+  "Relationship to Official Plugin".
+- Content:
+  - The official OpenAI plugin (`openai/codex-plugin-cc`) provides a packaged
+    local integration: local Codex CLI, local app server, shared auth/config,
+    same-checkout execution, and native review/task/thread utilities.
+  - This spec takes a different approach: a mediating control plane, structured
+    flows, durable lineage, isolated execution, and explicit promotion.
+  - Where capabilities overlap (e.g., review/consult, task delegation), this
+    spec's approach adds structured contracts, trust enforcement, and recovery
+    semantics that the official plugin does not provide.
+  - The official plugin is reference context for understanding the integration
+    landscape, not a convergence target.
 
-#### Delete the current default architecture statement
+#### Add an upstream-pin note
 
-- Delete the sentence that presents the split-runtime model as the default
-  design center for the whole packet:
-  - current target: `README.md` paragraph beginning "The design uses a
-    split-runtime model..."
-
-#### Add a baseline-integration paragraph
-
-- Add a short paragraph immediately after the introduction that says:
-  - baseline uses the local `codex` CLI and local app server
-  - baseline inherits local auth and config
-  - baseline uses the same checkout and machine-local environment
-  - custom control-plane contracts in this packet apply only to extension
-    flows unless explicitly marked baseline
-
-#### Reframe the authority model prose
-
-- Keep the existing authority table, but add one sentence after it:
-  - `foundations`, `contracts`, and `delivery` now describe both baseline and
-    extension concerns, and must label which claims belong to which lane
-- Do not change authority names in this file yet
-
-#### Update reading-order descriptions
-
-- Rewrite the row descriptions to reflect the new split:
-  - `foundations.md`: baseline integration assumptions plus extension
-    architecture and trust model
-  - `contracts.md`: extension interfaces, persistent models, and local-only
-    control-plane contracts
-  - `delivery.md`: baseline packaged shell and extension milestone plan
-  - `decisions.md`: baseline-vs-extension architecture decisions
+- At the bottom of the new section, add:
+  - "Official plugin comparison is pinned to upstream commit `9cb4fe4`. If
+    upstream changes materially, re-evaluate comparison claims."
 
 ### foundations.md
 
-#### Rewrite scope around baseline vs extension
+#### Add a goal
 
-- Replace the current three-capability framing as the default view of the
-  product.
-- Introduce two lanes:
-  - **Baseline lane:** local review, task delegation, status, and native thread
-    continuity through local Codex CLI/app server
-  - **Extension lane:** durable dialogue lineage, isolated execution,
-    promotion, and stronger trust/recovery semantics
+- In the Goals section, add:
+  - "Acknowledge where Codex-native primitives satisfy requirements without
+    custom control-plane machinery, and document why this spec's approach was
+    chosen where it overlaps."
 
-#### Replace the capability table
+#### Annotate the Context Assembly Contract scope
 
-- Remove the current table that treats consultation, dialogue, and delegation
-  across advisory/execution runtimes as the default model.
-- Replace it with:
-  - baseline capability rows
-  - extension capability rows
-  - explicit notes on which rows require custom control-plane state
+- Add a scope note at the top of the Context Assembly Contract subsection:
+  - "The official plugin assembles context through native app-server thread
+    utilities. This contract applies to the spec's structured flows, which
+    require richer assembly (redaction, lineage injection, profile-driven
+    effort) than native utilities provide."
 
-#### Rewrite goals and non-goals
+#### Annotate the Prompting Contract scope
 
-- Add a goal:
-  - "Reuse Codex-native app-server behavior where it already satisfies the
-    product requirement."
-- Rewrite non-goals:
-  - delete the blanket implication that raw App Server exposure is never valid
-  - replace it with "Do not rebuild native review/task behavior when native
-    app-server primitives are sufficient."
-
-#### Replace Architectural Shape
-
-- Rewrite the section into a two-layer architecture:
-  - **Baseline shell:** Claude plugin commands/hooks -> local Codex CLI/app
-    server
-  - **Extension substrate:** optional local control plane for dialogue
-    lineage, isolated execution, promotion, and stronger enforcement/recovery
-- Delete the current universal statement that Claude never interacts with App
-  Server directly through baseline flows.
-
-#### Rewrite Runtime Domains
-
-- Recast the current advisory domain as baseline shared-session runtime
-  behavior where appropriate.
-- Move split advisory/execution runtime language under explicit extension
-  scoping.
-- Keep isolated execution as an extension-only runtime model.
-
-#### Rewrite Trust Model
-
-- Do not present `PreToolUse` as the universal outer boundary.
-- New structure:
-  - baseline trust boundary: native Codex sandbox and approval behavior plus
-    plugin shell controls
-  - extension trust boundary: optional `PreToolUse` guard and packet-level
-    enforcement for extension flows
-
-#### Rewrite Approval Invariant
-
-- Keep the no-cross-job approval invariant only for extension isolated
-  execution.
-- Add that baseline flows inherit native Codex approval/sandbox semantics
-  unless the extension lane is engaged.
-
-#### Rewrite core flows
-
-- Replace `Consultation` with a baseline review/consult-style flow using
-  native app-server thread/review utilities.
-- Replace `Delegation` with same-checkout task execution as the baseline path.
-- Move dialogue lineage and promotion flows under explicit extension-only
-  headings.
-
-#### Re-scope Prompting Contract and Context Assembly Contract
-
-- Rewrite `Prompting Contract` to say native review/task flows come first.
-- Keep plugin-owned prompt packets only for extension flows that need richer
-  structure than native review/task utilities provide.
-- Preface `Context Assembly Contract` with a scope line:
-  - applies to extension flows only
-  - baseline integration does not require this full control-plane assembly
-    contract
+- Add a scope note at the top of the Prompting Contract subsection:
+  - "Native Codex review/task flows exist and handle basic prompting. This
+    contract governs the spec's structured prompt packets, which carry
+    additional metadata (posture, effort, supplementary context) not
+    expressible through native flows."
 
 ### contracts.md
 
-#### Replace the top-level tool-surface framing
+#### Add official-plugin comparison note to tool-surface preamble
 
-- Delete the universal claim that Claude interacts with Codex exclusively
-  through the listed MCP tools.
-- Delete the universal claim that raw App Server methods are never exposed.
+- After the opening paragraph that states Claude interacts with Codex
+  exclusively through the listed MCP tools, add:
+  - "The official plugin exposes native app-server methods directly to Claude.
+    This spec mediates through a control plane instead, providing structured
+    contracts, typed responses, and audit observability at the boundary."
 
-#### Split the public surface into two sections
+#### Annotate components with no official-plugin equivalent
 
-- Add `## Baseline Integration Surface`
-- Add `## Extension Tool Surface`
-
-#### Baseline Integration Surface
-
-- Describe baseline behavior in terms of:
-  - local Codex bridge
-  - native thread/review/task/status semantics
-  - local session continuity and local config/auth inheritance
-- Do not attempt to fully restate the official plugin command contract here.
-- Keep it descriptive and narrow: this packet treats that behavior as the
-  baseline to preserve.
-
-#### Extension Tool Surface
-
-- Move the current `codex.consult`, `codex.dialogue.*`, and `codex.delegate.*`
-  surface into this section.
-- Add one scope sentence:
-  - these tools exist only when the extension control plane is active
-
-#### Re-scope data models
-
-- Mark `CollaborationHandle` as extension-only.
-- Add a note that baseline flows may use native Codex thread identity directly.
-- Split `DelegationJob` into:
-  - lightweight baseline tracked-job metadata concept
-  - extension isolated-execution job with worktree and promotion semantics
-- Mark `PendingServerRequest` as extension-only.
-
-#### Re-scope persistence and observability
-
-- Mark `Lineage Store` as extension-only.
-- Mark `Audit Event Schema` as extension observability, not a baseline shell
-  requirement.
-- Mark `Typed Response Shapes` for dialogue and promotion as extension-only.
-
-#### Keep runtime health but narrow its scope
-
-- Keep a runtime-health/status concept.
-- Rewrite it so it no longer implies the full extension control-plane shape is
-  the baseline status contract.
+- Add a brief note to the following subsections indicating they have no
+  equivalent in the official plugin:
+  - Lineage Store — "No equivalent in the official plugin, which relies on
+    native thread continuity."
+  - Operation Journal — "No equivalent; the official plugin has no crash
+    recovery or idempotency mechanism."
+  - Promotion Protocol — "No equivalent; the official plugin executes in the
+    shared checkout without promotion gates."
 
 ### delivery.md
 
-#### Replace the implementation-language decision
+#### Add official-plugin step mapping to build sequence
 
-- Delete the unconditional choice of Python for the Claude-side control plane.
-- Replace with:
-  - baseline packaged shell should be Node/TypeScript, aligned with the
-    official plugin shape
-  - extension-only services may use another language if they are clearly behind
-    the baseline shell and not the packaged integration surface
-
-#### Replace plugin component structure
-
-- Delete the current Python/MCP-first tree as the default structure.
-- Replace with a packaged-plugin-first structure:
-  - `.claude-plugin/`
-  - `commands/`
-  - `hooks/`
-  - `agents/` where needed
-  - `scripts/` for local Codex bridge/runtime helpers
-  - optional `extension/` or `server/` subtree for advanced control-plane
-    behavior
-
-#### Rewrite compatibility policy
-
-- Keep version/auth/runtime checks.
-- Rewrite them as baseline shell responsibilities for the local Codex bridge.
-- Do not frame vendored schema and control-plane bring-up as the primary
-  product contract.
-
-#### Replace the build sequence
-
-- Delete the current step sequence that assumes:
-  - `codex.status`
-  - `codex.consult`
-  - lineage store
-  - dialogue
-  - hook guard
-  - isolated execution
-  - promotion
-
-- Replace with:
-  1. packaged plugin shell with setup/status/result/cancel
-  2. native review/task bridge through local Codex CLI/app server
-  3. optional structured consult wrapper if still justified
-  4. extension dialogue lineage
-  5. extension isolated execution
-  6. extension promotion
-
-#### Delete the current deployment-profile framing
-
-- Delete the `R1/R2 Deployment Profile` section that says packaged plugin
-  structure is out of scope.
-- Replace with a statement that packaged plugin shape is baseline reality.
-
-#### Rewrite test strategy into two lanes
-
-- `Baseline tests`:
-  - packaged shell
-  - local auth/config inheritance
-  - shared broker reuse
-  - same-checkout review/task behavior
-  - portable tests that do not depend on a hardcoded checkout path
-- `Extension tests`:
-  - dialogue lineage
-  - journal/recovery
-  - isolated worktree execution
-  - promotion
-  - extension-only trust-boundary enforcement
+- After the existing build-sequence table, add a comparison note titled
+  "Official Plugin Equivalents":
+  - Map each build step to its official-plugin equivalent or note the gap:
+    - `codex.status` -> official plugin has version/health check
+    - `codex.consult` -> official plugin uses native review thread
+    - lineage store -> no equivalent (gap)
+    - dialogue -> no equivalent (gap)
+    - hook guard -> official plugin has no `PreToolUse` enforcement (gap)
+    - isolated execution -> no equivalent; official plugin uses shared checkout
+      (gap)
+    - promotion -> no equivalent (gap)
+  - Add one sentence: "Steps with no official-plugin equivalent are the core
+    value proposition of this spec's extension architecture."
 
 ### decisions.md
 
-#### Rewrite Greenfield Rules
+#### Add governance decision record
 
-- Delete the implication that slash-command surfaces and existing integration
-  shells are replaced by default.
-- Replace with:
-  - baseline packaged integration follows the official local Codex bridge model
-  - greenfield replacement applies only to extension-only contracts such as
-    dialogue lineage, isolated execution, promotion, and stronger recovery
+- Add a new decision record titled "Official Plugin as Reference Context, Not
+  Convergence Target":
+  - **Decision:** The official OpenAI plugin (`openai/codex-plugin-cc`) is
+    reference context for the integration landscape. This spec maintains
+    independent architectural authority and does not restructure around the
+    official plugin as a baseline shell.
+  - **Rationale:** The spec's control-plane mediation, structured flows,
+    durable lineage, isolated execution, and promotion machinery provide
+    capabilities the official plugin does not. Converging toward the official
+    plugin's shell would require abandoning these capabilities or relegating
+    them to optional extensions, reducing the spec's coherence.
+  - **Tradeoff:** Higher maintenance burden (own the full stack) in exchange
+    for architectural independence and the ability to evolve without upstream
+    coupling.
+  - **Upstream pin:** `9cb4fe4`. Re-evaluate if upstream adds lineage,
+    isolation, or promotion equivalents.
 
-#### Replace Supersession Direction
+#### Add considered-and-rejected architecture option
 
-- Delete the current claim that `codex-collaboration` is the sole planned
-  successor.
-- Replace with a new decision record:
-  - official OpenAI plugin is the baseline local integration model
-  - `codex-collaboration` remains an extension track for capabilities not
-    covered by that baseline
+- In the architecture option analysis, add one option row:
+  - **Option: Thin bridge to official plugin** — Treat the official plugin as
+    the integration shell; specify only extension layers on top.
+  - **Status:** Rejected.
+  - **Rationale:** Would fragment the spec into baseline (deferred to
+    upstream) and extension (owned locally), creating two integration models
+    instead of one. The spec's value is in its unified control-plane
+    architecture, not individual extension features.
 
-#### Rewrite architecture option analysis
+#### Keep the open question about codex.consult
 
-- Add a baseline option for:
-  - thin local Codex bridge using native app-server capabilities
-- Keep split App Server domains only as the selected extension architecture
-  where higher assurance or stronger product semantics justify the extra
-  machinery
+- Add to open questions (if not already present):
+  - "Whether `codex.consult` should be retired in favor of native
+    review/task patterns plus a lighter structured wrapper. The official
+    plugin's native review thread is a relevant comparison point."
 
-#### Re-scope accepted tradeoffs
+## Scope
 
-- Rewrite T1 and T2 so they are conditional tradeoffs for the extension lane,
-  not universal truths about the whole product
-
-#### Add a new decision record
-
-- Add:
-  - "Native Codex primitives first; custom plugin contracts only where native
-    primitives are insufficient."
-
-#### Add a new open question if unresolved
-
-- Add:
-  - whether `codex.consult` remains a distinct extension surface or should be
-    retired in favor of native task/review patterns plus a lighter structured
-    wrapper
-
-## Follow-On Note
-
-This rewrite map covers:
+This rewrite map covers annotations and additions to:
 
 - [README.md](README.md)
 - [foundations.md](foundations.md)
@@ -328,6 +161,5 @@ This rewrite map covers:
 - [delivery.md](delivery.md)
 - [decisions.md](decisions.md)
 
-If these rewrites are accepted, [spec.yaml](spec.yaml) will also require a
-follow-on update so the authority and precedence model can express
-baseline-versus-extension claims explicitly.
+No changes to [spec.yaml](spec.yaml) are required — the authority model does
+not need a baseline/extension axis under this governance approach.
