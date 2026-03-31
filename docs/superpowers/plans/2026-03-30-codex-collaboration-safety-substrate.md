@@ -1,8 +1,10 @@
 # T-03: Codex-Collaboration Safety Substrate Implementation Plan
 
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
 **Goal:** Port the cross-model safety substrate (credential scanning, tool-input safety policy, consultation profiles, learning retrieval) into codex-collaboration, upgrade the existing redaction boundary to use the shared taxonomy, and wire the benchmark contract into the spec reading order.
 
-**Architecture:** Two-boundary safety model. Outer boundary: PreToolUse hook (`codex_guard.py`) scans raw MCP tool arguments and fails closed. Inner boundary: `context_assembly._redact_text()` sanitizes all server-injected content (file excerpts, learnings, summaries) using the shared secret taxonomy before Codex sees it. Profiles resolve to execution controls (effort, posture, turn_budget) via a plugin-owned resolver; sandbox/approval remain gated until freeze-and-rotate exists.
+**Architecture:** Two-boundary safety model. Outer boundary: PreToolUse hook (`codex_guard.py`) scans raw MCP tool arguments and blocks via exit 2 + stderr (Claude Code ignores JSON on exit 2; fail-closed on parse errors). Inner boundary: `context_assembly._redact_text()` sanitizes all server-injected content (file excerpts, learnings, summaries) using the shared secret taxonomy with per-match placeholder bypass before Codex sees it. Profiles resolve to execution controls (effort, posture, turn_budget) via a plugin-owned resolver; sandbox/approval remain gated, phased profiles explicitly rejected, until freeze-and-rotate and phase-progression support exist respectively.
 
 **Tech Stack:** Python 3.14, pytest, YAML (consultation profiles), Claude Code plugin hooks
 
@@ -34,14 +36,21 @@
 
 | File | Change |
 |------|--------|
-| `server/context_assembly.py:54-80,393-397` | Replace inline `_SECRET_PATTERNS` with taxonomy-backed redaction |
+| `server/context_assembly.py:54-80,393-397` | Replace inline `_SECRET_PATTERNS` with taxonomy-backed per-match redaction |
+| `server/context_assembly.py:94-120` | Wire learning retrieval into packet assembly via `_build_text_entries()` |
 | `server/runtime.py:109-130` | Accept `effort` parameter on `run_turn()` |
 | `server/control_plane.py:130-206` | Thread profile/effort through consult dispatch |
 | `server/models.py:32-48` | Add `profile` field to `ConsultRequest` |
-| `server/mcp_server.py:28-38` | Expose `profile` in `codex.consult` tool schema |
+| `server/models.py:157-172` | Add `resolved_posture`, `resolved_effort`, `resolved_turn_budget` to `CollaborationHandle` |
+| `server/mcp_server.py:28-38` | Expose `profile` in `codex.consult` and `codex.dialogue.start` tool schemas |
+| `server/dialogue.py:64-142` | Accept profile on `start()`, resolve and persist on handle |
+| `server/dialogue.py:144-234` | Read stored profile from handle, pass effort/posture to assembly + runtime |
 | `server/prompt_builder.py:40-47` | Accept and embed posture in prompt text |
-| `hooks/hooks.json` | Add PreToolUse hook entry for `codex_guard.py` |
-| `tests/test_context_assembly.py` | Update tests for taxonomy-backed redaction |
+| `hooks/hooks.json` | Add PreToolUse hook entry for `codex_guard.py` with matcher-group schema |
+| `docs/superpowers/specs/codex-collaboration/contracts.md:35-51` | Add 3 optional profile fields to CollaborationHandle table |
+| `tests/test_context_assembly.py` | Update tests for taxonomy-backed redaction + learnings-in-briefing regression |
+| `tests/test_models_r2.py:39-53` | Update handle serialization test for 13 fields |
+| `tests/test_dialogue.py` | Add profile persistence + crash-recovery replay tests |
 
 ---
 
@@ -692,6 +701,18 @@ class TestTaxonomyBackedRedaction:
         # Contextual family with placeholder bypass — should NOT redact
         assert pat in result
 
+    def test_per_match_bypass_does_not_suppress_real_tokens(self) -> None:
+        """One example token must not suppress redaction of a real token in the same string."""
+        from server.context_assembly import _redact_text
+        pat = "ghp_" + "A" * 36
+        real_pat = "ghp_" + "B" * 36
+        # First occurrence has "example" nearby, second does not
+        text = f"example format: {pat}\nproduction: {real_pat}"
+        result = _redact_text(text)
+        # Example token kept, real token redacted
+        assert pat in result
+        assert real_pat not in result
+
     def test_clean_text_unchanged(self) -> None:
         from server.context_assembly import _redact_text
         text = "This is a normal code review comment."
@@ -728,22 +749,39 @@ _SECRET_PATTERNS: tuple[
 Replace `_redact_text` with:
 ```python
 def _redact_text(value: str) -> str:
-    """Redact secrets using the shared taxonomy. Contextual families respect placeholder bypass."""
-    from .secret_taxonomy import FAMILIES, check_placeholder_bypass
+    """Redact secrets using the shared taxonomy with per-match placeholder bypass.
+
+    Contextual families check each match independently against its local
+    100-char window. A placeholder near one match does NOT suppress redaction
+    of other matches of the same family elsewhere in the string.
+
+    Templates that use backreferences (e.g. r"\\1[REDACTED:value]\\3") are
+    expanded via match.expand() so capture groups resolve correctly inside
+    the replacement function.
+    """
+    from .secret_taxonomy import FAMILIES, PLACEHOLDER_BYPASS_WINDOW
 
     redacted = value
     for family in FAMILIES:
         if not family.redact_enabled:
             continue
-        if family.tier == "broad":
-            # Broad tier: always redact (no bypass check for outbound content)
-            redacted = family.pattern.sub(family.redact_template, redacted)
-        elif family.tier == "contextual":
-            # Contextual tier: skip redaction if placeholder language is nearby
-            if not check_placeholder_bypass(redacted, family):
-                redacted = family.pattern.sub(family.redact_template, redacted)
+        if family.tier == "contextual" and family.placeholder_bypass:
+            # Per-match bypass: each match is independently checked against
+            # its local window. A placeholder near one match does NOT suppress
+            # redaction of other matches in the same string.
+            bypass_words = tuple(w.lower() for w in family.placeholder_bypass)
+
+            def _replace(match: re.Match[str], _bw: tuple[str, ...] = bypass_words) -> str:
+                start = max(0, match.start() - PLACEHOLDER_BYPASS_WINDOW)
+                end = min(len(redacted), match.end() + PLACEHOLDER_BYPASS_WINDOW)
+                context = redacted[start:end].lower()
+                if any(word in context for word in _bw):
+                    return match.group(0)  # Keep original — placeholder context
+                return match.expand(family.redact_template)
+
+            redacted = family.pattern.sub(_replace, redacted)
         else:
-            # Strict tier: always redact
+            # Strict/broad tiers: always redact, no bypass
             redacted = family.pattern.sub(family.redact_template, redacted)
     return redacted
 ```
@@ -948,6 +986,22 @@ class TestCheckToolInput:
         )
         assert verdict.action == "block"
         assert verdict.tier == "strict"
+
+    def test_profile_field_is_scanned(self) -> None:
+        """profile is a content_field — credentials in profile names are caught."""
+        verdict = check_tool_input(
+            {"objective": "clean review", "repo_root": "/tmp", "profile": "AKIAIOSFODNN7EXAMPLE"},
+            CONSULT_POLICY,
+        )
+        assert verdict.action == "block"
+
+    def test_dialogue_start_profile_scanned(self) -> None:
+        """profile in dialogue.start is also scanned."""
+        verdict = check_tool_input(
+            {"repo_root": "/tmp", "profile": "sk-" + "a" * 40},
+            DIALOGUE_START_POLICY,
+        )
+        assert verdict.action == "block"
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -995,18 +1049,22 @@ class ToolInputLimitExceeded(RuntimeError):
 
 
 CONSULT_POLICY = ToolScanPolicy(
-    expected_fields={"repo_root", "profile", "explicit_paths"},
-    content_fields={"objective"},
+    expected_fields={"repo_root", "explicit_paths"},
+    content_fields={"objective", "profile"},
 )
 
 DIALOGUE_START_POLICY = ToolScanPolicy(
-    expected_fields={"repo_root", "profile"},
-    content_fields=set(),
+    expected_fields={"repo_root"},
+    content_fields={"profile"},
 )
 
 DIALOGUE_REPLY_POLICY = ToolScanPolicy(
-    expected_fields={"collaboration_id", "repo_root", "profile"},
-    content_fields={"message", "objective", "supplementary_context"},
+    expected_fields={"collaboration_id", "explicit_paths"},
+    content_fields={"objective"},
+    # Actual reply schema: collaboration_id, objective, explicit_paths.
+    # No profile (stored on handle), no repo_root (not in reply schema),
+    # no message/supplementary_context (not yet exposed — forward-looking
+    # fields removed to match the real tool surface).
 )
 
 _TOOL_POLICY_MAP: dict[str, ToolScanPolicy] = {
@@ -1151,9 +1209,13 @@ git commit -m "feat(codex-collaboration): add tool-input safety policy (T-03 AC3
 - Create: `tests/test_codex_guard.py`
 - Modify: `hooks/hooks.json`
 
+**Hook protocol:** Exit 2 + stderr for deny and parse/read failures. Exit 0 with no output for allow. Claude Code ignores stdout JSON on exit 2 (docs: "You must choose one approach per hook, not both … Claude Code only processes JSON on exit 0. If you exit 2, any JSON is ignored."). This matches the proven pattern in `cross-model/scripts/codex_guard.py`.
+
+**PreToolUse decision control note:** The modern structured approach uses `hookSpecificOutput.permissionDecision` (allow/deny/ask) on exit 0. Top-level `decision` and `reason` are deprecated for PreToolUse. This script uses exit 2 + stderr instead of either JSON path because fail-closed on every error path is more valuable at a security boundary than structured feedback.
+
 - [ ] **Step 1: Write hook guard tests**
 
-The hook runs as a subprocess receiving JSON on stdin. Tests invoke it via `subprocess.run`.
+The hook runs as a subprocess receiving JSON on stdin. Tests assert on `returncode` and `stderr` content — never on stdout JSON (Claude Code ignores it on exit 2).
 
 ```python
 """Tests for codex_guard.py PreToolUse hook."""
@@ -1172,8 +1234,10 @@ SCRIPT = str(
 
 def _run_hook(tool_name: str, tool_input: dict) -> subprocess.CompletedProcess:
     payload = json.dumps({
+        "hook_event_name": "PreToolUse",
         "tool_name": tool_name,
         "tool_input": tool_input,
+        "session_id": "test-session",
     })
     return subprocess.run(
         [sys.executable, SCRIPT],
@@ -1202,6 +1266,14 @@ class TestHookAllowsCleanInput:
         result = _run_hook("Read", {"file_path": "/etc/passwd"})
         assert result.returncode == 0
 
+    def test_dialogue_reply_clean(self) -> None:
+        """Reply schema: collaboration_id, objective, explicit_paths — no repo_root."""
+        result = _run_hook(
+            "mcp__plugin_codex-collaboration_codex-collaboration__codex.dialogue.reply",
+            {"collaboration_id": "c1", "objective": "clean review"},
+        )
+        assert result.returncode == 0
+
 
 class TestHookBlocksSecrets:
     def test_aws_key_in_objective_blocks(self) -> None:
@@ -1210,8 +1282,7 @@ class TestHookBlocksSecrets:
             {"repo_root": "/tmp", "objective": "use AKIAIOSFODNN7EXAMPLE"},
         )
         assert result.returncode == 2
-        output = json.loads(result.stdout)
-        assert output.get("decision") == "block"
+        assert "credential" in result.stderr.lower() or "blocked" in result.stderr.lower()
 
     def test_openai_key_blocks(self) -> None:
         key = "sk-" + "a" * 40
@@ -1229,16 +1300,60 @@ class TestHookBlocksSecrets:
         )
         assert result.returncode == 0
 
-    def test_dialogue_reply_scans_message(self) -> None:
+    def test_dialogue_reply_scans_objective(self) -> None:
+        """Reply schema has collaboration_id, objective, explicit_paths — no repo_root."""
         result = _run_hook(
             "mcp__plugin_codex-collaboration_codex-collaboration__codex.dialogue.reply",
             {
                 "collaboration_id": "c1",
-                "repo_root": "/tmp",
-                "message": "AKIAIOSFODNN7EXAMPLE",
+                "objective": "AKIAIOSFODNN7EXAMPLE",
             },
         )
         assert result.returncode == 2
+
+    def test_profile_with_credential_blocks(self) -> None:
+        """Credential in profile field is caught — profile is a content_field."""
+        result = _run_hook(
+            "mcp__plugin_codex-collaboration_codex-collaboration__codex.consult",
+            {"repo_root": "/tmp", "objective": "clean", "profile": "AKIAIOSFODNN7EXAMPLE"},
+        )
+        assert result.returncode == 2
+
+
+class TestHookFailsClosed:
+    def test_empty_stdin_blocks(self) -> None:
+        """Parse failure on empty input must fail closed."""
+        proc = subprocess.run(
+            [sys.executable, SCRIPT],
+            input="",
+            capture_output=True,
+            text=True,
+        )
+        assert proc.returncode == 2
+        assert "failed to parse" in proc.stderr.lower() or "stdin" in proc.stderr.lower()
+
+    def test_malformed_json_blocks(self) -> None:
+        """Invalid JSON must fail closed."""
+        proc = subprocess.run(
+            [sys.executable, SCRIPT],
+            input="not json",
+            capture_output=True,
+            text=True,
+        )
+        assert proc.returncode == 2
+
+    def test_missing_tool_input_blocks(self) -> None:
+        """Missing tool_input on a plugin tool must fail closed."""
+        proc = subprocess.run(
+            [sys.executable, SCRIPT],
+            input=json.dumps({
+                "hook_event_name": "PreToolUse",
+                "tool_name": "mcp__plugin_codex-collaboration_codex-collaboration__codex.consult",
+            }),
+            capture_output=True,
+            text=True,
+        )
+        assert proc.returncode == 2
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -1253,7 +1368,10 @@ Expected: FAIL — script does not exist
 """PreToolUse hook: fail-closed credential scanning on codex-collaboration tool args.
 
 Reads JSON from stdin with {tool_name, tool_input}.
-Exit 0 = allow, exit 2 = block (with JSON on stdout).
+Exit 0 = allow, exit 2 = block (reason on stderr).
+
+Claude Code ignores stdout on exit 2. All feedback goes to stderr,
+which Claude Code feeds back to Claude as an error message.
 
 Only scans tools with the codex-collaboration MCP prefix. Other tools pass through.
 """
@@ -1274,20 +1392,21 @@ _TOOL_PREFIX = "mcp__plugin_codex-collaboration_codex-collaboration__"
 
 def main() -> int:
     try:
-        raw = sys.stdin.read()
-    except Exception:
-        return 0  # Fail-open on stdin read errors (hook contract)
+        data = json.load(sys.stdin)
+    except (ValueError, OSError, UnicodeDecodeError) as e:
+        # Cannot parse input — fail closed.
+        print(f"codex-guard: failed to parse stdin ({e})", file=sys.stderr)
+        return 2
 
-    try:
-        payload = json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
-        return 0  # Fail-open on invalid JSON
-
-    tool_name = payload.get("tool_name", "")
+    tool_name = data.get("tool_name", "")
     if not isinstance(tool_name, str) or not tool_name.startswith(_TOOL_PREFIX):
         return 0  # Not our tool — pass through
 
-    tool_input = payload.get("tool_input", {})
+    tool_input = data.get("tool_input")
+    if not isinstance(tool_input, dict):
+        # Plugin tool with missing/malformed input — fail closed.
+        print("codex-guard: missing or invalid tool_input", file=sys.stderr)
+        return 2
 
     # Status tool has no user content — always allow
     if tool_name == f"{_TOOL_PREFIX}codex.status":
@@ -1295,18 +1414,20 @@ def main() -> int:
 
     from server.consultation_safety import check_tool_input, policy_for_tool
 
-    policy = policy_for_tool(tool_name)
-    verdict = check_tool_input(tool_input, policy)
+    try:
+        policy = policy_for_tool(tool_name)
+        verdict = check_tool_input(tool_input, policy)
+    except Exception as e:
+        # Safety module error — fail closed.
+        print(f"codex-guard: internal error ({e})", file=sys.stderr)
+        return 2
 
     if verdict.action == "block":
-        response = {
-            "decision": "block",
-            "reason": (
-                f"Credential detected in tool input ({verdict.reason}). "
-                "Remove the secret before retrying."
-            ),
-        }
-        sys.stdout.write(json.dumps(response))
+        print(
+            f"codex-guard: credential detected ({verdict.reason}). "
+            "Remove the secret before retrying.",
+            file=sys.stderr,
+        )
         return 2
 
     return 0
@@ -1318,22 +1439,30 @@ if __name__ == "__main__":
 
 - [ ] **Step 4: Register hook in hooks.json**
 
-Read current `hooks/hooks.json`, add PreToolUse entry:
+Read current `hooks/hooks.json`, merge the PreToolUse entry into the existing file. Use the matcher-group schema (`matcher` on the group, `type`/`command` in nested `hooks` array) consistent with every in-repo plugin hook. Use explicit tool-name alternation with escaped dots — `.` is a regex metacharacter; `codex\.consult` matches only the literal dot. Exclude `codex.status` (no user content) and `codex.dialogue.read` (read-only, no outbound content).
 
 ```json
 {
   "hooks": {
     "SessionStart": [
       {
-        "type": "command",
-        "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/publish_session_id.py\""
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/publish_session_id.py\""
+          }
+        ]
       }
     ],
     "PreToolUse": [
       {
-        "type": "command",
-        "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/codex_guard.py\"",
-        "matcher": "mcp__plugin_codex-collaboration_codex-collaboration__*"
+        "matcher": "mcp__plugin_codex-collaboration_codex-collaboration__codex\\.consult|mcp__plugin_codex-collaboration_codex-collaboration__codex\\.dialogue\\.start|mcp__plugin_codex-collaboration_codex-collaboration__codex\\.dialogue\\.reply",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/codex_guard.py\""
+          }
+        ]
       }
     ]
   }
@@ -1359,6 +1488,8 @@ git commit -m "feat(codex-collaboration): add PreToolUse hook guard (T-03 AC1/AC
 **Files:**
 - Create: `server/retrieve_learnings.py`
 - Create: `tests/test_retrieve_learnings.py`
+- Modify: `server/context_assembly.py` (wire learnings into packet assembly)
+- Modify: `tests/test_context_assembly.py` (regression test for learnings in briefings)
 
 - [ ] **Step 1: Write learning retrieval tests**
 
@@ -1584,12 +1715,16 @@ def format_for_briefing(
 
 def retrieve_learnings(
     query: str,
+    *,
+    repo_root: Path,
     max_entries: int = 5,
-    path: Path | None = None,
 ) -> str:
-    """End-to-end: read file, filter, format. Fail-soft on errors."""
-    if path is None:
-        path = Path("docs/learnings/learnings.md")
+    """End-to-end: read file, filter, format. Fail-soft on errors.
+
+    repo_root is required — plugin cwd is CLAUDE_PLUGIN_ROOT, not the
+    user's repository. Callers must pass the resolved repo root.
+    """
+    path = repo_root / "docs" / "learnings" / "learnings.md"
 
     try:
         text = path.read_text()
@@ -1604,16 +1739,102 @@ def retrieve_learnings(
     return format_for_briefing(filtered, max_entries=max_entries)
 ```
 
+Add these additional tests after the parse/filter/format tests:
+
+```python
+class TestRetrieveLearnings:
+    def test_resolves_path_from_repo_root(self, tmp_path: Path) -> None:
+        """repo_root determines the learnings file location, not cwd."""
+        learnings_dir = tmp_path / "docs" / "learnings"
+        learnings_dir.mkdir(parents=True)
+        (learnings_dir / "learnings.md").write_text(
+            "### 2026-03-15 [safety]\n\nTest learning.\n"
+        )
+        result = retrieve_learnings("safety", repo_root=tmp_path)
+        assert "Test learning" in result
+
+    def test_missing_file_returns_empty(self, tmp_path: Path) -> None:
+        """Fail-soft when learnings file does not exist."""
+        result = retrieve_learnings("anything", repo_root=tmp_path)
+        assert result == ""
+
+    def test_cwd_does_not_affect_resolution(self, tmp_path: Path, monkeypatch: object) -> None:
+        """Prove that cwd is irrelevant — only repo_root matters."""
+        import os
+        learnings_dir = tmp_path / "docs" / "learnings"
+        learnings_dir.mkdir(parents=True)
+        (learnings_dir / "learnings.md").write_text(
+            "### 2026-03-15 [test]\n\nContent.\n"
+        )
+        # Change cwd to a directory with no learnings
+        monkeypatch.chdir(tmp_path / "docs")
+        result = retrieve_learnings("test", repo_root=tmp_path)
+        assert "Content" in result
+```
+
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `cd /Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/codex-collaboration && uv run pytest tests/test_retrieve_learnings.py -v`
 Expected: all PASS
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Wire learnings into assemble_context_packet()**
+
+In `server/context_assembly.py`, add learning retrieval inside `assemble_context_packet()`. Learnings must be routed through `_build_text_entries()` — **not** appended as raw `_ContextEntry` — because `_build_text_entries()` applies `_redact_text()` at construction time, and `_render_packet()` emits `entry.content` unchanged at line 284. The `_ContextEntry` dataclass has only three fields (`category`, `label`, `content`) — no `token_estimate`.
+
+After the existing `_build_text_entries()` calls for `supplementary_context` (inside `assemble_context_packet()`), add:
+
+```python
+    # Inject relevant learnings into supplementary context (fail-soft).
+    # Routed through _build_text_entries so learnings pass through _redact_text()
+    # at construction time — _render_packet() does not redact entry content.
+    from .retrieve_learnings import retrieve_learnings
+    learnings_text = retrieve_learnings(request.objective, repo_root=request.repo_root)
+    if learnings_text:
+        entries["supplementary_context"].extend(
+            _build_text_entries("supplementary_context", (learnings_text,))
+        )
+```
+
+This insertion point is shared by both `codex.consult` (via `control_plane.codex_consult()`) and `codex.dialogue.reply` (via `DialogueController.reply()`), since both call `assemble_context_packet()`.
+
+- [ ] **Step 6: Add regression test for learnings in briefings**
+
+In `tests/test_context_assembly.py`, add a test that exercises `assemble_context_packet()` with a `ConsultRequest` whose `repo_root` points to a directory with learnings, then verifies the rendered packet contains the learning content. This pins the shared-path assumption so it cannot silently drift.
+
+```python
+class TestLearningsInBriefing:
+    def test_learnings_appear_in_packet(self, tmp_path: Path) -> None:
+        """Learnings from repo_root appear in assembled packet."""
+        learnings_dir = tmp_path / "docs" / "learnings"
+        learnings_dir.mkdir(parents=True)
+        (learnings_dir / "learnings.md").write_text(
+            "### 2026-03-15 [safety]\n\nCredential scanning insight.\n"
+        )
+        request = ConsultRequest(
+            repo_root=tmp_path,
+            objective="review safety scanning",
+        )
+        repo_identity = RepoIdentity(
+            repo_root=tmp_path, branch="main", head="abc123"
+        )
+        packet = assemble_context_packet(request, repo_identity, profile="advisory")
+        # Learnings appear in the rendered packet under supplementary_context.
+        # Content passes through _redact_text() via _build_text_entries().
+        assert "Credential scanning insight" in packet.payload
+```
+
+This test covers both consult and dialogue reply because `DialogueController.reply()` calls the same `assemble_context_packet()` function with the same `ConsultRequest` shape (verified at `dialogue.py:198-211`).
+
+- [ ] **Step 7: Run full context assembly tests**
+
+Run: `cd /Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/codex-collaboration && uv run pytest tests/test_context_assembly.py tests/test_retrieve_learnings.py -v`
+Expected: all PASS
+
+- [ ] **Step 8: Commit**
 
 ```bash
-git add server/retrieve_learnings.py tests/test_retrieve_learnings.py
-git commit -m "feat(codex-collaboration): add learning retrieval for briefings (T-03 AC5)"
+git add server/retrieve_learnings.py tests/test_retrieve_learnings.py server/context_assembly.py tests/test_context_assembly.py
+git commit -m "feat(codex-collaboration): add learning retrieval wired into packet assembly (T-03 AC5)"
 ```
 
 ---
@@ -1714,6 +1935,20 @@ class TestResolveProfile:
         assert resolved.effort == "xhigh"
         assert resolved.posture == "evaluative"
         assert resolved.turn_budget == 8
+
+    def test_phased_profile_rejected(self) -> None:
+        """Phased profiles (e.g., debugging) are explicitly rejected in T-03."""
+        with pytest.raises(ProfileValidationError, match="phased"):
+            resolve_profile(profile_name="debugging")
+
+    def test_all_non_phased_profiles_resolve(self) -> None:
+        """All 8 non-phased bundled profiles resolve without error."""
+        profiles = load_profiles()
+        for name, defn in profiles.items():
+            if "phases" in defn:
+                continue  # Phased profiles are rejected (tested above)
+            resolved = resolve_profile(profile_name=name)
+            assert resolved.posture, f"profile {name} has no posture"
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -1808,6 +2043,15 @@ def resolve_profile(
     if profile_name is not None:
         profiles = load_profiles()
         profile = profiles.get(profile_name, {})
+
+    # Phased profiles are explicitly rejected until phase-progression support exists.
+    # Silent collapse to the default posture would misrepresent the profile's intent.
+    if "phases" in profile:
+        raise ProfileValidationError(
+            f"Profile resolution failed: phased profiles require phase-progression "
+            f"support (not yet implemented). Profile {profile_name!r} defines phases. "
+            f"Use a non-phased profile or omit the profile parameter."
+        )
 
     posture = (
         explicit_posture
@@ -1906,30 +2150,59 @@ def run_turn(
     # ... rest unchanged
 ```
 
-- [ ] **Step 9: Write test for effort parameter**
+- [ ] **Step 9: Update FakeRuntimeSession to accept effort**
 
-Add to `tests/test_mcp_server.py` or a new runtime test file:
+`FakeRuntimeSession.run_turn()` at `tests/test_control_plane.py:89` does not accept an `effort` keyword. This fake is imported by `test_dialogue.py:19` and `test_dialogue_integration.py:20`. Once callers pass `effort=...`, the suite breaks with `TypeError`. Update the fake before changing callers:
+
+```python
+def run_turn(
+    self,
+    *,
+    thread_id: str,
+    prompt_text: str,
+    output_schema: dict[str, object],
+    effort: str | None = None,
+) -> TurnExecutionResult:
+    if self.run_turn_error is not None:
+        raise self.run_turn_error
+    self.run_turn_calls += 1
+    self.completed_turn_count += 1
+    self.last_prompt_text = prompt_text
+    self.last_output_schema = output_schema
+    self.last_effort = effort  # Capture for assertion in profile tests
+    return TurnExecutionResult(
+        turn_id="turn-1",
+        agent_message=self.agent_message.replace("thr-start", thread_id),
+    )
+```
+
+Also add `last_effort: str | None = None` to `FakeRuntimeSession.__init__()`. This is the capture mechanism that Step 18 tests rely on — `captured_turn_params["effort"]` in those tests should reference `fake_session.last_effort` instead.
+
+- [ ] **Step 10: Write test for effort parameter**
+
+Add to `tests/test_mcp_server.py` or a new runtime test file. The test should use `FakeJsonRpcClient` (or similar) to capture the request params and verify the wire format:
 
 ```python
 def test_run_turn_includes_effort_when_provided(self) -> None:
     """effort parameter is included in turn/start payload."""
-    # This test depends on how the runtime is tested —
-    # use FakeJsonRpcClient or mock to capture the request params
+    # Use FakeJsonRpcClient to capture the request params
+    # Key assertion: when effort="high", turn/start includes "effort": "high"
+    # When effort=None, the field is absent from the params dict
     ...
 ```
 
-The exact test shape depends on how `runtime.py` is tested (likely with a fake JSON-RPC client). The key assertion: when `effort="high"` is passed, the `turn/start` request includes `"effort": "high"`. When `effort=None`, the field is absent.
+The exact test shape depends on how `runtime.py` is tested. The key assertion: when `effort="high"` is passed, the `turn/start` request includes `"effort": "high"`. When `effort=None`, the field is absent.
 
-- [ ] **Step 10: Commit effort wiring**
+- [ ] **Step 11: Commit effort wiring**
 
 ```bash
-git add server/runtime.py
+git add server/runtime.py tests/test_control_plane.py
 git commit -m "feat(codex-collaboration): wire effort parameter on turn/start (T-03 AC4)"
 ```
 
-### 7c: Add profile to ConsultRequest and MCP schema
+### 7c: Add profile to ConsultRequest, dialogue.start, and MCP schemas
 
-- [ ] **Step 11: Add profile field to ConsultRequest**
+- [ ] **Step 12: Add profile field to ConsultRequest**
 
 In `server/models.py`, add to `ConsultRequest`:
 
@@ -1955,20 +2228,87 @@ class ConsultRequest:
     profile: str | None = None
 ```
 
-- [ ] **Step 12: Expose profile in MCP tool schema**
+- [ ] **Step 13: Add resolved profile fields to CollaborationHandle**
 
-In `server/mcp_server.py`, add `profile` to `codex.consult` input schema:
+In `server/models.py`, add three optional fields to `CollaborationHandle`. These persist the resolved profile state at dialogue start time. `reply()` reads them from the stored handle rather than re-resolving or accepting per-turn overrides.
 
+```python
+@dataclass
+class CollaborationHandle:
+    # ... existing fields ...
+    parent_collaboration_id: str | None = None
+    resolved_posture: str | None = None
+    resolved_effort: str | None = None
+    resolved_turn_budget: int | None = None
+```
+
+**Crash recovery limitation:** The recovery path at `dialogue.py:448` reconstructs handles from `OperationJournalEntry` data, which has no profile fields (`OperationJournalEntry` at `models.py:221` has no profile payload slots). A crash between `thread/start` and `lineage_store.create()` produces a recovered handle with `resolved_posture=None`, `resolved_effort=None`, `resolved_turn_budget=None`. This is acceptable for T-03:
+
+- Pre-T-03 handles had no profile state at all — `None` is the same baseline behavior
+- `reply()` must treat `None` as "no override": effort=None means no `effort` field on `turn/start`, posture=None means no posture instruction in the prompt
+- The window is narrow: only a crash between thread creation (`dialogue.py:92`) and lineage persist (`dialogue.py:122`)
+
+Full journal integration (adding profile fields to `OperationJournalEntry` and the recovery path) is out of scope for T-03 but should be addressed when the journal schema is next revised.
+
+- [ ] **Step 13b: Update contract spec and model tests for new handle fields**
+
+In `docs/superpowers/specs/codex-collaboration/contracts.md`, add the three new optional fields to the CollaborationHandle table (after `status` row, around line 50):
+
+```markdown
+| `resolved_posture` | string? | Posture from profile resolved at dialogue start. Null for consultations and crash-recovered handles |
+| `resolved_effort` | string? | Effort level from profile resolved at dialogue start. Null means no effort override |
+| `resolved_turn_budget` | int? | Turn budget from profile resolved at dialogue start. Null means default budget |
+```
+
+In `tests/test_models_r2.py`, update the serialization test:
+
+```python
+def test_collaboration_handle_serializes_to_dict() -> None:
+    handle = CollaborationHandle(
+        collaboration_id="collab-1",
+        capability_class="advisory",
+        runtime_id="rt-1",
+        codex_thread_id="thr-1",
+        claude_session_id="sess-1",
+        repo_root="/repo",
+        created_at="2026-03-28T00:00:00Z",
+        status="active",
+    )
+    d = asdict(handle)
+    assert d["collaboration_id"] == "collab-1"
+    assert d["parent_collaboration_id"] is None
+    assert d["resolved_posture"] is None
+    assert d["resolved_effort"] is None
+    assert d["resolved_turn_budget"] is None
+    assert len(d) == 13
+```
+
+- [ ] **Step 14: Expose profile in MCP tool schemas**
+
+In `server/mcp_server.py`, add `profile` to both `codex.consult` and `codex.dialogue.start` input schemas:
+
+For `codex.consult` (around line 33):
 ```python
 "properties": {
     "repo_root": {"type": "string"},
     "objective": {"type": "string"},
     "explicit_paths": {"type": "array", "items": {"type": "string"}},
-    "profile": {"type": "string", "description": "Named consultation profile"},
+    "profile": {"type": "string", "description": "Named consultation profile (e.g., quick-check, deep-review)"},
 },
 ```
 
-Update the dispatch in `_dispatch_tool` to pass profile through:
+For `codex.dialogue.start` (around line 45):
+```python
+"properties": {
+    "repo_root": {"type": "string", "description": "Repository root path"},
+    "profile": {"type": "string", "description": "Named consultation profile — resolved once at start, persisted for all subsequent replies"},
+},
+"required": ["repo_root"],
+```
+
+- [ ] **Step 15: Update consult dispatch to pass profile through**
+
+In `server/mcp_server.py`, update the `codex.consult` dispatch (around line 223):
 
 ```python
 request = ConsultRequest(
@@ -1981,41 +2321,195 @@ request = ConsultRequest(
 )
 ```
 
-- [ ] **Step 13: Thread profile through control_plane.codex_consult()**
+- [ ] **Step 16: Update dialogue.start to resolve and persist profile**
 
-In `server/control_plane.py`, resolve profile and pass effort to `run_turn()`:
+In `server/mcp_server.py`, update the `codex.dialogue.start` dispatch (around line 232):
+
+```python
+if name == "codex.dialogue.start":
+    controller = self._ensure_dialogue_controller()
+    result = controller.start(
+        Path(arguments["repo_root"]),
+        profile_name=arguments.get("profile"),
+    )
+    return asdict(result)
+```
+
+In `server/dialogue.py`, update `start()` signature and handle creation. Only resolve and store profile state when `profile_name` is explicitly provided — `None` means "no profile, no overrides," which preserves pre-T-03 behavior for calls without a profile. This ensures consult and dialogue cannot diverge on their default posture path.
+
+```python
+def start(
+    self, repo_root: Path, *, profile_name: str | None = None,
+) -> DialogueStartResult:
+    """Create a durable dialogue thread and persist handle with resolved profile."""
+    resolved_posture: str | None = None
+    resolved_effort: str | None = None
+    resolved_turn_budget: int | None = None
+    if profile_name is not None:
+        from .profiles import resolve_profile
+        resolved = resolve_profile(profile_name=profile_name)
+        resolved_posture = resolved.posture
+        resolved_effort = resolved.effort
+        resolved_turn_budget = resolved.turn_budget
+
+    # ... existing thread creation code ...
+
+    handle = CollaborationHandle(
+        collaboration_id=collaboration_id,
+        capability_class="advisory",
+        runtime_id=runtime.runtime_id,
+        codex_thread_id=thread_id,
+        claude_session_id=self._session_id,
+        repo_root=str(resolved_root),
+        created_at=created_at,
+        status="active",
+        resolved_posture=resolved_posture,
+        resolved_effort=resolved_effort,
+        resolved_turn_budget=resolved_turn_budget,
+    )
+    self._lineage_store.create(handle)
+    # ... rest unchanged ...
+```
+
+- [ ] **Step 17: Update dialogue.reply to use stored profile state**
+
+In `server/dialogue.py`, update `reply()` to read profile state from the handle and pass it through. The handle is accessed via `self._lineage_store.get(collaboration_id)` (not `.load()` — that method does not exist; the read API is `get()` at `lineage_store.py:35`).
+
+```python
+def reply(self, *, collaboration_id: str, ...) -> DialogueReplyResult:
+    # ... existing handle loading via get() ...
+
+    # ... existing context assembly ...
+    packet = assemble_context_packet(request, repo_identity, profile="advisory")
+
+    # Use stored profile state from dialogue.start.
+    # None is valid — means no profile was set at start (or handle was crash-recovered).
+    # None effort → no effort field on turn/start. None posture → no posture instruction.
+    posture = handle.resolved_posture  # may be None
+    effort = handle.resolved_effort    # may be None
+
+    # ... existing journal write ...
+
+    try:
+        turn_result = runtime.session.run_turn(
+            thread_id=handle.codex_thread_id,
+            prompt_text=build_consult_turn_text(packet.payload, posture=posture),
+            output_schema=CONSULT_OUTPUT_SCHEMA,
+            effort=effort,
+        )
+```
+
+- [ ] **Step 18: Thread profile through control_plane.codex_consult()**
+
+In `server/control_plane.py`, resolve profile only when explicitly provided — matching the dialogue contract. `None` means no overrides, preserving pre-T-03 behavior:
 
 ```python
 def codex_consult(self, request: ConsultRequest) -> ConsultResult:
     # ... existing code up to packet assembly ...
 
-    from .profiles import resolve_profile
-    resolved = resolve_profile(profile_name=request.profile)
+    posture: str | None = None
+    effort: str | None = None
+    if request.profile is not None:
+        from .profiles import resolve_profile
+        resolved = resolve_profile(profile_name=request.profile)
+        posture = resolved.posture
+        effort = resolved.effort
 
     # ... existing thread/turn dispatch ...
     turn_result = runtime.session.run_turn(
         thread_id=thread_id,
-        prompt_text=build_consult_turn_text(packet.payload),
+        prompt_text=build_consult_turn_text(packet.payload, posture=posture),
         output_schema=CONSULT_OUTPUT_SCHEMA,
-        effort=resolved.effort,
+        effort=effort,
     )
 ```
 
-- [ ] **Step 14: Run full test suite**
+- [ ] **Step 19: Write tests for dialogue profile persistence**
+
+Add to `tests/test_dialogue.py` (or a new `tests/test_dialogue_profiles.py`):
+
+These tests use `FakeRuntimeSession` (updated in Step 9 to capture `last_effort`). Replace references to the undefined `captured_turn_params` with `fake_session.last_effort`.
+
+```python
+class TestDialogueProfilePersistence:
+    def test_start_stores_resolved_profile_on_handle(self) -> None:
+        """dialogue.start resolves profile and persists state on handle."""
+        # Start dialogue with profile="deep-review"
+        result = controller.start(repo_root, profile_name="deep-review")
+        handle = lineage_store.get(result.collaboration_id)
+        assert handle.resolved_posture == "evaluative"
+        assert handle.resolved_effort == "xhigh"
+        assert handle.resolved_turn_budget == 8
+
+    def test_reply_uses_stored_profile_state(self) -> None:
+        """dialogue.reply reads effort/posture from handle, not from arguments."""
+        # Start with deep-review profile
+        start_result = controller.start(repo_root, profile_name="deep-review")
+        # Reply — verify effort/posture are passed to run_turn
+        reply_result = controller.reply(
+            collaboration_id=start_result.collaboration_id,
+            objective="continue review",
+        )
+        # Assert the runtime received effort="xhigh" via FakeRuntimeSession capture
+        assert fake_session.last_effort == "xhigh"
+
+    def test_start_without_profile_stores_none(self) -> None:
+        """No profile means no overrides stored — None, not resolved defaults.
+
+        This preserves pre-T-03 behavior: calls without explicit profile
+        produce no posture instruction and no effort override. Consult and
+        dialogue follow the same contract: None profile → None stored fields.
+        """
+        result = controller.start(repo_root)
+        handle = lineage_store.get(result.collaboration_id)
+        assert handle.resolved_posture is None
+        assert handle.resolved_effort is None
+        assert handle.resolved_turn_budget is None
+
+    def test_phased_profile_rejected_at_start(self) -> None:
+        """Phased profiles raise at dialogue.start, not silently collapse."""
+        with pytest.raises(ProfileValidationError, match="phased"):
+            controller.start(repo_root, profile_name="debugging")
+
+    def test_crash_recovered_handle_works_without_profile(self) -> None:
+        """Crash-recovered handle (no profile state) still supports reply."""
+        # Simulate a crash-recovered handle: no profile fields
+        handle = CollaborationHandle(
+            collaboration_id="recovered-1",
+            capability_class="advisory",
+            runtime_id=runtime.runtime_id,
+            codex_thread_id="thr-1",
+            claude_session_id="sess-1",
+            repo_root=str(repo_root),
+            created_at="2026-03-30T00:00:00Z",
+            status="active",
+            # resolved_posture, resolved_effort, resolved_turn_budget all default to None
+        )
+        lineage_store.create(handle)
+        # Reply should work — no effort override, no posture instruction
+        reply_result = controller.reply(
+            collaboration_id="recovered-1",
+            objective="continue after crash",
+        )
+        # Verify no effort was sent to runtime via FakeRuntimeSession capture
+        assert fake_session.last_effort is None
+```
+
+- [ ] **Step 20: Run full test suite**
 
 Run: `cd /Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/codex-collaboration && uv run pytest tests/ -q`
 Expected: all PASS
 
-- [ ] **Step 15: Commit schema + wiring**
+- [ ] **Step 21: Commit schema + wiring**
 
 ```bash
-git add server/models.py server/mcp_server.py server/control_plane.py
-git commit -m "feat(codex-collaboration): wire profile through consult dispatch (T-03 AC4)"
+git add server/models.py server/mcp_server.py server/control_plane.py server/dialogue.py server/profiles.py docs/superpowers/specs/codex-collaboration/contracts.md tests/
+git commit -m "feat(codex-collaboration): wire profile through consult and dialogue dispatch (T-03 AC4)"
 ```
 
 ### 7d: Wire posture into prompt builder
 
-- [ ] **Step 16: Accept posture in build_consult_turn_text()**
+- [ ] **Step 22: Accept posture in build_consult_turn_text()**
 
 In `server/prompt_builder.py`:
 
@@ -2033,17 +2527,17 @@ def build_consult_turn_text(packet_payload: str, *, posture: str | None = None) 
     )
 ```
 
-Update callers in `control_plane.py` and `dialogue.py` to pass `posture=resolved.posture`.
+Callers updated in Steps 17 and 18 above (dialogue.reply and control_plane.codex_consult). No separate caller update step needed.
 
-- [ ] **Step 17: Run full test suite**
+- [ ] **Step 23: Run full test suite**
 
 Run: `cd /Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/codex-collaboration && uv run pytest tests/ -q`
 Expected: all PASS
 
-- [ ] **Step 18: Commit posture wiring**
+- [ ] **Step 24: Commit posture wiring**
 
 ```bash
-git add server/prompt_builder.py server/control_plane.py server/dialogue.py
+git add server/prompt_builder.py
 git commit -m "feat(codex-collaboration): wire posture into prompt builder (T-03 AC4)"
 ```
 
@@ -2090,11 +2584,11 @@ Expected: all PASS (239 existing + new tests)
 
 | AC | Verification |
 |----|-------------|
-| AC1: Credential scanning fails closed | `test_codex_guard.py` — hook returns exit 2 on strict/contextual match |
+| AC1: Credential scanning fails closed | `test_codex_guard.py` — hook returns exit 2 + stderr on credential match; exit 2 on parse/read errors (fail-closed). Never writes JSON to stdout |
 | AC2: Secret taxonomy used by scanner | `test_secret_taxonomy.py` + `test_credential_scan.py` — 14 families, tiered |
 | AC3: Tool-input safety policy | `test_consultation_safety.py` — policy routing, field extraction, caps |
-| AC4: Consultation profiles resolve | `test_profiles.py` — named profiles, validation gate, effort wiring |
-| AC5: Learning retrieval | `test_retrieve_learnings.py` — parse, filter, fail-soft |
+| AC4: Consultation profiles resolve | `test_profiles.py` — 8 of 9 non-phased profiles resolve; `debugging` (phased) explicitly rejected until phase-progression support. `test_dialogue_profiles.py` — start stores resolved state on handle, reply reuses stored effort/posture, crash-recovered handle works with None defaults. `test_models_r2.py` — handle serialization covers 13 fields. `contracts.md` — 3 new optional fields documented |
+| AC5: Learning retrieval | `test_retrieve_learnings.py` — parse, filter, fail-soft with required `repo_root` (not CWD). `test_context_assembly.py::TestLearningsInBriefing` — learnings wired into shared `assemble_context_packet()` via `_build_text_entries()` (redaction at construction time), covering both consult and dialogue reply |
 | AC6: Analytics emission | **DEFERRED** — Thread C checkpoint before implementation |
 | AC7: Benchmark contract exists | File exists at `dialogue-supersession-benchmark.md` |
 | AC8: Spec docs point to benchmark | `spec.yaml` and `delivery.md` reference it |
