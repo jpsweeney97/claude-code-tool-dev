@@ -214,9 +214,9 @@ class McpServer:
     def _dispatch_tool(self, name: str, arguments: dict[str, Any]) -> Any:
         """Route a tool call to the appropriate handler. Serialization is
         guaranteed by the synchronous single-threaded main loop."""
-        # Release posture item 3 is accepted only while this remains the sole
-        # dispatch chokepoint and tool calls stay serialized. Any concurrent
-        # dispatch model must revisit advisory locking and turn sequencing.
+        # INVARIANT: safe only while this is the sole serialized dispatch
+        # chokepoint. Any concurrent dispatch model must revisit advisory
+        # locking and turn sequencing.
         if name == "codex.status":
             return self._control_plane.codex_status(Path(arguments["repo_root"]))
         if name == "codex.consult":

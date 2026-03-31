@@ -386,7 +386,7 @@ def _redact_text(value: str) -> str:
     earlier redactions change buffer length, and prevents injected
     [REDACTED:value] markers from manufacturing placeholder words.
 
-    Templates that use backreferences (e.g. r"\\1[REDACTED:value]\\3") are
+    Templates that use backreferences (e.g. r"\1[REDACTED:value]\3") are
     expanded via match.expand() so capture groups resolve correctly inside
     the replacement function.
     """

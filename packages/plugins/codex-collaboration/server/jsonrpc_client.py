@@ -119,9 +119,9 @@ class JsonRpcClient:
         self._process = None
         if process.stdin is not None:
             process.stdin.close()
-        # Release posture item 2 accepts explicit close as the lifecycle
-        # boundary for internal use. If this client gains longer-lived process
-        # ownership or different shutdown semantics, revisit orphan cleanup.
+        # INVARIANT: explicit close is the lifecycle boundary. If this client
+        # gains longer-lived process ownership or different shutdown semantics,
+        # revisit orphan cleanup.
         process.terminate()
         try:
             process.wait(timeout=5)

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """PreToolUse hook: fail-closed credential scanning on codex-collaboration tool args.
 
-Reads JSON from stdin with {tool_name, tool_input}.
+Reads JSON from stdin (PreToolUse hook payload). Uses tool_name and tool_input fields.
 Exit 0 = allow, exit 2 = block (reason on stderr).
 
 Claude Code ignores stdout on exit 2. All feedback goes to stderr,
