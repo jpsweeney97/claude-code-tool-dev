@@ -77,7 +77,12 @@ def resolve_profile(
     profile: dict[str, Any] = {}
     if profile_name is not None:
         profiles = load_profiles()
-        profile = profiles.get(profile_name, {})
+        if profile_name not in profiles:
+            raise ProfileValidationError(
+                f"Profile resolution failed: unknown profile. "
+                f"Got: profile_name={profile_name!r:.100}"
+            )
+        profile = profiles[profile_name]
 
     # Phased profiles are explicitly rejected until phase-progression support exists.
     # Silent collapse to the default posture would misrepresent the profile's intent.

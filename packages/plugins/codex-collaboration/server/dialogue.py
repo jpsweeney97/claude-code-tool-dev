@@ -301,9 +301,9 @@ class DialogueController:
             session_id=self._session_id,
         )
 
-        # Release posture item 4 accepts the minimal audit schema only for the
-        # current consult/dialogue_turn families. Any new first-class audit
-        # action should revisit AuditEvent shape before it is emitted.
+        # INVARIANT: minimal audit schema covers consult/dialogue_turn only.
+        # Any new first-class audit action should revisit AuditEvent shape
+        # before it is emitted.
         self._journal.append_audit_event(
             AuditEvent(
                 event_id=self._uuid_factory(),
@@ -466,35 +466,40 @@ class DialogueController:
 
         # dispatched: thread was created, codex_thread_id is in the entry.
         # Reattach via thread/read + thread/resume per contracts.md §Crash Recovery (steps 3-4).
+        if entry.codex_thread_id is None:
+            raise RuntimeError(
+                f"Recovery integrity failure: no codex_thread_id in thread_creation entry. "
+                f"Got: idempotency_key={entry.idempotency_key!r:.100}"
+            )
+
         existing = self._lineage_store.get(entry.collaboration_id)
-        if entry.codex_thread_id is not None:
-            resolved_root = Path(entry.repo_root)
-            runtime = self._control_plane.get_advisory_runtime(resolved_root)
+        resolved_root = Path(entry.repo_root)
+        runtime = self._control_plane.get_advisory_runtime(resolved_root)
 
-            # Reattach: read latest state, then resume to bind to live runtime
-            runtime.session.read_thread(entry.codex_thread_id)
-            resumed_thread_id = runtime.session.resume_thread(entry.codex_thread_id)
+        # Reattach: read latest state, then resume to bind to live runtime
+        runtime.session.read_thread(entry.codex_thread_id)
+        resumed_thread_id = runtime.session.resume_thread(entry.codex_thread_id)
 
-            if existing is None:
-                # Crash between thread/start and lineage persist — persist now
-                handle = CollaborationHandle(
-                    collaboration_id=entry.collaboration_id,
-                    capability_class="advisory",
-                    runtime_id=runtime.runtime_id,
-                    codex_thread_id=resumed_thread_id,
-                    claude_session_id=self._session_id,
-                    repo_root=entry.repo_root,
-                    created_at=entry.created_at,
-                    status="active",
-                )
-                self._lineage_store.create(handle)
-            else:
-                # Handle exists but may point at stale runtime/thread identity
-                self._lineage_store.update_runtime(
-                    entry.collaboration_id,
-                    runtime_id=runtime.runtime_id,
-                    codex_thread_id=resumed_thread_id,
-                )
+        if existing is None:
+            # Crash between thread/start and lineage persist — persist now
+            handle = CollaborationHandle(
+                collaboration_id=entry.collaboration_id,
+                capability_class="advisory",
+                runtime_id=runtime.runtime_id,
+                codex_thread_id=resumed_thread_id,
+                claude_session_id=self._session_id,
+                repo_root=entry.repo_root,
+                created_at=entry.created_at,
+                status="active",
+            )
+            self._lineage_store.create(handle)
+        else:
+            # Handle exists but may point at stale runtime/thread identity
+            self._lineage_store.update_runtime(
+                entry.collaboration_id,
+                runtime_id=runtime.runtime_id,
+                codex_thread_id=resumed_thread_id,
+            )
 
         self._journal.write_phase(
             OperationJournalEntry(

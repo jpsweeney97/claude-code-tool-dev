@@ -359,6 +359,32 @@ class TestRecoverPendingOperations:
         unresolved = journal.list_unresolved(session_id="sess-1")
         assert len(unresolved) == 0
 
+    def test_recover_thread_creation_dispatched_phase_requires_thread_id(
+        self, tmp_path: Path
+    ) -> None:
+        """A dispatched thread_creation entry without a thread ID is unrecoverable."""
+        controller, _, store, journal, _ = _build_dialogue_stack(tmp_path)
+
+        journal.write_phase(
+            OperationJournalEntry(
+                idempotency_key="sess-1:orphan-3",
+                operation="thread_creation",
+                phase="dispatched",
+                collaboration_id="orphan-3",
+                created_at="2026-03-28T00:00:00Z",
+                repo_root=str(tmp_path.resolve()),
+            ),
+            session_id="sess-1",
+        )
+
+        with pytest.raises(RuntimeError, match="no codex_thread_id in thread_creation"):
+            controller.recover_pending_operations()
+
+        unresolved = journal.list_unresolved(session_id="sess-1")
+        assert len(unresolved) == 1
+        assert unresolved[0].collaboration_id == "orphan-3"
+        assert store.get("orphan-3") is None
+
     def test_recover_turn_dispatch_at_dispatched_phase_completed(
         self, tmp_path: Path
     ) -> None:

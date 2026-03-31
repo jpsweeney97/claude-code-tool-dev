@@ -7,14 +7,13 @@
 # Resolution order: explicit flags > named profile > contract defaults.
 #
 # Explicit flags (-m, -s, -a, -t) override profile fields.
-# If a profile name cannot be resolved, the contract defaults (§8) apply.
+# Unknown profile names are rejected during resolution.
 #
 # To add a local override (gitignored):
 #   Create consultation-profiles.local.yaml alongside this file.
 #   Local profiles merge with and override these defaults.
 #
 # Posture values: adversarial, collaborative, exploratory, evaluative, comparative
-# See design doc: docs/plans/2026-03-03-posture-taxonomy-and-composition.md
 
 profiles:
 

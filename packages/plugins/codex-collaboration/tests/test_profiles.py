@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from server.profiles import (
-    ResolvedProfile,
     load_profiles,
     resolve_profile,
     ProfileValidationError,
@@ -47,9 +44,9 @@ class TestResolveProfile:
         assert resolved.sandbox == "read-only"
         assert resolved.approval_policy == "never"
 
-    def test_unknown_profile_returns_defaults(self) -> None:
-        resolved = resolve_profile(profile_name="nonexistent")
-        assert resolved.posture == "collaborative"
+    def test_unknown_profile_raises(self) -> None:
+        with pytest.raises(ProfileValidationError, match="unknown profile"):
+            resolve_profile(profile_name="nonexistent")
 
     def test_explicit_flags_override_profile(self) -> None:
         resolved = resolve_profile(
