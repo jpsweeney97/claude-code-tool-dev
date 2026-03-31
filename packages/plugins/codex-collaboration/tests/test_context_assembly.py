@@ -440,3 +440,22 @@ class TestTaxonomyBackedRedaction:
         branch = "feature/password=hunter2abc"
         result = _redact_text(branch)
         assert "hunter2abc" not in result
+
+
+class TestLearningsInBriefing:
+    def test_learnings_appear_in_packet(self, tmp_path: Path) -> None:
+        """Learnings from repo_root appear in assembled packet."""
+        learnings_dir = tmp_path / "docs" / "learnings"
+        learnings_dir.mkdir(parents=True)
+        (learnings_dir / "learnings.md").write_text(
+            "### 2026-03-15 [safety]\n\nCredential scanning insight.\n"
+        )
+        request = ConsultRequest(
+            repo_root=tmp_path,
+            objective="review safety scanning",
+        )
+        repo_identity = RepoIdentity(
+            repo_root=tmp_path, branch="main", head="abc123"
+        )
+        packet = assemble_context_packet(request, repo_identity, profile="advisory")
+        assert "Credential scanning insight" in packet.payload

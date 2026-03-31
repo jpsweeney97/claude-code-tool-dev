@@ -136,6 +136,17 @@ def assemble_context_packet(
         "supplementary_context": supplementary_entries,
         "external_research_material": external_entries if profile == "advisory" else [],
     }
+
+    # Inject relevant learnings into supplementary context (fail-soft).
+    # Routed through _build_text_entries so learnings pass through _redact_text()
+    # at construction time — _render_packet() does not redact entry content.
+    from .retrieve_learnings import retrieve_learnings
+    learnings_text = retrieve_learnings(request.objective, repo_root=request.repo_root)
+    if learnings_text:
+        entries["supplementary_context"].extend(
+            _build_text_entries("supplementary_context", (learnings_text,))
+        )
+
     omitted_categories: list[str] = denied_categories.copy()
 
     packet = _render_packet(
