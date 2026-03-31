@@ -108,7 +108,7 @@ Single-pass with deferred trailing-truncation classification:
    - Determine the last line number that produced successful JSON (including lines that yielded schema/unknown diagnostics — JSON parsing itself succeeded).
    - Parse failures **after** that last-valid-JSON line → `trailing_truncation`.
    - Parse failures **at or before** that last-valid-JSON line → `mid_file_corruption`.
-   - If no line produced successful JSON → all parse failures are `trailing_truncation` (entire file is one crash tail).
+   - If no line produced successful JSON and the file is non-empty → all parse failures are `mid_file_corruption`. A trailing truncation tail is relative to a valid prefix; without one, there is nothing to be a tail of.
 6. Merge all diagnostics, sort by `line_number`, return `(tuple(results), ReplayDiagnostics(tuple(sorted_diagnostics)))`.
 
 #### Replay Contract Table
@@ -172,12 +172,12 @@ Each store exposes:
 
 ```python
 def check_health(self) -> ReplayDiagnostics:
-    """Replay and return diagnostics. For explicit diagnostic access."""
+    """Replay and return diagnostics. Test and diagnostic support only."""
 ```
 
-Internal `_replay()` methods discard diagnostics (performance path — called on every `get()`/`list()`). `check_health()` calls `replay_jsonl()` and returns the diagnostics object.
+This is a **test/support hook**, not a production API. No delivery milestone depends on it, and no production caller is wired in this branch. If a future branch needs production health checking, it promotes this method to a supported surface and adds a caller with spec backing.
 
-No production caller is wired in this branch. Tests are the primary consumer. Surfacing diagnostics through `codex.status` or audit events requires a spec amendment to `contracts.md` and is out of scope.
+Internal `_replay()` methods discard diagnostics (performance path — called on every `get()`/`list()`). `check_health()` calls `replay_jsonl()` and returns the diagnostics object. Tests are the primary consumer.
 
 ### Integer Validation Rule
 
@@ -188,6 +188,8 @@ All integer field checks use `type(x) is int`, not `isinstance(x, int)`. Python'
 Extra fields on known operation types are **silently ignored**. This is intentional forward-compatibility: a record written by a newer version with additional fields is still interpretable for its known operation. No diagnostic is emitted.
 
 This matches the existing behavior at `lineage_store.py:117` where `CollaborationHandle.__dataclass_fields__` is used as a key filter.
+
+**Compatibility rule:** Extra fields on known ops must be additive metadata only. Semantic changes to a known mutation's meaning require a new `op` value. This bounds the forward-compatibility guarantee: older readers can safely ignore extra fields because the contract promises those fields do not change the operation's behavior.
 
 ### Test Plan
 
@@ -288,9 +290,11 @@ No runtime code introspects `AdvisoryRuntimeState` annotations — verified by s
 
 ## Design Decisions
 
-### Trailing truncation applies only to JSONDecodeError
+### Trailing truncation applies only to JSONDecodeError after a valid prefix
 
 Schema violations and unknown operations at EOF are NOT trailing truncation, because JSON parsing itself succeeded. Only lines where `json.loads` fails qualify for trailing classification. A structurally invalid but JSON-parseable line at EOF indicates version skew, bad migration, or a writer bug — not a partial append from a crash.
+
+Additionally, trailing truncation requires at least one preceding valid JSON line. If no valid line exists in a non-empty file, all parse failures are classified as `mid_file_corruption`. A crash tail is defined relative to a valid prefix; without one, there is nothing to be a tail of. This prevents total-file corruption from being normalized as benign crash recovery.
 
 ### Diagnostics are return-only, not retained on store instances
 
@@ -307,6 +311,13 @@ The helper catches exactly `SchemaViolation` and `UnknownOperation`. All other c
 ### Store health surfacing is out of scope
 
 Wiring `check_health()` to `codex.status` or the audit log requires spec amendments to `contracts.md` and `delivery.md`. This branch delivers the diagnostic substrate; a future branch wires the consumer.
+
+## Deferred Work
+
+| Item | Depends on | Description |
+|------|-----------|-------------|
+| Diagnostics consumer | Spec amendment to `contracts.md` §RuntimeHealth and `delivery.md` | Wire `check_health()` to a production surface (e.g., `codex.status` `store_health` field or dedicated audit action). Requires deciding ownership: control plane for journal, dialogue module for lineage/turn stores. |
+| Store health at bootstrap | Diagnostics consumer | Call `check_health()` during startup and surface warnings before the first operation. Blocked until the diagnostics consumer question is resolved. |
 
 ## References
 
