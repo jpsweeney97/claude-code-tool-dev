@@ -1,0 +1,10 @@
+{
+  "name": "codex-collaboration",
+  "version": "0.2.0",
+  "description": "Codex advisory consultation and dialogue via direct JSON-RPC to the Codex App Server",
+  "author": {
+    "name": "JP"
+  },
+  "license": "MIT",
+  "keywords": ["codex", "consultation", "dialogue", "advisory", "collaboration"]
+}

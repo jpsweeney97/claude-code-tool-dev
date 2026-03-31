@@ -244,6 +244,176 @@ class TestStartup:
         server.startup()  # second call should be a no-op
         assert controller.startup_called is True
 
+    def test_startup_without_dialogue_controller_is_noop(self) -> None:
+        """Startup completes when no dialogue controller is configured."""
+        server = McpServer(control_plane=FakeControlPlane())
+        server.startup()  # should not raise
+
+
+class TestDeferredDialogueInit:
+    """Lazy dialogue controller initialization via factory."""
+
+    def _init_request(self) -> dict:
+        return {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "initialize",
+            "params": {"protocolVersion": "2024-11-05", "clientInfo": {"name": "test"}},
+        }
+
+    def _dialogue_start_request(self, req_id: int = 1) -> dict:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "method": "tools/call",
+            "params": {
+                "name": "codex.dialogue.start",
+                "arguments": {"repo_root": "/tmp/test-repo"},
+            },
+        }
+
+    def test_factory_called_on_first_dialogue_tool(self) -> None:
+        """Factory is invoked exactly once on the first dialogue tool call."""
+        call_count = 0
+        controller = FakeDialogueController()
+
+        def factory() -> FakeDialogueController:
+            nonlocal call_count
+            call_count += 1
+            return controller
+
+        server = McpServer(
+            control_plane=FakeControlPlane(),
+            dialogue_factory=factory,
+        )
+        server.handle_request(self._init_request())
+
+        assert call_count == 0
+        server.handle_request(self._dialogue_start_request())
+        assert call_count == 1
+
+    def test_factory_runs_recovery_on_init(self) -> None:
+        """Lazy init calls recover_startup() on the created controller."""
+        controller = FakeDialogueController()
+        server = McpServer(
+            control_plane=FakeControlPlane(),
+            dialogue_factory=lambda: controller,
+        )
+        server.handle_request(self._init_request())
+        server.handle_request(self._dialogue_start_request())
+        assert controller.startup_called is True
+
+    def test_factory_pinned_after_first_call(self) -> None:
+        """Second dialogue call reuses the cached controller, does not call factory."""
+        call_count = 0
+
+        def factory() -> FakeDialogueController:
+            nonlocal call_count
+            call_count += 1
+            return FakeDialogueController()
+
+        server = McpServer(
+            control_plane=FakeControlPlane(),
+            dialogue_factory=factory,
+        )
+        server.handle_request(self._init_request())
+        server.handle_request(self._dialogue_start_request(1))
+        server.handle_request(self._dialogue_start_request(2))
+        assert call_count == 1
+
+    def test_transient_recovery_failure_allows_retry(self) -> None:
+        """If recover_startup() fails, factory is retained and next call retries."""
+        call_count = 0
+
+        class TransientFailController:
+            def __init__(self) -> None:
+                self.startup_called = False
+
+            def recover_startup(self) -> None:
+                nonlocal call_count
+                if call_count == 1:
+                    raise RuntimeError("transient journal replay failure")
+                self.startup_called = True
+
+            def start(self, repo_root: Path) -> object:
+                from server.models import DialogueStartResult
+                return DialogueStartResult(
+                    collaboration_id="c1",
+                    runtime_id="r1",
+                    status="active",
+                    created_at="2026-03-28T00:00:00Z",
+                )
+
+        def factory() -> TransientFailController:
+            nonlocal call_count
+            call_count += 1
+            return TransientFailController()
+
+        server = McpServer(
+            control_plane=FakeControlPlane(),
+            dialogue_factory=factory,
+        )
+        server.handle_request(self._init_request())
+
+        # First call: factory builds controller, recovery fails, returns error
+        resp1 = server.handle_request(self._dialogue_start_request(1))
+        assert resp1["result"]["isError"] is True
+        assert call_count == 1
+
+        # Second call: factory invoked again, recovery succeeds, request completes
+        resp2 = server.handle_request(self._dialogue_start_request(2))
+        assert "isError" not in resp2["result"]
+        assert call_count == 2
+        result_data = json.loads(resp2["result"]["content"][0]["text"])
+        assert result_data["collaboration_id"] == "c1"
+
+    def test_no_controller_no_factory_returns_error(self) -> None:
+        """Dialogue tool call without controller or factory returns MCP error."""
+        server = McpServer(control_plane=FakeControlPlane())
+        server.handle_request(self._init_request())
+        response = server.handle_request(self._dialogue_start_request())
+        assert response["result"]["isError"] is True
+        assert "no dialogue controller" in response["result"]["content"][0]["text"].lower()
+
+    def test_status_works_without_dialogue(self) -> None:
+        """codex.status works when no dialogue controller is configured."""
+        server = McpServer(control_plane=FakeControlPlane())
+        server.handle_request(self._init_request())
+        response = server.handle_request({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "codex.status",
+                "arguments": {"repo_root": "/tmp/test-repo"},
+            },
+        })
+        assert "result" in response
+        assert "isError" not in response["result"]
+        result_data = json.loads(response["result"]["content"][0]["text"])
+        assert result_data["status"] == "ok"
+
+    def test_consult_works_without_dialogue(self) -> None:
+        """codex.consult works when no dialogue controller is configured."""
+        server = McpServer(control_plane=FakeControlPlane())
+        server.handle_request(self._init_request())
+        response = server.handle_request({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "codex.consult",
+                "arguments": {
+                    "repo_root": "/tmp/test-repo",
+                    "objective": "test question",
+                },
+            },
+        })
+        assert "result" in response
+        assert "isError" not in response["result"]
+        result_data = json.loads(response["result"]["content"][0]["text"])
+        assert result_data["collaboration_id"] == "c1"
+
 
 class TestCommittedTurnParseErrorSurfacing:
     def test_mcp_surfaces_committed_turn_parse_guidance(self) -> None:

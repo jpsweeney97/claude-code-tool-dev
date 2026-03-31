@@ -101,6 +101,33 @@ the successor plugin.
   consultation dispatch
 - Run the package test slice that covers plugin bootstrap and skill wiring
 
+## Carry-Forward Limitations
+
+### Concurrent packaged sessions unsupported
+
+The plugin publishes session identity via a `SessionStart` hook that writes
+`session_id` to `${CLAUDE_PLUGIN_DATA}/session_id`. Two simultaneous Claude
+sessions sharing this plugin would race to write that file. The MCP server
+reads it once (pinned on first dialogue tool call), so the loser gets the
+winner's session identity and writes to the wrong lineage/journal partition.
+
+**Blast radius:** Dialogue-only. `codex.status` and `codex.consult` are
+unaffected (they do not use session-scoped stores).
+
+**Accepted for:** Dev-repo internal use (single-session rollout target).
+
+**Invalidation trigger:** Claude Code exposing a per-session data directory
+or session identity env var to MCP server subprocesses would eliminate this
+limitation at the platform level.
+
+### SessionStart hook ordering assumption
+
+Dialogue initialization assumes the `SessionStart` hook has published
+`session_id` before the first `codex.dialogue.*` tool call. If a dialogue
+tool is called before the hook fires, it returns an explicit error. This is
+expected to be a non-issue in practice because user interaction (which
+triggers tool calls) happens after session startup completes.
+
 ## Dependencies
 
 This ticket must land before `T-20260330-03`, which hardens the shared

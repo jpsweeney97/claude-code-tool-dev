@@ -10,7 +10,7 @@ import json
 import sys
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
@@ -82,19 +82,48 @@ class McpServer:
         self,
         *,
         control_plane: Any,
-        dialogue_controller: Any,
+        dialogue_controller: Any | None = None,
+        dialogue_factory: Callable[[], Any] | None = None,
     ) -> None:
         self._control_plane = control_plane
         self._dialogue_controller = dialogue_controller
+        self._dialogue_factory = dialogue_factory
         self._initialized = False
         self._recovery_completed = False
 
     def startup(self) -> None:
-        """One-shot startup recovery. Idempotent — second call is a no-op."""
+        """One-shot startup recovery. Idempotent — second call is a no-op.
+
+        If dialogue_controller was provided directly, runs recovery immediately.
+        If dialogue is deferred via dialogue_factory, recovery runs on first
+        dialogue tool call instead (via _ensure_dialogue_controller).
+        """
         if self._recovery_completed:
             return
-        self._dialogue_controller.recover_startup()
+        if self._dialogue_controller is not None:
+            self._dialogue_controller.recover_startup()
         self._recovery_completed = True
+
+    def _ensure_dialogue_controller(self) -> Any:
+        """Return the dialogue controller, lazily initializing from factory if needed.
+
+        One-way pin: the factory is called at most once. The resulting controller
+        is cached for the process lifetime. The factory reference is cleared after
+        use to prevent re-initialization.
+        """
+        if self._dialogue_controller is not None:
+            return self._dialogue_controller
+        if self._dialogue_factory is None:
+            raise RuntimeError(
+                "Dialogue dispatch failed: no dialogue controller available. "
+                "Session identity may not have been published yet."
+            )
+        controller = self._dialogue_factory()
+        controller.recover_startup()
+        # Pin only after recovery succeeds — transient failures allow retry
+        self._dialogue_controller = controller
+        self._dialogue_factory = None
+        return self._dialogue_controller
 
     def handle_request(self, request: dict[str, Any]) -> dict[str, Any]:
         """Process a single JSON-RPC 2.0 request and return the response."""
@@ -201,10 +230,12 @@ class McpServer:
             result = self._control_plane.codex_consult(request)
             return asdict(result)
         if name == "codex.dialogue.start":
-            result = self._dialogue_controller.start(Path(arguments["repo_root"]))
+            controller = self._ensure_dialogue_controller()
+            result = controller.start(Path(arguments["repo_root"]))
             return asdict(result)
         if name == "codex.dialogue.reply":
-            result = self._dialogue_controller.reply(
+            controller = self._ensure_dialogue_controller()
+            result = controller.reply(
                 collaboration_id=arguments["collaboration_id"],
                 objective=arguments["objective"],
                 explicit_paths=tuple(
@@ -213,7 +244,8 @@ class McpServer:
             )
             return asdict(result)
         if name == "codex.dialogue.read":
-            result = self._dialogue_controller.read(arguments["collaboration_id"])
+            controller = self._ensure_dialogue_controller()
+            result = controller.read(arguments["collaboration_id"])
             return asdict(result)
         raise ValueError(f"Unknown tool: {name!r:.100}")
 

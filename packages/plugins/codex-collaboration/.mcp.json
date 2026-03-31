@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "codex-collaboration": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory", "${CLAUDE_PLUGIN_ROOT}",
+        "python",
+        "${CLAUDE_PLUGIN_ROOT}/scripts/codex_runtime_bootstrap.py"
+      ],
+      "env": {
+        "CODEX_SANDBOX": "seatbelt"
+      }
+    }
+  }
+}

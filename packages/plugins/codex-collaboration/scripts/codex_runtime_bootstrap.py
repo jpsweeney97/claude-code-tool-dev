@@ -1,0 +1,106 @@
+#!/usr/bin/env python3
+"""Bootstrap entry point for the codex-collaboration MCP server.
+
+Wires the object graph and starts the stdio JSON-RPC loop. Dialogue
+initialization is deferred until the first codex.dialogue.* tool call,
+at which point the published session identity is read and pinned.
+
+Launch pattern (from .mcp.json):
+  uv run --directory ${CLAUDE_PLUGIN_ROOT} python \
+      ${CLAUDE_PLUGIN_ROOT}/scripts/codex_runtime_bootstrap.py
+
+See delivery.md §Plugin Component Structure for the normative location.
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+from typing import Callable
+
+# Ensure the package root is importable when launched via `python scripts/...`
+_package_root = Path(__file__).resolve().parent.parent
+if str(_package_root) not in sys.path:
+    sys.path.insert(0, str(_package_root))
+
+from server.control_plane import ControlPlane
+from server.dialogue import DialogueController
+from server.journal import OperationJournal, default_plugin_data_path
+from server.lineage_store import LineageStore
+from server.mcp_server import McpServer
+from server.turn_store import TurnStore
+
+
+def _read_session_id(plugin_data_path: Path) -> str:
+    """Read the published session identity from the SessionStart hook.
+
+    Returns the session_id string. Raises RuntimeError if the identity
+    file is missing — this means the SessionStart hook has not yet fired
+    or CLAUDE_PLUGIN_DATA is misconfigured.
+    """
+    identity_path = plugin_data_path / "session_id"
+    if not identity_path.exists():
+        raise RuntimeError(
+            "Dialogue init failed: session identity not yet available. "
+            "The SessionStart hook may not have fired, or "
+            f"CLAUDE_PLUGIN_DATA is misconfigured. Got: {identity_path}"
+        )
+    session_id = identity_path.read_text(encoding="utf-8").strip()
+    if not session_id:
+        raise RuntimeError(
+            "Dialogue init failed: session identity file is empty. "
+            f"Got: {identity_path}"
+        )
+    return session_id
+
+
+def _build_dialogue_factory(
+    *,
+    plugin_data_path: Path,
+    control_plane: ControlPlane,
+    journal: OperationJournal,
+) -> Callable[[], DialogueController]:
+    """Return a zero-arg factory that builds a DialogueController on first call.
+
+    The factory reads the published session_id, constructs session-scoped
+    stores, and returns a fully initialized DialogueController. The
+    McpServer calls this at most once and pins the result.
+    """
+
+    def factory() -> DialogueController:
+        session_id = _read_session_id(plugin_data_path)
+        lineage_store = LineageStore(plugin_data_path, session_id)
+        turn_store = TurnStore(plugin_data_path, session_id)
+        return DialogueController(
+            control_plane=control_plane,
+            lineage_store=lineage_store,
+            journal=journal,
+            session_id=session_id,
+            turn_store=turn_store,
+        )
+
+    return factory
+
+
+def main() -> None:
+    plugin_data_path = default_plugin_data_path()
+    journal = OperationJournal(plugin_data_path)
+
+    control_plane = ControlPlane(
+        plugin_data_path=plugin_data_path,
+        journal=journal,
+    )
+
+    server = McpServer(
+        control_plane=control_plane,
+        dialogue_factory=_build_dialogue_factory(
+            plugin_data_path=plugin_data_path,
+            control_plane=control_plane,
+            journal=journal,
+        ),
+    )
+    server.run()
+
+
+if __name__ == "__main__":
+    main()
