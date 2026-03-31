@@ -112,22 +112,24 @@ class AppServerRuntimeSession:
         thread_id: str,
         prompt_text: str,
         output_schema: dict[str, Any],
+        effort: str | None = None,
     ) -> TurnExecutionResult:
         """Start a turn and collect notifications until completion."""
 
-        result = self._client.request(
-            "turn/start",
-            {
-                "threadId": thread_id,
-                "input": [{"type": "text", "text": prompt_text}],
-                "cwd": str(self._repo_root),
-                "approvalPolicy": "never",
-                "sandboxPolicy": {"type": "readOnly"},
-                "summary": "concise",
-                "personality": "pragmatic",
-                "outputSchema": output_schema,
-            },
-        )
+        params: dict[str, Any] = {
+            "threadId": thread_id,
+            "input": [{"type": "text", "text": prompt_text}],
+            "cwd": str(self._repo_root),
+            "approvalPolicy": "never",
+            "sandboxPolicy": {"type": "readOnly"},
+            "summary": "concise",
+            "personality": "pragmatic",
+            "outputSchema": output_schema,
+        }
+        if effort is not None:
+            params["effort"] = effort
+
+        result = self._client.request("turn/start", params)
         turn = result.get("turn")
         if not isinstance(turn, dict) or not isinstance(turn.get("id"), str):
             raise RuntimeError(

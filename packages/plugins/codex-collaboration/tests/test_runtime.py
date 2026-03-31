@@ -103,3 +103,59 @@ def test_resume_thread_raises_on_malformed_response() -> None:
     session._client = client
     with pytest.raises(RuntimeError, match="Thread resume failed"):
         session.resume_thread("thr-1")
+
+
+class _StubClientForTurnStart:
+    """Stub that captures turn/start parameters."""
+
+    def __init__(self) -> None:
+        self.last_method: str | None = None
+        self.last_params: dict | None = None
+
+    def start(self) -> None:
+        pass
+
+    def request(self, method: str, params: dict[str, object]) -> dict[str, object]:
+        self.last_method = method
+        self.last_params = dict(params)
+        return {"turn": {"id": "turn-1"}}
+
+    def next_notification(self, timeout: float = 60.0) -> dict:
+        return {
+            "method": "turn/completed",
+            "params": {
+                "turnId": "turn-1",
+                "turn": {"id": "turn-1", "status": "completed"},
+                "agentMessage": "done",
+            },
+        }
+
+    def close(self) -> None:
+        pass
+
+
+class TestRunTurnEffort:
+    def test_effort_included_when_provided(self, tmp_path: Path) -> None:
+        session = AppServerRuntimeSession(repo_root=tmp_path)
+        stub = _StubClientForTurnStart()
+        session._client = stub  # type: ignore[assignment]
+        session.run_turn(
+            thread_id="thr-1",
+            prompt_text="test",
+            output_schema={},
+            effort="high",
+        )
+        assert stub.last_params is not None
+        assert stub.last_params["effort"] == "high"
+
+    def test_effort_absent_when_none(self, tmp_path: Path) -> None:
+        session = AppServerRuntimeSession(repo_root=tmp_path)
+        stub = _StubClientForTurnStart()
+        session._client = stub  # type: ignore[assignment]
+        session.run_turn(
+            thread_id="thr-1",
+            prompt_text="test",
+            output_schema={},
+        )
+        assert stub.last_params is not None
+        assert "effort" not in stub.last_params
