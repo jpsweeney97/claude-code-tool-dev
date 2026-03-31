@@ -7,6 +7,7 @@ LineageStore (handle persistence), and OperationJournal (crash-recovery entries)
 from __future__ import annotations
 
 import json
+import sys
 import uuid
 from pathlib import Path
 from typing import Callable
@@ -37,6 +38,13 @@ class CommittedTurnParseError(RuntimeError):
     emitted). Use ``codex.dialogue.read`` to inspect the committed turn.
     Blind retry will create a duplicate follow-up turn, not replay this one.
     """
+
+
+def _log_recovery_failure(operation: str, reason: Exception, got: object) -> None:
+    print(
+        f"codex-collaboration: {operation} failed: {reason}. Got: {got!r:.100}",
+        file=sys.stderr,
+    )
 
 
 class DialogueController:
@@ -403,7 +411,12 @@ class DialogueController:
                     self._lineage_store.update_status(
                         handle.collaboration_id, "active"
                     )
-            except Exception:
+            except Exception as exc:
+                _log_recovery_failure(
+                    "recover_startup",
+                    exc,
+                    handle.collaboration_id,
+                )
                 self._lineage_store.update_status(
                     handle.collaboration_id, "unknown"
                 )
@@ -532,7 +545,12 @@ class DialogueController:
                 entry.turn_sequence is not None
                 and completed_count >= entry.turn_sequence
             )
-        except Exception:
+        except Exception as exc:
+            _log_recovery_failure(
+                "recover_turn_dispatch",
+                exc,
+                entry.idempotency_key,
+            )
             completed_turns = []
             turn_confirmed = False
 
@@ -627,7 +645,12 @@ class DialogueController:
                 intent_entry.turn_sequence is not None
                 and completed_count >= intent_entry.turn_sequence
             )
-        except Exception:
+        except Exception as exc:
+            _log_recovery_failure(
+                "best_effort_repair_turn",
+                exc,
+                intent_entry.idempotency_key,
+            )
             return
 
         if not turn_confirmed:

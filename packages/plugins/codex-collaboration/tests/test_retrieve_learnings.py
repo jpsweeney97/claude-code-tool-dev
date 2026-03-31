@@ -95,9 +95,15 @@ class TestRetrieveLearnings:
         result = retrieve_learnings("anything", repo_root=tmp_path)
         assert result == ""
 
+    def test_invalid_utf8_returns_empty(self, tmp_path: Path) -> None:
+        learnings_dir = tmp_path / "docs" / "learnings"
+        learnings_dir.mkdir(parents=True)
+        (learnings_dir / "learnings.md").write_bytes(b"\xff\xfe\xfd")
+        result = retrieve_learnings("anything", repo_root=tmp_path)
+        assert result == ""
+
     def test_cwd_does_not_affect_resolution(self, tmp_path: Path, monkeypatch) -> None:
         """Prove that cwd is irrelevant — only repo_root matters."""
-        import os
         learnings_dir = tmp_path / "docs" / "learnings"
         learnings_dir.mkdir(parents=True)
         (learnings_dir / "learnings.md").write_text(

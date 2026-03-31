@@ -121,16 +121,14 @@ def retrieve_learnings(
     repo_root is required — plugin cwd is CLAUDE_PLUGIN_ROOT, not the
     user's repository. Callers must pass the resolved repo root.
     """
-    path = repo_root / "docs" / "learnings" / "learnings.md"
-
     try:
-        text = path.read_text()
-    except (OSError, IOError):
-        return ""
+        path = repo_root / "docs" / "learnings" / "learnings.md"
+        text = path.read_text(encoding="utf-8")
+        entries = parse_learnings(text)
+        if not entries:
+            return ""
 
-    entries = parse_learnings(text)
-    if not entries:
+        filtered = filter_by_relevance(entries, query)
+        return format_for_briefing(filtered, max_entries=max_entries)
+    except Exception:
         return ""
-
-    filtered = filter_by_relevance(entries, query)
-    return format_for_briefing(filtered, max_entries=max_entries)

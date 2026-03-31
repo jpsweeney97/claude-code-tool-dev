@@ -2,14 +2,29 @@
 
 from __future__ import annotations
 
+import importlib.util
+import io
 import json
 import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 SCRIPT = str(
     Path(__file__).resolve().parent.parent / "scripts" / "codex_guard.py"
 )
+
+
+def _load_guard_module():
+    spec = importlib.util.spec_from_file_location(
+        "test_codex_guard_module",
+        SCRIPT,
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _run_hook(tool_name: str, tool_input: dict) -> subprocess.CompletedProcess:
@@ -122,6 +137,14 @@ class TestHookFailsClosed:
         )
         assert proc.returncode == 2
 
+    def test_unknown_plugin_tool_blocks(self) -> None:
+        result = _run_hook(
+            "mcp__plugin_codex-collaboration_codex-collaboration__codex.unknown",
+            {"repo_root": "/tmp"},
+        )
+        assert result.returncode == 2
+        assert "internal error" in result.stderr.lower()
+
     def test_missing_tool_input_blocks(self) -> None:
         """Missing tool_input on a plugin tool must fail closed."""
         proc = subprocess.run(
@@ -134,3 +157,46 @@ class TestHookFailsClosed:
             text=True,
         )
         assert proc.returncode == 2
+
+    def test_internal_error_in_check_tool_input_blocks(
+        self,
+        monkeypatch,
+        capsys,
+    ) -> None:
+        module = _load_guard_module()
+        import server.consultation_safety as consultation_safety
+
+        def _boom(tool_input: object, policy: object) -> object:
+            raise RuntimeError("boom")
+
+        payload = json.dumps({
+            "hook_event_name": "PreToolUse",
+            "tool_name": "mcp__plugin_codex-collaboration_codex-collaboration__codex.consult",
+            "tool_input": {"repo_root": "/tmp", "objective": "clean"},
+            "session_id": "test-session",
+        })
+
+        monkeypatch.setattr(consultation_safety, "check_tool_input", _boom)
+        monkeypatch.setattr(module.sys, "stdin", io.StringIO(payload))
+
+        with pytest.raises(SystemExit) as excinfo:
+            module.run()
+
+        assert excinfo.value.code == 2
+        assert "internal error" in capsys.readouterr().err.lower()
+
+
+class TestHookEntrypoint:
+    def test_keyboard_interrupt_exits_fail_closed(self, monkeypatch, capsys) -> None:
+        module = _load_guard_module()
+
+        def _interrupt() -> int:
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr(module, "main", _interrupt)
+
+        with pytest.raises(SystemExit) as excinfo:
+            module.run()
+
+        assert excinfo.value.code == 2
+        assert "interrupted" in capsys.readouterr().err.lower()

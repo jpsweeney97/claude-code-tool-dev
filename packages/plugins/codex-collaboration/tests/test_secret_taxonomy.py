@@ -50,6 +50,10 @@ class TestStrictTierPatterns:
         family = _family("pem_private_key")
         assert family.pattern.search("-----BEGIN RSA PRIVATE KEY-----")
 
+    def test_pem_private_key_has_redact_pattern(self) -> None:
+        family = _family("pem_private_key")
+        assert family.redact_pattern is not None
+
     def test_jwt_token_matches(self) -> None:
         family = _family("jwt_token")
         assert family.pattern.search(
@@ -94,7 +98,7 @@ class TestPlaceholderBypass:
 
     def test_bypass_disabled_for_strict_tier(self) -> None:
         family = _family("aws_access_key_id")
-        text = f"for example AKIAIOSFODNN7EXAMPLE"
+        text = "for example AKIAIOSFODNN7EXAMPLE"
         assert check_placeholder_bypass(text, family) is False
 
     def test_bypass_checks_window_around_match(self) -> None:

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -50,6 +49,18 @@ class _ContextEntry:
     category: str
     label: str
     content: str
+
+
+def _validate_boundary_map(*, family_name: str, redacted: str, index_map: list[int]) -> None:
+    if len(index_map) != len(redacted) + 1:
+        got = {
+            "family": family_name,
+            "redacted_len": len(redacted),
+            "index_map_len": len(index_map),
+        }
+        raise RuntimeError(
+            f"redaction failed: boundary map length mismatch. Got: {got!r:.100}"
+        )
 
 
 def assemble_context_packet(
@@ -369,10 +380,11 @@ def _redact_text(value: str) -> str:
     100-char window. A placeholder near one match does NOT suppress redaction
     of other matches of the same family elsewhere in the string.
 
-    Bypass decisions are evaluated against the pre-redaction snapshot of the
-    string from the start of each family's pass. This prevents injected
-    [REDACTED:value] markers from prior passes from triggering bypass for
-    unrelated matches in subsequent passes.
+    Bypass decisions are evaluated against the original input using a boundary
+    map that tracks how the progressively substituted buffer lines up with raw
+    offsets. This keeps each match anchored to the user's text even after
+    earlier redactions change buffer length, and prevents injected
+    [REDACTED:value] markers from manufacturing placeholder words.
 
     Templates that use backreferences (e.g. r"\\1[REDACTED:value]\\3") are
     expanded via match.expand() so capture groups resolve correctly inside
@@ -381,33 +393,57 @@ def _redact_text(value: str) -> str:
     from .secret_taxonomy import FAMILIES, PLACEHOLDER_BYPASS_WINDOW
 
     redacted = value
+    index_map = list(range(len(value) + 1))
+    _validate_boundary_map(
+        family_name="initial",
+        redacted=redacted,
+        index_map=index_map,
+    )
+
     for family in FAMILIES:
         if not family.redact_enabled:
             continue
-        if family.tier == "contextual" and family.placeholder_bypass:
-            # Per-match bypass: each match is independently checked against
-            # its local window using the ORIGINAL value as context source.
-            # Using the original prevents [REDACTED:value] markers injected by
-            # prior passes from triggering the "[redact" bypass word and
-            # suppressing unrelated matches in subsequent family passes.
-            bypass_words = tuple(w.lower() for w in family.placeholder_bypass)
 
-            def _replace(
-                match: re.Match[str],
-                _bw: tuple[str, ...] = bypass_words,
-                _original: str = value,
-            ) -> str:
-                start = max(0, match.start() - PLACEHOLDER_BYPASS_WINDOW)
-                end = min(len(_original), match.end() + PLACEHOLDER_BYPASS_WINDOW)
-                context = _original[start:end].lower()
-                if any(word in context for word in _bw):
-                    return match.group(0)  # Keep original — placeholder context
-                return match.expand(family.redact_template)
+        redact_pattern = family.redact_pattern or family.pattern
+        bypass_words = tuple(word.lower() for word in family.placeholder_bypass)
+        search_pos = 0
 
-            redacted = family.pattern.sub(_replace, redacted)
-        else:
-            # Strict/broad tiers: always redact, no bypass
-            redacted = family.pattern.sub(family.redact_template, redacted)
+        while True:
+            match = redact_pattern.search(redacted, search_pos)
+            if match is None:
+                break
+
+            start = match.start()
+            end = match.end()
+            original_start = index_map[start]
+            original_end = index_map[end]
+            replacement = match.group(0)
+            preserve_boundaries = True
+
+            if family.tier == "contextual" and bypass_words:
+                window_start = max(0, original_start - PLACEHOLDER_BYPASS_WINDOW)
+                window_end = min(len(value), original_end + PLACEHOLDER_BYPASS_WINDOW)
+                context = value[window_start:window_end].lower()
+                if not any(word in context for word in bypass_words):
+                    replacement = match.expand(family.redact_template)
+                    preserve_boundaries = False
+            else:
+                # Strict/broad tiers: always redact, no bypass
+                replacement = match.expand(family.redact_template)
+                preserve_boundaries = False
+
+            redacted = redacted[:start] + replacement + redacted[end:]
+            if preserve_boundaries and replacement == match.group(0):
+                replacement_map = index_map[start:end]
+            else:
+                replacement_map = [original_start] * len(replacement)
+            index_map = index_map[:start] + replacement_map + index_map[end:]
+            _validate_boundary_map(
+                family_name=family.name,
+                redacted=redacted,
+                index_map=index_map,
+            )
+            search_pos = start + len(replacement)
     return redacted
 
 

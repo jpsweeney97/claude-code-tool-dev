@@ -61,7 +61,6 @@ def test_assembly_redacts_secrets_from_files_and_snippets(tmp_path: Path) -> Non
     sk_key = "sk-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN"
     # Bearer token needs 20+ chars for new taxonomy (bearer_auth_header family)
     bearer_token = "Bearer abcdefghijklmnopqrst"
-    # PEM is redact_enabled=False in taxonomy (egress-only). Use JWT instead.
     jwt = (
         "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
         "eyJzdWIiOiIxMjM0NTY3ODkwIn0."
@@ -92,6 +91,32 @@ def test_assembly_redacts_secrets_from_files_and_snippets(tmp_path: Path) -> Non
     assert "hunter2secret" not in packet.payload
     assert jwt not in packet.payload
     assert packet.payload.count("[REDACTED:value]") >= 4
+
+
+def test_assembly_redacts_full_pem_blocks_from_files(tmp_path: Path) -> None:
+    file_path = tmp_path / "id_rsa"
+    pem_block = (
+        "-----BEGIN RSA PRIVATE KEY-----\n"
+        "MIIEowIBAAKCAQEA7A1jV5mQ2a8yL3nQ9vJm2l1nZp8Q4k6Jx7d2Y8v5\n"
+        "-----END RSA PRIVATE KEY-----\n"
+    )
+    file_path.write_text(pem_block, encoding="utf-8")
+    request = ConsultRequest(
+        repo_root=tmp_path,
+        objective="Summarize key handling",
+        explicit_paths=(Path("id_rsa"),),
+    )
+
+    packet = assemble_context_packet(
+        request,
+        _repo_identity(tmp_path),
+        profile="advisory",
+    )
+
+    assert "BEGIN RSA PRIVATE KEY" not in packet.payload
+    assert "END RSA PRIVATE KEY" not in packet.payload
+    assert "MIIEowIBAAKCAQEA7A1jV5mQ2a8yL3nQ9vJm2l1nZp8Q4k6Jx7d2Y8v5" not in packet.payload
+    assert "[REDACTED:value]" in packet.payload
 
 
 def test_assembly_redacts_low_ambiguity_credential_forms(tmp_path: Path) -> None:
@@ -406,6 +431,31 @@ class TestTaxonomyBackedRedaction:
         result = _redact_text(f"token: {jwt}")
         assert jwt not in result
 
+    def test_pem_block_redacted(self) -> None:
+        from server.context_assembly import _redact_text
+        pem_block = (
+            "before\n"
+            "-----BEGIN RSA PRIVATE KEY-----\n"
+            "MIIEowIBAAKCAQEA7A1jV5mQ2a8yL3nQ9vJm2l1nZp8Q4k6Jx7d2Y8v5\n"
+            "-----END RSA PRIVATE KEY-----\n"
+            "after"
+        )
+        result = _redact_text(pem_block)
+        assert "BEGIN RSA PRIVATE KEY" not in result
+        assert "END RSA PRIVATE KEY" not in result
+        assert "MIIEowIBAAKCAQEA7A1jV5mQ2a8yL3nQ9vJm2l1nZp8Q4k6Jx7d2Y8v5" not in result
+        assert result == "before\n[REDACTED:value]\nafter"
+
+    def test_truncated_pem_block_redacted_to_end_of_excerpt(self) -> None:
+        from server.context_assembly import _redact_text
+        pem_excerpt = (
+            "prefix\n"
+            "-----BEGIN OPENSSH PRIVATE KEY-----\n"
+            "b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQ"
+        )
+        result = _redact_text(pem_excerpt)
+        assert result == "prefix\n[REDACTED:value]"
+
     def test_placeholder_context_not_redacted(self) -> None:
         from server.context_assembly import _redact_text
         pat = "ghp_" + "A" * 36
@@ -427,6 +477,15 @@ class TestTaxonomyBackedRedaction:
         # Example token kept, real token redacted
         assert pat in result
         assert real_pat not in result
+
+    def test_strict_redactions_do_not_shift_contextual_bypass_windows(self) -> None:
+        from server.context_assembly import _redact_text
+        long_basic_token = "A" * 200
+        pat = "ghp_" + "B" * 36
+        text = f"example Authorization: Basic {long_basic_token} {pat}"
+        result = _redact_text(text)
+        assert "Authorization: Basic [REDACTED:value]" in result
+        assert pat not in result
 
     def test_clean_text_unchanged(self) -> None:
         from server.context_assembly import _redact_text

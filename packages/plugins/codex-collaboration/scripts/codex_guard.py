@@ -67,5 +67,13 @@ def main() -> int:
     return 0
 
 
+def run() -> None:
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        print("codex-guard: interrupted", file=sys.stderr)
+        sys.exit(2)
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    run()

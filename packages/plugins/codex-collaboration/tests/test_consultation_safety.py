@@ -8,7 +8,6 @@ from server.consultation_safety import (
     CONSULT_POLICY,
     DIALOGUE_REPLY_POLICY,
     DIALOGUE_START_POLICY,
-    SafetyVerdict,
     ToolInputLimitExceeded,
     ToolScanPolicy,
     check_tool_input,
@@ -36,9 +35,9 @@ class TestPolicyRouting:
         )
         assert policy is DIALOGUE_START_POLICY
 
-    def test_unknown_tool_returns_consult_policy(self) -> None:
-        policy = policy_for_tool("mcp__unknown__tool")
-        assert policy is CONSULT_POLICY
+    def test_unknown_tool_raises_key_error(self) -> None:
+        with pytest.raises(KeyError):
+            policy_for_tool("mcp__unknown__tool")
 
 
 class TestExtractStrings:

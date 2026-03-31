@@ -57,7 +57,7 @@ _TOOL_POLICY_MAP: dict[str, ToolScanPolicy] = {
 
 def policy_for_tool(tool_name: str) -> ToolScanPolicy:
     """Return the scan policy for a given MCP tool name."""
-    return _TOOL_POLICY_MAP.get(tool_name, CONSULT_POLICY)
+    return _TOOL_POLICY_MAP[tool_name]
 
 
 def extract_strings(tool_input: object, policy: ToolScanPolicy) -> tuple[list[str], list[str]]:

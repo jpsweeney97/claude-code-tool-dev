@@ -34,6 +34,7 @@ PLACEHOLDER_BYPASS_WORDS = [
     "my-",
     "[redacted",
 ]
+_PEM_KEY_LABEL = r"(?:RSA\s+|EC\s+|DSA\s+|OPENSSH\s+|ENCRYPTED\s+)?PRIVATE\s+KEY"
 
 
 @dataclass(frozen=True)
@@ -47,14 +48,14 @@ class SecretFamily:
     redact_template: str
     redact_enabled: bool
     egress_enabled: bool
+    redact_pattern: re.Pattern[str] | None = None
 
 
 def check_placeholder_bypass(text: str, family: SecretFamily) -> bool:
     """Return True when placeholder/example language appears near a match.
 
     If ``text`` contains one or more family matches, each match is evaluated
-    against a 100-character window. If no match is present, ``text`` is
-    treated as a pre-sliced window.
+    against a 100-character window.
     """
     if not family.placeholder_bypass:
         return False
@@ -85,14 +86,16 @@ FAMILIES: tuple[SecretFamily, ...] = (
     ),
     SecretFamily(
         name="pem_private_key",
-        pattern=re.compile(
-            r"-----BEGIN\s+(?:RSA\s+|EC\s+|DSA\s+|OPENSSH\s+|ENCRYPTED\s+)?PRIVATE\s+KEY-----"
-        ),
+        pattern=re.compile(rf"-----BEGIN\s+{_PEM_KEY_LABEL}-----"),
         tier="strict",
         placeholder_bypass=[],
         redact_template="[REDACTED:value]",
-        redact_enabled=False,
+        redact_enabled=True,
         egress_enabled=True,
+        redact_pattern=re.compile(
+            rf"-----BEGIN\s+(?P<pem_label>{_PEM_KEY_LABEL})-----"
+            rf"(?:[\s\S]*?-----END\s+(?P=pem_label)-----|[\s\S]*\Z)"
+        ),
     ),
     SecretFamily(
         name="jwt_token",
