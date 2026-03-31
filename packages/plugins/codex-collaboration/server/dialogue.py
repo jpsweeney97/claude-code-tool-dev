@@ -7,6 +7,7 @@ LineageStore (handle persistence), and OperationJournal (crash-recovery entries)
 from __future__ import annotations
 
 import json
+import sys
 import uuid
 from pathlib import Path
 from typing import Callable
@@ -39,6 +40,13 @@ class CommittedTurnParseError(RuntimeError):
     """
 
 
+def _log_recovery_failure(operation: str, reason: Exception, got: object) -> None:
+    print(
+        f"codex-collaboration: {operation} failed: {reason}. Got: {got!r:.100}",
+        file=sys.stderr,
+    )
+
+
 class DialogueController:
     """Implements codex.dialogue.start, .reply, .read, and crash recovery."""
 
@@ -61,7 +69,7 @@ class DialogueController:
         self._repo_identity_loader = repo_identity_loader or load_repo_identity
         self._uuid_factory = uuid_factory or (lambda: str(uuid.uuid4()))
 
-    def start(self, repo_root: Path) -> DialogueStartResult:
+    def start(self, repo_root: Path, *, profile_name: str | None = None) -> DialogueStartResult:
         """Create a durable dialogue thread and persist handle.
 
         Spec: contracts.md §Dialogue Start, delivery.md §R2 in-scope.
@@ -70,6 +78,16 @@ class DialogueController:
         """
         resolved_root = repo_root.resolve()
         runtime = self._control_plane.get_advisory_runtime(resolved_root)
+
+        resolved_posture: str | None = None
+        resolved_effort: str | None = None
+        resolved_turn_budget: int | None = None
+        if profile_name is not None:
+            from .profiles import resolve_profile
+            resolved = resolve_profile(profile_name=profile_name)
+            resolved_posture = resolved.posture
+            resolved_effort = resolved.effort
+            resolved_turn_budget = resolved.turn_budget
 
         collaboration_id = self._uuid_factory()
         created_at = self._journal.timestamp()
@@ -118,6 +136,9 @@ class DialogueController:
             repo_root=str(resolved_root),
             created_at=created_at,
             status="active",
+            resolved_posture=resolved_posture,
+            resolved_effort=resolved_effort,
+            resolved_turn_budget=resolved_turn_budget,
         )
         self._lineage_store.create(handle)
 
@@ -185,6 +206,9 @@ class DialogueController:
                 f"Got: status={handle.status!r}, collaboration_id={collaboration_id!r:.100}"
             )
 
+        posture = handle.resolved_posture  # may be None
+        effort = handle.resolved_effort    # may be None
+
         resolved_root = Path(handle.repo_root)
         runtime = self._control_plane.get_advisory_runtime(resolved_root)
         repo_identity = self._repo_identity_loader(resolved_root)
@@ -230,8 +254,9 @@ class DialogueController:
         try:
             turn_result = runtime.session.run_turn(
                 thread_id=handle.codex_thread_id,
-                prompt_text=build_consult_turn_text(packet.payload),
+                prompt_text=build_consult_turn_text(packet.payload, posture=posture),
                 output_schema=CONSULT_OUTPUT_SCHEMA,
+                effort=effort,
             )
         except Exception:
             self._control_plane.invalidate_runtime(resolved_root)
@@ -276,9 +301,9 @@ class DialogueController:
             session_id=self._session_id,
         )
 
-        # Release posture item 4 accepts the minimal audit schema only for the
-        # current consult/dialogue_turn families. Any new first-class audit
-        # action should revisit AuditEvent shape before it is emitted.
+        # INVARIANT: minimal audit schema covers consult/dialogue_turn only.
+        # Any new first-class audit action should revisit AuditEvent shape
+        # before it is emitted.
         self._journal.append_audit_event(
             AuditEvent(
                 event_id=self._uuid_factory(),
@@ -386,7 +411,12 @@ class DialogueController:
                     self._lineage_store.update_status(
                         handle.collaboration_id, "active"
                     )
-            except Exception:
+            except Exception as exc:
+                _log_recovery_failure(
+                    "recover_startup",
+                    exc,
+                    handle.collaboration_id,
+                )
                 self._lineage_store.update_status(
                     handle.collaboration_id, "unknown"
                 )
@@ -436,35 +466,40 @@ class DialogueController:
 
         # dispatched: thread was created, codex_thread_id is in the entry.
         # Reattach via thread/read + thread/resume per contracts.md §Crash Recovery (steps 3-4).
+        if entry.codex_thread_id is None:
+            raise RuntimeError(
+                f"Recovery integrity failure: no codex_thread_id in thread_creation entry. "
+                f"Got: idempotency_key={entry.idempotency_key!r:.100}"
+            )
+
         existing = self._lineage_store.get(entry.collaboration_id)
-        if entry.codex_thread_id is not None:
-            resolved_root = Path(entry.repo_root)
-            runtime = self._control_plane.get_advisory_runtime(resolved_root)
+        resolved_root = Path(entry.repo_root)
+        runtime = self._control_plane.get_advisory_runtime(resolved_root)
 
-            # Reattach: read latest state, then resume to bind to live runtime
-            runtime.session.read_thread(entry.codex_thread_id)
-            resumed_thread_id = runtime.session.resume_thread(entry.codex_thread_id)
+        # Reattach: read latest state, then resume to bind to live runtime
+        runtime.session.read_thread(entry.codex_thread_id)
+        resumed_thread_id = runtime.session.resume_thread(entry.codex_thread_id)
 
-            if existing is None:
-                # Crash between thread/start and lineage persist — persist now
-                handle = CollaborationHandle(
-                    collaboration_id=entry.collaboration_id,
-                    capability_class="advisory",
-                    runtime_id=runtime.runtime_id,
-                    codex_thread_id=resumed_thread_id,
-                    claude_session_id=self._session_id,
-                    repo_root=entry.repo_root,
-                    created_at=entry.created_at,
-                    status="active",
-                )
-                self._lineage_store.create(handle)
-            else:
-                # Handle exists but may point at stale runtime/thread identity
-                self._lineage_store.update_runtime(
-                    entry.collaboration_id,
-                    runtime_id=runtime.runtime_id,
-                    codex_thread_id=resumed_thread_id,
-                )
+        if existing is None:
+            # Crash between thread/start and lineage persist — persist now
+            handle = CollaborationHandle(
+                collaboration_id=entry.collaboration_id,
+                capability_class="advisory",
+                runtime_id=runtime.runtime_id,
+                codex_thread_id=resumed_thread_id,
+                claude_session_id=self._session_id,
+                repo_root=entry.repo_root,
+                created_at=entry.created_at,
+                status="active",
+            )
+            self._lineage_store.create(handle)
+        else:
+            # Handle exists but may point at stale runtime/thread identity
+            self._lineage_store.update_runtime(
+                entry.collaboration_id,
+                runtime_id=runtime.runtime_id,
+                codex_thread_id=resumed_thread_id,
+            )
 
         self._journal.write_phase(
             OperationJournalEntry(
@@ -515,7 +550,12 @@ class DialogueController:
                 entry.turn_sequence is not None
                 and completed_count >= entry.turn_sequence
             )
-        except Exception:
+        except Exception as exc:
+            _log_recovery_failure(
+                "recover_turn_dispatch",
+                exc,
+                entry.idempotency_key,
+            )
             completed_turns = []
             turn_confirmed = False
 
@@ -610,7 +650,12 @@ class DialogueController:
                 intent_entry.turn_sequence is not None
                 and completed_count >= intent_entry.turn_sequence
             )
-        except Exception:
+        except Exception as exc:
+            _log_recovery_failure(
+                "best_effort_repair_turn",
+                exc,
+                intent_entry.idempotency_key,
+            )
             return
 
         if not turn_confirmed:

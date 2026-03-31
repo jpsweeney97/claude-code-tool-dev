@@ -33,6 +33,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                 "repo_root": {"type": "string"},
                 "objective": {"type": "string"},
                 "explicit_paths": {"type": "array", "items": {"type": "string"}},
+                "profile": {"type": "string", "description": "Named consultation profile (e.g., quick-check, deep-review)"},
             },
             "required": ["repo_root", "objective"],
         },
@@ -44,6 +45,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "repo_root": {"type": "string", "description": "Repository root path"},
+                "profile": {"type": "string", "description": "Named consultation profile — resolved once at start, persisted for all subsequent replies"},
             },
             "required": ["repo_root"],
         },
@@ -212,9 +214,9 @@ class McpServer:
     def _dispatch_tool(self, name: str, arguments: dict[str, Any]) -> Any:
         """Route a tool call to the appropriate handler. Serialization is
         guaranteed by the synchronous single-threaded main loop."""
-        # Release posture item 3 is accepted only while this remains the sole
-        # dispatch chokepoint and tool calls stay serialized. Any concurrent
-        # dispatch model must revisit advisory locking and turn sequencing.
+        # INVARIANT: safe only while this is the sole serialized dispatch
+        # chokepoint. Any concurrent dispatch model must revisit advisory
+        # locking and turn sequencing.
         if name == "codex.status":
             return self._control_plane.codex_status(Path(arguments["repo_root"]))
         if name == "codex.consult":
@@ -226,12 +228,13 @@ class McpServer:
                 explicit_paths=tuple(
                     Path(p) for p in arguments.get("explicit_paths", ())
                 ),
+                profile=arguments.get("profile"),
             )
             result = self._control_plane.codex_consult(request)
             return asdict(result)
         if name == "codex.dialogue.start":
             controller = self._ensure_dialogue_controller()
-            result = controller.start(Path(arguments["repo_root"]))
+            result = controller.start(Path(arguments["repo_root"]), profile_name=arguments.get("profile"))
             return asdict(result)
         if name == "codex.dialogue.reply":
             controller = self._ensure_dialogue_controller()

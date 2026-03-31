@@ -46,6 +46,7 @@ class ConsultRequest:
     external_research_material: tuple[str, ...] = ()
     parent_thread_id: str | None = None
     network_access: bool = False
+    profile: str | None = None
 
 
 @dataclass(frozen=True)
@@ -171,6 +172,9 @@ class CollaborationHandle:
     status: HandleStatus
     parent_collaboration_id: str | None = None
     fork_reason: str | None = None
+    resolved_posture: str | None = None
+    resolved_effort: str | None = None
+    resolved_turn_budget: int | None = None
 
 
 @dataclass(frozen=True)

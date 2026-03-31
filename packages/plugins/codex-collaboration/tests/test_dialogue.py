@@ -7,11 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from server.control_plane import ControlPlane, load_repo_identity
+from server.control_plane import ControlPlane
 from server.dialogue import CommittedTurnParseError, DialogueController
 from server.journal import OperationJournal
 from server.lineage_store import LineageStore
-from server.models import RepoIdentity
+from server.models import DialogueReadResult, DialogueReplyResult, OperationJournalEntry
 from server.turn_store import TurnStore
 
 # Import FakeRuntimeSession and helpers from the control plane tests.
@@ -74,7 +74,7 @@ class TestDialogueStart:
 
     def test_start_journals_before_dispatch(self, tmp_path: Path) -> None:
         controller, _, _, journal, _ = _build_dialogue_stack(tmp_path)
-        result = controller.start(tmp_path)
+        controller.start(tmp_path)
         # After successful completion, all phases written (intent → dispatched → completed)
         unresolved = journal.list_unresolved(session_id="sess-1")
         assert len(unresolved) == 0
@@ -100,9 +100,6 @@ class TestDialogueStart:
         controller, _, _, _, _ = _build_dialogue_stack(tmp_path, session=session)
         with pytest.raises(RuntimeError):
             controller.start(tmp_path)
-
-
-from server.models import ConsultRequest, DialogueReplyResult, OperationJournalEntry
 
 
 class TestDialogueReply:
@@ -274,6 +271,28 @@ class TestDialogueReply:
 
 
 class TestRecoverPendingOperations:
+    def test_recover_startup_logs_diagnostic_when_reattach_fails(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+        capsys,
+    ) -> None:
+        session = FakeRuntimeSession()
+        controller, _, store, _, _ = _build_dialogue_stack(tmp_path, session=session)
+        start = controller.start(tmp_path)
+
+        def _raise_read_thread(thread_id: str) -> dict:
+            raise RuntimeError("read boom")
+
+        monkeypatch.setattr(session, "read_thread", _raise_read_thread)
+
+        controller.recover_startup()
+
+        handle = store.get(start.collaboration_id)
+        assert handle is not None
+        assert handle.status == "unknown"
+        assert "recover_startup failed: read boom" in capsys.readouterr().err
+
     def test_recover_thread_creation_at_intent_phase(self, tmp_path: Path) -> None:
         """Crash before thread/start — intent only. Recovery resolves as no-op."""
         controller, _, store, journal, _ = _build_dialogue_stack(tmp_path)
@@ -291,7 +310,7 @@ class TestRecoverPendingOperations:
             session_id="sess-1",
         )
 
-        recovered = controller.recover_pending_operations()
+        controller.recover_pending_operations()
 
         # Intent-only thread_creation resolved as no-op terminal
         unresolved = journal.list_unresolved(session_id="sess-1")
@@ -339,6 +358,32 @@ class TestRecoverPendingOperations:
         assert handle.status == "active"
         unresolved = journal.list_unresolved(session_id="sess-1")
         assert len(unresolved) == 0
+
+    def test_recover_thread_creation_dispatched_phase_requires_thread_id(
+        self, tmp_path: Path
+    ) -> None:
+        """A dispatched thread_creation entry without a thread ID is unrecoverable."""
+        controller, _, store, journal, _ = _build_dialogue_stack(tmp_path)
+
+        journal.write_phase(
+            OperationJournalEntry(
+                idempotency_key="sess-1:orphan-3",
+                operation="thread_creation",
+                phase="dispatched",
+                collaboration_id="orphan-3",
+                created_at="2026-03-28T00:00:00Z",
+                repo_root=str(tmp_path.resolve()),
+            ),
+            session_id="sess-1",
+        )
+
+        with pytest.raises(RuntimeError, match="no codex_thread_id in thread_creation"):
+            controller.recover_pending_operations()
+
+        unresolved = journal.list_unresolved(session_id="sess-1")
+        assert len(unresolved) == 1
+        assert unresolved[0].collaboration_id == "orphan-3"
+        assert store.get("orphan-3") is None
 
     def test_recover_turn_dispatch_at_dispatched_phase_completed(
         self, tmp_path: Path
@@ -418,6 +463,48 @@ class TestRecoverPendingOperations:
         assert handle.status == "unknown"
         unresolved = journal.list_unresolved(session_id="sess-1")
         assert len(unresolved) == 0
+
+    def test_recover_turn_dispatch_logs_diagnostic_when_thread_read_fails(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+        capsys,
+    ) -> None:
+        session = FakeRuntimeSession()
+        controller, _, store, journal, _ = _build_dialogue_stack(
+            tmp_path,
+            session=session,
+        )
+        start = controller.start(tmp_path)
+
+        journal.write_phase(
+            OperationJournalEntry(
+                idempotency_key="rt-sess-1:thr-start:1",
+                operation="turn_dispatch",
+                phase="dispatched",
+                collaboration_id=start.collaboration_id,
+                created_at="2026-03-28T00:01:00Z",
+                repo_root=str(tmp_path.resolve()),
+                codex_thread_id="thr-start",
+                turn_sequence=1,
+                runtime_id="rt-sess-1",
+            ),
+            session_id="sess-1",
+        )
+
+        def _raise_read_thread(thread_id: str) -> dict:
+            raise RuntimeError("thread read boom")
+
+        monkeypatch.setattr(session, "read_thread", _raise_read_thread)
+
+        controller.recover_pending_operations()
+
+        handle = store.get(start.collaboration_id)
+        assert handle is not None
+        assert handle.status == "unknown"
+        unresolved = journal.list_unresolved(session_id="sess-1")
+        assert len(unresolved) == 0
+        assert "recover_turn_dispatch failed: thread read boom" in capsys.readouterr().err
 
     def test_recover_intent_only_turn_dispatch_marks_unknown(self, tmp_path: Path) -> None:
         """Crash before run_turn. Intent-only turn_dispatch: thread/read check
@@ -578,10 +665,6 @@ class TestRecoverPendingOperations:
         assert turn_events[0]["runtime_id"] == "rt-sess-1"
         assert turn_events[0]["turn_id"] == "t1"
         assert turn_events[0]["context_size"] == 4096
-
-
-from server.models import DialogueReadResult, DialogueTurnSummary
-
 
 class TestDialogueRead:
     def test_read_returns_dialogue_state(self, tmp_path: Path) -> None:
@@ -931,8 +1014,12 @@ class TestBestEffortRepairTurn:
         # No TurnStore write
         assert turn_store.get(start.collaboration_id, turn_sequence=1) is None
 
-    def test_swallows_exception_when_inspection_fails(self, tmp_path: Path) -> None:
-        """If get_advisory_runtime or read_thread raises, the repair silently
+    def test_logs_exception_when_inspection_fails(
+        self,
+        tmp_path: Path,
+        capsys,
+    ) -> None:
+        """If get_advisory_runtime or read_thread raises, the repair logs and
         gives up. Journal stays unresolved. No exception escapes."""
         session = FakeRuntimeSession(
             initialize_error=RuntimeError("codex down")
@@ -979,6 +1066,8 @@ class TestBestEffortRepairTurn:
         unresolved = journal.list_unresolved(session_id="sess-1")
         turn_entries = [e for e in unresolved if e.operation == "turn_dispatch"]
         assert len(turn_entries) == 1
+        err = capsys.readouterr().err
+        assert "best_effort_repair_turn failed: Runtime bootstrap failed: initialize failed." in err
 
 
 class TestReplyRunTurnFailure:

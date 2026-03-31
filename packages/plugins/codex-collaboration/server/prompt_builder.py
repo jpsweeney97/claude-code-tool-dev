@@ -37,12 +37,15 @@ CONSULT_OUTPUT_SCHEMA: dict[str, object] = {
 }
 
 
-def build_consult_turn_text(packet_payload: str) -> str:
+def build_consult_turn_text(packet_payload: str, *, posture: str | None = None) -> str:
     """Build the single text input item for `turn/start`."""
+    posture_instruction = ""
+    if posture is not None:
+        posture_instruction = f" Adopt a {posture} posture for this advisory turn."
 
     return (
         "Use the following structured task packet as the only authority for this advisory turn. "
-        "Stay within read-only advisory scope and return valid JSON matching the requested output schema.\n\n"
+        f"Stay within read-only advisory scope and return valid JSON matching the requested output schema.{posture_instruction}\n\n"
         f"{packet_payload}"
     )
 

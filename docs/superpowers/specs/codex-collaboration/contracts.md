@@ -13,6 +13,8 @@ Interface definitions for the codex-collaboration plugin. Defines the MCP tool s
 
 Claude interacts with Codex exclusively through these tools. Raw App Server methods are never exposed.
 
+The official plugin exposes native app-server methods directly to Claude. This spec mediates through a control plane instead, providing structured contracts, typed responses, and audit observability at the boundary.
+
 | Tool | Purpose |
 |---|---|
 | `codex.consult` | One-shot second opinion using the advisory runtime |
@@ -25,6 +27,8 @@ Claude interacts with Codex exclusively through these tools. Raw App Server meth
 | `codex.delegate.decide` | Resolve a pending escalation or approval |
 | `codex.delegate.promote` | Apply accepted delegation results to the primary workspace |
 | `codex.status` | Health, auth, version, and runtime diagnostics |
+
+The official plugin has no separate promotion-gated equivalent. It executes in the shared checkout without a distinct `codex.delegate.promote` step.
 
 Claude-facing skills wrap these tools but do not define the transport.
 
@@ -44,6 +48,9 @@ A logical identifier for a Codex interaction (consultation, dialogue turn, or de
 | `codex_thread_id` | string | Codex-internal thread identifier |
 | `parent_collaboration_id` | string? | Parent handle for forked threads |
 | `fork_reason` | string? | Why this thread was forked |
+| `resolved_posture` | string? | Posture from profile resolved at dialogue start. Null for consultations and crash-recovered handles |
+| `resolved_effort` | string? | Effort level from profile resolved at dialogue start. Null means no effort override |
+| `resolved_turn_budget` | int? | Turn budget from profile resolved at dialogue start. Null means default budget |
 | `claude_session_id` | string | Claude session that owns this handle |
 | `repo_root` | path | Repository root for this collaboration |
 | `created_at` | timestamp | Handle creation time |
@@ -87,6 +94,8 @@ A server-initiated request from Codex that requires resolution.
 ## Lineage Store
 
 The lineage store persists [CollaborationHandle](#collaborationhandle) records for the control plane. It is the plugin's identity and routing layer — all handle-to-runtime mappings, lifecycle state, and parent-child relationships are maintained here independently of raw Codex thread IDs.
+
+The official plugin has no equivalent lineage store. It relies on native thread continuity rather than a plugin-owned identity and routing layer.
 
 ### Persistence Scope
 
@@ -166,6 +175,8 @@ The lineage store does not participate in crash detection or runtime restart —
 | [Audit log](recovery-and-journal.md#audit-log) | Cross-session (30-day TTL) | Best-effort append | Human reconstruction |
 
 The lineage store and operation journal are both session-bounded but serve different purposes. The journal records in-flight operations for replay; the lineage store records handle identity for routing and recovery. They share `${CLAUDE_PLUGIN_DATA}` but use separate subdirectories.
+
+The official plugin has no equivalent operation journal. Crash recovery and idempotent replay are specific to this spec's control-plane design.
 
 ## Audit Event Schema
 

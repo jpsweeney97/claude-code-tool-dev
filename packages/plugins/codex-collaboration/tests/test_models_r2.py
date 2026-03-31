@@ -50,7 +50,10 @@ def test_collaboration_handle_serializes_to_dict() -> None:
     d = asdict(handle)
     assert d["collaboration_id"] == "collab-1"
     assert d["parent_collaboration_id"] is None
-    assert len(d) == 10
+    assert d["resolved_posture"] is None
+    assert d["resolved_effort"] is None
+    assert d["resolved_turn_budget"] is None
+    assert len(d) == 13
 
 
 def test_dialogue_start_result_fields() -> None:

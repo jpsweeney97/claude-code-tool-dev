@@ -38,6 +38,16 @@ that Claude-side scouting is materially worse.
 Analytics are rebuilt on codex-collaboration's audit and event model rather
 than ported from cross-model's JSONL schema.
 
+## Official Plugin as Reference Context, Not Convergence Target
+
+**Decision:** The official OpenAI plugin (`openai/codex-plugin-cc`) is reference context for the Codex integration landscape. This spec maintains independent architectural authority and does not restructure around the official plugin as a baseline shell.
+
+**Rationale:** The spec's control-plane mediation, structured flows, durable lineage, isolated execution, and promotion machinery provide capabilities the official plugin does not. Converging toward the official plugin's shell would require abandoning these capabilities or relegating them to optional extensions, reducing the spec's coherence.
+
+**Tradeoff:** The spec owns a larger implementation and maintenance surface in exchange for architectural independence and the ability to evolve without upstream coupling.
+
+**Upstream pin:** `9cb4fe4`. Re-evaluate if upstream adds lineage, isolation, or promotion equivalents.
+
 ## Accepted Tradeoffs
 
 ### T1: Security Isolation vs. Operational Simplicity
@@ -62,7 +72,7 @@ than ported from cross-model's JSONL schema.
 
 ## Architecture Option Analysis
 
-Four architectures were evaluated. Full analysis is in the [design document](../2026-03-27-codex-collaboration-plugin-design.md).
+Four architectures were evaluated in the original [design document](../2026-03-27-codex-collaboration-plugin-design.md). A fifth option emerged during the official-plugin comparison and is recorded here for governance completeness.
 
 | Option | Shape | Verdict | Key Reason |
 |---|---|---|---|
@@ -70,6 +80,7 @@ Four architectures were evaluated. Full analysis is in the [design document](../
 | B | One long-lived App Server | Rejected | Session-scoped approvals bleed across capability classes |
 | C | Split App Server domains | **Selected** | Thread-native dialogue; isolated execution; explicit lineage |
 | D | Remote broker service | Deferred | Overkill for v1; too much operational surface |
+| E | Thin bridge to official plugin | Rejected | Would split the product into upstream baseline plus local extensions instead of preserving one coherent control-plane architecture |
 
 ## Open Questions
 
@@ -100,3 +111,7 @@ The [audit event model](contracts.md#auditevent) defines the record shape and [r
 **Forward compatibility:** `thread/fork` is already implemented in `runtime.py` for consultation branching. Adding `codex.dialogue.fork` is additive, not architectural.
 
 **Change trigger:** When a use case for branched dialogue is identified. Fork is not blocked — it is deferred for scope reasons, not design reasons.
+
+### `codex.consult` Surface
+
+Whether `codex.consult` should eventually be retired in favor of native review and task patterns plus a lighter structured wrapper remains open. The official plugin's native review thread is the closest comparison point, but the current spec still treats `codex.consult` as the primary structured second-opinion surface.

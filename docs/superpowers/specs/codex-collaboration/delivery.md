@@ -160,6 +160,20 @@ Runtime Milestone `R1` is the first runtime-bearing milestone. It is not identic
 | 6 | `codex.delegate.start` | Execution runtime, worktree manager, isolation, context assembler/profile filter |
 | 7 | `codex.delegate.poll` + `.decide` + `.promote` | [Promotion protocol](promotion-protocol.md), [operation journal](recovery-and-journal.md#operation-journal) |
 
+### Official Plugin Equivalents
+
+| Build step | Official plugin equivalent |
+|---|---|
+| `codex.status` | Version and health checks are present |
+| `codex.consult` | Native review and thread utilities cover the closest baseline flow |
+| Lineage store | No equivalent |
+| Dialogue surface | No equivalent durable dialogue contract |
+| Hook guard | No `PreToolUse` enforcement equivalent |
+| `codex.delegate.start` | Same-checkout task execution exists, but not isolated execution |
+| `codex.delegate.poll` + `.decide` + `.promote` | No promotion-gated equivalent |
+
+Steps with no official-plugin equivalent are the core value proposition of this spec's extension architecture.
+
 ### Runtime Milestone R1
 
 **In scope**

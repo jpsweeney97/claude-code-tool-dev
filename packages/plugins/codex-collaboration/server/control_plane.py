@@ -130,9 +130,9 @@ class ControlPlane:
     def codex_consult(self, request: ConsultRequest) -> ConsultResult:
         """Execute a one-shot advisory consultation."""
 
-        # Release posture item 5 is accepted only while advisory turns stay
-        # read-only and no-network for R1/R2 dev-repo internal use. Any policy
-        # widening here must also revisit fingerprint invalidation semantics.
+        # INVARIANT: safe only while advisory turns stay read-only and
+        # no-network. Any policy widening must revisit fingerprint
+        # invalidation semantics.
         if request.network_access:
             raise RuntimeError(
                 "Consult failed: advisory widening is not implemented in R1. "
@@ -157,6 +157,13 @@ class ControlPlane:
             profile="advisory",
             stale_workspace_summary=stale_summary,
         )
+        posture: str | None = None
+        effort: str | None = None
+        if request.profile is not None:
+            from .profiles import resolve_profile
+            resolved = resolve_profile(profile_name=request.profile)
+            posture = resolved.posture
+            effort = resolved.effort
         try:
             thread_id = (
                 runtime.session.fork_thread(request.parent_thread_id)
@@ -166,8 +173,9 @@ class ControlPlane:
             runtime.thread_count += 1
             turn_result = runtime.session.run_turn(
                 thread_id=thread_id,
-                prompt_text=build_consult_turn_text(packet.payload),
+                prompt_text=build_consult_turn_text(packet.payload, posture=posture),
                 output_schema=CONSULT_OUTPUT_SCHEMA,
+                effort=effort,
             )
             if stale_marker is not None:
                 self._journal.clear_stale_marker(resolved_root)
@@ -178,9 +186,9 @@ class ControlPlane:
             self._invalidate_runtime(resolved_root)
             raise
         collaboration_id = self._uuid_factory()
-        # Release posture item 4 accepts the minimal audit schema only for the
-        # current consult/dialogue_turn families. Any new first-class audit
-        # action should revisit AuditEvent shape before it is emitted.
+        # INVARIANT: minimal audit schema covers consult/dialogue_turn only.
+        # Any new first-class audit action should revisit AuditEvent shape
+        # before it is emitted.
         self._journal.append_audit_event(
             AuditEvent(
                 event_id=self._uuid_factory(),
@@ -261,10 +269,10 @@ class ControlPlane:
         runtime_key = str(repo_root)
         session = existing_runtime.session if existing_runtime is not None else self._runtime_factory(repo_root)
         try:
-            # Release posture item 1 is accepted only while initialize +
-            # account/read remain the complete advisory bootstrap surface.
-            # Adding any new bootstrap-critical method should revisit the
-            # parked bootstrap assertion debt before rollout.
+            # INVARIANT: safe only while initialize + account/read remain
+            # the complete advisory bootstrap surface. Adding any new
+            # bootstrap-critical method should revisit the parked bootstrap
+            # assertion debt before rollout.
             handshake = existing_runtime.handshake if existing_runtime is not None else session.initialize()
         except Exception as exc:  # pragma: no cover - defensive path
             if existing_runtime is not None:

@@ -55,7 +55,7 @@ class FakeDialogueController:
     def recover_startup(self) -> None:
         self.startup_called = True
 
-    def start(self, repo_root: Path) -> object:
+    def start(self, repo_root: Path, *, profile_name: str | None = None) -> object:
         from server.models import DialogueStartResult
         return DialogueStartResult(
             collaboration_id="c1",
@@ -96,7 +96,7 @@ class FakeDialogueControllerWithParseError:
     def recover_startup(self) -> None:
         self.startup_called = True
 
-    def start(self, repo_root: Path) -> object:
+    def start(self, repo_root: Path, *, profile_name: str | None = None) -> object:
         from server.models import DialogueStartResult
         return DialogueStartResult(
             collaboration_id="c1",
@@ -335,7 +335,7 @@ class TestDeferredDialogueInit:
                     raise RuntimeError("transient journal replay failure")
                 self.startup_called = True
 
-            def start(self, repo_root: Path) -> object:
+            def start(self, repo_root: Path, *, profile_name: str | None = None) -> object:
                 from server.models import DialogueStartResult
                 return DialogueStartResult(
                     collaboration_id="c1",

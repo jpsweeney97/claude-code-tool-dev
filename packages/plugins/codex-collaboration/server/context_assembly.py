@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -40,44 +38,6 @@ _TRIM_ORDER = {
 _MAX_FILE_EXCERPT_BYTES = 4096
 _BINARY_SNIFF_BYTES = 8192
 _BINARY_PLACEHOLDER = "[binary or non-UTF-8 file \u2014 content not shown]"
-_REDACTED = "[redacted]"
-
-
-def _replace_prefixed_secret(match: re.Match[str]) -> str:
-    return match.group(1) + _REDACTED
-
-
-def _replace_url_userinfo(match: re.Match[str]) -> str:
-    return match.group(1) + _REDACTED + match.group(3)
-
-
-_SECRET_PATTERNS: tuple[
-    tuple[re.Pattern[str], str | Callable[[re.Match[str]], str]],
-    ...,
-] = (
-    (
-        re.compile(
-            r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----",
-            re.DOTALL,
-        ),
-        _REDACTED,
-    ),
-    (re.compile(r"(://[^@/\s:]+:)([^@/\s]+)(@)"), _replace_url_userinfo),
-    (
-        re.compile(r"(?i)(authorization\s*:\s*basic\s+)[A-Za-z0-9+/]{8,}=*"),
-        _replace_prefixed_secret,
-    ),
-    (re.compile(r"\bAKIA[A-Z0-9]{16}\b"), _REDACTED),
-    (re.compile(r"\b(?:ghp|gho|ghs|ghr)_[A-Za-z0-9]{36,}\b"), _REDACTED),
-    (re.compile(r"sk-[A-Za-z0-9]{12,}"), _REDACTED),
-    (re.compile(r"Bearer\s+[A-Za-z0-9._-]{12,}", re.IGNORECASE), _REDACTED),
-    (
-        re.compile(
-            r"(?i)((?:password|token|secret|api[_-]?key)\s*[:=]\s*)[\"']?([^\s\"']{6,})[\"']?"
-        ),
-        _replace_prefixed_secret,
-    ),
-)
 
 
 class ContextAssemblyError(RuntimeError):
@@ -89,6 +49,18 @@ class _ContextEntry:
     category: str
     label: str
     content: str
+
+
+def _validate_boundary_map(*, family_name: str, redacted: str, index_map: list[int]) -> None:
+    if len(index_map) != len(redacted) + 1:
+        got = {
+            "family": family_name,
+            "redacted_len": len(redacted),
+            "index_map_len": len(index_map),
+        }
+        raise RuntimeError(
+            f"redaction failed: boundary map length mismatch. Got: {got!r:.100}"
+        )
 
 
 def assemble_context_packet(
@@ -175,6 +147,17 @@ def assemble_context_packet(
         "supplementary_context": supplementary_entries,
         "external_research_material": external_entries if profile == "advisory" else [],
     }
+
+    # Inject relevant learnings into supplementary context (fail-soft).
+    # Routed through _build_text_entries so learnings pass through _redact_text()
+    # at construction time — _render_packet() does not redact entry content.
+    from .retrieve_learnings import retrieve_learnings
+    learnings_text = retrieve_learnings(request.objective, repo_root=request.repo_root)
+    if learnings_text:
+        entries["supplementary_context"].extend(
+            _build_text_entries("supplementary_context", (learnings_text,))
+        )
+
     omitted_categories: list[str] = denied_categories.copy()
 
     packet = _render_packet(
@@ -251,7 +234,7 @@ def _render_packet(
         "relevant_repository_context": {
             "repository_identity": {
                 "repo_root": str(repo_identity.repo_root),
-                "branch": repo_identity.branch,
+                "branch": _redact_text(repo_identity.branch),
                 "head": repo_identity.head,
             },
         },
@@ -391,9 +374,76 @@ def _read_file_excerpt(repo_root: Path, path: Path) -> str:
 
 
 def _redact_text(value: str) -> str:
+    """Redact secrets using the shared taxonomy with per-match placeholder bypass.
+
+    Contextual families check each match independently against its local
+    100-char window. A placeholder near one match does NOT suppress redaction
+    of other matches of the same family elsewhere in the string.
+
+    Bypass decisions are evaluated against the original input using a boundary
+    map that tracks how the progressively substituted buffer lines up with raw
+    offsets. This keeps each match anchored to the user's text even after
+    earlier redactions change buffer length, and prevents injected
+    [REDACTED:value] markers from manufacturing placeholder words.
+
+    Templates that use backreferences (e.g. r"\1[REDACTED:value]\3") are
+    expanded via match.expand() so capture groups resolve correctly inside
+    the replacement function.
+    """
+    from .secret_taxonomy import FAMILIES, PLACEHOLDER_BYPASS_WINDOW
+
     redacted = value
-    for pattern, replacement in _SECRET_PATTERNS:
-        redacted = pattern.sub(replacement, redacted)
+    index_map = list(range(len(value) + 1))
+    _validate_boundary_map(
+        family_name="initial",
+        redacted=redacted,
+        index_map=index_map,
+    )
+
+    for family in FAMILIES:
+        if not family.redact_enabled:
+            continue
+
+        redact_pattern = family.redact_pattern or family.pattern
+        bypass_words = tuple(word.lower() for word in family.placeholder_bypass)
+        search_pos = 0
+
+        while True:
+            match = redact_pattern.search(redacted, search_pos)
+            if match is None:
+                break
+
+            start = match.start()
+            end = match.end()
+            original_start = index_map[start]
+            original_end = index_map[end]
+            replacement = match.group(0)
+            preserve_boundaries = True
+
+            if family.tier == "contextual" and bypass_words:
+                window_start = max(0, original_start - PLACEHOLDER_BYPASS_WINDOW)
+                window_end = min(len(value), original_end + PLACEHOLDER_BYPASS_WINDOW)
+                context = value[window_start:window_end].lower()
+                if not any(word in context for word in bypass_words):
+                    replacement = match.expand(family.redact_template)
+                    preserve_boundaries = False
+            else:
+                # Strict/broad tiers: always redact, no bypass
+                replacement = match.expand(family.redact_template)
+                preserve_boundaries = False
+
+            redacted = redacted[:start] + replacement + redacted[end:]
+            if preserve_boundaries and replacement == match.group(0):
+                replacement_map = index_map[start:end]
+            else:
+                replacement_map = [original_start] * len(replacement)
+            index_map = index_map[:start] + replacement_map + index_map[end:]
+            _validate_boundary_map(
+                family_name=family.name,
+                redacted=redacted,
+                index_map=index_map,
+            )
+            search_pos = start + len(replacement)
     return redacted
 
 

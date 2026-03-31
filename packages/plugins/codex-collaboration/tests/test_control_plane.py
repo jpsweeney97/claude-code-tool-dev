@@ -49,6 +49,7 @@ class FakeRuntimeSession:
         self.resumed_threads: list[str] = []
         self.last_prompt_text: str | None = None
         self.last_output_schema: dict[str, object] | None = None
+        self.last_effort: str | None = None
         self.read_account_calls = 0
         self.run_turn_calls = 0
         self.completed_turn_count: int = 0
@@ -92,6 +93,7 @@ class FakeRuntimeSession:
         thread_id: str,
         prompt_text: str,
         output_schema: dict[str, object],
+        effort: str | None = None,
     ) -> TurnExecutionResult:
         if self.run_turn_error is not None:
             raise self.run_turn_error
@@ -99,6 +101,7 @@ class FakeRuntimeSession:
         self.completed_turn_count += 1
         self.last_prompt_text = prompt_text
         self.last_output_schema = output_schema
+        self.last_effort = effort  # Capture for assertion in profile tests
         return TurnExecutionResult(
             turn_id="turn-1",
             agent_message=self.agent_message.replace("thr-start", thread_id),
