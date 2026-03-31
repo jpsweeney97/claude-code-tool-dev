@@ -157,6 +157,13 @@ class ControlPlane:
             profile="advisory",
             stale_workspace_summary=stale_summary,
         )
+        posture: str | None = None
+        effort: str | None = None
+        if request.profile is not None:
+            from .profiles import resolve_profile
+            resolved = resolve_profile(profile_name=request.profile)
+            posture = resolved.posture
+            effort = resolved.effort
         try:
             thread_id = (
                 runtime.session.fork_thread(request.parent_thread_id)
@@ -166,8 +173,9 @@ class ControlPlane:
             runtime.thread_count += 1
             turn_result = runtime.session.run_turn(
                 thread_id=thread_id,
-                prompt_text=build_consult_turn_text(packet.payload),
+                prompt_text=build_consult_turn_text(packet.payload, posture=posture),
                 output_schema=CONSULT_OUTPUT_SCHEMA,
+                effort=effort,
             )
             if stale_marker is not None:
                 self._journal.clear_stale_marker(resolved_root)

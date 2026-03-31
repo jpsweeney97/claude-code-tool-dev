@@ -48,6 +48,9 @@ A logical identifier for a Codex interaction (consultation, dialogue turn, or de
 | `codex_thread_id` | string | Codex-internal thread identifier |
 | `parent_collaboration_id` | string? | Parent handle for forked threads |
 | `fork_reason` | string? | Why this thread was forked |
+| `resolved_posture` | string? | Posture from profile resolved at dialogue start. Null for consultations and crash-recovered handles |
+| `resolved_effort` | string? | Effort level from profile resolved at dialogue start. Null means no effort override |
+| `resolved_turn_budget` | int? | Turn budget from profile resolved at dialogue start. Null means default budget |
 | `claude_session_id` | string | Claude session that owns this handle |
 | `repo_root` | path | Repository root for this collaboration |
 | `created_at` | timestamp | Handle creation time |

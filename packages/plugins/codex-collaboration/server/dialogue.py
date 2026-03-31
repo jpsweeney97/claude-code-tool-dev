@@ -61,7 +61,7 @@ class DialogueController:
         self._repo_identity_loader = repo_identity_loader or load_repo_identity
         self._uuid_factory = uuid_factory or (lambda: str(uuid.uuid4()))
 
-    def start(self, repo_root: Path) -> DialogueStartResult:
+    def start(self, repo_root: Path, *, profile_name: str | None = None) -> DialogueStartResult:
         """Create a durable dialogue thread and persist handle.
 
         Spec: contracts.md §Dialogue Start, delivery.md §R2 in-scope.
@@ -70,6 +70,16 @@ class DialogueController:
         """
         resolved_root = repo_root.resolve()
         runtime = self._control_plane.get_advisory_runtime(resolved_root)
+
+        resolved_posture: str | None = None
+        resolved_effort: str | None = None
+        resolved_turn_budget: int | None = None
+        if profile_name is not None:
+            from .profiles import resolve_profile
+            resolved = resolve_profile(profile_name=profile_name)
+            resolved_posture = resolved.posture
+            resolved_effort = resolved.effort
+            resolved_turn_budget = resolved.turn_budget
 
         collaboration_id = self._uuid_factory()
         created_at = self._journal.timestamp()
@@ -118,6 +128,9 @@ class DialogueController:
             repo_root=str(resolved_root),
             created_at=created_at,
             status="active",
+            resolved_posture=resolved_posture,
+            resolved_effort=resolved_effort,
+            resolved_turn_budget=resolved_turn_budget,
         )
         self._lineage_store.create(handle)
 
@@ -185,6 +198,9 @@ class DialogueController:
                 f"Got: status={handle.status!r}, collaboration_id={collaboration_id!r:.100}"
             )
 
+        posture = handle.resolved_posture  # may be None
+        effort = handle.resolved_effort    # may be None
+
         resolved_root = Path(handle.repo_root)
         runtime = self._control_plane.get_advisory_runtime(resolved_root)
         repo_identity = self._repo_identity_loader(resolved_root)
@@ -230,8 +246,9 @@ class DialogueController:
         try:
             turn_result = runtime.session.run_turn(
                 thread_id=handle.codex_thread_id,
-                prompt_text=build_consult_turn_text(packet.payload),
+                prompt_text=build_consult_turn_text(packet.payload, posture=posture),
                 output_schema=CONSULT_OUTPUT_SCHEMA,
+                effort=effort,
             )
         except Exception:
             self._control_plane.invalidate_runtime(resolved_root)
