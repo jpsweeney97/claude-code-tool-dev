@@ -160,6 +160,44 @@ class TestCorruptionClassification:
         assert labels[2] == "schema_violation"
         assert labels[3] == "trailing_truncation"
 
+    def test_unknown_operation_counts_as_valid_json_for_classification(
+        self, tmp_path: Path
+    ) -> None:
+        """Callback UnknownOperation still counts as successful JSON parse
+        for trailing-truncation classification."""
+        path = tmp_path / "unknownclass.jsonl"
+        _write_lines(
+            path,
+            [
+                "corrupt",  # line 1 — mid-file
+                json.dumps(
+                    {"op": "bogus"}
+                ),  # line 2 — callback raises UnknownOperation
+                "corrupt2",  # line 3 — trailing
+            ],
+        )
+
+        def unknown(record: dict[str, Any]) -> dict[str, Any]:
+            raise UnknownOperation(record.get("op"))
+
+        _, diags = replay_jsonl(path, unknown)
+        labels = {d.line_number: d.label for d in diags.diagnostics}
+        assert labels[1] == "mid_file_corruption"
+        assert labels[2] == "unknown_operation"
+        assert labels[3] == "trailing_truncation"
+
+    def test_partial_final_line_without_newline(self, tmp_path: Path) -> None:
+        """A crash-truncated final line (no trailing newline) is classified
+        as trailing truncation, not mid-file corruption."""
+        path = tmp_path / "partial.jsonl"
+        # Write a valid line followed by a partial line with no newline
+        path.write_text(json.dumps({"a": 1}) + "\n" + '{"truncat')
+        results, diags = replay_jsonl(path, _identity)
+        assert len(results) == 1
+        assert len(diags.diagnostics) == 1
+        assert diags.diagnostics[0].label == "trailing_truncation"
+        assert diags.diagnostics[0].line_number == 2
+
 
 class TestExceptionHandling:
     def test_schema_violation_from_callback(self, tmp_path: Path) -> None:
