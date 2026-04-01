@@ -158,6 +158,26 @@ class AuditEvent:
 
 
 @dataclass(frozen=True)
+class OutcomeRecord:
+    """Analytics outcome record for consult and dialogue success paths.
+
+    Separate from AuditEvent (trust-boundary record). Persisted to
+    analytics/outcomes.jsonl via OperationJournal.append_outcome().
+    """
+
+    outcome_id: str
+    timestamp: str
+    outcome_type: Literal["consult", "dialogue_turn"]
+    collaboration_id: str
+    runtime_id: str
+    context_size: int | None
+    turn_id: str
+    turn_sequence: int | None = None
+    policy_fingerprint: str | None = None
+    repo_root: str | None = None
+
+
+@dataclass(frozen=True)
 class CollaborationHandle:
     """Lineage-persisted handle for dialogue or delegation.
 
