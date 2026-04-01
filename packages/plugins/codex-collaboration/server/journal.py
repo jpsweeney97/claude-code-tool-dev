@@ -10,7 +10,12 @@ from pathlib import Path
 
 from typing import Any
 
-from .models import AuditEvent, OperationJournalEntry, OutcomeRecord, StaleAdvisoryContextMarker
+from .models import (
+    AuditEvent,
+    OperationJournalEntry,
+    OutcomeRecord,
+    StaleAdvisoryContextMarker,
+)
 from .replay import ReplayDiagnostics, SchemaViolation, replay_jsonl
 
 

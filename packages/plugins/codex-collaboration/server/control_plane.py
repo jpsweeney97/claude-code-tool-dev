@@ -56,8 +56,12 @@ class ControlPlane:
         uuid_factory: Callable[[], str] | None = None,
         journal: OperationJournal | None = None,
     ) -> None:
-        self._plugin_data_path = (plugin_data_path or default_plugin_data_path()).resolve()
-        self._runtime_factory = runtime_factory or (lambda repo_root: AppServerRuntimeSession(repo_root=repo_root))
+        self._plugin_data_path = (
+            plugin_data_path or default_plugin_data_path()
+        ).resolve()
+        self._runtime_factory = runtime_factory or (
+            lambda repo_root: AppServerRuntimeSession(repo_root=repo_root)
+        )
         self._compat_checker = compat_checker
         self._repo_identity_loader = repo_identity_loader or load_repo_identity
         self._clock = clock
@@ -77,8 +81,12 @@ class ControlPlane:
         errors: list[str] = []
         compat_result = self._compat_checker()
         codex_version = getattr(compat_result, "codex_version", None)
-        app_server_version = runtime.handshake.user_agent if runtime is not None else None
-        auth_status = runtime.account_state.auth_status if runtime is not None else "missing"
+        app_server_version = (
+            runtime.handshake.user_agent if runtime is not None else None
+        )
+        auth_status = (
+            runtime.account_state.auth_status if runtime is not None else "missing"
+        )
         advisory_runtime = None
         available_methods = getattr(compat_result, "available_methods", frozenset())
 
@@ -162,6 +170,7 @@ class ControlPlane:
         effort: str | None = None
         if request.profile is not None:
             from .profiles import resolve_profile
+
             resolved = resolve_profile(profile_name=request.profile)
             posture = resolved.posture
             effort = resolved.effort
@@ -180,8 +189,8 @@ class ControlPlane:
             )
             if stale_marker is not None:
                 self._journal.clear_stale_marker(resolved_root)
-            position, evidence, uncertainties, follow_up_branches = parse_consult_response(
-                turn_result.agent_message
+            position, evidence, uncertainties, follow_up_branches = (
+                parse_consult_response(turn_result.agent_message)
             )
         except Exception:
             self._invalidate_runtime(resolved_root)
@@ -249,7 +258,9 @@ class ControlPlane:
             runtime.session.close()
         self._advisory_runtimes.clear()
 
-    def _bootstrap_runtime(self, repo_root: Path, *, strict: bool) -> AdvisoryRuntimeState | None:
+    def _bootstrap_runtime(
+        self, repo_root: Path, *, strict: bool
+    ) -> AdvisoryRuntimeState | None:
         cached = self._advisory_runtimes.get(str(repo_root))
         compat_result = self._compat_checker()
         probe_result = self._probe_runtime(
@@ -281,13 +292,21 @@ class ControlPlane:
             )
 
         runtime_key = str(repo_root)
-        session = existing_runtime.session if existing_runtime is not None else self._runtime_factory(repo_root)
+        session = (
+            existing_runtime.session
+            if existing_runtime is not None
+            else self._runtime_factory(repo_root)
+        )
         try:
             # INVARIANT: safe only while initialize + account/read remain
             # the complete advisory bootstrap surface. Adding any new
             # bootstrap-critical method should revisit the parked bootstrap
             # assertion debt before rollout.
-            handshake = existing_runtime.handshake if existing_runtime is not None else session.initialize()
+            handshake = (
+                existing_runtime.handshake
+                if existing_runtime is not None
+                else session.initialize()
+            )
         except Exception as exc:  # pragma: no cover - defensive path
             if existing_runtime is not None:
                 self._invalidate_runtime(repo_root)
@@ -314,7 +333,9 @@ class ControlPlane:
                 runtime=None,
                 app_server_version=handshake.user_agent,
                 auth_status=None,
-                available_methods=getattr(compat_result, "available_methods", frozenset()),
+                available_methods=getattr(
+                    compat_result, "available_methods", frozenset()
+                ),
                 error=(
                     "Runtime bootstrap failed: account/read failed. "
                     f"Got: {str(exc)!r:.100}"
@@ -330,7 +351,9 @@ class ControlPlane:
                 runtime=None,
                 app_server_version=handshake.user_agent,
                 auth_status=account_state.auth_status,
-                available_methods=getattr(compat_result, "available_methods", frozenset()),
+                available_methods=getattr(
+                    compat_result, "available_methods", frozenset()
+                ),
                 error=(
                     "Runtime bootstrap failed: compatibility checks failed. "
                     f"Got: {getattr(compat_result, 'errors', ())!r:.200}"
@@ -345,7 +368,9 @@ class ControlPlane:
                 runtime=None,
                 app_server_version=handshake.user_agent,
                 auth_status=account_state.auth_status,
-                available_methods=getattr(compat_result, "available_methods", frozenset()),
+                available_methods=getattr(
+                    compat_result, "available_methods", frozenset()
+                ),
                 error=(
                     "Runtime bootstrap failed: advisory auth unavailable. "
                     f"Got: {account_state.auth_status!r:.100}"

@@ -52,6 +52,7 @@ class TestOutcomeRecord:
             turn_id="turn-3",
         )
         import pytest
+
         with pytest.raises(AttributeError):
             record.outcome_type = "dialogue_turn"  # type: ignore[misc]
 

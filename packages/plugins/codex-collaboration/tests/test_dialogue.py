@@ -1161,9 +1161,7 @@ class TestBestEffortRepairTurn:
             in err
         )
 
-    def test_emits_outcome_record_when_turn_confirmed(
-        self, tmp_path: Path
-    ) -> None:
+    def test_emits_outcome_record_when_turn_confirmed(self, tmp_path: Path) -> None:
         """Confirmed inline repair must also emit an outcome record."""
         session = FakeRuntimeSession()
         session.read_thread_response = {
@@ -1213,9 +1211,7 @@ class TestBestEffortRepairTurn:
         assert dialogue_outcomes[0]["repo_root"] == str(tmp_path.resolve())
         assert dialogue_outcomes[0]["policy_fingerprint"] is not None
 
-    def test_does_not_emit_outcome_when_turn_unconfirmed(
-        self, tmp_path: Path
-    ) -> None:
+    def test_does_not_emit_outcome_when_turn_unconfirmed(self, tmp_path: Path) -> None:
         """Unconfirmed repair must NOT emit an outcome record."""
         session = FakeRuntimeSession()
         session.read_thread_response = {
@@ -1248,7 +1244,9 @@ class TestBestEffortRepairTurn:
             content = outcomes_path.read_text(encoding="utf-8").strip()
             if content:
                 records = [json.loads(line) for line in content.split("\n")]
-                dialogue_outcomes = [r for r in records if r["outcome_type"] == "dialogue_turn"]
+                dialogue_outcomes = [
+                    r for r in records if r["outcome_type"] == "dialogue_turn"
+                ]
                 assert len(dialogue_outcomes) == 0
 
 
@@ -1452,7 +1450,9 @@ class TestReplyParseFailure:
         assert outcomes_path.exists()
         outcome_lines = outcomes_path.read_text(encoding="utf-8").strip().split("\n")
         outcome_records = [json.loads(line) for line in outcome_lines]
-        dialogue_outcomes = [r for r in outcome_records if r["outcome_type"] == "dialogue_turn"]
+        dialogue_outcomes = [
+            r for r in outcome_records if r["outcome_type"] == "dialogue_turn"
+        ]
         assert len(dialogue_outcomes) == 1
         assert dialogue_outcomes[0]["collaboration_id"] == start.collaboration_id
 
@@ -1561,9 +1561,7 @@ class TestRecoveryOutcomeEmission:
                 ],
             },
         }
-        controller, _, _, journal, _ = _build_dialogue_stack(
-            tmp_path, session=session
-        )
+        controller, _, _, journal, _ = _build_dialogue_stack(tmp_path, session=session)
         start = controller.start(tmp_path)
 
         # Simulate: an unresolved turn_dispatch entry left by a crashed session
@@ -1605,9 +1603,7 @@ class TestRecoveryOutcomeEmission:
         session.read_thread_response = {
             "thread": {"id": "thr-start", "turns": []},
         }
-        controller, _, _, journal, _ = _build_dialogue_stack(
-            tmp_path, session=session
-        )
+        controller, _, _, journal, _ = _build_dialogue_stack(tmp_path, session=session)
         start = controller.start(tmp_path)
 
         intent_entry = OperationJournalEntry(
@@ -1631,5 +1627,7 @@ class TestRecoveryOutcomeEmission:
             content = outcomes_path.read_text(encoding="utf-8").strip()
             if content:
                 records = [json.loads(line) for line in content.split("\n")]
-                dialogue_outcomes = [r for r in records if r["outcome_type"] == "dialogue_turn"]
+                dialogue_outcomes = [
+                    r for r in records if r["outcome_type"] == "dialogue_turn"
+                ]
                 assert len(dialogue_outcomes) == 0

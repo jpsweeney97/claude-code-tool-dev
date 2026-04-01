@@ -41,9 +41,7 @@ def test_all_outcome_records_share_same_keys(tmp_path: Path) -> None:
         compat_checker=_compat_result,
         repo_identity_loader=_repo_identity,
         clock=lambda: 100.0,
-        uuid_factory=iter(
-            (f"uuid-{i}" for i in range(100))
-        ).__next__,
+        uuid_factory=iter((f"uuid-{i}" for i in range(100))).__next__,
         journal=journal,
     )
     plane_consult.codex_consult(
@@ -62,9 +60,7 @@ def test_all_outcome_records_share_same_keys(tmp_path: Path) -> None:
         compat_checker=_compat_result,
         repo_identity_loader=_repo_identity,
         clock=lambda: 200.0,
-        uuid_factory=iter(
-            (f"d-uuid-{i}" for i in range(100))
-        ).__next__,
+        uuid_factory=iter((f"d-uuid-{i}" for i in range(100))).__next__,
         journal=journal,
     )
     store = LineageStore(plugin_data, "sess-shape")
@@ -75,9 +71,7 @@ def test_all_outcome_records_share_same_keys(tmp_path: Path) -> None:
         journal=journal,
         session_id="sess-shape",
         repo_identity_loader=_repo_identity,
-        uuid_factory=iter(
-            (f"dc-uuid-{i}" for i in range(100))
-        ).__next__,
+        uuid_factory=iter((f"dc-uuid-{i}" for i in range(100))).__next__,
         turn_store=turn_store,
     )
     start = controller.start(tmp_path)
@@ -108,9 +102,7 @@ def test_all_outcome_records_share_same_keys(tmp_path: Path) -> None:
         compat_checker=_compat_result,
         repo_identity_loader=_repo_identity,
         clock=lambda: 300.0,
-        uuid_factory=iter(
-            (f"r-uuid-{i}" for i in range(100))
-        ).__next__,
+        uuid_factory=iter((f"r-uuid-{i}" for i in range(100))).__next__,
         journal=journal,
     )
     store_r = LineageStore(plugin_data, "sess-recovery")
@@ -121,9 +113,7 @@ def test_all_outcome_records_share_same_keys(tmp_path: Path) -> None:
         journal=journal,
         session_id="sess-recovery",
         repo_identity_loader=_repo_identity,
-        uuid_factory=iter(
-            (f"rc-uuid-{i}" for i in range(100))
-        ).__next__,
+        uuid_factory=iter((f"rc-uuid-{i}" for i in range(100))).__next__,
         turn_store=turn_store_r,
     )
     start_r = controller_r.start(tmp_path)
@@ -166,9 +156,7 @@ def test_all_outcome_records_share_same_keys(tmp_path: Path) -> None:
         compat_checker=_compat_result,
         repo_identity_loader=_repo_identity,
         clock=lambda: 400.0,
-        uuid_factory=iter(
-            (f"rp-uuid-{i}" for i in range(100))
-        ).__next__,
+        uuid_factory=iter((f"rp-uuid-{i}" for i in range(100))).__next__,
         journal=journal,
     )
     store_rp = LineageStore(plugin_data, "sess-repair")
@@ -179,9 +167,7 @@ def test_all_outcome_records_share_same_keys(tmp_path: Path) -> None:
         journal=journal,
         session_id="sess-repair",
         repo_identity_loader=_repo_identity,
-        uuid_factory=iter(
-            (f"rpc-uuid-{i}" for i in range(100))
-        ).__next__,
+        uuid_factory=iter((f"rpc-uuid-{i}" for i in range(100))).__next__,
         turn_store=turn_store_rp,
     )
     start_rp = controller_rp.start(tmp_path)

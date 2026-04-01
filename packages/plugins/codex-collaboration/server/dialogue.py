@@ -28,7 +28,11 @@ from .models import (
     RepoIdentity,
 )
 from .journal import OperationJournal
-from .prompt_builder import CONSULT_OUTPUT_SCHEMA, build_consult_turn_text, parse_consult_response
+from .prompt_builder import (
+    CONSULT_OUTPUT_SCHEMA,
+    build_consult_turn_text,
+    parse_consult_response,
+)
 from .turn_store import TurnStore
 
 
@@ -70,7 +74,9 @@ class DialogueController:
         self._repo_identity_loader = repo_identity_loader or load_repo_identity
         self._uuid_factory = uuid_factory or (lambda: str(uuid.uuid4()))
 
-    def start(self, repo_root: Path, *, profile_name: str | None = None) -> DialogueStartResult:
+    def start(
+        self, repo_root: Path, *, profile_name: str | None = None
+    ) -> DialogueStartResult:
         """Create a durable dialogue thread and persist handle.
 
         Spec: contracts.md §Dialogue Start, delivery.md §R2 in-scope.
@@ -85,6 +91,7 @@ class DialogueController:
         resolved_turn_budget: int | None = None
         if profile_name is not None:
             from .profiles import resolve_profile
+
             resolved = resolve_profile(profile_name=profile_name)
             resolved_posture = resolved.posture
             resolved_effort = resolved.effort
@@ -208,7 +215,7 @@ class DialogueController:
             )
 
         posture = handle.resolved_posture  # may be None
-        effort = handle.resolved_effort    # may be None
+        effort = handle.resolved_effort  # may be None
 
         resolved_root = Path(handle.repo_root)
         runtime = self._control_plane.get_advisory_runtime(resolved_root)
@@ -236,7 +243,9 @@ class DialogueController:
         packet = assemble_context_packet(request, repo_identity, profile="advisory")
 
         # Phase 1: intent — journal before dispatch (turn-dispatch key)
-        idempotency_key = f"{runtime.runtime_id}:{handle.codex_thread_id}:{turn_sequence}"
+        idempotency_key = (
+            f"{runtime.runtime_id}:{handle.codex_thread_id}:{turn_sequence}"
+        )
         created_at = self._journal.timestamp()
         intent_entry = OperationJournalEntry(
             idempotency_key=idempotency_key,
@@ -404,7 +413,8 @@ class DialogueController:
                 # Metadata completeness check
                 raw_turns = thread_data.get("thread", {}).get("turns", [])
                 completed_count = sum(
-                    1 for t in raw_turns
+                    1
+                    for t in raw_turns
                     if isinstance(t, dict) and t.get("status") == "completed"
                 )
                 if completed_count > 0:
@@ -424,18 +434,14 @@ class DialogueController:
                     codex_thread_id=resumed_thread_id,
                 )
                 if handle.status == "unknown":
-                    self._lineage_store.update_status(
-                        handle.collaboration_id, "active"
-                    )
+                    self._lineage_store.update_status(handle.collaboration_id, "active")
             except Exception as exc:
                 _log_recovery_failure(
                     "recover_startup",
                     exc,
                     handle.collaboration_id,
                 )
-                self._lineage_store.update_status(
-                    handle.collaboration_id, "unknown"
-                )
+                self._lineage_store.update_status(handle.collaboration_id, "unknown")
 
     def recover_pending_operations(self) -> list[str]:
         """Scan journal for incomplete operations and resolve them deterministically.
@@ -558,7 +564,8 @@ class DialogueController:
             thread_data = runtime.session.read_thread(entry.codex_thread_id)
             raw_turns = thread_data.get("thread", {}).get("turns", [])
             completed_turns = [
-                t for t in raw_turns
+                t
+                for t in raw_turns
                 if isinstance(t, dict) and t.get("status") == "completed"
             ]
             completed_count = len(completed_turns)
@@ -646,14 +653,13 @@ class DialogueController:
         thread_data = runtime.session.read_thread(handle.codex_thread_id)
         raw_turns = thread_data.get("thread", {}).get("turns", [])
         completed_count = sum(
-            1 for t in raw_turns
+            1
+            for t in raw_turns
             if isinstance(t, dict) and t.get("status") == "completed"
         )
         return completed_count + 1
 
-    def _best_effort_repair_turn(
-        self, intent_entry: OperationJournalEntry
-    ) -> None:
+    def _best_effort_repair_turn(self, intent_entry: OperationJournalEntry) -> None:
         """Best-effort inspect and repair a turn after run_turn() failure.
 
         Called only from reply() exception path. Does NOT reactivate the handle.
@@ -672,7 +678,8 @@ class DialogueController:
             thread_data = runtime.session.read_thread(intent_entry.codex_thread_id)
             raw_turns = thread_data.get("thread", {}).get("turns", [])
             completed_turns = [
-                t for t in raw_turns
+                t
+                for t in raw_turns
                 if isinstance(t, dict) and t.get("status") == "completed"
             ]
             completed_count = len(completed_turns)
@@ -699,7 +706,10 @@ class DialogueController:
                 if isinstance(candidate_turn_id, str) and candidate_turn_id:
                     turn_id = candidate_turn_id
 
-        if intent_entry.context_size is not None and intent_entry.turn_sequence is not None:
+        if (
+            intent_entry.context_size is not None
+            and intent_entry.turn_sequence is not None
+        ):
             self._turn_store.write(
                 intent_entry.collaboration_id,
                 turn_sequence=intent_entry.turn_sequence,

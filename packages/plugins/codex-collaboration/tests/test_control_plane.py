@@ -5,7 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from server.codex_compat import CompatCheckResult, OPTIONAL_METHODS, REQUIRED_METHODS, SemVer
+from server.codex_compat import (
+    CompatCheckResult,
+    OPTIONAL_METHODS,
+    REQUIRED_METHODS,
+    SemVer,
+)
 from server.control_plane import ControlPlane
 from server.journal import OperationJournal
 from server.models import (
@@ -31,7 +36,9 @@ class FakeRuntimeSession:
         agent_message: str | None = None,
     ) -> None:
         self.auth_status = auth_status
-        self.auth_status_sequence = list(auth_status_sequence) if auth_status_sequence is not None else None
+        self.auth_status_sequence = (
+            list(auth_status_sequence) if auth_status_sequence is not None else None
+        )
         self.requires_openai_auth = requires_openai_auth
         self.initialize_error = initialize_error
         self.account_read_error = account_read_error
@@ -39,7 +46,12 @@ class FakeRuntimeSession:
         self.agent_message = agent_message or json.dumps(
             {
                 "position": "Consulted via thr-start",
-                "evidence": [{"claim": "The repo contains the requested file", "citation": "focus.py:1"}],
+                "evidence": [
+                    {
+                        "claim": "The repo contains the requested file",
+                        "citation": "focus.py:1",
+                    }
+                ],
                 "uncertainties": ["No runtime side effects were executed"],
                 "follow_up_branches": ["Inspect adjacent tests"],
             }
@@ -185,7 +197,9 @@ def test_codex_status_bootstraps_advisory_runtime(tmp_path: Path) -> None:
     assert status["optional_methods"]["turn/steer"] is True
 
 
-def test_codex_status_invalidates_cached_runtime_on_compat_drift(tmp_path: Path) -> None:
+def test_codex_status_invalidates_cached_runtime_on_compat_drift(
+    tmp_path: Path,
+) -> None:
     session = FakeRuntimeSession()
     compat_checker = _CompatSequence(_compat_result(), _failed_compat_result())
     plane = ControlPlane(
@@ -241,7 +255,9 @@ def test_codex_status_probes_initialize_failure(tmp_path: Path) -> None:
     assert session.closed is True
 
 
-def test_codex_consult_returns_structured_result_and_audits_context_size(tmp_path: Path) -> None:
+def test_codex_consult_returns_structured_result_and_audits_context_size(
+    tmp_path: Path,
+) -> None:
     focus = tmp_path / "focus.py"
     focus.write_text("print('focus')\n", encoding="utf-8")
     session = FakeRuntimeSession()
@@ -351,7 +367,9 @@ def test_codex_consult_consumes_stale_marker_on_success(tmp_path: Path) -> None:
     assert journal.load_stale_marker(tmp_path) is None
 
 
-def test_codex_consult_invalidates_cached_runtime_after_turn_failure(tmp_path: Path) -> None:
+def test_codex_consult_invalidates_cached_runtime_after_turn_failure(
+    tmp_path: Path,
+) -> None:
     focus = tmp_path / "focus.py"
     focus.write_text("print('focus')\n", encoding="utf-8")
     failing_session = FakeRuntimeSession(run_turn_error=RuntimeError("turn boom"))
@@ -388,7 +406,9 @@ def test_codex_consult_invalidates_cached_runtime_after_turn_failure(tmp_path: P
     assert succeeding_session.closed is False
 
 
-def test_codex_consult_invalidates_cached_runtime_after_parse_failure(tmp_path: Path) -> None:
+def test_codex_consult_invalidates_cached_runtime_after_parse_failure(
+    tmp_path: Path,
+) -> None:
     focus = tmp_path / "focus.py"
     focus.write_text("print('focus')\n", encoding="utf-8")
     failing_session = FakeRuntimeSession(agent_message="not-json")
@@ -424,7 +444,9 @@ def test_codex_consult_invalidates_cached_runtime_after_parse_failure(tmp_path: 
     assert result.runtime_id == "runtime-2"
 
 
-def test_codex_consult_revalidates_cached_runtime_auth_before_reuse(tmp_path: Path) -> None:
+def test_codex_consult_revalidates_cached_runtime_auth_before_reuse(
+    tmp_path: Path,
+) -> None:
     focus = tmp_path / "focus.py"
     focus.write_text("print('focus')\n", encoding="utf-8")
     session = FakeRuntimeSession(
@@ -509,12 +531,13 @@ def test_codex_consult_failure_does_not_emit_outcome(tmp_path: Path) -> None:
     )
 
     with pytest.raises(RuntimeError, match="turn boom"):
-        plane.codex_consult(
-            ConsultRequest(repo_root=tmp_path, objective="Should fail")
-        )
+        plane.codex_consult(ConsultRequest(repo_root=tmp_path, objective="Should fail"))
 
     outcomes_path = plugin_data / "analytics" / "outcomes.jsonl"
-    assert not outcomes_path.exists() or outcomes_path.read_text(encoding="utf-8").strip() == ""
+    assert (
+        not outcomes_path.exists()
+        or outcomes_path.read_text(encoding="utf-8").strip() == ""
+    )
 
 
 def test_codex_consult_rejects_network_widening_in_r1(tmp_path: Path) -> None:
