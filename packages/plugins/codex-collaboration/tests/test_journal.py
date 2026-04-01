@@ -415,8 +415,9 @@ class TestReplayHardening:
     def test_turn_dispatch_dispatched_without_turn_sequence_skipped(
         self, tmp_path: Path
     ) -> None:
-        """turn_dispatch at dispatched/completed requires turn_sequence for
-        turn confirmation (dialogue.py:550-551)."""
+        """turn_dispatch at dispatched requires turn_sequence for
+        turn confirmation (dialogue.py:550-551). Completed phase is a
+        resolution marker — production writers omit turn_sequence there."""
         journal = OperationJournal(tmp_path / "plugin-data")
         ops_path = tmp_path / "plugin-data" / "journal" / "operations" / "sess-1.jsonl"
         ops_path.parent.mkdir(parents=True, exist_ok=True)
