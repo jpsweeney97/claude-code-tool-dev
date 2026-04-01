@@ -24,6 +24,7 @@ from .models import (
     DialogueStartResult,
     DialogueTurnSummary,
     OperationJournalEntry,
+    OutcomeRecord,
     RepoIdentity,
 )
 from .journal import OperationJournal
@@ -314,6 +315,21 @@ class DialogueController:
                 runtime_id=runtime.runtime_id,
                 context_size=packet.context_size,
                 turn_id=turn_result.turn_id,
+            )
+        )
+
+        self._journal.append_outcome(
+            OutcomeRecord(
+                outcome_id=self._uuid_factory(),
+                timestamp=self._journal.timestamp(),
+                outcome_type="dialogue_turn",
+                collaboration_id=collaboration_id,
+                runtime_id=runtime.runtime_id,
+                context_size=packet.context_size,
+                turn_id=turn_result.turn_id,
+                turn_sequence=turn_sequence,
+                policy_fingerprint=runtime.policy_fingerprint,
+                repo_root=str(resolved_root),
             )
         )
 

@@ -178,6 +178,29 @@ class TestDialogueReply:
         assert turn_events[0]["collaboration_id"] == start_result.collaboration_id
         assert "turn_id" in turn_events[0]
 
+    def test_reply_emits_outcome_record(self, tmp_path: Path) -> None:
+        focus = tmp_path / "focus.py"
+        focus.write_text("print('focus')\n", encoding="utf-8")
+        controller, _, _, journal, _ = _build_dialogue_stack(tmp_path)
+        start_result = controller.start(tmp_path)
+        controller.reply(
+            collaboration_id=start_result.collaboration_id,
+            objective="Test turn",
+            explicit_paths=(Path("focus.py"),),
+        )
+        outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
+        assert outcomes_path.exists()
+        lines = outcomes_path.read_text(encoding="utf-8").strip().split("\n")
+        records = [json.loads(line) for line in lines]
+        dialogue_outcomes = [r for r in records if r["outcome_type"] == "dialogue_turn"]
+        assert len(dialogue_outcomes) == 1
+        assert dialogue_outcomes[0]["collaboration_id"] == start_result.collaboration_id
+        assert dialogue_outcomes[0]["turn_id"] is not None
+        assert dialogue_outcomes[0]["turn_sequence"] == 1
+        assert dialogue_outcomes[0]["context_size"] > 0
+        assert dialogue_outcomes[0]["repo_root"] == str(tmp_path.resolve())
+        assert dialogue_outcomes[0]["policy_fingerprint"] is not None
+
     def test_reply_raises_on_unknown_collaboration_id(self, tmp_path: Path) -> None:
         controller, _, _, _, _ = _build_dialogue_stack(tmp_path)
         with pytest.raises(ValueError, match="Reply failed: handle not found"):
@@ -1333,6 +1356,15 @@ class TestReplyParseFailure:
         turn_events = [e for e in events if e["action"] == "dialogue_turn"]
         assert len(turn_events) == 1
         assert turn_events[0]["collaboration_id"] == start.collaboration_id
+
+        # Outcome record emitted (before parse)
+        outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
+        assert outcomes_path.exists()
+        outcome_lines = outcomes_path.read_text(encoding="utf-8").strip().split("\n")
+        outcome_records = [json.loads(line) for line in outcome_lines]
+        dialogue_outcomes = [r for r in outcome_records if r["outcome_type"] == "dialogue_turn"]
+        assert len(dialogue_outcomes) == 1
+        assert dialogue_outcomes[0]["collaboration_id"] == start.collaboration_id
 
     def test_read_returns_fallback_position_without_integrity_error(
         self, tmp_path: Path
