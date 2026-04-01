@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import asdict
+from pathlib import Path
 
 from server.models import OutcomeRecord
+from server.journal import OperationJournal
 
 
 class TestOutcomeRecord:
@@ -85,3 +88,57 @@ class TestOutcomeRecord:
         assert d["policy_fingerprint"] == "abc123"
         assert d["repo_root"] == "/tmp/repo"
         assert d["turn_sequence"] is None
+
+
+class TestOutcomeJournalPersistence:
+    def test_append_outcome_creates_file_and_writes_jsonl(self, tmp_path: Path) -> None:
+        journal = OperationJournal(tmp_path / "plugin-data")
+        record = OutcomeRecord(
+            outcome_id="o-1",
+            timestamp="2026-04-01T00:00:00Z",
+            outcome_type="consult",
+            collaboration_id="collab-1",
+            runtime_id="rt-1",
+            context_size=4096,
+            turn_id="turn-1",
+            policy_fingerprint="fp-abc",
+            repo_root="/tmp/repo",
+        )
+        journal.append_outcome(record)
+
+        outcomes_path = tmp_path / "plugin-data" / "analytics" / "outcomes.jsonl"
+        assert outcomes_path.exists()
+        line = json.loads(outcomes_path.read_text(encoding="utf-8").strip())
+        assert line["outcome_id"] == "o-1"
+        assert line["outcome_type"] == "consult"
+        assert line["context_size"] == 4096
+        assert line["policy_fingerprint"] == "fp-abc"
+
+    def test_append_outcome_appends_multiple_records(self, tmp_path: Path) -> None:
+        journal = OperationJournal(tmp_path / "plugin-data")
+        for i in range(3):
+            journal.append_outcome(
+                OutcomeRecord(
+                    outcome_id=f"o-{i}",
+                    timestamp="2026-04-01T00:00:00Z",
+                    outcome_type="dialogue_turn",
+                    collaboration_id=f"collab-{i}",
+                    runtime_id="rt-1",
+                    context_size=1024 * (i + 1),
+                    turn_id=f"turn-{i}",
+                    turn_sequence=i + 1,
+                )
+            )
+
+        outcomes_path = tmp_path / "plugin-data" / "analytics" / "outcomes.jsonl"
+        lines = outcomes_path.read_text(encoding="utf-8").strip().split("\n")
+        assert len(lines) == 3
+        records = [json.loads(line) for line in lines]
+        assert records[0]["outcome_id"] == "o-0"
+        assert records[2]["context_size"] == 3072
+        assert records[1]["turn_sequence"] == 2
+
+    def test_analytics_directory_created_on_init(self, tmp_path: Path) -> None:
+        plugin_data = tmp_path / "plugin-data"
+        OperationJournal(plugin_data)
+        assert (plugin_data / "analytics").is_dir()

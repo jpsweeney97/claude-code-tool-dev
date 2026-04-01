@@ -10,7 +10,7 @@ from pathlib import Path
 
 from typing import Any
 
-from .models import AuditEvent, OperationJournalEntry, StaleAdvisoryContextMarker
+from .models import AuditEvent, OperationJournalEntry, OutcomeRecord, StaleAdvisoryContextMarker
 from .replay import ReplayDiagnostics, SchemaViolation, replay_jsonl
 
 
@@ -118,6 +118,9 @@ class OperationJournal:
         self._audit_path = self._audit_dir / "events.jsonl"
         self._journal_dir.mkdir(parents=True, exist_ok=True)
         self._audit_dir.mkdir(parents=True, exist_ok=True)
+        self._analytics_dir = self._plugin_data_path / "analytics"
+        self._outcomes_path = self._analytics_dir / "outcomes.jsonl"
+        self._analytics_dir.mkdir(parents=True, exist_ok=True)
 
     @property
     def plugin_data_path(self) -> Path:
@@ -157,6 +160,12 @@ class OperationJournal:
 
         with self._audit_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(asdict(event), sort_keys=True) + "\n")
+
+    def append_outcome(self, record: OutcomeRecord) -> None:
+        """Append an analytics outcome record as JSONL."""
+
+        with self._outcomes_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(asdict(record), sort_keys=True) + "\n")
 
     def write_phase(self, entry: OperationJournalEntry, *, session_id: str) -> None:
         """Append a phased journal record with fsync."""
