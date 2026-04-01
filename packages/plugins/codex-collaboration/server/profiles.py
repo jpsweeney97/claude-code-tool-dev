@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, get_args
 
 import yaml
 
@@ -18,15 +18,26 @@ class ProfileValidationError(RuntimeError):
     """Raised when a resolved profile requires capabilities not yet implemented."""
 
 
+Posture = Literal[
+    "collaborative", "adversarial", "exploratory", "evaluative", "comparative"
+]
+Effort = Literal["minimal", "low", "medium", "high", "xhigh"]
+SandboxPolicy = Literal["read-only"]
+ApprovalPolicy = Literal["never"]
+
+_VALID_POSTURES: frozenset[str] = frozenset(get_args(Posture))
+_VALID_EFFORTS: frozenset[str] = frozenset(get_args(Effort))
+
+
 @dataclass(frozen=True)
 class ResolvedProfile:
     """Fully resolved execution controls."""
 
-    posture: str
+    posture: Posture
     turn_budget: int
-    effort: str | None
-    sandbox: str
-    approval_policy: str
+    effort: Effort | None
+    sandbox: SandboxPolicy
+    approval_policy: ApprovalPolicy
 
 
 _DEFAULT_POSTURE = "collaborative"
@@ -67,11 +78,11 @@ def load_profiles(
 def resolve_profile(
     *,
     profile_name: str | None = None,
-    explicit_posture: str | None = None,
+    explicit_posture: Posture | None = None,
     explicit_turn_budget: int | None = None,
-    explicit_effort: str | None = None,
-    explicit_sandbox: str | None = None,
-    explicit_approval_policy: str | None = None,
+    explicit_effort: Effort | None = None,
+    explicit_sandbox: SandboxPolicy | None = None,
+    explicit_approval_policy: ApprovalPolicy | None = None,
 ) -> ResolvedProfile:
     """Resolve execution controls from profile + explicit overrides."""
     profile: dict[str, Any] = {}
@@ -93,27 +104,32 @@ def resolve_profile(
             f"Use a non-phased profile or omit the profile parameter."
         )
 
-    posture = (
-        explicit_posture
-        or profile.get("posture", _DEFAULT_POSTURE)
-    )
+    posture = explicit_posture or profile.get("posture", _DEFAULT_POSTURE)
     turn_budget = (
         explicit_turn_budget
         if explicit_turn_budget is not None
         else profile.get("turn_budget", _DEFAULT_TURN_BUDGET)
     )
-    effort = (
-        explicit_effort
-        or profile.get("reasoning_effort")
+    effort = explicit_effort or profile.get("reasoning_effort")
+    sandbox = explicit_sandbox or profile.get("sandbox", _DEFAULT_SANDBOX)
+    approval_policy = explicit_approval_policy or profile.get(
+        "approval_policy", _DEFAULT_APPROVAL
     )
-    sandbox = (
-        explicit_sandbox
-        or profile.get("sandbox", _DEFAULT_SANDBOX)
-    )
-    approval_policy = (
-        explicit_approval_policy
-        or profile.get("approval_policy", _DEFAULT_APPROVAL)
-    )
+
+    # Type narrowing validation
+    if posture not in _VALID_POSTURES:
+        raise ProfileValidationError(
+            f"Profile resolution failed: unknown posture. Got: posture={posture!r:.100}"
+        )
+    if effort is not None and effort not in _VALID_EFFORTS:
+        raise ProfileValidationError(
+            f"Profile resolution failed: unknown effort. Got: effort={effort!r:.100}"
+        )
+    if not (type(turn_budget) is int and turn_budget > 0):
+        raise ProfileValidationError(
+            f"Profile resolution failed: turn_budget must be a positive integer. "
+            f"Got: turn_budget={turn_budget!r:.100}"
+        )
 
     # Validation gate: reject policy widening until freeze-and-rotate exists
     if sandbox != _DEFAULT_SANDBOX:

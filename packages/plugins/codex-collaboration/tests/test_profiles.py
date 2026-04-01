@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
+import yaml
 
 from server.profiles import (
     load_profiles,
@@ -86,3 +89,138 @@ class TestResolveProfile:
                 continue  # Phased profiles are rejected (tested above)
             resolved = resolve_profile(profile_name=name)
             assert resolved.posture, f"profile {name} has no posture"
+
+
+class TestTypeNarrowing:
+    """F4: Literal types catch invalid posture, effort, and turn_budget values."""
+
+    def test_unknown_posture_rejected(self) -> None:
+        with pytest.raises(ProfileValidationError, match="unknown posture"):
+            resolve_profile(explicit_posture="adversrial")  # type: ignore[arg-type]
+
+    def test_unknown_effort_rejected(self) -> None:
+        with pytest.raises(ProfileValidationError, match="unknown effort"):
+            resolve_profile(explicit_effort="turbo")  # type: ignore[arg-type]
+
+    def test_zero_turn_budget_rejected(self) -> None:
+        with pytest.raises(ProfileValidationError, match="turn_budget"):
+            resolve_profile(explicit_turn_budget=0)
+
+    def test_negative_turn_budget_rejected(self) -> None:
+        with pytest.raises(ProfileValidationError, match="turn_budget"):
+            resolve_profile(explicit_turn_budget=-1)
+
+    def test_string_turn_budget_rejected(self) -> None:
+        with pytest.raises(ProfileValidationError, match="turn_budget"):
+            resolve_profile(explicit_turn_budget="5")  # type: ignore[arg-type]
+
+    def test_bool_turn_budget_rejected(self) -> None:
+        with pytest.raises(ProfileValidationError, match="turn_budget"):
+            resolve_profile(explicit_turn_budget=True)  # type: ignore[arg-type]
+
+    def test_valid_postures_accepted(self) -> None:
+        for posture in (
+            "collaborative",
+            "adversarial",
+            "exploratory",
+            "evaluative",
+            "comparative",
+        ):
+            resolved = resolve_profile(explicit_posture=posture)
+            assert resolved.posture == posture
+
+    def test_valid_efforts_accepted(self) -> None:
+        for effort in ("minimal", "low", "medium", "high", "xhigh"):
+            resolved = resolve_profile(explicit_effort=effort)
+            assert resolved.effort == effort
+
+    def test_positive_turn_budget_accepted(self) -> None:
+        resolved = resolve_profile(explicit_turn_budget=1)
+        assert resolved.turn_budget == 1
+
+    def test_default_turn_budget_accepted(self) -> None:
+        """Default turn_budget=6 must pass the new validation."""
+        resolved = resolve_profile()
+        assert resolved.turn_budget == 6
+
+
+class TestYamlIngressValidation:
+    """F4 YAML ingress: bad values loaded from YAML must be caught by
+    runtime validation in resolve_profile(). Uses a real YAML file via
+    _REFERENCES_DIR patch to exercise the full ingress path: file read,
+    YAML parsing, key mapping (reasoning_effort -> effort), and validation."""
+
+    def _write_profile_yaml(
+        self, tmp_path: Path, profile_name: str, fields: dict
+    ) -> None:
+        """Write a consultation-profiles.yaml with a single profile."""
+        tmp_path.mkdir(parents=True, exist_ok=True)
+        yaml_path = tmp_path / "consultation-profiles.yaml"
+        yaml_path.write_text(yaml.dump({"profiles": {profile_name: fields}}))
+
+    def _write_local_override_yaml(
+        self, tmp_path: Path, profile_name: str, overrides: dict
+    ) -> None:
+        """Write a consultation-profiles.local.yaml with overrides."""
+        local_path = tmp_path / "consultation-profiles.local.yaml"
+        local_path.write_text(yaml.dump({"profiles": {profile_name: overrides}}))
+
+    def test_yaml_bad_posture_rejected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """YAML profile with typo posture is caught at resolution time."""
+        self._write_profile_yaml(
+            tmp_path,
+            "bad-profile",
+            {"posture": "adversrial"},
+        )
+        monkeypatch.setattr("server.profiles._REFERENCES_DIR", tmp_path)
+        with pytest.raises(ProfileValidationError, match="unknown posture"):
+            resolve_profile(profile_name="bad-profile")
+
+    def test_yaml_bad_effort_rejected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """YAML reasoning_effort field maps to effort -- bad value caught.
+        Pins the file-key contract: YAML uses reasoning_effort, not effort."""
+        self._write_profile_yaml(
+            tmp_path,
+            "bad-profile",
+            {"reasoning_effort": "turbo"},
+        )
+        monkeypatch.setattr("server.profiles._REFERENCES_DIR", tmp_path)
+        with pytest.raises(ProfileValidationError, match="unknown effort"):
+            resolve_profile(profile_name="bad-profile")
+
+    def test_yaml_non_int_turn_budget_rejected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """YAML turn_budget as string is caught by type(x) is int check."""
+        self._write_profile_yaml(
+            tmp_path,
+            "bad-profile",
+            {"turn_budget": "five"},
+        )
+        monkeypatch.setattr("server.profiles._REFERENCES_DIR", tmp_path)
+        with pytest.raises(ProfileValidationError, match="turn_budget"):
+            resolve_profile(profile_name="bad-profile")
+
+    def test_local_override_bad_posture_rejected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Bad posture in local override YAML is caught after merge.
+        Exercises the full local-override merge path: base profile is valid,
+        local override introduces a bad posture, merged result is rejected."""
+        self._write_profile_yaml(
+            tmp_path,
+            "test-profile",
+            {"posture": "collaborative"},
+        )
+        self._write_local_override_yaml(
+            tmp_path,
+            "test-profile",
+            {"posture": "adversrial"},
+        )
+        monkeypatch.setattr("server.profiles._REFERENCES_DIR", tmp_path)
+        with pytest.raises(ProfileValidationError, match="unknown posture"):
+            resolve_profile(profile_name="test-profile")
