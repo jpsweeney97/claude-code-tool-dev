@@ -122,3 +122,11 @@ When a codebase has gates or checks (precondition guards, transition validators,
 **Insight:** Use `git branch -f` from another branch to move a ref safely: `git switch <other>`, `git branch -f main origin/main`, `git switch main`. This avoids `git reset --hard` which can silently discard uncommitted work if the worktree is dirty. The ref move is a no-op on the working tree — the checkout only happens on the final `switch`.
 
 **Implication:** Prefer `branch -f` over `reset --hard` when reconciling a diverged local branch with its remote after squash-merge. Especially relevant when the local branch might have uncommitted or staged changes.
+
+### 2026-03-31 [architecture, review]
+
+**Context:** Reviewing an implementation plan for JSONL replay hardening across three persistence stores, where the design spec described flat field/type checks but the recovery coordinator depended on per-operation+phase field invariants.
+
+**Insight:** Design specs that describe data validation often stop at the schema layer (field presence, type correctness) and miss the protocol layer — invariants that a *consumer* depends on but that the *data model* doesn't express. Example: `OperationJournalEntry` has `codex_thread_id: str | None` (structurally valid), but `turn_dispatch` at any phase requires it to be non-None or recovery crashes with `RuntimeError`. These cross-layer invariants are invisible in the dataclass definition and only discoverable by reading the consumer code.
+
+**Implication:** When a design spec defines validation for a persistence format, enumerate consumer-side field requirements as a separate table — not just per-field types, but per-operation+phase (or per-variant) required/forbidden fields. Review checkpoint: "does the consumer access any optional field unconditionally?"
