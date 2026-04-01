@@ -10,7 +10,7 @@ import json
 import sys
 import uuid
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Literal
 
 from .context_assembly import assemble_context_packet
 from .control_plane import ControlPlane, load_repo_identity
@@ -43,6 +43,21 @@ class CommittedTurnParseError(RuntimeError):
     emitted). Use ``codex.dialogue.read`` to inspect the committed turn.
     Blind retry will create a duplicate follow-up turn, not replay this one.
     """
+
+
+class CommittedTurnFinalizationError(RuntimeError):
+    """Turn committed, but local finalization or inline recovery failed.
+
+    The committed turn may already be readable via ``codex.dialogue.read``.
+    Blind retry will create a duplicate follow-up turn, not replay this one.
+    """
+
+
+RepairTurnResult = Literal[
+    "unconfirmed",
+    "confirmed_unfinalized",
+    "confirmed_finalized",
+]
 
 
 def _log_recovery_failure(operation: str, reason: Exception, got: object) -> None:
@@ -170,6 +185,120 @@ class DialogueController:
             created_at=created_at,
         )
 
+    @staticmethod
+    def _committed_turn_error_message(reason: str) -> str:
+        return (
+            f"{reason}. The turn is durably recorded. Use codex.dialogue.read to "
+            "inspect the committed turn. Blind retry will create a duplicate "
+            "follow-up turn, not replay this one."
+        )
+
+    def _completed_entry(self, entry: OperationJournalEntry) -> OperationJournalEntry:
+        return OperationJournalEntry(
+            idempotency_key=entry.idempotency_key,
+            operation=entry.operation,
+            phase="completed",
+            collaboration_id=entry.collaboration_id,
+            created_at=entry.created_at,
+            repo_root=entry.repo_root,
+        )
+
+    def _finalize_confirmed_turn(
+        self,
+        *,
+        entry: OperationJournalEntry,
+        turn_id: str | None,
+        policy_fingerprint: str | None,
+        outcome_timestamp: str,
+    ) -> None:
+        """Persist all local artifacts for a confirmed turn before completion."""
+
+        if entry.context_size is not None and entry.turn_sequence is not None:
+            self._turn_store.write(
+                entry.collaboration_id,
+                turn_sequence=entry.turn_sequence,
+                context_size=entry.context_size,
+            )
+
+        if entry.runtime_id is not None and turn_id is not None:
+            self._journal.append_dialogue_audit_event_once(
+                AuditEvent(
+                    event_id=self._uuid_factory(),
+                    timestamp=self._journal.timestamp(),
+                    actor="claude",
+                    action="dialogue_turn",
+                    collaboration_id=entry.collaboration_id,
+                    runtime_id=entry.runtime_id,
+                    context_size=entry.context_size,
+                    turn_id=turn_id,
+                )
+            )
+            self._journal.append_dialogue_outcome_once(
+                OutcomeRecord(
+                    outcome_id=self._uuid_factory(),
+                    timestamp=outcome_timestamp,
+                    outcome_type="dialogue_turn",
+                    collaboration_id=entry.collaboration_id,
+                    runtime_id=entry.runtime_id,
+                    context_size=entry.context_size,
+                    turn_id=turn_id,
+                    turn_sequence=entry.turn_sequence,
+                    policy_fingerprint=policy_fingerprint,
+                    repo_root=entry.repo_root,
+                )
+            )
+
+        self._journal.write_phase(
+            self._completed_entry(entry),
+            session_id=self._session_id,
+        )
+
+    @staticmethod
+    def _confirmed_turn_details(
+        completed_turns: list[dict[str, object]],
+        *,
+        turn_sequence: int | None,
+        fallback_timestamp: str,
+    ) -> tuple[str | None, str]:
+        turn_id = None
+        if turn_sequence is None:
+            return (turn_id, fallback_timestamp)
+        turn_index = turn_sequence - 1
+        if 0 <= turn_index < len(completed_turns):
+            raw_turn = completed_turns[turn_index]
+            candidate_turn_id = raw_turn.get("id")
+            if isinstance(candidate_turn_id, str) and candidate_turn_id:
+                turn_id = candidate_turn_id
+            created_at = raw_turn.get("createdAt")
+            if isinstance(created_at, str) and created_at:
+                return (turn_id, created_at)
+        return (turn_id, fallback_timestamp)
+
+    def _resume_handle_inline(
+        self,
+        *,
+        collaboration_id: str,
+        repo_root: str,
+        codex_thread_id: str,
+    ) -> bool:
+        """Best-effort inline reattach after repair confirms a committed turn."""
+
+        try:
+            runtime = self._control_plane.get_advisory_runtime(Path(repo_root))
+            resumed_thread_id = runtime.session.resume_thread(codex_thread_id)
+        except Exception as exc:
+            _log_recovery_failure("inline_resume_turn", exc, collaboration_id)
+            self._lineage_store.update_status(collaboration_id, "unknown")
+            return False
+
+        self._lineage_store.update_runtime(
+            collaboration_id,
+            runtime_id=runtime.runtime_id,
+            codex_thread_id=resumed_thread_id,
+        )
+        self._lineage_store.update_status(collaboration_id, "active")
+        return True
+
     def reply(
         self,
         *,
@@ -190,17 +319,19 @@ class DialogueController:
         Spec: contracts.md §Dialogue Reply, delivery.md §R2 in-scope.
         Context assembly reuse: same pipeline as consultation.
 
-        Write ordering invariant: metadata store write MUST happen before
-        journal completed. See plan doc §Key invariants.
+        Write ordering invariant: local finalization MUST complete before the
+        journal is marked completed.
 
         Failure semantics:
-        - run_turn() raises: handle quarantined to 'unknown', best-effort
-          metadata/journal/audit repair via _best_effort_repair_turn(),
-          original exception re-raised. Handle is NOT reactivated inline;
-          startup recovery handles eligible unknown handles.
-        - parse_consult_response() raises: all durable state (TurnStore,
-          journal, audit) is committed before parsing. Raises
-          CommittedTurnParseError. Handle stays 'active'.
+        - run_turn() raises: inspect via _best_effort_repair_turn(). If the turn
+          is still unconfirmed, re-raise the original dispatch exception after
+          quarantining the handle. If the turn is confirmed, surface a
+          CommittedTurnFinalizationError instead of a raw dispatch failure.
+        - local finalization raises after run_turn() succeeds: leave the
+          journal at dispatched, quarantine the handle, and raise
+          CommittedTurnFinalizationError.
+        - parse_consult_response() raises after completed: raise
+          CommittedTurnParseError. Handle stays active.
         """
         handle = self._lineage_store.get(collaboration_id)
         if handle is None:
@@ -268,79 +399,62 @@ class DialogueController:
                 output_schema=CONSULT_OUTPUT_SCHEMA,
                 effort=effort,
             )
-        except Exception:
+        except Exception as exc:
             self._control_plane.invalidate_runtime(resolved_root)
-            self._lineage_store.update_status(collaboration_id, "unknown")
-            self._best_effort_repair_turn(intent_entry)
-            raise
+            repair_result = self._best_effort_repair_turn(intent_entry)
+            if repair_result == "unconfirmed":
+                self._lineage_store.update_status(collaboration_id, "unknown")
+                raise
+            if repair_result == "confirmed_unfinalized":
+                self._lineage_store.update_status(collaboration_id, "unknown")
+                raise CommittedTurnFinalizationError(
+                    self._committed_turn_error_message(
+                        "Reply turn committed but local finalization failed during repair"
+                    )
+                ) from exc
 
-        # Phase 2: dispatched — turn executed
-        self._journal.write_phase(
-            OperationJournalEntry(
-                idempotency_key=idempotency_key,
-                operation="turn_dispatch",
-                phase="dispatched",
+            self._resume_handle_inline(
                 collaboration_id=collaboration_id,
-                created_at=created_at,
                 repo_root=str(resolved_root),
                 codex_thread_id=handle.codex_thread_id,
-                turn_sequence=turn_sequence,
-                runtime_id=runtime.runtime_id,
-                context_size=packet.context_size,
-            ),
-            session_id=self._session_id,
-        )
+            )
+            raise CommittedTurnFinalizationError(
+                self._committed_turn_error_message(
+                    "Reply turn committed after a dispatch failure and was finalized by inline repair"
+                )
+            ) from exc
 
-        # Metadata store: MUST write before journal completed
-        self._turn_store.write(
-            collaboration_id,
+        # Phase 2: dispatched — turn executed
+        dispatched_entry = OperationJournalEntry(
+            idempotency_key=idempotency_key,
+            operation="turn_dispatch",
+            phase="dispatched",
+            collaboration_id=collaboration_id,
+            created_at=created_at,
+            repo_root=str(resolved_root),
+            codex_thread_id=handle.codex_thread_id,
             turn_sequence=turn_sequence,
+            runtime_id=runtime.runtime_id,
             context_size=packet.context_size,
         )
-
-        # Phase 3: completed
         self._journal.write_phase(
-            OperationJournalEntry(
-                idempotency_key=idempotency_key,
-                operation="turn_dispatch",
-                phase="completed",
-                collaboration_id=collaboration_id,
-                created_at=created_at,
-                repo_root=str(resolved_root),
-            ),
+            dispatched_entry,
             session_id=self._session_id,
         )
-
-        # INVARIANT: minimal audit schema covers consult/dialogue_turn only.
-        # Any new first-class audit action should revisit AuditEvent shape
-        # before it is emitted.
-        self._journal.append_audit_event(
-            AuditEvent(
-                event_id=self._uuid_factory(),
-                timestamp=self._journal.timestamp(),
-                actor="claude",
-                action="dialogue_turn",
-                collaboration_id=collaboration_id,
-                runtime_id=runtime.runtime_id,
-                context_size=packet.context_size,
+        try:
+            self._finalize_confirmed_turn(
+                entry=dispatched_entry,
                 turn_id=turn_result.turn_id,
-            )
-        )
-
-        self._journal.append_outcome(
-            OutcomeRecord(
-                outcome_id=self._uuid_factory(),
-                timestamp=self._journal.timestamp(),
-                outcome_type="dialogue_turn",
-                collaboration_id=collaboration_id,
-                runtime_id=runtime.runtime_id,
-                context_size=packet.context_size,
-                turn_id=turn_result.turn_id,
-                turn_sequence=turn_sequence,
                 policy_fingerprint=runtime.policy_fingerprint,
-                repo_root=str(resolved_root),
+                outcome_timestamp=self._journal.timestamp(),
             )
-        )
+        except Exception as exc:
+            self._lineage_store.update_status(collaboration_id, "unknown")
+            raise CommittedTurnFinalizationError(
+                self._committed_turn_error_message(
+                    f"Reply turn committed but local finalization failed: {exc}"
+                )
+            ) from exc
 
         # Parse projection — all durable state is committed above.
         # If parsing fails, the turn is committed and readable via dialogue.read.
@@ -350,10 +464,9 @@ class DialogueController:
             )
         except (ValueError, AttributeError) as exc:
             raise CommittedTurnParseError(
-                f"Reply turn committed but response parsing failed: {exc}. "
-                f"The turn is durably recorded. Use codex.dialogue.read to "
-                f"inspect the committed turn. Blind retry will create a "
-                f"duplicate follow-up turn, not replay this one."
+                self._committed_turn_error_message(
+                    f"Reply turn committed but response parsing failed: {exc}"
+                )
             ) from exc
 
         return DialogueReplyResult(
@@ -540,8 +653,10 @@ class DialogueController:
         """Recover a pending turn_dispatch entry.
 
         Both intent and dispatched phases verify via thread/read:
-        - Confirmed (completed turn at turn_sequence): resolve journal, repair metadata store.
-        - Unconfirmed: mark handle 'unknown' (ambiguous — dispatch may or may not have happened).
+        - Confirmed (completed turn at turn_sequence): finalize local state, then
+          resolve the journal entry as completed.
+        - Unconfirmed: mark handle 'unknown' and leave the terminal phase
+          unchanged for later recovery.
 
         Does NOT silently treat intent as no-op. Absence of evidence is not
         evidence of absence: a crash between run_turn() call and journal write
@@ -582,63 +697,30 @@ class DialogueController:
             completed_turns = []
             turn_confirmed = False
 
-        turn_id = None
-        if turn_confirmed:
-            if entry.turn_sequence is not None:
-                turn_index = entry.turn_sequence - 1
-                if 0 <= turn_index < len(completed_turns):
-                    candidate_turn_id = completed_turns[turn_index].get("id")
-                    if isinstance(candidate_turn_id, str) and candidate_turn_id:
-                        turn_id = candidate_turn_id
-            # Repair metadata store if entry has context_size
-            if entry.context_size is not None and entry.turn_sequence is not None:
-                self._turn_store.write(
-                    entry.collaboration_id,
-                    turn_sequence=entry.turn_sequence,
-                    context_size=entry.context_size,
-                )
-        else:
+        if not turn_confirmed:
             # Outcome uncertain — mark handle 'unknown' per contracts.md §Handle Lifecycle
             self._lineage_store.update_status(entry.collaboration_id, "unknown")
+            return
 
-        self._journal.write_phase(
-            OperationJournalEntry(
-                idempotency_key=entry.idempotency_key,
-                operation=entry.operation,
-                phase="completed",
-                collaboration_id=entry.collaboration_id,
-                created_at=entry.created_at,
-                repo_root=entry.repo_root,
-            ),
-            session_id=self._session_id,
+        turn_id, outcome_timestamp = self._confirmed_turn_details(
+            completed_turns,
+            turn_sequence=entry.turn_sequence,
+            fallback_timestamp=entry.created_at,
         )
-        if turn_id is not None and entry.runtime_id is not None:
-            self._journal.append_audit_event(
-                AuditEvent(
-                    event_id=self._uuid_factory(),
-                    timestamp=self._journal.timestamp(),
-                    actor="claude",
-                    action="dialogue_turn",
-                    collaboration_id=entry.collaboration_id,
-                    runtime_id=entry.runtime_id,
-                    context_size=entry.context_size,
-                    turn_id=turn_id,
-                )
+        try:
+            self._finalize_confirmed_turn(
+                entry=entry,
+                turn_id=turn_id,
+                policy_fingerprint=runtime.policy_fingerprint,
+                outcome_timestamp=outcome_timestamp,
             )
-            self._journal.append_outcome(
-                OutcomeRecord(
-                    outcome_id=self._uuid_factory(),
-                    timestamp=self._journal.timestamp(),
-                    outcome_type="dialogue_turn",
-                    collaboration_id=entry.collaboration_id,
-                    runtime_id=entry.runtime_id,
-                    context_size=entry.context_size,
-                    turn_id=turn_id,
-                    turn_sequence=entry.turn_sequence,
-                    policy_fingerprint=runtime.policy_fingerprint,
-                    repo_root=entry.repo_root,
-                )
+        except Exception as exc:
+            _log_recovery_failure(
+                "recover_turn_dispatch",
+                exc,
+                entry.idempotency_key,
             )
+            self._lineage_store.update_status(entry.collaboration_id, "unknown")
 
     def _next_turn_sequence(
         self,
@@ -659,17 +741,14 @@ class DialogueController:
         )
         return completed_count + 1
 
-    def _best_effort_repair_turn(self, intent_entry: OperationJournalEntry) -> None:
+    def _best_effort_repair_turn(
+        self, intent_entry: OperationJournalEntry
+    ) -> RepairTurnResult:
         """Best-effort inspect and repair a turn after run_turn() failure.
 
-        Called only from reply() exception path. Does NOT reactivate the handle.
-        If inspection confirms the turn completed, writes TurnStore metadata,
-        resolves the journal entry, and attempts to emit the matching
-        dialogue_turn audit event when a usable string turn_id can be
-        recovered from thread/read. Otherwise leaves the entry unresolved
-        for startup recovery.
-
-        All exceptions are swallowed — this is best-effort cleanup.
+        Called only from reply() exception path.
+        Returns a repair result describing whether the turn could be confirmed
+        and whether local finalization succeeded. Never raises.
         """
         try:
             runtime = self._control_plane.get_advisory_runtime(
@@ -693,66 +772,31 @@ class DialogueController:
                 exc,
                 intent_entry.idempotency_key,
             )
-            return
+            return "unconfirmed"
 
         if not turn_confirmed:
-            return
+            return "unconfirmed"
 
-        turn_id = None
-        if intent_entry.turn_sequence is not None:
-            turn_index = intent_entry.turn_sequence - 1
-            if 0 <= turn_index < len(completed_turns):
-                candidate_turn_id = completed_turns[turn_index].get("id")
-                if isinstance(candidate_turn_id, str) and candidate_turn_id:
-                    turn_id = candidate_turn_id
-
-        if (
-            intent_entry.context_size is not None
-            and intent_entry.turn_sequence is not None
-        ):
-            self._turn_store.write(
-                intent_entry.collaboration_id,
-                turn_sequence=intent_entry.turn_sequence,
-                context_size=intent_entry.context_size,
-            )
-        self._journal.write_phase(
-            OperationJournalEntry(
-                idempotency_key=intent_entry.idempotency_key,
-                operation=intent_entry.operation,
-                phase="completed",
-                collaboration_id=intent_entry.collaboration_id,
-                created_at=intent_entry.created_at,
-                repo_root=intent_entry.repo_root,
-            ),
-            session_id=self._session_id,
+        turn_id, outcome_timestamp = self._confirmed_turn_details(
+            completed_turns,
+            turn_sequence=intent_entry.turn_sequence,
+            fallback_timestamp=intent_entry.created_at,
         )
-        if turn_id is not None and intent_entry.runtime_id is not None:
-            self._journal.append_audit_event(
-                AuditEvent(
-                    event_id=self._uuid_factory(),
-                    timestamp=self._journal.timestamp(),
-                    actor="claude",
-                    action="dialogue_turn",
-                    collaboration_id=intent_entry.collaboration_id,
-                    runtime_id=intent_entry.runtime_id,
-                    context_size=intent_entry.context_size,
-                    turn_id=turn_id,
-                )
+        try:
+            self._finalize_confirmed_turn(
+                entry=intent_entry,
+                turn_id=turn_id,
+                policy_fingerprint=runtime.policy_fingerprint,
+                outcome_timestamp=outcome_timestamp,
             )
-            self._journal.append_outcome(
-                OutcomeRecord(
-                    outcome_id=self._uuid_factory(),
-                    timestamp=self._journal.timestamp(),
-                    outcome_type="dialogue_turn",
-                    collaboration_id=intent_entry.collaboration_id,
-                    runtime_id=intent_entry.runtime_id,
-                    context_size=intent_entry.context_size,
-                    turn_id=turn_id,
-                    turn_sequence=intent_entry.turn_sequence,
-                    policy_fingerprint=runtime.policy_fingerprint,
-                    repo_root=intent_entry.repo_root,
-                )
+        except Exception as exc:
+            _log_recovery_failure(
+                "best_effort_repair_turn",
+                exc,
+                intent_entry.idempotency_key,
             )
+            return "confirmed_unfinalized"
+        return "confirmed_finalized"
 
     def read(self, collaboration_id: str) -> DialogueReadResult:
         """Read dialogue state for a given collaboration_id.

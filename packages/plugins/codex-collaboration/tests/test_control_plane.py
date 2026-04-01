@@ -540,6 +540,76 @@ def test_codex_consult_failure_does_not_emit_outcome(tmp_path: Path) -> None:
     )
 
 
+def test_codex_consult_suppresses_audit_failure(tmp_path: Path, capsys) -> None:
+    focus = tmp_path / "focus.py"
+    focus.write_text("print('focus')\n", encoding="utf-8")
+    session = FakeRuntimeSession()
+    plugin_data = tmp_path / "plugin-data"
+    journal = OperationJournal(plugin_data)
+    plane = ControlPlane(
+        plugin_data_path=plugin_data,
+        runtime_factory=lambda _repo_root: session,
+        compat_checker=_compat_result,
+        repo_identity_loader=_repo_identity,
+        clock=lambda: 100.0,
+        uuid_factory=iter(("runtime-1", "collab-1", "event-1", "outcome-1")).__next__,
+        journal=journal,
+    )
+
+    def _boom(event: object) -> None:
+        raise OSError("audit boom")
+
+    journal.append_audit_event = _boom  # type: ignore[method-assign]
+
+    result = plane.codex_consult(
+        ConsultRequest(
+            repo_root=tmp_path,
+            objective="Review focus.py",
+            explicit_paths=(Path("focus.py"),),
+        )
+    )
+
+    assert result.collaboration_id == "collab-1"
+    outcomes_path = plugin_data / "analytics" / "outcomes.jsonl"
+    assert outcomes_path.exists()
+    assert "codex_consult_audit failed: audit boom" in capsys.readouterr().err
+
+
+def test_codex_consult_suppresses_outcome_failure(tmp_path: Path, capsys) -> None:
+    focus = tmp_path / "focus.py"
+    focus.write_text("print('focus')\n", encoding="utf-8")
+    session = FakeRuntimeSession()
+    plugin_data = tmp_path / "plugin-data"
+    journal = OperationJournal(plugin_data)
+    plane = ControlPlane(
+        plugin_data_path=plugin_data,
+        runtime_factory=lambda _repo_root: session,
+        compat_checker=_compat_result,
+        repo_identity_loader=_repo_identity,
+        clock=lambda: 100.0,
+        uuid_factory=iter(("runtime-1", "collab-1", "event-1", "outcome-1")).__next__,
+        journal=journal,
+    )
+
+    def _boom(record: object) -> None:
+        raise OSError("outcome boom")
+
+    journal.append_outcome = _boom  # type: ignore[method-assign]
+
+    result = plane.codex_consult(
+        ConsultRequest(
+            repo_root=tmp_path,
+            objective="Review focus.py",
+            explicit_paths=(Path("focus.py"),),
+        )
+    )
+
+    assert result.collaboration_id == "collab-1"
+    audit_path = plugin_data / "audit" / "events.jsonl"
+    assert audit_path.exists()
+    assert "codex_consult_outcome failed: outcome boom" in capsys.readouterr().err
+
+
 def test_codex_consult_rejects_network_widening_in_r1(tmp_path: Path) -> None:
     session = FakeRuntimeSession()
     plane = ControlPlane(

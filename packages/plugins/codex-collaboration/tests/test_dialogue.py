@@ -8,7 +8,11 @@ from pathlib import Path
 import pytest
 
 from server.control_plane import ControlPlane
-from server.dialogue import CommittedTurnParseError, DialogueController
+from server.dialogue import (
+    CommittedTurnFinalizationError,
+    CommittedTurnParseError,
+    DialogueController,
+)
 from server.journal import OperationJournal
 from server.lineage_store import LineageStore
 from server.models import DialogueReadResult, DialogueReplyResult, OperationJournalEntry
@@ -300,6 +304,126 @@ class TestDialogueReply:
         assert turn_intents[0].context_size > 0
 
 
+class TestDialogueFinalizationFailures:
+    def test_reply_turn_store_failure_raises_finalization_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        focus = tmp_path / "focus.py"
+        focus.write_text("print('focus')\n", encoding="utf-8")
+        controller, _, store, journal, turn_store = _build_dialogue_stack(tmp_path)
+        start = controller.start(tmp_path)
+
+        def _boom(*args: object, **kwargs: object) -> None:
+            raise OSError("turn store boom")
+
+        monkeypatch.setattr(turn_store, "write", _boom)
+
+        with pytest.raises(CommittedTurnFinalizationError, match="turn committed"):
+            controller.reply(
+                collaboration_id=start.collaboration_id,
+                objective="Review focus.py",
+                explicit_paths=(Path("focus.py"),),
+            )
+
+        assert store.get(start.collaboration_id).status == "unknown"
+        unresolved = journal.list_unresolved(session_id="sess-1")
+        assert len(unresolved) == 1
+        assert unresolved[0].phase == "dispatched"
+
+    def test_reply_audit_failure_raises_finalization_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        focus = tmp_path / "focus.py"
+        focus.write_text("print('focus')\n", encoding="utf-8")
+        controller, _, store, journal, _ = _build_dialogue_stack(tmp_path)
+        start = controller.start(tmp_path)
+
+        def _boom(*args: object, **kwargs: object) -> None:
+            raise OSError("audit boom")
+
+        monkeypatch.setattr(journal, "append_dialogue_audit_event_once", _boom)
+
+        with pytest.raises(CommittedTurnFinalizationError, match="turn committed"):
+            controller.reply(
+                collaboration_id=start.collaboration_id,
+                objective="Review focus.py",
+                explicit_paths=(Path("focus.py"),),
+            )
+
+        assert store.get(start.collaboration_id).status == "unknown"
+        unresolved = journal.list_unresolved(session_id="sess-1")
+        assert len(unresolved) == 1
+        assert unresolved[0].phase == "dispatched"
+
+    def test_reply_outcome_failure_raises_finalization_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        focus = tmp_path / "focus.py"
+        focus.write_text("print('focus')\n", encoding="utf-8")
+        controller, _, store, journal, _ = _build_dialogue_stack(tmp_path)
+        start = controller.start(tmp_path)
+
+        def _boom(*args: object, **kwargs: object) -> None:
+            raise OSError("outcome boom")
+
+        monkeypatch.setattr(journal, "append_dialogue_outcome_once", _boom)
+
+        with pytest.raises(CommittedTurnFinalizationError, match="turn committed"):
+            controller.reply(
+                collaboration_id=start.collaboration_id,
+                objective="Review focus.py",
+                explicit_paths=(Path("focus.py"),),
+            )
+
+        assert store.get(start.collaboration_id).status == "unknown"
+        unresolved = journal.list_unresolved(session_id="sess-1")
+        assert len(unresolved) == 1
+        assert unresolved[0].phase == "dispatched"
+
+    def test_reply_completed_write_failure_is_recoverable_without_duplicates(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        focus = tmp_path / "focus.py"
+        focus.write_text("print('focus')\n", encoding="utf-8")
+        controller, _, store, journal, _ = _build_dialogue_stack(tmp_path)
+        start = controller.start(tmp_path)
+        original_write_phase = journal.write_phase
+
+        def _fail_completed(
+            entry: OperationJournalEntry, *, session_id: str
+        ) -> None:
+            if entry.phase == "completed":
+                raise OSError("journal boom")
+            original_write_phase(entry, session_id=session_id)
+
+        monkeypatch.setattr(journal, "write_phase", _fail_completed)
+
+        with pytest.raises(CommittedTurnFinalizationError, match="turn committed"):
+            controller.reply(
+                collaboration_id=start.collaboration_id,
+                objective="Review focus.py",
+                explicit_paths=(Path("focus.py"),),
+            )
+
+        assert store.get(start.collaboration_id).status == "unknown"
+        unresolved = journal.list_unresolved(session_id="sess-1")
+        assert len(unresolved) == 1
+        assert unresolved[0].phase == "dispatched"
+
+        audit_path = journal.plugin_data_path / "audit" / "events.jsonl"
+        outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
+        assert len(audit_path.read_text(encoding="utf-8").strip().split("\n")) == 1
+        assert len(outcomes_path.read_text(encoding="utf-8").strip().split("\n")) == 1
+
+        monkeypatch.setattr(journal, "write_phase", original_write_phase)
+        controller.recover_pending_operations()
+
+        unresolved = journal.list_unresolved(session_id="sess-1")
+        assert len(unresolved) == 0
+        assert len(audit_path.read_text(encoding="utf-8").strip().split("\n")) == 1
+        assert len(outcomes_path.read_text(encoding="utf-8").strip().split("\n")) == 1
+
+
 class TestRecoverPendingOperations:
     def test_recover_startup_logs_diagnostic_when_reattach_fails(
         self,
@@ -474,7 +598,7 @@ class TestRecoverPendingOperations:
         self, tmp_path: Path
     ) -> None:
         """Crash during run_turn. thread/read shows turn did not complete.
-        Handle marked 'unknown' (not 'crashed' — runtime crash is not confirmed)."""
+        Handle marked 'unknown' and unresolved phase preserved for later recovery."""
         session = FakeRuntimeSession()
         # Thread has NO completed turns
         session.read_thread_response = {
@@ -508,7 +632,8 @@ class TestRecoverPendingOperations:
         assert handle is not None
         assert handle.status == "unknown"
         unresolved = journal.list_unresolved(session_id="sess-1")
-        assert len(unresolved) == 0
+        assert len(unresolved) == 1
+        assert unresolved[0].phase == "dispatched"
 
     def test_recover_turn_dispatch_logs_diagnostic_when_thread_read_fails(
         self,
@@ -549,7 +674,8 @@ class TestRecoverPendingOperations:
         assert handle is not None
         assert handle.status == "unknown"
         unresolved = journal.list_unresolved(session_id="sess-1")
-        assert len(unresolved) == 0
+        assert len(unresolved) == 1
+        assert unresolved[0].phase == "dispatched"
         assert (
             "recover_turn_dispatch failed: thread read boom" in capsys.readouterr().err
         )
@@ -558,7 +684,7 @@ class TestRecoverPendingOperations:
         self, tmp_path: Path
     ) -> None:
         """Crash before run_turn. Intent-only turn_dispatch: thread/read check
-        does not confirm the turn. Handle marked 'unknown' (ambiguous, not no-op)."""
+        does not confirm the turn. Handle marked 'unknown' and intent preserved."""
         session = FakeRuntimeSession()
         # thread/read shows no completed turns at turn_sequence=1
         session.read_thread_response = {
@@ -588,7 +714,8 @@ class TestRecoverPendingOperations:
         controller.recover_pending_operations()
 
         unresolved = journal.list_unresolved(session_id="sess-1")
-        assert len(unresolved) == 0
+        assert len(unresolved) == 1
+        assert unresolved[0].phase == "intent"
         handle = store.get(start.collaboration_id)
         assert handle.status == "unknown"
 
@@ -1211,6 +1338,92 @@ class TestBestEffortRepairTurn:
         assert dialogue_outcomes[0]["repo_root"] == str(tmp_path.resolve())
         assert dialogue_outcomes[0]["policy_fingerprint"] is not None
 
+    def test_repair_outcome_uses_confirmed_turn_timestamp(self, tmp_path: Path) -> None:
+        session = FakeRuntimeSession()
+        session.read_thread_response = {
+            "thread": {
+                "id": "thr-start",
+                "turns": [
+                    {
+                        "id": "repaired-turn-1",
+                        "status": "completed",
+                        "agentMessage": "",
+                        "createdAt": "2026-04-02T00:00:00Z",
+                    },
+                ],
+            },
+        }
+        controller, _, store, journal, _ = _build_dialogue_stack(
+            tmp_path, session=session
+        )
+        start = controller.start(tmp_path)
+        store.update_status(start.collaboration_id, "unknown")
+
+        intent_entry = OperationJournalEntry(
+            idempotency_key="rt-sess-1:thr-start:1",
+            operation="turn_dispatch",
+            phase="intent",
+            collaboration_id=start.collaboration_id,
+            created_at="2026-04-01T00:00:00Z",
+            repo_root=str(tmp_path.resolve()),
+            codex_thread_id="thr-start",
+            turn_sequence=1,
+            runtime_id="rt-sess-1",
+            context_size=4096,
+        )
+        journal.write_phase(intent_entry, session_id="sess-1")
+
+        result = controller._best_effort_repair_turn(intent_entry)
+
+        assert result == "confirmed_finalized"
+        outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
+        record = json.loads(outcomes_path.read_text(encoding="utf-8").strip())
+        assert record["timestamp"] == "2026-04-02T00:00:00Z"
+
+    def test_repair_outcome_falls_back_to_entry_timestamp_when_missing_created_at(
+        self, tmp_path: Path
+    ) -> None:
+        session = FakeRuntimeSession()
+        session.read_thread_response = {
+            "thread": {
+                "id": "thr-start",
+                "turns": [
+                    {
+                        "id": "repaired-turn-1",
+                        "status": "completed",
+                        "agentMessage": "",
+                        "createdAt": "",
+                    },
+                ],
+            },
+        }
+        controller, _, store, journal, _ = _build_dialogue_stack(
+            tmp_path, session=session
+        )
+        start = controller.start(tmp_path)
+        store.update_status(start.collaboration_id, "unknown")
+
+        intent_entry = OperationJournalEntry(
+            idempotency_key="rt-sess-1:thr-start:1",
+            operation="turn_dispatch",
+            phase="intent",
+            collaboration_id=start.collaboration_id,
+            created_at="2026-04-01T00:00:00Z",
+            repo_root=str(tmp_path.resolve()),
+            codex_thread_id="thr-start",
+            turn_sequence=1,
+            runtime_id="rt-sess-1",
+            context_size=4096,
+        )
+        journal.write_phase(intent_entry, session_id="sess-1")
+
+        result = controller._best_effort_repair_turn(intent_entry)
+
+        assert result == "confirmed_finalized"
+        outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
+        record = json.loads(outcomes_path.read_text(encoding="utf-8").strip())
+        assert record["timestamp"] == "2026-04-01T00:00:00Z"
+
     def test_does_not_emit_outcome_when_turn_unconfirmed(self, tmp_path: Path) -> None:
         """Unconfirmed repair must NOT emit an outcome record."""
         session = FakeRuntimeSession()
@@ -1285,7 +1498,7 @@ class TestReplyRunTurnFailure:
         self, tmp_path: Path
     ) -> None:
         """run_turn raises, but fresh runtime shows the turn completed.
-        TurnStore repaired, journal resolved, handle stays unknown, read() works."""
+        TurnStore repaired, journal resolved, handle reactivated, read() works."""
         focus = tmp_path / "focus.py"
         focus.write_text("print('focus')\n", encoding="utf-8")
 
@@ -1310,15 +1523,15 @@ class TestReplyRunTurnFailure:
         )
         start = controller.start(tmp_path)
 
-        with pytest.raises(RuntimeError, match="connection lost after dispatch"):
+        with pytest.raises(CommittedTurnFinalizationError, match="turn committed"):
             controller.reply(
                 collaboration_id=start.collaboration_id,
                 objective="Review focus.py",
                 explicit_paths=(Path("focus.py"),),
             )
 
-        # Handle quarantined
-        assert store.get(start.collaboration_id).status == "unknown"
+        # Handle reactivated after inline resume
+        assert store.get(start.collaboration_id).status == "active"
         # But metadata repaired (turn was confirmed via thread/read)
         assert turn_store.get(start.collaboration_id, turn_sequence=1) is not None
         # Journal resolved
@@ -1385,6 +1598,89 @@ class TestReplyRunTurnFailure:
         unresolved = journal.list_unresolved(session_id="sess-1")
         turn_entries = [e for e in unresolved if e.operation == "turn_dispatch"]
         assert len(turn_entries) == 1
+
+    def test_surfaces_finalization_error_when_repair_confirms_but_cannot_finalize(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        focus = tmp_path / "focus.py"
+        focus.write_text("print('focus')\n", encoding="utf-8")
+
+        class FailThenConfirmSession(FakeRuntimeSession):
+            def __init__(self) -> None:
+                super().__init__()
+                self._failed = False
+
+            def run_turn(self, **kwargs: object) -> object:
+                if not self._failed:
+                    self._failed = True
+                    self.completed_turn_count += 1
+                    raise RuntimeError("connection lost after dispatch")
+                return super().run_turn(**kwargs)
+
+        session = FailThenConfirmSession()
+        controller, _, store, journal, turn_store = _build_dialogue_stack(
+            tmp_path, session=session
+        )
+        start = controller.start(tmp_path)
+
+        def _boom(*args: object, **kwargs: object) -> None:
+            raise OSError("turn store boom")
+
+        monkeypatch.setattr(turn_store, "write", _boom)
+
+        with pytest.raises(CommittedTurnFinalizationError, match="turn committed"):
+            controller.reply(
+                collaboration_id=start.collaboration_id,
+                objective="Review focus.py",
+                explicit_paths=(Path("focus.py"),),
+            )
+
+        assert store.get(start.collaboration_id).status == "unknown"
+        unresolved = journal.list_unresolved(session_id="sess-1")
+        turn_entries = [e for e in unresolved if e.operation == "turn_dispatch"]
+        assert len(turn_entries) == 1
+        assert turn_entries[0].phase == "intent"
+
+    def test_confirmed_repair_resume_failure_leaves_handle_unknown(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+    ) -> None:
+        focus = tmp_path / "focus.py"
+        focus.write_text("print('focus')\n", encoding="utf-8")
+
+        class FailThenConfirmSession(FakeRuntimeSession):
+            def __init__(self) -> None:
+                super().__init__()
+                self._failed = False
+
+            def run_turn(self, **kwargs: object) -> object:
+                if not self._failed:
+                    self._failed = True
+                    self.completed_turn_count += 1
+                    raise RuntimeError("connection lost after dispatch")
+                return super().run_turn(**kwargs)
+
+        session = FailThenConfirmSession()
+        controller, _, store, journal, _ = _build_dialogue_stack(
+            tmp_path, session=session
+        )
+        start = controller.start(tmp_path)
+
+        def _boom(thread_id: str) -> str:
+            raise RuntimeError("resume boom")
+
+        monkeypatch.setattr(session, "resume_thread", _boom)
+
+        with pytest.raises(CommittedTurnFinalizationError, match="turn committed"):
+            controller.reply(
+                collaboration_id=start.collaboration_id,
+                objective="Review focus.py",
+                explicit_paths=(Path("focus.py"),),
+            )
+
+        assert store.get(start.collaboration_id).status == "unknown"
+        unresolved = journal.list_unresolved(session_id="sess-1")
+        assert len(unresolved) == 0
+        assert "inline_resume_turn failed: resume boom" in capsys.readouterr().err
 
 
 class TestReplyParseFailure:
@@ -1593,6 +1889,46 @@ class TestRecoveryOutcomeEmission:
         assert dialogue_outcomes[0]["context_size"] == 4096
         assert dialogue_outcomes[0]["repo_root"] == str(tmp_path.resolve())
         assert dialogue_outcomes[0]["policy_fingerprint"] is not None
+
+    def test_recovery_outcome_uses_confirmed_turn_timestamp(self, tmp_path: Path) -> None:
+        focus = tmp_path / "focus.py"
+        focus.write_text("print('focus')\n", encoding="utf-8")
+        session = FakeRuntimeSession()
+        session.read_thread_response = {
+            "thread": {
+                "id": "thr-start",
+                "turns": [
+                    {
+                        "id": "recovered-turn-1",
+                        "status": "completed",
+                        "agentMessage": "",
+                        "createdAt": "2026-04-02T00:00:00Z",
+                    },
+                ],
+            },
+        }
+        controller, _, _, journal, _ = _build_dialogue_stack(tmp_path, session=session)
+        start = controller.start(tmp_path)
+
+        intent_entry = OperationJournalEntry(
+            idempotency_key="rt-sess-1:thr-start:1",
+            operation="turn_dispatch",
+            phase="intent",
+            collaboration_id=start.collaboration_id,
+            created_at="2026-04-01T00:00:00Z",
+            repo_root=str(tmp_path.resolve()),
+            codex_thread_id="thr-start",
+            turn_sequence=1,
+            runtime_id="rt-sess-1",
+            context_size=4096,
+        )
+        journal.write_phase(intent_entry, session_id="sess-1")
+
+        controller.recover_pending_operations()
+
+        outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
+        record = json.loads(outcomes_path.read_text(encoding="utf-8").strip())
+        assert record["timestamp"] == "2026-04-02T00:00:00Z"
 
     def test_recovery_unconfirmed_does_not_emit_outcome(self, tmp_path: Path) -> None:
         """Recovery that cannot confirm the turn does NOT emit an outcome."""

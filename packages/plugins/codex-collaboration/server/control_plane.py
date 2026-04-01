@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import subprocess
+import sys
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -40,6 +41,13 @@ class _RuntimeProbeResult:
     auth_status: str | None
     available_methods: frozenset[str]
     error: str | None
+
+
+def _log_local_append_failure(operation: str, reason: Exception, got: object) -> None:
+    print(
+        f"codex-collaboration: {operation} failed: {reason}. Got: {got!r:.100}",
+        file=sys.stderr,
+    )
 
 
 class ControlPlane:
@@ -199,33 +207,39 @@ class ControlPlane:
         # INVARIANT: minimal audit schema covers consult/dialogue_turn only.
         # Any new first-class audit action should revisit AuditEvent shape
         # before it is emitted.
-        self._journal.append_audit_event(
-            AuditEvent(
-                event_id=self._uuid_factory(),
-                timestamp=self._journal.timestamp(),
-                actor="claude",
-                action="consult",
-                collaboration_id=collaboration_id,
-                runtime_id=runtime.runtime_id,
-                context_size=packet.context_size,
-                policy_fingerprint=runtime.policy_fingerprint,
-                turn_id=turn_result.turn_id,
-                extra={"repo_root": str(resolved_root)},
+        try:
+            self._journal.append_audit_event(
+                AuditEvent(
+                    event_id=self._uuid_factory(),
+                    timestamp=self._journal.timestamp(),
+                    actor="claude",
+                    action="consult",
+                    collaboration_id=collaboration_id,
+                    runtime_id=runtime.runtime_id,
+                    context_size=packet.context_size,
+                    policy_fingerprint=runtime.policy_fingerprint,
+                    turn_id=turn_result.turn_id,
+                    extra={"repo_root": str(resolved_root)},
+                )
             )
-        )
-        self._journal.append_outcome(
-            OutcomeRecord(
-                outcome_id=self._uuid_factory(),
-                timestamp=self._journal.timestamp(),
-                outcome_type="consult",
-                collaboration_id=collaboration_id,
-                runtime_id=runtime.runtime_id,
-                context_size=packet.context_size,
-                turn_id=turn_result.turn_id,
-                policy_fingerprint=runtime.policy_fingerprint,
-                repo_root=str(resolved_root),
+        except Exception as exc:
+            _log_local_append_failure("codex_consult_audit", exc, collaboration_id)
+        try:
+            self._journal.append_outcome(
+                OutcomeRecord(
+                    outcome_id=self._uuid_factory(),
+                    timestamp=self._journal.timestamp(),
+                    outcome_type="consult",
+                    collaboration_id=collaboration_id,
+                    runtime_id=runtime.runtime_id,
+                    context_size=packet.context_size,
+                    turn_id=turn_result.turn_id,
+                    policy_fingerprint=runtime.policy_fingerprint,
+                    repo_root=str(resolved_root),
+                )
             )
-        )
+        except Exception as exc:
+            _log_local_append_failure("codex_consult_outcome", exc, collaboration_id)
         return ConsultResult(
             collaboration_id=collaboration_id,
             runtime_id=runtime.runtime_id,

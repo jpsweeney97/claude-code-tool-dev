@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 import json
-from io import BytesIO, StringIO
 from pathlib import Path
 
-import pytest
-
-from server.dialogue import CommittedTurnParseError
+from server.dialogue import CommittedTurnFinalizationError, CommittedTurnParseError
 from server.mcp_server import McpServer, TOOL_DEFINITIONS
 
 
@@ -115,6 +112,45 @@ class FakeDialogueControllerWithParseError:
 
     def read(self, collaboration_id: str) -> object:
         from server.models import DialogueReadResult
+        return DialogueReadResult(
+            collaboration_id=collaboration_id,
+            status="active",
+            turn_count=0,
+            created_at="2026-03-28T00:00:00Z",
+            turns=(),
+        )
+
+
+class FakeDialogueControllerWithFinalizationError:
+    """Dialogue controller that raises CommittedTurnFinalizationError on reply."""
+
+    def __init__(self) -> None:
+        self.startup_called = False
+
+    def recover_startup(self) -> None:
+        self.startup_called = True
+
+    def start(self, repo_root: Path, *, profile_name: str | None = None) -> object:
+        from server.models import DialogueStartResult
+
+        return DialogueStartResult(
+            collaboration_id="c1",
+            runtime_id="r1",
+            status="active",
+            created_at="2026-03-28T00:00:00Z",
+        )
+
+    def reply(self, **kwargs: object) -> object:
+        raise CommittedTurnFinalizationError(
+            "Reply turn committed but local finalization failed: disk full. "
+            "The turn is durably recorded. Use codex.dialogue.read to "
+            "inspect the committed turn. Blind retry will create a "
+            "duplicate follow-up turn, not replay this one."
+        )
+
+    def read(self, collaboration_id: str) -> object:
+        from server.models import DialogueReadResult
+
         return DialogueReadResult(
             collaboration_id=collaboration_id,
             status="active",
@@ -421,6 +457,35 @@ class TestCommittedTurnParseErrorSurfacing:
         server = McpServer(
             control_plane=FakeControlPlane(),
             dialogue_controller=FakeDialogueControllerWithParseError(),
+        )
+        server.handle_request({
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "initialize",
+            "params": {"protocolVersion": "2024-11-05", "clientInfo": {"name": "test"}},
+        })
+        response = server.handle_request({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "codex.dialogue.reply",
+                "arguments": {
+                    "collaboration_id": "c1",
+                    "objective": "test",
+                },
+            },
+        })
+
+        assert response["result"]["isError"] is True
+        error_text = response["result"]["content"][0]["text"]
+        assert "turn committed" in error_text.lower()
+        assert "codex.dialogue.read" in error_text
+
+    def test_mcp_surfaces_committed_turn_finalization_guidance(self) -> None:
+        server = McpServer(
+            control_plane=FakeControlPlane(),
+            dialogue_controller=FakeDialogueControllerWithFinalizationError(),
         )
         server.handle_request({
             "jsonrpc": "2.0",

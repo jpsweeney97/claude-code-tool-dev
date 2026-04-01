@@ -6,7 +6,12 @@ from pathlib import Path
 import pytest
 
 from server.journal import OperationJournal
-from server.models import OperationJournalEntry, StaleAdvisoryContextMarker
+from server.models import (
+    AuditEvent,
+    OperationJournalEntry,
+    OutcomeRecord,
+    StaleAdvisoryContextMarker,
+)
 
 
 def test_stale_marker_keys_are_normalized_on_write(tmp_path: Path) -> None:
@@ -223,6 +228,78 @@ class TestPhasedJournal:
         # After compacting a fully-completed journal, file should be empty or minimal
         unresolved = journal.list_unresolved(session_id="sess-1")
         assert len(unresolved) == 0
+
+
+class TestDialogueReplaySafeAppends:
+    def test_append_dialogue_audit_event_once_skips_duplicate_logical_record(
+        self, tmp_path: Path
+    ) -> None:
+        journal = OperationJournal(tmp_path / "plugin-data")
+        journal.append_dialogue_audit_event_once(
+            AuditEvent(
+                event_id="event-1",
+                timestamp="2026-04-01T00:00:00Z",
+                actor="claude",
+                action="dialogue_turn",
+                collaboration_id="collab-1",
+                runtime_id="rt-1",
+                context_size=1024,
+                turn_id="turn-1",
+            )
+        )
+        journal.append_dialogue_audit_event_once(
+            AuditEvent(
+                event_id="event-2",
+                timestamp="2026-04-01T00:00:01Z",
+                actor="claude",
+                action="dialogue_turn",
+                collaboration_id="collab-1",
+                runtime_id="rt-1",
+                context_size=1024,
+                turn_id="turn-1",
+            )
+        )
+
+        audit_path = tmp_path / "plugin-data" / "audit" / "events.jsonl"
+        lines = audit_path.read_text(encoding="utf-8").strip().split("\n")
+        assert len(lines) == 1
+        record = json.loads(lines[0])
+        assert record["event_id"] == "event-1"
+
+    def test_append_dialogue_outcome_once_handles_missing_file_and_skips_duplicate(
+        self, tmp_path: Path
+    ) -> None:
+        journal = OperationJournal(tmp_path / "plugin-data")
+        journal.append_dialogue_outcome_once(
+            OutcomeRecord(
+                outcome_id="outcome-1",
+                timestamp="2026-04-01T00:00:00Z",
+                outcome_type="dialogue_turn",
+                collaboration_id="collab-1",
+                runtime_id="rt-1",
+                context_size=1024,
+                turn_id="turn-1",
+                turn_sequence=1,
+            )
+        )
+        journal.append_dialogue_outcome_once(
+            OutcomeRecord(
+                outcome_id="outcome-2",
+                timestamp="2026-04-01T00:00:01Z",
+                outcome_type="dialogue_turn",
+                collaboration_id="collab-1",
+                runtime_id="rt-1",
+                context_size=1024,
+                turn_id="turn-1",
+                turn_sequence=1,
+            )
+        )
+
+        outcomes_path = tmp_path / "plugin-data" / "analytics" / "outcomes.jsonl"
+        lines = outcomes_path.read_text(encoding="utf-8").strip().split("\n")
+        assert len(lines) == 1
+        record = json.loads(lines[0])
+        assert record["outcome_id"] == "outcome-1"
 
 
 class TestReplayHardening:

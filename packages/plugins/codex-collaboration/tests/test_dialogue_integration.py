@@ -155,7 +155,7 @@ class TestJournalIdempotency:
         controller, _, store, journal, session = _full_stack(tmp_path)
 
         # Start succeeds (creates intent + dispatched + handle + completed normally)
-        start = controller.start(tmp_path)
+        controller.start(tmp_path)
 
         # Now simulate: a second start where crash happens after dispatch but before lineage
         # We test this indirectly via recovery — manually write dispatched entry
@@ -233,10 +233,12 @@ class TestJournalIdempotency:
         assert unresolved[0].operation == "turn_dispatch"
         assert unresolved[0].phase == "intent"
 
-        # intent-only turn_dispatch with no thread/read confirmation → unknown
+        # intent-only turn_dispatch with no thread/read confirmation → unknown,
+        # and the unresolved intent remains for later recovery.
         controller.recover_pending_operations()
         unresolved = journal.list_unresolved(session_id="sess-1")
-        assert len(unresolved) == 0
+        assert len(unresolved) == 1
+        assert unresolved[0].phase == "intent"
         handle = store.get(start.collaboration_id)
         assert handle.status == "unknown"
 

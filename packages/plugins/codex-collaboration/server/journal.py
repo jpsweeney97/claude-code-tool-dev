@@ -8,7 +8,7 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 
-from typing import Any
+from typing import Any, Callable
 
 from .models import (
     AuditEvent,
@@ -166,11 +166,39 @@ class OperationJournal:
         with self._audit_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(asdict(event), sort_keys=True) + "\n")
 
+    def append_dialogue_audit_event_once(self, event: AuditEvent) -> None:
+        """Append a dialogue audit event unless the logical record already exists."""
+
+        if self._jsonl_contains(
+            self._audit_path,
+            lambda record: (
+                record.get("action") == event.action
+                and record.get("collaboration_id") == event.collaboration_id
+                and record.get("turn_id") == event.turn_id
+            ),
+        ):
+            return
+        self.append_audit_event(event)
+
     def append_outcome(self, record: OutcomeRecord) -> None:
         """Append an analytics outcome record as JSONL."""
 
         with self._outcomes_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(asdict(record), sort_keys=True) + "\n")
+
+    def append_dialogue_outcome_once(self, record: OutcomeRecord) -> None:
+        """Append a dialogue outcome unless the logical record already exists."""
+
+        if self._jsonl_contains(
+            self._outcomes_path,
+            lambda existing: (
+                existing.get("outcome_type") == record.outcome_type
+                and existing.get("collaboration_id") == record.collaboration_id
+                and existing.get("turn_id") == record.turn_id
+            ),
+        ):
+            return
+        self.append_outcome(record)
 
     def write_phase(self, entry: OperationJournalEntry, *, session_id: str) -> None:
         """Append a phased journal record with fsync."""
@@ -231,6 +259,25 @@ class OperationJournal:
 
     def _operations_path(self, session_id: str) -> Path:
         return self._journal_dir / "operations" / f"{session_id}.jsonl"
+
+    @staticmethod
+    def _jsonl_contains(
+        path: Path, predicate: Callable[[dict[str, Any]], bool]
+    ) -> bool:
+        if not path.exists():
+            return False
+        with path.open(encoding="utf-8") as handle:
+            for line in handle:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                try:
+                    record = json.loads(stripped)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(record, dict) and predicate(record):
+                    return True
+        return False
 
     def timestamp(self) -> str:
         """Return the current UTC timestamp as ISO 8601."""
