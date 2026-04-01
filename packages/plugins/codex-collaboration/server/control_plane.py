@@ -22,6 +22,7 @@ from .models import (
     AuditEvent,
     ConsultRequest,
     ConsultResult,
+    OutcomeRecord,
     RepoIdentity,
 )
 from .prompt_builder import (
@@ -201,6 +202,19 @@ class ControlPlane:
                 policy_fingerprint=runtime.policy_fingerprint,
                 turn_id=turn_result.turn_id,
                 extra={"repo_root": str(resolved_root)},
+            )
+        )
+        self._journal.append_outcome(
+            OutcomeRecord(
+                outcome_id=self._uuid_factory(),
+                timestamp=self._journal.timestamp(),
+                outcome_type="consult",
+                collaboration_id=collaboration_id,
+                runtime_id=runtime.runtime_id,
+                context_size=packet.context_size,
+                turn_id=turn_result.turn_id,
+                policy_fingerprint=runtime.policy_fingerprint,
+                repo_root=str(resolved_root),
             )
         )
         return ConsultResult(

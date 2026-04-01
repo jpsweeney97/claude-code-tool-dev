@@ -253,7 +253,7 @@ def test_codex_consult_returns_structured_result_and_audits_context_size(tmp_pat
         compat_checker=_compat_result,
         repo_identity_loader=_repo_identity,
         clock=lambda: 100.0,
-        uuid_factory=iter(("runtime-1", "collab-1", "event-1")).__next__,
+        uuid_factory=iter(("runtime-1", "collab-1", "event-1", "outcome-1")).__next__,
         journal=journal,
     )
 
@@ -334,7 +334,7 @@ def test_codex_consult_consumes_stale_marker_on_success(tmp_path: Path) -> None:
         runtime_factory=lambda _repo_root: session,
         compat_checker=_compat_result,
         repo_identity_loader=_repo_identity,
-        uuid_factory=iter(("runtime-1", "collab-1", "event-1")).__next__,
+        uuid_factory=iter(("runtime-1", "collab-1", "event-1", "outcome-1")).__next__,
         journal=journal,
     )
 
@@ -363,7 +363,7 @@ def test_codex_consult_invalidates_cached_runtime_after_turn_failure(tmp_path: P
         compat_checker=_compat_result,
         repo_identity_loader=_repo_identity,
         uuid_factory=iter(
-            ("runtime-1", "runtime-2", "collab-2", "event-2")
+            ("runtime-1", "runtime-2", "collab-2", "event-2", "outcome-2")
         ).__next__,
     )
 
@@ -400,7 +400,7 @@ def test_codex_consult_invalidates_cached_runtime_after_parse_failure(tmp_path: 
         compat_checker=_compat_result,
         repo_identity_loader=_repo_identity,
         uuid_factory=iter(
-            ("runtime-1", "runtime-2", "collab-2", "event-2")
+            ("runtime-1", "runtime-2", "collab-2", "event-2", "outcome-2")
         ).__next__,
     )
 
@@ -435,7 +435,7 @@ def test_codex_consult_revalidates_cached_runtime_auth_before_reuse(tmp_path: Pa
         runtime_factory=lambda _repo_root: session,
         compat_checker=_compat_result,
         repo_identity_loader=_repo_identity,
-        uuid_factory=iter(("runtime-1", "collab-1", "event-1")).__next__,
+        uuid_factory=iter(("runtime-1", "collab-1", "event-1", "outcome-1")).__next__,
     )
 
     first_result = plane.codex_consult(
@@ -457,6 +457,64 @@ def test_codex_consult_revalidates_cached_runtime_auth_before_reuse(tmp_path: Pa
         )
     assert session.closed is True
     assert session.run_turn_calls == 1
+
+
+def test_codex_consult_emits_outcome_record(tmp_path: Path) -> None:
+    focus = tmp_path / "focus.py"
+    focus.write_text("print('focus')\n", encoding="utf-8")
+    session = FakeRuntimeSession()
+    plugin_data = tmp_path / "plugin-data"
+    journal = OperationJournal(plugin_data)
+    plane = ControlPlane(
+        plugin_data_path=plugin_data,
+        runtime_factory=lambda _repo_root: session,
+        compat_checker=_compat_result,
+        repo_identity_loader=_repo_identity,
+        clock=lambda: 100.0,
+        uuid_factory=iter(("runtime-1", "collab-1", "event-1", "outcome-1")).__next__,
+        journal=journal,
+    )
+
+    result = plane.codex_consult(
+        ConsultRequest(
+            repo_root=tmp_path,
+            objective="Review focus.py",
+            explicit_paths=(Path("focus.py"),),
+        )
+    )
+
+    outcomes_path = plugin_data / "analytics" / "outcomes.jsonl"
+    assert outcomes_path.exists()
+    record = json.loads(outcomes_path.read_text(encoding="utf-8").strip())
+    assert record["outcome_type"] == "consult"
+    assert record["collaboration_id"] == "collab-1"
+    assert record["runtime_id"] == "runtime-1"
+    assert record["context_size"] == result.context_size
+    assert record["turn_id"] is not None
+    assert record["policy_fingerprint"] is not None
+    assert record["repo_root"] == str(tmp_path.resolve())
+    assert record["turn_sequence"] is None
+
+
+def test_codex_consult_failure_does_not_emit_outcome(tmp_path: Path) -> None:
+    session = FakeRuntimeSession(run_turn_error=RuntimeError("turn boom"))
+    plugin_data = tmp_path / "plugin-data"
+    journal = OperationJournal(plugin_data)
+    plane = ControlPlane(
+        plugin_data_path=plugin_data,
+        runtime_factory=lambda _repo_root: session,
+        compat_checker=_compat_result,
+        repo_identity_loader=_repo_identity,
+        journal=journal,
+    )
+
+    with pytest.raises(RuntimeError, match="turn boom"):
+        plane.codex_consult(
+            ConsultRequest(repo_root=tmp_path, objective="Should fail")
+        )
+
+    outcomes_path = plugin_data / "analytics" / "outcomes.jsonl"
+    assert not outcomes_path.exists() or outcomes_path.read_text(encoding="utf-8").strip() == ""
 
 
 def test_codex_consult_rejects_network_widening_in_r1(tmp_path: Path) -> None:
