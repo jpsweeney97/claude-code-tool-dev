@@ -10,6 +10,23 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import Any
+
+from .replay import ReplayDiagnostics, SchemaViolation, replay_jsonl
+
+
+def _turn_callback(record: dict[str, Any]) -> tuple[str, int]:
+    """Validate and extract turn metadata from a JSONL record."""
+    cid = record.get("collaboration_id")
+    if not isinstance(cid, str):
+        raise SchemaViolation("missing or non-string collaboration_id")
+    seq = record.get("turn_sequence")
+    if type(seq) is not int:
+        raise SchemaViolation("missing or non-int turn_sequence")
+    size = record.get("context_size")
+    if type(size) is not int:
+        raise SchemaViolation("missing or non-int context_size")
+    return (f"{cid}:{seq}", size)
 
 
 class TurnStore:
@@ -53,20 +70,12 @@ class TurnStore:
             if key.startswith(prefix)
         }
 
+    def check_health(self) -> ReplayDiagnostics:
+        """Replay and return diagnostics. Test and diagnostic support only."""
+        _, diagnostics = replay_jsonl(self._store_path, _turn_callback)
+        return diagnostics
+
     def _replay(self) -> dict[str, int]:
         """Replay JSONL log. Last record per key wins."""
-        if not self._store_path.exists():
-            return {}
-        entries: dict[str, int] = {}
-        with self._store_path.open(encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    record = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                key = f"{record['collaboration_id']}:{record['turn_sequence']}"
-                entries[key] = record["context_size"]
-        return entries
+        results, _ = replay_jsonl(self._store_path, _turn_callback)
+        return dict(results)
