@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -19,7 +20,14 @@ def _recovery_stack(
     tmp_path: Path,
     *,
     session: FakeRuntimeSession | None = None,
-) -> tuple[DialogueController, ControlPlane, LineageStore, OperationJournal, TurnStore, FakeRuntimeSession]:
+) -> tuple[
+    DialogueController,
+    ControlPlane,
+    LineageStore,
+    OperationJournal,
+    TurnStore,
+    FakeRuntimeSession,
+]:
     """Wire a stack for recovery testing. Returns all components."""
     session = session or FakeRuntimeSession()
     plugin_data = tmp_path / "plugin-data"
@@ -53,7 +61,9 @@ class TestStartupRecoveryCoordinator:
         """An active handle with no unresolved journal entries still needs
         reattachment after restart (new runtime, stale thread binding)."""
         session = FakeRuntimeSession()
-        controller, _, store, journal, _, session = _recovery_stack(tmp_path, session=session)
+        controller, _, store, journal, _, session = _recovery_stack(
+            tmp_path, session=session
+        )
 
         start = controller.start(tmp_path)
         assert store.get(start.collaboration_id).status == "active"
@@ -77,7 +87,9 @@ class TestStartupRecoveryCoordinator:
         session.read_thread_response = {
             "thread": {"id": "thr-start", "turns": []},
         }
-        controller, _, store, journal, _, session = _recovery_stack(tmp_path, session=session)
+        controller, _, store, journal, _, session = _recovery_stack(
+            tmp_path, session=session
+        )
 
         start1 = controller.start(tmp_path)
         session.read_thread_response = None
@@ -129,7 +141,12 @@ class TestStartupRecoveryCoordinator:
             "thread": {
                 "id": "thr-start",
                 "turns": [
-                    {"id": "t1", "status": "completed", "agentMessage": "", "createdAt": ""},
+                    {
+                        "id": "t1",
+                        "status": "completed",
+                        "agentMessage": "",
+                        "createdAt": "",
+                    },
                 ],
             },
         }
@@ -173,7 +190,9 @@ class TestStartupRecoveryCoordinator:
         from server.models import OperationJournalEntry
 
         session = FakeRuntimeSession()
-        controller, _, store, journal, _, session = _recovery_stack(tmp_path, session=session)
+        controller, _, store, journal, _, session = _recovery_stack(
+            tmp_path, session=session
+        )
 
         journal.write_phase(
             OperationJournalEntry(
@@ -213,7 +232,9 @@ class TestStartupRecoveryCoordinator:
         recovered_resumes = [c for c in resume_calls if c == "thr-recovered"]
         assert len(recovered_resumes) == 1
 
-    def test_quarantines_pre_fix_handle_with_completed_turns(self, tmp_path: Path) -> None:
+    def test_quarantines_pre_fix_handle_with_completed_turns(
+        self, tmp_path: Path
+    ) -> None:
         """Active handle with completed turns but no TurnStore entries is
         quarantined as unknown during startup."""
         session = FakeRuntimeSession()
@@ -221,7 +242,12 @@ class TestStartupRecoveryCoordinator:
             "thread": {
                 "id": "thr-start",
                 "turns": [
-                    {"id": "t1", "status": "completed", "agentMessage": "", "createdAt": ""},
+                    {
+                        "id": "t1",
+                        "status": "completed",
+                        "agentMessage": "",
+                        "createdAt": "",
+                    },
                 ],
             },
         }
@@ -238,7 +264,9 @@ class TestStartupRecoveryCoordinator:
         handle = store.get(start.collaboration_id)
         assert handle.status == "unknown"
 
-    def test_quarantines_post_fix_handle_with_missing_metadata(self, tmp_path: Path) -> None:
+    def test_quarantines_post_fix_handle_with_missing_metadata(
+        self, tmp_path: Path
+    ) -> None:
         """A post-fix handle with some TurnStore entries but fewer than completed
         turns is also quarantined."""
         session = FakeRuntimeSession()
@@ -246,8 +274,18 @@ class TestStartupRecoveryCoordinator:
             "thread": {
                 "id": "thr-start",
                 "turns": [
-                    {"id": "t1", "status": "completed", "agentMessage": "", "createdAt": ""},
-                    {"id": "t2", "status": "completed", "agentMessage": "", "createdAt": ""},
+                    {
+                        "id": "t1",
+                        "status": "completed",
+                        "agentMessage": "",
+                        "createdAt": "",
+                    },
+                    {
+                        "id": "t2",
+                        "status": "completed",
+                        "agentMessage": "",
+                        "createdAt": "",
+                    },
                 ],
             },
         }
@@ -263,7 +301,9 @@ class TestStartupRecoveryCoordinator:
         handle = store.get(start.collaboration_id)
         assert handle.status == "unknown"
 
-    def test_does_not_quarantine_handle_with_no_completed_turns(self, tmp_path: Path) -> None:
+    def test_does_not_quarantine_handle_with_no_completed_turns(
+        self, tmp_path: Path
+    ) -> None:
         """Active handle with zero completed turns (just started, no replies yet)
         should be reattached normally, not quarantined."""
         session = FakeRuntimeSession()
@@ -283,7 +323,9 @@ class TestStartupRecoveryCoordinator:
         assert handle.codex_thread_id == "thr-start"
         assert session.resumed_threads == ["thr-start"]
 
-    def test_reattaches_unknown_handle_with_no_completed_turns(self, tmp_path: Path) -> None:
+    def test_reattaches_unknown_handle_with_no_completed_turns(
+        self, tmp_path: Path
+    ) -> None:
         """Unknown handle with zero completed turns: eligible for reattach.
         No metadata completeness check needed."""
         session = FakeRuntimeSession()
@@ -302,7 +344,9 @@ class TestStartupRecoveryCoordinator:
         assert handle.codex_thread_id == "thr-start"
         assert session.resumed_threads == ["thr-start"]
 
-    def test_reattaches_unknown_handle_with_complete_metadata(self, tmp_path: Path) -> None:
+    def test_reattaches_unknown_handle_with_complete_metadata(
+        self, tmp_path: Path
+    ) -> None:
         """Unknown handle with completed turns and complete TurnStore metadata:
         eligible for reattach, restored to active."""
         session = FakeRuntimeSession()
@@ -310,7 +354,12 @@ class TestStartupRecoveryCoordinator:
             "thread": {
                 "id": "thr-start",
                 "turns": [
-                    {"id": "t1", "status": "completed", "agentMessage": "", "createdAt": ""},
+                    {
+                        "id": "t1",
+                        "status": "completed",
+                        "agentMessage": "",
+                        "createdAt": "",
+                    },
                 ],
             },
         }
@@ -330,7 +379,9 @@ class TestStartupRecoveryCoordinator:
         assert handle.codex_thread_id == "thr-start"
         assert session.resumed_threads == ["thr-start"]
 
-    def test_keeps_unknown_handle_unknown_when_metadata_incomplete(self, tmp_path: Path) -> None:
+    def test_keeps_unknown_handle_unknown_when_metadata_incomplete(
+        self, tmp_path: Path
+    ) -> None:
         """Unknown handle with completed turns but missing TurnStore entries:
         not eligible for reattach, stays unknown."""
         session = FakeRuntimeSession()
@@ -338,8 +389,18 @@ class TestStartupRecoveryCoordinator:
             "thread": {
                 "id": "thr-start",
                 "turns": [
-                    {"id": "t1", "status": "completed", "agentMessage": "", "createdAt": ""},
-                    {"id": "t2", "status": "completed", "agentMessage": "", "createdAt": ""},
+                    {
+                        "id": "t1",
+                        "status": "completed",
+                        "agentMessage": "",
+                        "createdAt": "",
+                    },
+                    {
+                        "id": "t2",
+                        "status": "completed",
+                        "agentMessage": "",
+                        "createdAt": "",
+                    },
                 ],
             },
         }
@@ -357,16 +418,17 @@ class TestStartupRecoveryCoordinator:
         handle = store.get(start.collaboration_id)
         assert handle.status == "unknown"
 
-    def test_keeps_unknown_handle_unknown_when_reattach_fails(self, tmp_path: Path) -> None:
+    def test_keeps_unknown_handle_unknown_when_reattach_fails(
+        self, tmp_path: Path
+    ) -> None:
         """Unknown handle where read_thread or resume_thread raises:
         stays unknown. Exception does not propagate."""
-        session = FakeRuntimeSession(
-            initialize_error=RuntimeError("codex unreachable")
-        )
+        session = FakeRuntimeSession(initialize_error=RuntimeError("codex unreachable"))
         controller, _, store, _, _, session = _recovery_stack(tmp_path, session=session)
 
         # Manually create an unknown handle (can't use start() with initialize_error)
         from server.models import CollaborationHandle
+
         handle = CollaborationHandle(
             collaboration_id="collab-0",
             capability_class="advisory",
@@ -388,3 +450,122 @@ class TestStartupRecoveryCoordinator:
         """Startup recovery is safe on a fresh session with no data."""
         controller, _, _, _, _, _ = _recovery_stack(tmp_path)
         controller.recover_startup()  # should not raise
+
+    def test_malformed_journal_terminal_row_falls_back_to_earlier(
+        self, tmp_path: Path
+    ) -> None:
+        """When a completed terminal row is malformed and skipped by replay,
+        the earlier valid row becomes the terminal phase. Recovery processes
+        the fallback row deterministically."""
+        from server.models import OperationJournalEntry
+
+        session = FakeRuntimeSession()
+        session.read_thread_response = {
+            "thread": {"id": "thr-start", "turns": []},
+        }
+        controller, _, store, journal, _, session = _recovery_stack(
+            tmp_path, session=session
+        )
+
+        start = controller.start(tmp_path)
+        cid = start.collaboration_id
+
+        # Valid turn_dispatch intent
+        journal.write_phase(
+            OperationJournalEntry(
+                idempotency_key="rt-1:thr-start:1",
+                operation="turn_dispatch",
+                phase="intent",
+                collaboration_id=cid,
+                created_at="2026-03-28T00:01:00Z",
+                repo_root=str(tmp_path.resolve()),
+                codex_thread_id="thr-start",
+                turn_sequence=1,
+                runtime_id="rt-1",
+                context_size=4096,
+            ),
+            session_id="sess-1",
+        )
+
+        # Inject malformed "completed" terminal row for same idempotency key.
+        # turn_sequence is a string → SchemaViolation → row skipped.
+        # Last-write-wins falls back to the intent row.
+        ops_path = tmp_path / "plugin-data" / "journal" / "operations" / "sess-1.jsonl"
+        with ops_path.open("a", encoding="utf-8") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "idempotency_key": "rt-1:thr-start:1",
+                        "operation": "turn_dispatch",
+                        "phase": "completed",
+                        "collaboration_id": cid,
+                        "created_at": "2026-03-28T00:01:00Z",
+                        "repo_root": str(tmp_path.resolve()),
+                        "codex_thread_id": "thr-start",
+                        "turn_sequence": "not-an-int",
+                    }
+                )
+                + "\n"
+            )
+
+        # Recovery should not crash. The intent row becomes the terminal phase.
+        # Phase 1: turn_dispatch intent with zero completed turns → quarantine
+        # to 'unknown'. Phase 2: unknown handle with zero completed turns →
+        # eligible for reattach → restored to 'active'.
+        controller.recover_startup()
+
+        handle = store.get(cid)
+        assert handle is not None
+        assert handle.status == "active"
+
+    def test_malformed_turn_metadata_overwrite_survives_in_read(
+        self, tmp_path: Path
+    ) -> None:
+        """A malformed TurnStore overwrite row is skipped. dialogue.read()
+        uses the last valid context_size for that (cid, turn_sequence)."""
+        session = FakeRuntimeSession()
+        session.read_thread_response = {
+            "thread": {
+                "id": "thr-start",
+                "turns": [
+                    {
+                        "id": "t1",
+                        "status": "completed",
+                        "agentMessage": "",
+                        "createdAt": "",
+                    },
+                ],
+            },
+        }
+        controller, _, store, journal, turn_store, session = _recovery_stack(
+            tmp_path, session=session
+        )
+
+        start = controller.start(tmp_path)
+        cid = start.collaboration_id
+
+        # Write valid turn metadata
+        turn_store.write(cid, turn_sequence=1, context_size=4096)
+
+        # Inject malformed overwrite for same (cid, turn_sequence).
+        # turn_sequence is a string → SchemaViolation → row skipped.
+        # TurnStore last-write-wins keeps the valid row (4096).
+        store_path = (
+            tmp_path / "plugin-data" / "turns" / "sess-1" / "turn_metadata.jsonl"
+        )
+        with store_path.open("a", encoding="utf-8") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "collaboration_id": cid,
+                        "turn_sequence": "not-an-int",
+                        "context_size": 9999,
+                    }
+                )
+                + "\n"
+            )
+
+        # dialogue.read() should use the valid metadata (4096), not crash
+        result = controller.read(cid)
+        assert len(result.turns) == 1
+        assert result.turns[0].context_size == 4096
