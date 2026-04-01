@@ -1450,3 +1450,96 @@ class TestReplyParseFailure:
             explicit_paths=(Path("focus.py"),),
         )
         assert reply2.turn_sequence == 2
+
+
+class TestRecoveryOutcomeEmission:
+    def test_recovery_confirmed_emits_outcome_record(self, tmp_path: Path) -> None:
+        """Startup recovery that confirms a turn also emits an outcome record."""
+        focus = tmp_path / "focus.py"
+        focus.write_text("print('focus')\n", encoding="utf-8")
+        session = FakeRuntimeSession()
+        session.read_thread_response = {
+            "thread": {
+                "id": "thr-start",
+                "turns": [
+                    {
+                        "id": "recovered-turn-1",
+                        "status": "completed",
+                        "agentMessage": "",
+                        "createdAt": "2026-04-01T00:00:00Z",
+                    },
+                ],
+            },
+        }
+        controller, _, _, journal, _ = _build_dialogue_stack(
+            tmp_path, session=session
+        )
+        start = controller.start(tmp_path)
+
+        # Simulate: an unresolved turn_dispatch entry left by a crashed session
+        intent_entry = OperationJournalEntry(
+            idempotency_key="rt-sess-1:thr-start:1",
+            operation="turn_dispatch",
+            phase="intent",
+            collaboration_id=start.collaboration_id,
+            created_at="2026-04-01T00:00:00Z",
+            repo_root=str(tmp_path.resolve()),
+            codex_thread_id="thr-start",
+            turn_sequence=1,
+            runtime_id="rt-sess-1",
+            context_size=4096,
+        )
+        journal.write_phase(intent_entry, session_id="sess-1")
+
+        controller.recover_pending_operations()
+
+        outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
+        assert outcomes_path.exists()
+        lines = outcomes_path.read_text(encoding="utf-8").strip().split("\n")
+        records = [json.loads(line) for line in lines]
+        dialogue_outcomes = [r for r in records if r["outcome_type"] == "dialogue_turn"]
+        assert len(dialogue_outcomes) == 1
+        assert dialogue_outcomes[0]["collaboration_id"] == start.collaboration_id
+        assert dialogue_outcomes[0]["turn_id"] == "recovered-turn-1"
+        assert dialogue_outcomes[0]["turn_sequence"] == 1
+        assert dialogue_outcomes[0]["context_size"] == 4096
+        assert dialogue_outcomes[0]["repo_root"] == str(tmp_path.resolve())
+        assert dialogue_outcomes[0]["policy_fingerprint"] is not None
+
+    def test_recovery_unconfirmed_does_not_emit_outcome(self, tmp_path: Path) -> None:
+        """Recovery that cannot confirm the turn does NOT emit an outcome."""
+        focus = tmp_path / "focus.py"
+        focus.write_text("print('focus')\n", encoding="utf-8")
+        session = FakeRuntimeSession()
+        # thread/read shows no completed turns — turn unconfirmed
+        session.read_thread_response = {
+            "thread": {"id": "thr-start", "turns": []},
+        }
+        controller, _, _, journal, _ = _build_dialogue_stack(
+            tmp_path, session=session
+        )
+        start = controller.start(tmp_path)
+
+        intent_entry = OperationJournalEntry(
+            idempotency_key="rt-sess-1:thr-start:1",
+            operation="turn_dispatch",
+            phase="intent",
+            collaboration_id=start.collaboration_id,
+            created_at="2026-04-01T00:00:00Z",
+            repo_root=str(tmp_path.resolve()),
+            codex_thread_id="thr-start",
+            turn_sequence=1,
+            runtime_id="rt-sess-1",
+            context_size=4096,
+        )
+        journal.write_phase(intent_entry, session_id="sess-1")
+
+        controller.recover_pending_operations()
+
+        outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
+        if outcomes_path.exists():
+            content = outcomes_path.read_text(encoding="utf-8").strip()
+            if content:
+                records = [json.loads(line) for line in content.split("\n")]
+                dialogue_outcomes = [r for r in records if r["outcome_type"] == "dialogue_turn"]
+                assert len(dialogue_outcomes) == 0

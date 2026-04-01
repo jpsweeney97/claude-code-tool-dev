@@ -618,6 +618,20 @@ class DialogueController:
                     turn_id=turn_id,
                 )
             )
+            self._journal.append_outcome(
+                OutcomeRecord(
+                    outcome_id=self._uuid_factory(),
+                    timestamp=self._journal.timestamp(),
+                    outcome_type="dialogue_turn",
+                    collaboration_id=entry.collaboration_id,
+                    runtime_id=entry.runtime_id,
+                    context_size=entry.context_size,
+                    turn_id=turn_id,
+                    turn_sequence=entry.turn_sequence,
+                    policy_fingerprint=runtime.policy_fingerprint,
+                    repo_root=entry.repo_root,
+                )
+            )
 
     def _next_turn_sequence(
         self,
