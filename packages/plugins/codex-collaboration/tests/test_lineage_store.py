@@ -57,7 +57,9 @@ class TestCreateAndGet:
         assert record["op"] == "create"
         assert record["collaboration_id"] == "collab-1"
 
-    def test_create_uses_fsync(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_create_uses_fsync(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         fsynced_fds: list[int] = []
         original_fsync = os.fsync
 
@@ -179,3 +181,247 @@ class TestCleanup:
     def test_cleanup_is_safe_when_no_data(self, tmp_path: Path) -> None:
         store = LineageStore(tmp_path, "sess-1")
         store.cleanup()  # no error
+
+
+class TestReplayHardening:
+    """I4 regression: unknown ops and schema violations must be diagnosed."""
+
+    def test_unknown_op_does_not_crash(self, tmp_path: Path) -> None:
+        store = LineageStore(tmp_path, "sess-1")
+        store.create(_make_handle())
+        store_path = tmp_path / "lineage" / "sess-1" / "handles.jsonl"
+        with store_path.open("a", encoding="utf-8") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "op": "future_op",
+                        "collaboration_id": "collab-1",
+                    }
+                )
+                + "\n"
+            )
+        store2 = LineageStore(tmp_path, "sess-1")
+        # Unknown op skipped; original handle survives
+        assert store2.get("collab-1") is not None
+
+    def test_missing_op_does_not_crash(self, tmp_path: Path) -> None:
+        store = LineageStore(tmp_path, "sess-1")
+        store.create(_make_handle())
+        store_path = tmp_path / "lineage" / "sess-1" / "handles.jsonl"
+        with store_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({"collaboration_id": "collab-1"}) + "\n")
+        store2 = LineageStore(tmp_path, "sess-1")
+        assert store2.get("collab-1") is not None
+
+    def test_create_missing_required_field_skipped(self, tmp_path: Path) -> None:
+        """Create op missing a required field is a schema violation."""
+        store_path = tmp_path / "lineage" / "sess-1" / "handles.jsonl"
+        store_path.parent.mkdir(parents=True, exist_ok=True)
+        with store_path.open("a", encoding="utf-8") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "op": "create",
+                        "collaboration_id": "collab-bad",
+                        # missing capability_class and other required fields
+                    }
+                )
+                + "\n"
+            )
+        store2 = LineageStore(tmp_path, "sess-1")
+        assert store2.get("collab-bad") is None
+
+    def test_update_status_wrong_type_skipped(self, tmp_path: Path) -> None:
+        store = LineageStore(tmp_path, "sess-1")
+        store.create(_make_handle())
+        store_path = tmp_path / "lineage" / "sess-1" / "handles.jsonl"
+        with store_path.open("a", encoding="utf-8") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "op": "update_status",
+                        "collaboration_id": "collab-1",
+                        "status": 123,  # wrong type
+                    }
+                )
+                + "\n"
+            )
+        store2 = LineageStore(tmp_path, "sess-1")
+        # Status unchanged — bad record skipped
+        assert store2.get("collab-1").status == "active"
+
+    def test_check_health_reports_unknown_op(self, tmp_path: Path) -> None:
+        store = LineageStore(tmp_path, "sess-1")
+        store.create(_make_handle())
+        store_path = tmp_path / "lineage" / "sess-1" / "handles.jsonl"
+        with store_path.open("a", encoding="utf-8") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "op": "future_op",
+                        "collaboration_id": "collab-1",
+                    }
+                )
+                + "\n"
+            )
+        diags = store.check_health()
+        assert len(diags.diagnostics) == 1
+        assert diags.diagnostics[0].label == "unknown_operation"
+
+    def test_check_health_clean_file(self, tmp_path: Path) -> None:
+        store = LineageStore(tmp_path, "sess-1")
+        store.create(_make_handle())
+        diags = store.check_health()
+        assert diags.diagnostics == ()
+
+    def test_create_invalid_status_diagnosed_and_skipped(self, tmp_path: Path) -> None:
+        """Unknown status literal is a schema violation — intentionally tighter
+        than the extra-field policy. See compatibility decision in callback."""
+        store_path = tmp_path / "lineage" / "sess-1" / "handles.jsonl"
+        store_path.parent.mkdir(parents=True, exist_ok=True)
+        with store_path.open("w", encoding="utf-8") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "op": "create",
+                        "collaboration_id": "collab-bad",
+                        "capability_class": "advisory",
+                        "runtime_id": "rt-1",
+                        "codex_thread_id": "thread-1",
+                        "claude_session_id": "sess-1",
+                        "repo_root": "/repo",
+                        "created_at": "2026-01-01T00:00:00Z",
+                        "status": "banana",
+                    }
+                )
+                + "\n"
+            )
+        store2 = LineageStore(tmp_path, "sess-1")
+        assert store2.get("collab-bad") is None
+        diags = store2.check_health()
+        assert len(diags.diagnostics) == 1
+        assert diags.diagnostics[0].label == "schema_violation"
+        assert "status" in diags.diagnostics[0].detail
+
+    def test_create_invalid_capability_class_diagnosed_and_skipped(
+        self, tmp_path: Path
+    ) -> None:
+        """Unknown capability_class is a schema violation — intentionally tighter
+        than the extra-field policy. See compatibility decision in callback."""
+        store_path = tmp_path / "lineage" / "sess-1" / "handles.jsonl"
+        store_path.parent.mkdir(parents=True, exist_ok=True)
+        with store_path.open("w", encoding="utf-8") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "op": "create",
+                        "collaboration_id": "collab-bad",
+                        "capability_class": "banana",
+                        "runtime_id": "rt-1",
+                        "codex_thread_id": "thread-1",
+                        "claude_session_id": "sess-1",
+                        "repo_root": "/repo",
+                        "created_at": "2026-01-01T00:00:00Z",
+                        "status": "active",
+                    }
+                )
+                + "\n"
+            )
+        store2 = LineageStore(tmp_path, "sess-1")
+        assert store2.get("collab-bad") is None
+        diags = store2.check_health()
+        assert len(diags.diagnostics) == 1
+        assert diags.diagnostics[0].label == "schema_violation"
+        assert "capability_class" in diags.diagnostics[0].detail
+
+    def test_update_status_invalid_literal_diagnosed_and_skipped(
+        self, tmp_path: Path
+    ) -> None:
+        """Unknown status literal on update_status is a schema violation."""
+        store = LineageStore(tmp_path, "sess-1")
+        store.create(_make_handle())
+        store_path = tmp_path / "lineage" / "sess-1" / "handles.jsonl"
+        with store_path.open("a", encoding="utf-8") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "op": "update_status",
+                        "collaboration_id": "collab-1",
+                        "status": "banana",
+                    }
+                )
+                + "\n"
+            )
+        store2 = LineageStore(tmp_path, "sess-1")
+        assert store2.get("collab-1").status == "active"
+        diags = store2.check_health()
+        assert len(diags.diagnostics) == 1
+        assert diags.diagnostics[0].label == "schema_violation"
+        assert "status" in diags.diagnostics[0].detail
+
+    def test_update_runtime_wrong_type_runtime_id_skipped(self, tmp_path: Path) -> None:
+        store = LineageStore(tmp_path, "sess-1")
+        store.create(_make_handle())
+        store_path = tmp_path / "lineage" / "sess-1" / "handles.jsonl"
+        with store_path.open("a", encoding="utf-8") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "op": "update_runtime",
+                        "collaboration_id": "collab-1",
+                        "runtime_id": 123,
+                    }
+                )
+                + "\n"
+            )
+        store2 = LineageStore(tmp_path, "sess-1")
+        assert store2.get("collab-1").runtime_id == "rt-1"
+
+    def test_update_runtime_wrong_type_codex_thread_id_skipped(
+        self, tmp_path: Path
+    ) -> None:
+        store = LineageStore(tmp_path, "sess-1")
+        store.create(_make_handle())
+        store_path = tmp_path / "lineage" / "sess-1" / "handles.jsonl"
+        with store_path.open("a", encoding="utf-8") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "op": "update_runtime",
+                        "collaboration_id": "collab-1",
+                        "runtime_id": "rt-2",
+                        "codex_thread_id": 123,
+                    }
+                )
+                + "\n"
+            )
+        store2 = LineageStore(tmp_path, "sess-1")
+        assert store2.get("collab-1").codex_thread_id == "thr-1"
+
+    def test_create_extra_field_ignored(self, tmp_path: Path) -> None:
+        """Forward-compat: extra fields on create are silently ignored.
+        Shared policy per design spec §Extra-Field Policy."""
+        store_path = tmp_path / "lineage" / "sess-1" / "handles.jsonl"
+        store_path.parent.mkdir(parents=True, exist_ok=True)
+        with store_path.open("w", encoding="utf-8") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "op": "create",
+                        "collaboration_id": "collab-1",
+                        "capability_class": "advisory",
+                        "runtime_id": "rt-1",
+                        "codex_thread_id": "thread-1",
+                        "claude_session_id": "sess-1",
+                        "repo_root": "/repo",
+                        "created_at": "2026-01-01T00:00:00Z",
+                        "status": "active",
+                        "future_field": "some_value",
+                    }
+                )
+                + "\n"
+            )
+        store2 = LineageStore(tmp_path, "sess-1")
+        handle = store2.get("collab-1")
+        assert handle is not None
+        assert handle.collaboration_id == "collab-1"
