@@ -111,7 +111,9 @@ class TestLiveRuntimeCompatibility:
     def test_live_probe_returns_required_methods(self):
         available = probe_live_method_surface()
         missing = REQUIRED_METHODS - available
-        assert missing == frozenset(), f"Live probe missing required methods: {sorted(missing)}"
+        assert missing == frozenset(), (
+            f"Live probe missing required methods: {sorted(missing)}"
+        )
 
     def test_live_runtime_compatibility_passes(self):
         result = check_live_runtime_compatibility()

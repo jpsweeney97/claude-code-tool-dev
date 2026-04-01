@@ -389,9 +389,7 @@ class TestDialogueFinalizationFailures:
         start = controller.start(tmp_path)
         original_write_phase = journal.write_phase
 
-        def _fail_completed(
-            entry: OperationJournalEntry, *, session_id: str
-        ) -> None:
+        def _fail_completed(entry: OperationJournalEntry, *, session_id: str) -> None:
             if entry.phase == "completed":
                 raise OSError("journal boom")
             original_write_phase(entry, session_id=session_id)
@@ -1890,7 +1888,9 @@ class TestRecoveryOutcomeEmission:
         assert dialogue_outcomes[0]["repo_root"] == str(tmp_path.resolve())
         assert dialogue_outcomes[0]["policy_fingerprint"] is not None
 
-    def test_recovery_outcome_uses_confirmed_turn_timestamp(self, tmp_path: Path) -> None:
+    def test_recovery_outcome_uses_confirmed_turn_timestamp(
+        self, tmp_path: Path
+    ) -> None:
         focus = tmp_path / "focus.py"
         focus.write_text("print('focus')\n", encoding="utf-8")
         session = FakeRuntimeSession()

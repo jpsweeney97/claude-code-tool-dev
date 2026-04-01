@@ -56,7 +56,9 @@ class AppServerRuntimeSession:
             account_type = account.get("type")
             return AccountState(
                 auth_status="authenticated",
-                account_type=str(account_type) if isinstance(account_type, str) else None,
+                account_type=str(account_type)
+                if isinstance(account_type, str)
+                else None,
                 requires_openai_auth=requires_openai_auth,
             )
         if requires_openai_auth:

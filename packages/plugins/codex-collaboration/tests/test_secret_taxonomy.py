@@ -26,8 +26,11 @@ class TestFamilyStructure:
 
     def test_each_family_has_compiled_pattern(self) -> None:
         import re
+
         for family in FAMILIES:
-            assert isinstance(family.pattern, re.Pattern), f"{family.name} pattern not compiled"
+            assert isinstance(family.pattern, re.Pattern), (
+                f"{family.name} pattern not compiled"
+            )
 
     def test_strict_families_have_no_placeholder_bypass(self) -> None:
         for family in FAMILIES:

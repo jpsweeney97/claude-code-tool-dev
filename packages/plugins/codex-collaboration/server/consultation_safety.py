@@ -59,7 +59,9 @@ def policy_for_tool(tool_name: str) -> ToolScanPolicy:
     return _TOOL_POLICY_MAP[tool_name]
 
 
-def extract_strings(tool_input: object, policy: ToolScanPolicy) -> tuple[list[str], tuple[str, ...]]:
+def extract_strings(
+    tool_input: object, policy: ToolScanPolicy
+) -> tuple[list[str], tuple[str, ...]]:
     """Extract string-bearing values selected by the scan policy.
 
     Returns (texts_to_scan, unexpected_fields).
@@ -79,12 +81,16 @@ def extract_strings(tool_input: object, policy: ToolScanPolicy) -> tuple[list[st
         value, scan_strings, is_root = stack.pop()
         node_count += 1
         if node_count > _NODE_CAP:
-            raise ToolInputLimitExceeded("tool_input traversal failed: node cap exceeded")
+            raise ToolInputLimitExceeded(
+                "tool_input traversal failed: node cap exceeded"
+            )
 
         if isinstance(value, str):
             char_count += len(value)
             if char_count > _CHAR_CAP:
-                raise ToolInputLimitExceeded("tool_input traversal failed: char cap exceeded")
+                raise ToolInputLimitExceeded(
+                    "tool_input traversal failed: char cap exceeded"
+                )
             if scan_strings:
                 texts_to_scan.append(value)
             continue
@@ -119,7 +125,9 @@ def extract_strings(tool_input: object, policy: ToolScanPolicy) -> tuple[list[st
                 stack.append((child, scan_strings, False))
             continue
 
-        raise TypeError(f"tool_input traversal failed: unsupported value. Got: {value!r:.100}")
+        raise TypeError(
+            f"tool_input traversal failed: unsupported value. Got: {value!r:.100}"
+        )
 
     return texts_to_scan, tuple(unexpected_fields)
 
@@ -156,7 +164,9 @@ def check_tool_input(tool_input: object, policy: ToolScanPolicy) -> SafetyVerdic
             worst_reason = result.reason
             worst_tier = result.tier
         elif result_rank == current_rank and result.action == "block":
-            if TIER_RANK.get(result.tier or "", 99) < TIER_RANK.get(worst_tier or "", 99):
+            if TIER_RANK.get(result.tier or "", 99) < TIER_RANK.get(
+                worst_tier or "", 99
+            ):
                 worst_reason = result.reason
                 worst_tier = result.tier
 

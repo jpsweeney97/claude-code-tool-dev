@@ -87,9 +87,7 @@ class TestExtractStrings:
             expected_fields=frozenset(),
             content_fields=frozenset({"data"}),
         )
-        texts, _ = extract_strings(
-            {"data": {"nested": {"deep": "found"}}}, policy
-        )
+        texts, _ = extract_strings({"data": {"nested": {"deep": "found"}}}, policy)
         assert "found" in texts
 
     def test_lists_traversed(self) -> None:
@@ -164,7 +162,11 @@ class TestCheckToolInput:
     def test_profile_field_is_scanned(self) -> None:
         """profile is a content_field — credentials in profile names are caught."""
         verdict = check_tool_input(
-            {"objective": "clean review", "repo_root": "/tmp", "profile": "AKIAIOSFODNN7EXAMPLE"},
+            {
+                "objective": "clean review",
+                "repo_root": "/tmp",
+                "profile": "AKIAIOSFODNN7EXAMPLE",
+            },
             CONSULT_POLICY,
         )
         assert verdict.action == "block"

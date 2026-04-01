@@ -6,7 +6,9 @@ import pytest
 
 from server.codex_compat import TESTED_CODEX_VERSION
 
-FIXTURES_DIR = Path(__file__).parent / "fixtures" / "codex-app-server" / TESTED_CODEX_VERSION
+FIXTURES_DIR = (
+    Path(__file__).parent / "fixtures" / "codex-app-server" / TESTED_CODEX_VERSION
+)
 
 
 @pytest.fixture

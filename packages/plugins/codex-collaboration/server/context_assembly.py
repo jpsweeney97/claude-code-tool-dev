@@ -51,7 +51,9 @@ class _ContextEntry:
     content: str
 
 
-def _validate_boundary_map(*, family_name: str, redacted: str, index_map: list[int]) -> None:
+def _validate_boundary_map(
+    *, family_name: str, redacted: str, index_map: list[int]
+) -> None:
     if len(index_map) != len(redacted) + 1:
         got = {
             "family": family_name,
@@ -88,7 +90,9 @@ def assemble_context_packet(
             f"Got: {request.network_access!r:.100}"
         )
 
-    explicit_entries = _build_explicit_entries(request.repo_root, request.explicit_paths)
+    explicit_entries = _build_explicit_entries(
+        request.repo_root, request.explicit_paths
+    )
     for index, snippet in enumerate(request.explicit_snippets, start=1):
         explicit_entries.append(
             _ContextEntry(
@@ -152,6 +156,7 @@ def assemble_context_packet(
     # Routed through _build_text_entries so learnings pass through _redact_text()
     # at construction time — _render_packet() does not redact entry content.
     from .retrieve_learnings import retrieve_learnings
+
     learnings_text = retrieve_learnings(request.objective, repo_root=request.repo_root)
     if learnings_text:
         entries["supplementary_context"].extend(
@@ -244,7 +249,9 @@ def _render_packet(
                 _redact_text(item) for item in request.acceptance_criteria
             ],
         },
-        "safety_envelope": _build_safety_envelope(profile=profile, network_access=request.network_access),
+        "safety_envelope": _build_safety_envelope(
+            profile=profile, network_access=request.network_access
+        ),
         "expected_output_shape": {
             "position": "string",
             "evidence": [{"claim": "string", "citation": "string"}],
@@ -271,7 +278,9 @@ def _render_packet(
     return json.dumps(payload, indent=2, sort_keys=False)
 
 
-def _build_safety_envelope(*, profile: CapabilityProfile, network_access: bool) -> dict[str, object]:
+def _build_safety_envelope(
+    *, profile: CapabilityProfile, network_access: bool
+) -> dict[str, object]:
     if profile == "advisory":
         return {
             "sandbox": "read_only",
@@ -309,7 +318,9 @@ def _capability_instructions(profile: CapabilityProfile) -> list[str]:
     ]
 
 
-def _build_explicit_entries(repo_root: Path, paths: tuple[Path, ...]) -> list[_ContextEntry]:
+def _build_explicit_entries(
+    repo_root: Path, paths: tuple[Path, ...]
+) -> list[_ContextEntry]:
     entries: list[_ContextEntry] = []
     for path in paths:
         entries.append(
@@ -341,14 +352,20 @@ def _build_sorted_file_entries(
 
 def _build_text_entries(category: str, values: tuple[str, ...]) -> list[_ContextEntry]:
     return [
-        _ContextEntry(category=category, label=f"{category}:{index}", content=_redact_text(value))
+        _ContextEntry(
+            category=category, label=f"{category}:{index}", content=_redact_text(value)
+        )
         for index, value in enumerate(values, start=1)
     ]
 
 
 def _read_file_excerpt(repo_root: Path, path: Path) -> str:
     resolved_repo_root = repo_root.resolve()
-    candidate = (resolved_repo_root / path).resolve() if not path.is_absolute() else path.resolve()
+    candidate = (
+        (resolved_repo_root / path).resolve()
+        if not path.is_absolute()
+        else path.resolve()
+    )
     try:
         candidate.relative_to(resolved_repo_root)
     except ValueError as exc:
@@ -449,7 +466,11 @@ def _redact_text(value: str) -> str:
 
 def _normalized_path(repo_root: Path, path: Path) -> str:
     resolved_repo_root = repo_root.resolve()
-    candidate = (resolved_repo_root / path).resolve() if not path.is_absolute() else path.resolve()
+    candidate = (
+        (resolved_repo_root / path).resolve()
+        if not path.is_absolute()
+        else path.resolve()
+    )
     try:
         return candidate.relative_to(resolved_repo_root).as_posix()
     except ValueError as exc:
@@ -461,7 +482,11 @@ def _normalized_path(repo_root: Path, path: Path) -> str:
 
 def _display_path(repo_root: Path, path: Path) -> str:
     resolved_repo_root = repo_root.resolve()
-    candidate = (resolved_repo_root / path).resolve() if not path.is_absolute() else path.resolve()
+    candidate = (
+        (resolved_repo_root / path).resolve()
+        if not path.is_absolute()
+        else path.resolve()
+    )
     try:
         return candidate.relative_to(resolved_repo_root).as_posix()
     except ValueError as exc:

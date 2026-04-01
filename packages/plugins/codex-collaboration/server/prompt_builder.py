@@ -50,7 +50,9 @@ def build_consult_turn_text(packet_payload: str, *, posture: str | None = None) 
     )
 
 
-def parse_consult_response(message: str) -> tuple[str, tuple[ConsultEvidence, ...], tuple[str, ...], tuple[str, ...]]:
+def parse_consult_response(
+    message: str,
+) -> tuple[str, tuple[ConsultEvidence, ...], tuple[str, ...], tuple[str, ...]]:
     """Parse the final agent message into the structured consult projection."""
 
     try:
@@ -76,7 +78,9 @@ def parse_consult_response(message: str) -> tuple[str, tuple[ConsultEvidence, ..
             "Consult result parse failed: evidence must be an array. "
             f"Got: {evidence_items!r:.100}"
         )
-    if not isinstance(uncertainties, list) or not all(isinstance(item, str) for item in uncertainties):
+    if not isinstance(uncertainties, list) or not all(
+        isinstance(item, str) for item in uncertainties
+    ):
         raise ValueError(
             "Consult result parse failed: uncertainties must be a string array. "
             f"Got: {uncertainties!r:.100}"

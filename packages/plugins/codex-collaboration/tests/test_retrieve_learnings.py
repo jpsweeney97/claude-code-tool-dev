@@ -51,7 +51,9 @@ class TestFilterByRelevance:
 
     def test_zero_score_filtered_out(self) -> None:
         entries = [
-            LearningEntry(date="2026-01-01", tags=["profiles"], content="profile config"),
+            LearningEntry(
+                date="2026-01-01", tags=["profiles"], content="profile config"
+            ),
         ]
         filtered = filter_by_relevance(entries, "safety")
         assert filtered == []

@@ -68,25 +68,30 @@ class SemVer:
 # Method surface
 # ──────────────────────────────────────────
 
-REQUIRED_METHODS: frozenset[str] = frozenset({
-    "thread/start",
-    "thread/resume",
-    "thread/fork",
-    "thread/read",
-    "turn/start",
-    "turn/interrupt",
-})
+REQUIRED_METHODS: frozenset[str] = frozenset(
+    {
+        "thread/start",
+        "thread/resume",
+        "thread/fork",
+        "thread/read",
+        "turn/start",
+        "turn/interrupt",
+    }
+)
 """Methods that must be present for the plugin to start. Missing = fail-closed."""
 
-OPTIONAL_METHODS: frozenset[str] = frozenset({
-    "turn/steer",
-})
+OPTIONAL_METHODS: frozenset[str] = frozenset(
+    {
+        "turn/steer",
+    }
+)
 """Methods checked at startup but not required. Missing = warn, record in status."""
 
 
 # ──────────────────────────────────────────
 # Schema extraction
 # ──────────────────────────────────────────
+
 
 def extract_client_methods(client_request_schema_path: Path) -> frozenset[str]:
     """Extract method names from a ClientRequest.json schema file.
@@ -168,15 +173,14 @@ def get_codex_version() -> SemVer:
     output = result.stdout.strip()
     match = _CODEX_VERSION_RE.match(output)
     if not match:
-        raise RuntimeError(
-            f"Unexpected codex version format. Got: {output!r:.100}"
-        )
+        raise RuntimeError(f"Unexpected codex version format. Got: {output!r:.100}")
     return SemVer.parse(match.group(1))
 
 
 # ──────────────────────────────────────────
 # Compatibility check result
 # ──────────────────────────────────────────
+
 
 @dataclass(frozen=True)
 class CompatCheckResult:

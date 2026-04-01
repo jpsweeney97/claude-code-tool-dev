@@ -31,9 +31,7 @@ class ScanResult:
 
 def _families_for_tier(tier: Tier) -> tuple[SecretFamily, ...]:
     return tuple(
-        family
-        for family in FAMILIES
-        if family.egress_enabled and family.tier == tier
+        family for family in FAMILIES if family.egress_enabled and family.tier == tier
     )
 
 

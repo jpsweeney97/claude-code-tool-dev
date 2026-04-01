@@ -11,9 +11,7 @@ from pathlib import Path
 
 import pytest
 
-SCRIPT = str(
-    Path(__file__).resolve().parent.parent / "scripts" / "codex_guard.py"
-)
+SCRIPT = str(Path(__file__).resolve().parent.parent / "scripts" / "codex_guard.py")
 
 
 def _load_guard_module():
@@ -28,12 +26,14 @@ def _load_guard_module():
 
 
 def _run_hook(tool_name: str, tool_input: dict) -> subprocess.CompletedProcess:
-    payload = json.dumps({
-        "hook_event_name": "PreToolUse",
-        "tool_name": tool_name,
-        "tool_input": tool_input,
-        "session_id": "test-session",
-    })
+    payload = json.dumps(
+        {
+            "hook_event_name": "PreToolUse",
+            "tool_name": tool_name,
+            "tool_input": tool_input,
+            "session_id": "test-session",
+        }
+    )
     return subprocess.run(
         [sys.executable, SCRIPT],
         input=payload,
@@ -77,7 +77,9 @@ class TestHookBlocksSecrets:
             {"repo_root": "/tmp", "objective": "use AKIAIOSFODNN7EXAMPLE"},
         )
         assert result.returncode == 2
-        assert "credential" in result.stderr.lower() or "blocked" in result.stderr.lower()
+        assert (
+            "credential" in result.stderr.lower() or "blocked" in result.stderr.lower()
+        )
 
     def test_openai_key_blocks(self) -> None:
         key = "sk-" + "a" * 40
@@ -110,7 +112,11 @@ class TestHookBlocksSecrets:
         """Credential in profile field is caught — profile is a content_field."""
         result = _run_hook(
             "mcp__plugin_codex-collaboration_codex-collaboration__codex.consult",
-            {"repo_root": "/tmp", "objective": "clean", "profile": "AKIAIOSFODNN7EXAMPLE"},
+            {
+                "repo_root": "/tmp",
+                "objective": "clean",
+                "profile": "AKIAIOSFODNN7EXAMPLE",
+            },
         )
         assert result.returncode == 2
 
@@ -125,7 +131,9 @@ class TestHookFailsClosed:
             text=True,
         )
         assert proc.returncode == 2
-        assert "failed to parse" in proc.stderr.lower() or "stdin" in proc.stderr.lower()
+        assert (
+            "failed to parse" in proc.stderr.lower() or "stdin" in proc.stderr.lower()
+        )
 
     def test_malformed_json_blocks(self) -> None:
         """Invalid JSON must fail closed."""
@@ -149,10 +157,12 @@ class TestHookFailsClosed:
         """Missing tool_input on a plugin tool must fail closed."""
         proc = subprocess.run(
             [sys.executable, SCRIPT],
-            input=json.dumps({
-                "hook_event_name": "PreToolUse",
-                "tool_name": "mcp__plugin_codex-collaboration_codex-collaboration__codex.consult",
-            }),
+            input=json.dumps(
+                {
+                    "hook_event_name": "PreToolUse",
+                    "tool_name": "mcp__plugin_codex-collaboration_codex-collaboration__codex.consult",
+                }
+            ),
             capture_output=True,
             text=True,
         )
@@ -169,12 +179,14 @@ class TestHookFailsClosed:
         def _boom(tool_input: object, policy: object) -> object:
             raise RuntimeError("boom")
 
-        payload = json.dumps({
-            "hook_event_name": "PreToolUse",
-            "tool_name": "mcp__plugin_codex-collaboration_codex-collaboration__codex.consult",
-            "tool_input": {"repo_root": "/tmp", "objective": "clean"},
-            "session_id": "test-session",
-        })
+        payload = json.dumps(
+            {
+                "hook_event_name": "PreToolUse",
+                "tool_name": "mcp__plugin_codex-collaboration_codex-collaboration__codex.consult",
+                "tool_input": {"repo_root": "/tmp", "objective": "clean"},
+                "session_id": "test-session",
+            }
+        )
 
         monkeypatch.setattr(consultation_safety, "check_tool_input", _boom)
         monkeypatch.setattr(module.sys, "stdin", io.StringIO(payload))

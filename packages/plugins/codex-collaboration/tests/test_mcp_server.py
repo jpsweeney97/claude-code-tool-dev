@@ -34,6 +34,7 @@ class FakeControlPlane:
 
     def codex_consult(self, request: object) -> object:
         from server.models import ConsultResult, ConsultEvidence
+
         return ConsultResult(
             collaboration_id="c1",
             runtime_id="r1",
@@ -54,6 +55,7 @@ class FakeDialogueController:
 
     def start(self, repo_root: Path, *, profile_name: str | None = None) -> object:
         from server.models import DialogueStartResult
+
         return DialogueStartResult(
             collaboration_id="c1",
             runtime_id="r1",
@@ -63,6 +65,7 @@ class FakeDialogueController:
 
     def reply(self, **kwargs: object) -> object:
         from server.models import DialogueReplyResult
+
         return DialogueReplyResult(
             collaboration_id=str(kwargs.get("collaboration_id", "c1")),
             runtime_id="r1",
@@ -76,6 +79,7 @@ class FakeDialogueController:
 
     def read(self, collaboration_id: str) -> object:
         from server.models import DialogueReadResult
+
         return DialogueReadResult(
             collaboration_id=collaboration_id,
             status="active",
@@ -87,6 +91,7 @@ class FakeDialogueController:
 
 class FakeDialogueControllerWithParseError:
     """Dialogue controller that raises CommittedTurnParseError on reply."""
+
     def __init__(self) -> None:
         self.startup_called = False
 
@@ -95,6 +100,7 @@ class FakeDialogueControllerWithParseError:
 
     def start(self, repo_root: Path, *, profile_name: str | None = None) -> object:
         from server.models import DialogueStartResult
+
         return DialogueStartResult(
             collaboration_id="c1",
             runtime_id="r1",
@@ -112,6 +118,7 @@ class FakeDialogueControllerWithParseError:
 
     def read(self, collaboration_id: str) -> object:
         from server.models import DialogueReadResult
+
         return DialogueReadResult(
             collaboration_id=collaboration_id,
             status="active",
@@ -169,29 +176,41 @@ class TestMcpServer:
 
     def test_handle_initialize(self) -> None:
         server = self._make_server()
-        response = server.handle_request({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {"protocolVersion": "2024-11-05", "clientInfo": {"name": "test"}},
-        })
+        response = server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "clientInfo": {"name": "test"},
+                },
+            }
+        )
         assert response["result"]["protocolVersion"] == "2024-11-05"
         assert "tools" in response["result"]["capabilities"]
 
     def test_handle_tools_list(self) -> None:
         server = self._make_server()
-        server.handle_request({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "method": "initialize",
-            "params": {"protocolVersion": "2024-11-05", "clientInfo": {"name": "test"}},
-        })
-        response = server.handle_request({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "tools/list",
-            "params": {},
-        })
+        server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 0,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "clientInfo": {"name": "test"},
+                },
+            }
+        )
+        response = server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/list",
+                "params": {},
+            }
+        )
         tools = response["result"]["tools"]
         names = {t["name"] for t in tools}
         assert "codex.dialogue.start" in names
@@ -199,21 +218,28 @@ class TestMcpServer:
 
     def test_handle_tools_call_dialogue_start(self) -> None:
         server = self._make_server()
-        server.handle_request({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "method": "initialize",
-            "params": {"protocolVersion": "2024-11-05", "clientInfo": {"name": "test"}},
-        })
-        response = server.handle_request({
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "tools/call",
-            "params": {
-                "name": "codex.dialogue.start",
-                "arguments": {"repo_root": "/tmp/test-repo"},
-            },
-        })
+        server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 0,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "clientInfo": {"name": "test"},
+                },
+            }
+        )
+        response = server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "codex.dialogue.start",
+                    "arguments": {"repo_root": "/tmp/test-repo"},
+                },
+            }
+        )
         assert "result" in response
         content = response["result"]["content"]
         assert len(content) == 1
@@ -223,40 +249,54 @@ class TestMcpServer:
 
     def test_handle_unknown_tool_returns_error(self) -> None:
         server = self._make_server()
-        server.handle_request({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "method": "initialize",
-            "params": {"protocolVersion": "2024-11-05", "clientInfo": {"name": "test"}},
-        })
-        response = server.handle_request({
-            "jsonrpc": "2.0",
-            "id": 3,
-            "method": "tools/call",
-            "params": {"name": "codex.dialogue.fork", "arguments": {}},
-        })
+        server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 0,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "clientInfo": {"name": "test"},
+                },
+            }
+        )
+        response = server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {"name": "codex.dialogue.fork", "arguments": {}},
+            }
+        )
         assert response["result"]["isError"] is True
 
     def test_serialized_dispatch_is_sequential(self) -> None:
         """Verify the server processes requests one at a time (implicit in sync loop)."""
         server = self._make_server()
-        server.handle_request({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "method": "initialize",
-            "params": {"protocolVersion": "2024-11-05", "clientInfo": {"name": "test"}},
-        })
+        server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 0,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "clientInfo": {"name": "test"},
+                },
+            }
+        )
         # Multiple calls execute sequentially — the sync design guarantees this.
         for i in range(3):
-            response = server.handle_request({
-                "jsonrpc": "2.0",
-                "id": i + 1,
-                "method": "tools/call",
-                "params": {
-                    "name": "codex.dialogue.start",
-                    "arguments": {"repo_root": "/tmp/test-repo"},
-                },
-            })
+            response = server.handle_request(
+                {
+                    "jsonrpc": "2.0",
+                    "id": i + 1,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "codex.dialogue.start",
+                        "arguments": {"repo_root": "/tmp/test-repo"},
+                    },
+                }
+            )
             assert "result" in response
 
 
@@ -371,8 +411,11 @@ class TestDeferredDialogueInit:
                     raise RuntimeError("transient journal replay failure")
                 self.startup_called = True
 
-            def start(self, repo_root: Path, *, profile_name: str | None = None) -> object:
+            def start(
+                self, repo_root: Path, *, profile_name: str | None = None
+            ) -> object:
                 from server.models import DialogueStartResult
+
                 return DialogueStartResult(
                     collaboration_id="c1",
                     runtime_id="r1",
@@ -409,21 +452,25 @@ class TestDeferredDialogueInit:
         server.handle_request(self._init_request())
         response = server.handle_request(self._dialogue_start_request())
         assert response["result"]["isError"] is True
-        assert "no dialogue controller" in response["result"]["content"][0]["text"].lower()
+        assert (
+            "no dialogue controller" in response["result"]["content"][0]["text"].lower()
+        )
 
     def test_status_works_without_dialogue(self) -> None:
         """codex.status works when no dialogue controller is configured."""
         server = McpServer(control_plane=FakeControlPlane())
         server.handle_request(self._init_request())
-        response = server.handle_request({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "tools/call",
-            "params": {
-                "name": "codex.status",
-                "arguments": {"repo_root": "/tmp/test-repo"},
-            },
-        })
+        response = server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "codex.status",
+                    "arguments": {"repo_root": "/tmp/test-repo"},
+                },
+            }
+        )
         assert "result" in response
         assert "isError" not in response["result"]
         result_data = json.loads(response["result"]["content"][0]["text"])
@@ -433,18 +480,20 @@ class TestDeferredDialogueInit:
         """codex.consult works when no dialogue controller is configured."""
         server = McpServer(control_plane=FakeControlPlane())
         server.handle_request(self._init_request())
-        response = server.handle_request({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "tools/call",
-            "params": {
-                "name": "codex.consult",
-                "arguments": {
-                    "repo_root": "/tmp/test-repo",
-                    "objective": "test question",
+        response = server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "codex.consult",
+                    "arguments": {
+                        "repo_root": "/tmp/test-repo",
+                        "objective": "test question",
+                    },
                 },
-            },
-        })
+            }
+        )
         assert "result" in response
         assert "isError" not in response["result"]
         result_data = json.loads(response["result"]["content"][0]["text"])
@@ -458,24 +507,31 @@ class TestCommittedTurnParseErrorSurfacing:
             control_plane=FakeControlPlane(),
             dialogue_controller=FakeDialogueControllerWithParseError(),
         )
-        server.handle_request({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "method": "initialize",
-            "params": {"protocolVersion": "2024-11-05", "clientInfo": {"name": "test"}},
-        })
-        response = server.handle_request({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "tools/call",
-            "params": {
-                "name": "codex.dialogue.reply",
-                "arguments": {
-                    "collaboration_id": "c1",
-                    "objective": "test",
+        server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 0,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "clientInfo": {"name": "test"},
                 },
-            },
-        })
+            }
+        )
+        response = server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "codex.dialogue.reply",
+                    "arguments": {
+                        "collaboration_id": "c1",
+                        "objective": "test",
+                    },
+                },
+            }
+        )
 
         assert response["result"]["isError"] is True
         error_text = response["result"]["content"][0]["text"]
@@ -487,24 +543,31 @@ class TestCommittedTurnParseErrorSurfacing:
             control_plane=FakeControlPlane(),
             dialogue_controller=FakeDialogueControllerWithFinalizationError(),
         )
-        server.handle_request({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "method": "initialize",
-            "params": {"protocolVersion": "2024-11-05", "clientInfo": {"name": "test"}},
-        })
-        response = server.handle_request({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "tools/call",
-            "params": {
-                "name": "codex.dialogue.reply",
-                "arguments": {
-                    "collaboration_id": "c1",
-                    "objective": "test",
+        server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 0,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "clientInfo": {"name": "test"},
                 },
-            },
-        })
+            }
+        )
+        response = server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "codex.dialogue.reply",
+                    "arguments": {
+                        "collaboration_id": "c1",
+                        "objective": "test",
+                    },
+                },
+            }
+        )
 
         assert response["result"]["isError"] is True
         error_text = response["result"]["content"][0]["text"]

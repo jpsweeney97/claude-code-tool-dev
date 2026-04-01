@@ -12,4 +12,6 @@ def test_parse_consult_response_rejects_malformed_json() -> None:
 
 def test_parse_consult_response_rejects_missing_required_fields() -> None:
     with pytest.raises(ValueError, match="missing string position"):
-        parse_consult_response('{"evidence": [], "uncertainties": [], "follow_up_branches": []}')
+        parse_consult_response(
+            '{"evidence": [], "uncertainties": [], "follow_up_branches": []}'
+        )

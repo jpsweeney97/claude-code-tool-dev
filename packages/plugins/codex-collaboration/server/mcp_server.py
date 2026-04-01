@@ -33,7 +33,10 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                 "repo_root": {"type": "string"},
                 "objective": {"type": "string"},
                 "explicit_paths": {"type": "array", "items": {"type": "string"}},
-                "profile": {"type": "string", "description": "Named consultation profile (e.g., quick-check, deep-review)"},
+                "profile": {
+                    "type": "string",
+                    "description": "Named consultation profile (e.g., quick-check, deep-review)",
+                },
             },
             "required": ["repo_root", "objective"],
         },
@@ -45,7 +48,10 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "repo_root": {"type": "string", "description": "Repository root path"},
-                "profile": {"type": "string", "description": "Named consultation profile — resolved once at start, persisted for all subsequent replies"},
+                "profile": {
+                    "type": "string",
+                    "description": "Named consultation profile — resolved once at start, persisted for all subsequent replies",
+                },
             },
             "required": ["repo_root"],
         },
@@ -159,9 +165,7 @@ class McpServer:
             if response:
                 _write_response(response)
 
-    def _handle_initialize(
-        self, req_id: Any, params: dict[str, Any]
-    ) -> dict[str, Any]:
+    def _handle_initialize(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
         self._initialized = True
         return {
             "jsonrpc": "2.0",
@@ -183,9 +187,7 @@ class McpServer:
             "result": {"tools": TOOL_DEFINITIONS},
         }
 
-    def _handle_tools_call(
-        self, req_id: Any, params: dict[str, Any]
-    ) -> dict[str, Any]:
+    def _handle_tools_call(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
         tool_name = params.get("name", "")
         arguments = params.get("arguments", {})
         try:
@@ -234,7 +236,9 @@ class McpServer:
             return asdict(result)
         if name == "codex.dialogue.start":
             controller = self._ensure_dialogue_controller()
-            result = controller.start(Path(arguments["repo_root"]), profile_name=arguments.get("profile"))
+            result = controller.start(
+                Path(arguments["repo_root"]), profile_name=arguments.get("profile")
+            )
             return asdict(result)
         if name == "codex.dialogue.reply":
             controller = self._ensure_dialogue_controller()

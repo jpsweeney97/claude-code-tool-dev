@@ -110,9 +110,7 @@ FAMILIES: tuple[SecretFamily, ...] = (
     ),
     SecretFamily(
         name="basic_auth_header",
-        pattern=re.compile(
-            r"(?i)(authorization\s*:\s*basic\s+)([A-Za-z0-9+/=]{8,})"
-        ),
+        pattern=re.compile(r"(?i)(authorization\s*:\s*basic\s+)([A-Za-z0-9+/=]{8,})"),
         tier="strict",
         placeholder_bypass=(),
         redact_template=r"\1[REDACTED:value]",

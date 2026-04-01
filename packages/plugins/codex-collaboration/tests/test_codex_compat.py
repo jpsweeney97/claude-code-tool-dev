@@ -86,7 +86,9 @@ class TestGetCodexVersionParsing:
 
     def _mock_version_output(self, stdout: str) -> SemVer:
         """Run get_codex_version() with mocked subprocess returning stdout."""
-        mock_result = type("Result", (), {"stdout": stdout, "returncode": 0, "stderr": ""})()
+        mock_result = type(
+            "Result", (), {"stdout": stdout, "returncode": 0, "stderr": ""}
+        )()
         with patch("server.codex_compat.subprocess.run", return_value=mock_result):
             return get_codex_version()
 
@@ -107,9 +109,7 @@ class TestGetCodexVersionErrors:
     """Unit tests for get_codex_version() failure-mode translation."""
 
     def test_binary_not_found(self):
-        with patch(
-            "server.codex_compat.subprocess.run", side_effect=FileNotFoundError
-        ):
+        with patch("server.codex_compat.subprocess.run", side_effect=FileNotFoundError):
             with pytest.raises(RuntimeError, match="not found on PATH"):
                 get_codex_version()
 
@@ -147,9 +147,7 @@ class TestCheckVersionFloorMocked:
 
     def test_below_minimum(self):
         old_version = SemVer(0, 1, 0)
-        with patch(
-            "server.codex_compat.get_codex_version", return_value=old_version
-        ):
+        with patch("server.codex_compat.get_codex_version", return_value=old_version):
             result = check_version_floor()
         assert result.passed is False
         assert result.codex_version == old_version
@@ -159,9 +157,7 @@ class TestCheckVersionFloorMocked:
 
     def test_exact_tested_version(self):
         tested = SemVer.parse(TESTED_CODEX_VERSION)
-        with patch(
-            "server.codex_compat.get_codex_version", return_value=tested
-        ):
+        with patch("server.codex_compat.get_codex_version", return_value=tested):
             result = check_version_floor()
         assert result.passed is True
         assert result.codex_version == tested
@@ -171,9 +167,7 @@ class TestCheckVersionFloorMocked:
 
     def test_newer_than_tested_version(self):
         newer = SemVer(99, 0, 0)
-        with patch(
-            "server.codex_compat.get_codex_version", return_value=newer
-        ):
+        with patch("server.codex_compat.get_codex_version", return_value=newer):
             result = check_version_floor()
         assert result.passed is True
         assert result.codex_version == newer
@@ -193,11 +187,15 @@ class TestVersionConstants:
     def test_minimum_not_above_tested(self):
         tested = SemVer.parse(TESTED_CODEX_VERSION)
         minimum = SemVer.parse(MINIMUM_CODEX_VERSION)
-        assert minimum <= tested, "MINIMUM_CODEX_VERSION must not exceed TESTED_CODEX_VERSION"
+        assert minimum <= tested, (
+            "MINIMUM_CODEX_VERSION must not exceed TESTED_CODEX_VERSION"
+        )
 
     def test_required_and_optional_disjoint(self):
         overlap = REQUIRED_METHODS & OPTIONAL_METHODS
-        assert overlap == frozenset(), f"Methods in both required and optional: {overlap}"
+        assert overlap == frozenset(), (
+            f"Methods in both required and optional: {overlap}"
+        )
 
 
 class TestExtractClientMethods:
@@ -206,15 +204,23 @@ class TestExtractClientMethods:
         assert isinstance(methods, frozenset)
         assert len(methods) > 0
 
-    def test_vendored_schema_contains_all_required_methods(self, client_request_schema: Path):
+    def test_vendored_schema_contains_all_required_methods(
+        self, client_request_schema: Path
+    ):
         methods = extract_client_methods(client_request_schema)
         missing = REQUIRED_METHODS - methods
-        assert missing == frozenset(), f"Vendored schema missing required methods: {sorted(missing)}"
+        assert missing == frozenset(), (
+            f"Vendored schema missing required methods: {sorted(missing)}"
+        )
 
-    def test_vendored_schema_contains_all_optional_methods(self, client_request_schema: Path):
+    def test_vendored_schema_contains_all_optional_methods(
+        self, client_request_schema: Path
+    ):
         methods = extract_client_methods(client_request_schema)
         missing = OPTIONAL_METHODS - methods
-        assert missing == frozenset(), f"Vendored schema missing optional methods: {sorted(missing)}"
+        assert missing == frozenset(), (
+            f"Vendored schema missing optional methods: {sorted(missing)}"
+        )
 
     def test_vendored_schema_contains_initialize(self, client_request_schema: Path):
         methods = extract_client_methods(client_request_schema)
@@ -261,15 +267,18 @@ class TestCheckMethodSurface:
 class TestLiveRuntimeCompatibilityMocked:
     def test_live_probe_success(self):
         available = REQUIRED_METHODS | OPTIONAL_METHODS
-        with patch(
-            "server.codex_compat.check_version_floor",
-            return_value=CompatCheckResult.from_version_check(
-                codex_version=SemVer.parse(TESTED_CODEX_VERSION),
-                available_methods=available,
+        with (
+            patch(
+                "server.codex_compat.check_version_floor",
+                return_value=CompatCheckResult.from_version_check(
+                    codex_version=SemVer.parse(TESTED_CODEX_VERSION),
+                    available_methods=available,
+                ),
             ),
-        ), patch(
-            "server.codex_compat.probe_live_method_surface",
-            return_value=available,
+            patch(
+                "server.codex_compat.probe_live_method_surface",
+                return_value=available,
+            ),
         ):
             result = check_live_runtime_compatibility()
         assert result.passed is True
@@ -277,29 +286,35 @@ class TestLiveRuntimeCompatibilityMocked:
 
     def test_live_probe_missing_required_fails_closed(self):
         available = REQUIRED_METHODS - {"thread/start"}
-        with patch(
-            "server.codex_compat.check_version_floor",
-            return_value=CompatCheckResult.from_version_check(
-                codex_version=SemVer.parse(TESTED_CODEX_VERSION),
-                available_methods=available,
+        with (
+            patch(
+                "server.codex_compat.check_version_floor",
+                return_value=CompatCheckResult.from_version_check(
+                    codex_version=SemVer.parse(TESTED_CODEX_VERSION),
+                    available_methods=available,
+                ),
             ),
-        ), patch(
-            "server.codex_compat.probe_live_method_surface",
-            return_value=available,
+            patch(
+                "server.codex_compat.probe_live_method_surface",
+                return_value=available,
+            ),
         ):
             result = check_live_runtime_compatibility()
         assert result.passed is False
         assert "required methods missing" in result.errors[0]
 
     def test_live_probe_error_translates_to_failed_result(self):
-        with patch(
-            "server.codex_compat.check_version_floor",
-            return_value=CompatCheckResult.from_version_check(
-                codex_version=SemVer.parse(TESTED_CODEX_VERSION),
+        with (
+            patch(
+                "server.codex_compat.check_version_floor",
+                return_value=CompatCheckResult.from_version_check(
+                    codex_version=SemVer.parse(TESTED_CODEX_VERSION),
+                ),
             ),
-        ), patch(
-            "server.codex_compat.probe_live_method_surface",
-            side_effect=RuntimeError("boom"),
+            patch(
+                "server.codex_compat.probe_live_method_surface",
+                side_effect=RuntimeError("boom"),
+            ),
         ):
             result = check_live_runtime_compatibility()
         assert result.passed is False

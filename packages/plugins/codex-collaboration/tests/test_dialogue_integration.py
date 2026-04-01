@@ -24,7 +24,9 @@ def _full_stack(
     tmp_path: Path,
     *,
     session: FakeRuntimeSession | None = None,
-) -> tuple[DialogueController, ControlPlane, LineageStore, OperationJournal, FakeRuntimeSession]:
+) -> tuple[
+    DialogueController, ControlPlane, LineageStore, OperationJournal, FakeRuntimeSession
+]:
     session = session or FakeRuntimeSession()
     plugin_data = tmp_path / "plugin-data"
     journal = OperationJournal(plugin_data)
@@ -112,14 +114,20 @@ class TestLineageStoreCrashRecovery:
         assert handle.status == "active"
         assert handle.codex_thread_id == "thr-start"
 
-    def test_incomplete_trailing_record_discarded_on_recovery(self, tmp_path: Path) -> None:
+    def test_incomplete_trailing_record_discarded_on_recovery(
+        self, tmp_path: Path
+    ) -> None:
         controller, _, store, _, _ = _full_stack(tmp_path)
         start = controller.start(tmp_path)
 
         # Simulate crash mid-write to lineage store
-        store_path = (tmp_path / "plugin-data" / "lineage" / "sess-1" / "handles.jsonl")
+        store_path = tmp_path / "plugin-data" / "lineage" / "sess-1" / "handles.jsonl"
         with store_path.open("a", encoding="utf-8") as f:
-            f.write('{"op": "update_status", "collaboration_id": "' + start.collaboration_id + '", "stat')
+            f.write(
+                '{"op": "update_status", "collaboration_id": "'
+                + start.collaboration_id
+                + '", "stat'
+            )
 
         store2 = LineageStore(tmp_path / "plugin-data", "sess-1")
         handle = store2.get(start.collaboration_id)
@@ -259,7 +267,9 @@ class TestAuditEvents:
         )
 
         audit_path = journal.plugin_data_path / "audit" / "events.jsonl"
-        events = [json.loads(line) for line in audit_path.read_text().strip().split("\n")]
+        events = [
+            json.loads(line) for line in audit_path.read_text().strip().split("\n")
+        ]
 
         # No dialogue_start action — thread creation is not a trust boundary crossing
         actions = [e["action"] for e in events]
@@ -282,7 +292,9 @@ class TestTurnStoreWriteOrdering:
         focus.write_text("print('focus')\n", encoding="utf-8")
 
         session = FakeRuntimeSession()
-        controller, plane, store, journal, session = _full_stack(tmp_path, session=session)
+        controller, plane, store, journal, session = _full_stack(
+            tmp_path, session=session
+        )
         start = controller.start(tmp_path)
 
         # Perform a normal reply to establish one completed turn
@@ -340,8 +352,18 @@ class TestTurnStoreWriteOrdering:
             "thread": {
                 "id": "thr-start",
                 "turns": [
-                    {"id": "t1", "status": "completed", "agentMessage": "", "createdAt": ""},
-                    {"id": "t2", "status": "completed", "agentMessage": "", "createdAt": ""},
+                    {
+                        "id": "t1",
+                        "status": "completed",
+                        "agentMessage": "",
+                        "createdAt": "",
+                    },
+                    {
+                        "id": "t2",
+                        "status": "completed",
+                        "agentMessage": "",
+                        "createdAt": "",
+                    },
                 ],
             },
         }

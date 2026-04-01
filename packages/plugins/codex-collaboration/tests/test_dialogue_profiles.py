@@ -94,9 +94,7 @@ class TestDialogueReplyUsesStoredProfile:
         assert session.last_prompt_text is not None
         assert "evaluative" in session.last_prompt_text
 
-    def test_reply_without_profile_passes_none_effort(
-        self, tmp_path: Path
-    ) -> None:
+    def test_reply_without_profile_passes_none_effort(self, tmp_path: Path) -> None:
         """reply() on a no-profile handle passes effort=None to run_turn."""
         focus = tmp_path / "focus.py"
         focus.write_text("print('focus')\n", encoding="utf-8")

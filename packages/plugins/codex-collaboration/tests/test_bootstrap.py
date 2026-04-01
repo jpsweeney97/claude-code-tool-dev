@@ -11,14 +11,21 @@ from pathlib import Path
 import pytest
 
 # Bootstrap script is not a package module — import its functions directly.
-_bootstrap_path = Path(__file__).resolve().parent.parent / "scripts" / "codex_runtime_bootstrap.py"
-_hook_path = Path(__file__).resolve().parent.parent / "scripts" / "publish_session_id.py"
+_bootstrap_path = (
+    Path(__file__).resolve().parent.parent / "scripts" / "codex_runtime_bootstrap.py"
+)
+_hook_path = (
+    Path(__file__).resolve().parent.parent / "scripts" / "publish_session_id.py"
+)
 
 
 def _import_bootstrap():
     """Import bootstrap module from scripts/ path."""
     import importlib.util
-    spec = importlib.util.spec_from_file_location("codex_runtime_bootstrap", _bootstrap_path)
+
+    spec = importlib.util.spec_from_file_location(
+        "codex_runtime_bootstrap", _bootstrap_path
+    )
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -64,7 +71,16 @@ class TestBuildDialogueFactory:
         control_plane = ControlPlane(
             plugin_data_path=tmp_path,
             journal=journal,
-            compat_checker=lambda: type("R", (), {"codex_version": None, "passed": False, "errors": (), "available_methods": frozenset()})(),
+            compat_checker=lambda: type(
+                "R",
+                (),
+                {
+                    "codex_version": None,
+                    "passed": False,
+                    "errors": (),
+                    "available_methods": frozenset(),
+                },
+            )(),
         )
 
         factory = mod._build_dialogue_factory(
@@ -75,6 +91,7 @@ class TestBuildDialogueFactory:
         controller = factory()
 
         from server.dialogue import DialogueController
+
         assert isinstance(controller, DialogueController)
 
     def test_factory_raises_when_session_id_missing(self, tmp_path: Path) -> None:
@@ -87,7 +104,16 @@ class TestBuildDialogueFactory:
         control_plane = ControlPlane(
             plugin_data_path=tmp_path,
             journal=journal,
-            compat_checker=lambda: type("R", (), {"codex_version": None, "passed": False, "errors": (), "available_methods": frozenset()})(),
+            compat_checker=lambda: type(
+                "R",
+                (),
+                {
+                    "codex_version": None,
+                    "passed": False,
+                    "errors": (),
+                    "available_methods": frozenset(),
+                },
+            )(),
         )
 
         factory = mod._build_dialogue_factory(

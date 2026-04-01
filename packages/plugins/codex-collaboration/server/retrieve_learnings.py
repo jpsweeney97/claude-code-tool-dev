@@ -35,12 +35,14 @@ def parse_learnings(text: str) -> list[LearningEntry]:
         nonlocal current_date, current_tags, content_lines, has_promote_meta
         if current_date is not None:
             content = "\n".join(content_lines).strip()
-            entries.append(LearningEntry(
-                date=current_date,
-                tags=current_tags,
-                content=content,
-                promoted=has_promote_meta,
-            ))
+            entries.append(
+                LearningEntry(
+                    date=current_date,
+                    tags=current_tags,
+                    content=content,
+                    promoted=has_promote_meta,
+                )
+            )
         current_date = None
         current_tags = []
         content_lines = []
@@ -65,7 +67,8 @@ def parse_learnings(text: str) -> list[LearningEntry]:
 
 
 def filter_by_relevance(
-    entries: list[LearningEntry], query: str,
+    entries: list[LearningEntry],
+    query: str,
 ) -> list[LearningEntry]:
     """Filter entries by tag or content keyword overlap with query."""
     query_lower = query.lower()
@@ -92,7 +95,8 @@ def filter_by_relevance(
 
 
 def format_for_briefing(
-    entries: list[LearningEntry], max_entries: int = 5,
+    entries: list[LearningEntry],
+    max_entries: int = 5,
 ) -> str:
     """Format selected entries as markdown for briefing injection."""
     if not entries:

@@ -68,9 +68,7 @@ def test_assembly_redacts_secrets_from_files_and_snippets(tmp_path: Path) -> Non
     )
     file_path = tmp_path / "secret.txt"
     file_path.write_text(
-        f"api_secret = {sk_key}\n"
-        "password = hunter2secret\n"
-        f"{jwt}\n",
+        f"api_secret = {sk_key}\npassword = hunter2secret\n{jwt}\n",
         encoding="utf-8",
     )
     request = ConsultRequest(
@@ -115,7 +113,9 @@ def test_assembly_redacts_full_pem_blocks_from_files(tmp_path: Path) -> None:
 
     assert "BEGIN RSA PRIVATE KEY" not in packet.payload
     assert "END RSA PRIVATE KEY" not in packet.payload
-    assert "MIIEowIBAAKCAQEA7A1jV5mQ2a8yL3nQ9vJm2l1nZp8Q4k6Jx7d2Y8v5" not in packet.payload
+    assert (
+        "MIIEowIBAAKCAQEA7A1jV5mQ2a8yL3nQ9vJm2l1nZp8Q4k6Jx7d2Y8v5" not in packet.payload
+    )
     assert "[REDACTED:value]" in packet.payload
 
 
@@ -190,8 +190,7 @@ def test_assembly_does_not_redact_code_like_false_positives(tmp_path: Path) -> N
 def test_assembly_does_not_redact_off_by_one_akia_lengths(tmp_path: Path) -> None:
     file_path = tmp_path / "akia_lengths.txt"
     file_path.write_text(
-        "akia_short = AKIAIOSFODNN7EXAMPL\n"
-        "akia_long = AKIAIOSFODNN7EXAMPLE1\n",
+        "akia_short = AKIAIOSFODNN7EXAMPL\nakia_long = AKIAIOSFODNN7EXAMPLE1\n",
         encoding="utf-8",
     )
     request = ConsultRequest(
@@ -210,7 +209,9 @@ def test_assembly_does_not_redact_off_by_one_akia_lengths(tmp_path: Path) -> Non
     assert "AKIAIOSFODNN7EXAMPLE1" in packet.payload
 
 
-def test_assembly_preserves_assignment_label_for_overlapping_redaction_rules(tmp_path: Path) -> None:
+def test_assembly_preserves_assignment_label_for_overlapping_redaction_rules(
+    tmp_path: Path,
+) -> None:
     file_path = tmp_path / "overlap.txt"
     file_path.write_text("api_key = AKIAIOSFODNN7EXAMPLE\n", encoding="utf-8")
     request = ConsultRequest(
@@ -333,7 +334,9 @@ def test_assembly_rejects_when_packet_exceeds_hard_cap(tmp_path: Path) -> None:
         )
 
 
-def test_assembly_rejects_external_research_without_widened_policy(tmp_path: Path) -> None:
+def test_assembly_rejects_external_research_without_widened_policy(
+    tmp_path: Path,
+) -> None:
     request = ConsultRequest(
         repo_root=tmp_path,
         objective="Review external material",
@@ -349,7 +352,9 @@ def test_assembly_rejects_external_research_without_widened_policy(tmp_path: Pat
         )
 
 
-def test_assembly_keeps_delegation_summaries_separate_from_supplementary_context(tmp_path: Path) -> None:
+def test_assembly_keeps_delegation_summaries_separate_from_supplementary_context(
+    tmp_path: Path,
+) -> None:
     request = ConsultRequest(
         repo_root=tmp_path,
         objective="Review delegation artifacts",
@@ -406,23 +411,27 @@ class TestTaxonomyBackedRedaction:
 
     def test_aws_key_redacted(self) -> None:
         from server.context_assembly import _redact_text
+
         result = _redact_text("key is AKIAIOSFODNN7EXAMPLE here")
         assert "AKIAIOSFODNN7EXAMPLE" not in result
         assert "[REDACTED:value]" in result
 
     def test_gitlab_pat_redacted(self) -> None:
         from server.context_assembly import _redact_text
+
         pat = "glpat-" + "A" * 20
         result = _redact_text(f"export TOKEN={pat}")
         assert pat not in result
 
     def test_slack_bot_token_redacted(self) -> None:
         from server.context_assembly import _redact_text
+
         result = _redact_text("token xoxb-1234567890-abcdef")
         assert "xoxb-" not in result
 
     def test_jwt_redacted(self) -> None:
         from server.context_assembly import _redact_text
+
         jwt = (
             "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
             "eyJzdWIiOiIxMjM0NTY3ODkwIn0."
@@ -433,6 +442,7 @@ class TestTaxonomyBackedRedaction:
 
     def test_pem_block_redacted(self) -> None:
         from server.context_assembly import _redact_text
+
         pem_block = (
             "before\n"
             "-----BEGIN RSA PRIVATE KEY-----\n"
@@ -448,6 +458,7 @@ class TestTaxonomyBackedRedaction:
 
     def test_truncated_pem_block_redacted_to_end_of_excerpt(self) -> None:
         from server.context_assembly import _redact_text
+
         pem_excerpt = (
             "prefix\n"
             "-----BEGIN OPENSSH PRIVATE KEY-----\n"
@@ -458,6 +469,7 @@ class TestTaxonomyBackedRedaction:
 
     def test_placeholder_context_not_redacted(self) -> None:
         from server.context_assembly import _redact_text
+
         pat = "ghp_" + "A" * 36
         text = f"for example the format is {pat}"
         result = _redact_text(text)
@@ -467,6 +479,7 @@ class TestTaxonomyBackedRedaction:
     def test_per_match_bypass_does_not_suppress_real_tokens(self) -> None:
         """One example token must not suppress redaction of a real token in the same string."""
         from server.context_assembly import _redact_text
+
         pat = "ghp_" + "A" * 36
         real_pat = "ghp_" + "B" * 36
         # First occurrence has "example" nearby, second does not.
@@ -480,6 +493,7 @@ class TestTaxonomyBackedRedaction:
 
     def test_strict_redactions_do_not_shift_contextual_bypass_windows(self) -> None:
         from server.context_assembly import _redact_text
+
         long_basic_token = "A" * 200
         pat = "ghp_" + "B" * 36
         text = f"example Authorization: Basic {long_basic_token} {pat}"
@@ -489,12 +503,14 @@ class TestTaxonomyBackedRedaction:
 
     def test_clean_text_unchanged(self) -> None:
         from server.context_assembly import _redact_text
+
         text = "This is a normal code review comment."
         assert _redact_text(text) == text
 
     def test_branch_name_redacted_in_render(self) -> None:
         """repo_identity.branch passes through _redact_text."""
         from server.context_assembly import _redact_text
+
         # A branch name containing a secret pattern should be redacted
         branch = "feature/password=hunter2abc"
         result = _redact_text(branch)
@@ -513,8 +529,6 @@ class TestLearningsInBriefing:
             repo_root=tmp_path,
             objective="review safety scanning",
         )
-        repo_identity = RepoIdentity(
-            repo_root=tmp_path, branch="main", head="abc123"
-        )
+        repo_identity = RepoIdentity(repo_root=tmp_path, branch="main", head="abc123")
         packet = assemble_context_packet(request, repo_identity, profile="advisory")
         assert "Credential scanning insight" in packet.payload

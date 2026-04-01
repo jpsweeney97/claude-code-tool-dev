@@ -139,7 +139,9 @@ class JsonRpcClient:
         try:
             message = self._message_queue.get(timeout=effective_timeout)
         except Empty as exc:
-            raise TimeoutError("JSON-RPC read failed: timed out waiting for message") from exc
+            raise TimeoutError(
+                "JSON-RPC read failed: timed out waiting for message"
+            ) from exc
         if message is _EOF:
             raise RuntimeError(
                 "JSON-RPC read failed: app-server exited unexpectedly. "
@@ -147,8 +149,7 @@ class JsonRpcClient:
             )
         if not isinstance(message, dict):
             raise RuntimeError(
-                "JSON-RPC read failed: malformed queue message. "
-                f"Got: {message!r:.100}"
+                f"JSON-RPC read failed: malformed queue message. Got: {message!r:.100}"
             )
         return message
 
