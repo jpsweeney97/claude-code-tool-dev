@@ -48,7 +48,9 @@ def _build_dialogue_stack(
         journal=journal,
         session_id=session_id,
         repo_identity_loader=_repo_identity,
-        uuid_factory=iter((f"collab-{session_id}", *(f"id-{i}" for i in range(100)))).__next__,
+        uuid_factory=iter(
+            (f"collab-{session_id}", *(f"id-{i}" for i in range(100)))
+        ).__next__,
         turn_store=turn_store,
     )
     return controller, plane, store, journal, turn_store
@@ -86,7 +88,9 @@ class TestDialogueStart:
         controller.start(tmp_path)
         audit_path = journal.plugin_data_path / "audit" / "events.jsonl"
         if audit_path.exists():
-            events = [json.loads(line) for line in audit_path.read_text().strip().split("\n")]
+            events = [
+                json.loads(line) for line in audit_path.read_text().strip().split("\n")
+            ]
             assert all(e["action"] != "dialogue_start" for e in events)
 
     def test_start_creates_thread_on_runtime(self, tmp_path: Path) -> None:
@@ -166,7 +170,9 @@ class TestDialogueReply:
             explicit_paths=(Path("focus.py"),),
         )
         audit_path = journal.plugin_data_path / "audit" / "events.jsonl"
-        events = [json.loads(line) for line in audit_path.read_text().strip().split("\n")]
+        events = [
+            json.loads(line) for line in audit_path.read_text().strip().split("\n")
+        ]
         turn_events = [e for e in events if e["action"] == "dialogue_turn"]
         assert len(turn_events) == 1
         assert turn_events[0]["collaboration_id"] == start_result.collaboration_id
@@ -248,6 +254,7 @@ class TestDialogueReply:
 
         class CrashAfterIntent(FakeRuntimeSession):
             """Crash after intent is written but before run_turn executes."""
+
             def run_turn(self, **kwargs: object) -> object:
                 raise RuntimeError("crash after intent")
 
@@ -321,7 +328,9 @@ class TestRecoverPendingOperations:
         """Crash after thread/start but before lineage persist.
         Recovery performs thread/read + thread/resume reattach, then persists handle."""
         session = FakeRuntimeSession()
-        controller, _, store, journal, _ = _build_dialogue_stack(tmp_path, session=session)
+        controller, _, store, journal, _ = _build_dialogue_stack(
+            tmp_path, session=session
+        )
 
         # Manually write intent + dispatched entries
         journal.write_phase(
@@ -362,7 +371,11 @@ class TestRecoverPendingOperations:
     def test_recover_thread_creation_dispatched_phase_requires_thread_id(
         self, tmp_path: Path
     ) -> None:
-        """A dispatched thread_creation entry without a thread ID is unrecoverable."""
+        """A dispatched thread_creation entry without a thread ID is filtered at replay.
+
+        With replay-level validation, the record is silently skipped as a
+        schema_violation (missing codex_thread_id). Recovery never sees it.
+        """
         controller, _, store, journal, _ = _build_dialogue_stack(tmp_path)
 
         journal.write_phase(
@@ -377,12 +390,11 @@ class TestRecoverPendingOperations:
             session_id="sess-1",
         )
 
-        with pytest.raises(RuntimeError, match="no codex_thread_id in thread_creation"):
-            controller.recover_pending_operations()
+        # Record is filtered at replay — recovery has nothing to process
+        controller.recover_pending_operations()
 
         unresolved = journal.list_unresolved(session_id="sess-1")
-        assert len(unresolved) == 1
-        assert unresolved[0].collaboration_id == "orphan-3"
+        assert len(unresolved) == 0
         assert store.get("orphan-3") is None
 
     def test_recover_turn_dispatch_at_dispatched_phase_completed(
@@ -396,10 +408,19 @@ class TestRecoverPendingOperations:
         session.read_thread_response = {
             "thread": {
                 "id": "thr-start",
-                "turns": [{"id": "t1", "status": "completed", "agentMessage": "", "createdAt": ""}],
+                "turns": [
+                    {
+                        "id": "t1",
+                        "status": "completed",
+                        "agentMessage": "",
+                        "createdAt": "",
+                    }
+                ],
             },
         }
-        controller, _, store, journal, _ = _build_dialogue_stack(tmp_path, session=session)
+        controller, _, store, journal, _ = _build_dialogue_stack(
+            tmp_path, session=session
+        )
 
         # Set up: create a real handle first
         start = controller.start(tmp_path)
@@ -436,7 +457,9 @@ class TestRecoverPendingOperations:
         session.read_thread_response = {
             "thread": {"id": "thr-start", "turns": []},
         }
-        controller, _, store, journal, _ = _build_dialogue_stack(tmp_path, session=session)
+        controller, _, store, journal, _ = _build_dialogue_stack(
+            tmp_path, session=session
+        )
         start = controller.start(tmp_path)
 
         # Manually write dispatched turn_dispatch
@@ -504,9 +527,13 @@ class TestRecoverPendingOperations:
         assert handle.status == "unknown"
         unresolved = journal.list_unresolved(session_id="sess-1")
         assert len(unresolved) == 0
-        assert "recover_turn_dispatch failed: thread read boom" in capsys.readouterr().err
+        assert (
+            "recover_turn_dispatch failed: thread read boom" in capsys.readouterr().err
+        )
 
-    def test_recover_intent_only_turn_dispatch_marks_unknown(self, tmp_path: Path) -> None:
+    def test_recover_intent_only_turn_dispatch_marks_unknown(
+        self, tmp_path: Path
+    ) -> None:
         """Crash before run_turn. Intent-only turn_dispatch: thread/read check
         does not confirm the turn. Handle marked 'unknown' (ambiguous, not no-op)."""
         session = FakeRuntimeSession()
@@ -514,7 +541,9 @@ class TestRecoverPendingOperations:
         session.read_thread_response = {
             "thread": {"id": "thr-start", "turns": []},
         }
-        controller, _, store, journal, _ = _build_dialogue_stack(tmp_path, session=session)
+        controller, _, store, journal, _ = _build_dialogue_stack(
+            tmp_path, session=session
+        )
         start = controller.start(tmp_path)
 
         journal.write_phase(
@@ -540,7 +569,9 @@ class TestRecoverPendingOperations:
         handle = store.get(start.collaboration_id)
         assert handle.status == "unknown"
 
-    def test_recover_intent_turn_dispatch_confirmed_repairs_store(self, tmp_path: Path) -> None:
+    def test_recover_intent_turn_dispatch_confirmed_repairs_store(
+        self, tmp_path: Path
+    ) -> None:
         """Intent-phase turn_dispatch but thread/read confirms the turn completed.
         Recovery resolves the journal and repairs the metadata store."""
         session = FakeRuntimeSession()
@@ -548,11 +579,18 @@ class TestRecoverPendingOperations:
             "thread": {
                 "id": "thr-start",
                 "turns": [
-                    {"id": "t1", "status": "completed", "agentMessage": "", "createdAt": "2026-03-28T00:01:30Z"},
+                    {
+                        "id": "t1",
+                        "status": "completed",
+                        "agentMessage": "",
+                        "createdAt": "2026-03-28T00:01:30Z",
+                    },
                 ],
             },
         }
-        controller, _, store, journal, turn_store = _build_dialogue_stack(tmp_path, session=session)
+        controller, _, store, journal, turn_store = _build_dialogue_stack(
+            tmp_path, session=session
+        )
         start = controller.start(tmp_path)
 
         journal.write_phase(
@@ -589,11 +627,18 @@ class TestRecoverPendingOperations:
             "thread": {
                 "id": "thr-start",
                 "turns": [
-                    {"id": "t1", "status": "completed", "agentMessage": "", "createdAt": ""},
+                    {
+                        "id": "t1",
+                        "status": "completed",
+                        "agentMessage": "",
+                        "createdAt": "",
+                    },
                 ],
             },
         }
-        controller, _, store, journal, turn_store = _build_dialogue_stack(tmp_path, session=session)
+        controller, _, store, journal, turn_store = _build_dialogue_stack(
+            tmp_path, session=session
+        )
         start = controller.start(tmp_path)
 
         journal.write_phase(
@@ -658,13 +703,16 @@ class TestRecoverPendingOperations:
         controller.recover_pending_operations()
 
         audit_path = journal.plugin_data_path / "audit" / "events.jsonl"
-        events = [json.loads(line) for line in audit_path.read_text().strip().split("\n")]
+        events = [
+            json.loads(line) for line in audit_path.read_text().strip().split("\n")
+        ]
         turn_events = [e for e in events if e["action"] == "dialogue_turn"]
         assert len(turn_events) == 1
         assert turn_events[0]["collaboration_id"] == start.collaboration_id
         assert turn_events[0]["runtime_id"] == "rt-sess-1"
         assert turn_events[0]["turn_id"] == "t1"
         assert turn_events[0]["context_size"] == 4096
+
 
 class TestDialogueRead:
     def test_read_returns_dialogue_state(self, tmp_path: Path) -> None:
@@ -799,7 +847,9 @@ class TestDialogueRead:
         focus = tmp_path / "focus.py"
         focus.write_text("print('focus')\n", encoding="utf-8")
         session = FakeRuntimeSession()
-        controller, _, _, _, turn_store = _build_dialogue_stack(tmp_path, session=session)
+        controller, _, _, _, turn_store = _build_dialogue_stack(
+            tmp_path, session=session
+        )
         start = controller.start(tmp_path)
 
         reply_result = controller.reply(
@@ -829,7 +879,9 @@ class TestDialogueRead:
         assert read_result.turns[0].context_size == reply_result.context_size
         assert read_result.turns[0].context_size > 0
 
-    def test_read_raises_on_missing_metadata_for_post_fix_turn(self, tmp_path: Path) -> None:
+    def test_read_raises_on_missing_metadata_for_post_fix_turn(
+        self, tmp_path: Path
+    ) -> None:
         """In a post-fix session (some turns have metadata), a completed turn
         with no metadata store entry is an integrity failure."""
         session = FakeRuntimeSession()
@@ -852,7 +904,9 @@ class TestDialogueRead:
                 ],
             },
         }
-        controller, _, _, _, turn_store = _build_dialogue_stack(tmp_path, session=session)
+        controller, _, _, _, turn_store = _build_dialogue_stack(
+            tmp_path, session=session
+        )
         start = controller.start(tmp_path)
 
         # Write metadata for turn 1 but NOT turn 2 — partial metadata = post-fix session
@@ -885,7 +939,9 @@ class TestDialogueRead:
 
 
 class TestBestEffortRepairTurn:
-    def test_repairs_metadata_and_journal_when_turn_confirmed(self, tmp_path: Path) -> None:
+    def test_repairs_metadata_and_journal_when_turn_confirmed(
+        self, tmp_path: Path
+    ) -> None:
         """Fresh runtime confirms the turn completed. Repair writes TurnStore
         metadata and resolves the journal entry. Handle status is not changed."""
         session = FakeRuntimeSession()
@@ -894,7 +950,12 @@ class TestBestEffortRepairTurn:
             "thread": {
                 "id": "thr-start",
                 "turns": [
-                    {"id": "t1", "status": "completed", "agentMessage": "", "createdAt": ""},
+                    {
+                        "id": "t1",
+                        "status": "completed",
+                        "agentMessage": "",
+                        "createdAt": "",
+                    },
                 ],
             },
         }
@@ -931,7 +992,9 @@ class TestBestEffortRepairTurn:
         # Handle NOT reactivated — stays unknown
         assert store.get(start.collaboration_id).status == "unknown"
 
-    def test_emits_dialogue_turn_audit_when_turn_confirmed(self, tmp_path: Path) -> None:
+    def test_emits_dialogue_turn_audit_when_turn_confirmed(
+        self, tmp_path: Path
+    ) -> None:
         """Confirmed inline repair must also emit the required dialogue_turn audit."""
         session = FakeRuntimeSession()
         session.read_thread_response = {
@@ -970,7 +1033,9 @@ class TestBestEffortRepairTurn:
         controller._best_effort_repair_turn(intent_entry)
 
         audit_path = journal.plugin_data_path / "audit" / "events.jsonl"
-        events = [json.loads(line) for line in audit_path.read_text().strip().split("\n")]
+        events = [
+            json.loads(line) for line in audit_path.read_text().strip().split("\n")
+        ]
         turn_events = [e for e in events if e["action"] == "dialogue_turn"]
         assert len(turn_events) == 1
         assert turn_events[0]["collaboration_id"] == start.collaboration_id
@@ -978,7 +1043,9 @@ class TestBestEffortRepairTurn:
         assert turn_events[0]["turn_id"] == "turn-1"
         assert turn_events[0]["context_size"] == 4096
 
-    def test_leaves_journal_unresolved_when_turn_not_confirmed(self, tmp_path: Path) -> None:
+    def test_leaves_journal_unresolved_when_turn_not_confirmed(
+        self, tmp_path: Path
+    ) -> None:
         """Thread/read shows zero completed turns. Repair leaves journal unresolved
         for later startup recovery. Handle status is not changed."""
         session = FakeRuntimeSession()
@@ -1021,14 +1088,13 @@ class TestBestEffortRepairTurn:
     ) -> None:
         """If get_advisory_runtime or read_thread raises, the repair logs and
         gives up. Journal stays unresolved. No exception escapes."""
-        session = FakeRuntimeSession(
-            initialize_error=RuntimeError("codex down")
-        )
+        session = FakeRuntimeSession(initialize_error=RuntimeError("codex down"))
         controller, plane, store, journal, turn_store = _build_dialogue_stack(
             tmp_path, session=session
         )
         # Manually create a handle (start() would fail with initialize_error)
         from server.models import CollaborationHandle
+
         handle = CollaborationHandle(
             collaboration_id="collab-sess-1",
             capability_class="advisory",
@@ -1067,7 +1133,10 @@ class TestBestEffortRepairTurn:
         turn_entries = [e for e in unresolved if e.operation == "turn_dispatch"]
         assert len(turn_entries) == 1
         err = capsys.readouterr().err
-        assert "best_effort_repair_turn failed: Runtime bootstrap failed: initialize failed." in err
+        assert (
+            "best_effort_repair_turn failed: Runtime bootstrap failed: initialize failed."
+            in err
+        )
 
 
 class TestReplyRunTurnFailure:
@@ -1101,7 +1170,9 @@ class TestReplyRunTurnFailure:
                 objective="Should be rejected",
             )
 
-    def test_repairs_metadata_when_completed_turn_is_visible(self, tmp_path: Path) -> None:
+    def test_repairs_metadata_when_completed_turn_is_visible(
+        self, tmp_path: Path
+    ) -> None:
         """run_turn raises, but fresh runtime shows the turn completed.
         TurnStore repaired, journal resolved, handle stays unknown, read() works."""
         focus = tmp_path / "focus.py"
@@ -1109,6 +1180,7 @@ class TestReplyRunTurnFailure:
 
         class FailThenSucceedSession(FakeRuntimeSession):
             """First run_turn raises, but read_thread shows the turn completed."""
+
             def __init__(self) -> None:
                 super().__init__()
                 self._run_turn_failed = False
@@ -1148,14 +1220,21 @@ class TestReplyRunTurnFailure:
             "thread": {
                 "id": "thr-start",
                 "turns": [
-                    {"id": "t1", "status": "completed", "agentMessage": "", "createdAt": ""},
+                    {
+                        "id": "t1",
+                        "status": "completed",
+                        "agentMessage": "",
+                        "createdAt": "",
+                    },
                 ],
             },
         }
         read_result = controller.read(start.collaboration_id)
         assert read_result.turn_count == 1
 
-    def test_preserves_original_exception_when_inspection_fails(self, tmp_path: Path) -> None:
+    def test_preserves_original_exception_when_inspection_fails(
+        self, tmp_path: Path
+    ) -> None:
         """run_turn raises and best-effort repair also fails.
         Original exception is re-raised, handle is unknown, journal unresolved."""
         focus = tmp_path / "focus.py"
@@ -1163,6 +1242,7 @@ class TestReplyRunTurnFailure:
 
         class AlwaysFailSession(FakeRuntimeSession):
             """run_turn fails, and subsequent initialize (for fresh runtime) also fails."""
+
             _run_turn_raised = False
 
             def run_turn(self, **kwargs: object) -> object:
@@ -1217,7 +1297,9 @@ class TestReplyParseFailure:
 
         assert store.get(start.collaboration_id).status == "active"
 
-    def test_completes_journal_writes_store_and_emits_audit(self, tmp_path: Path) -> None:
+    def test_completes_journal_writes_store_and_emits_audit(
+        self, tmp_path: Path
+    ) -> None:
         """Parse failure still finalizes all durable state."""
         focus = tmp_path / "focus.py"
         focus.write_text("print('focus')\n", encoding="utf-8")
@@ -1245,7 +1327,9 @@ class TestReplyParseFailure:
 
         # Audit event emitted
         audit_path = journal.plugin_data_path / "audit" / "events.jsonl"
-        events = [json.loads(line) for line in audit_path.read_text().strip().split("\n")]
+        events = [
+            json.loads(line) for line in audit_path.read_text().strip().split("\n")
+        ]
         turn_events = [e for e in events if e["action"] == "dialogue_turn"]
         assert len(turn_events) == 1
         assert turn_events[0]["collaboration_id"] == start.collaboration_id
@@ -1297,6 +1381,7 @@ class TestReplyParseFailure:
 
         class MalformedThenValidSession(FakeRuntimeSession):
             """First run_turn returns malformed JSON, second returns valid."""
+
             def __init__(self) -> None:
                 super().__init__()
                 self._first_call = True
@@ -1307,6 +1392,7 @@ class TestReplyParseFailure:
                     self.run_turn_calls += 1
                     self.completed_turn_count += 1
                     from server.models import TurnExecutionResult
+
                     return TurnExecutionResult(
                         turn_id="turn-1",
                         agent_message="not valid json {{{{",

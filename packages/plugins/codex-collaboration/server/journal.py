@@ -8,7 +8,10 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 
+from typing import Any
+
 from .models import AuditEvent, OperationJournalEntry, StaleAdvisoryContextMarker
+from .replay import ReplayDiagnostics, SchemaViolation, replay_jsonl
 
 
 def default_plugin_data_path() -> Path:
@@ -22,6 +25,81 @@ def default_plugin_data_path() -> Path:
     if env_value:
         return Path(env_value).expanduser().resolve()
     return Path("/tmp/codex-collaboration").resolve()
+
+
+_VALID_OPERATIONS = frozenset(("thread_creation", "turn_dispatch"))
+_VALID_PHASES = frozenset(("intent", "dispatched", "completed"))
+_JOURNAL_REQUIRED_STR = (
+    "idempotency_key",
+    "operation",
+    "phase",
+    "collaboration_id",
+    "created_at",
+    "repo_root",
+)
+_JOURNAL_OPTIONAL_STR = ("codex_thread_id", "runtime_id")
+_JOURNAL_OPTIONAL_INT = ("turn_sequence", "context_size")
+
+
+def _journal_callback(
+    record: dict[str, Any],
+) -> tuple[str, OperationJournalEntry]:
+    """Validate all fields and construct a journal entry."""
+    for name in _JOURNAL_REQUIRED_STR:
+        if not isinstance(record.get(name), str):
+            raise SchemaViolation(f"{name} missing or not a string")
+    if record["operation"] not in _VALID_OPERATIONS:
+        raise SchemaViolation(f"unknown operation value: {record['operation']!r}")
+    if record["phase"] not in _VALID_PHASES:
+        raise SchemaViolation(f"unknown phase value: {record['phase']!r}")
+    for name in _JOURNAL_OPTIONAL_STR:
+        val = record.get(name)
+        if val is not None and not isinstance(val, str):
+            raise SchemaViolation(f"{name} is not a string")
+    for name in _JOURNAL_OPTIONAL_INT:
+        val = record.get(name)
+        if val is not None and type(val) is not int:
+            raise SchemaViolation(f"{name} is not an int")
+    # Per-operation+phase conditional requirements.
+    # Recovery (dialogue.py:446-592) relies on these fields existing for
+    # specific operation+phase combinations. Without enforcement, type-valid
+    # but incomplete records survive to recovery and crash with RuntimeError.
+    op = record["operation"]
+    phase = record["phase"]
+    if op == "turn_dispatch" and phase in ("intent", "dispatched"):
+        if not isinstance(record.get("codex_thread_id"), str):
+            raise SchemaViolation(
+                f"turn_dispatch at {phase} requires codex_thread_id (string)"
+            )
+        if phase == "dispatched":
+            ts = record.get("turn_sequence")
+            if ts is None or type(ts) is not int:
+                raise SchemaViolation(
+                    f"turn_dispatch at {phase} requires turn_sequence (int)"
+                )
+    elif op == "thread_creation" and phase == "dispatched":
+        if not isinstance(record.get("codex_thread_id"), str):
+            raise SchemaViolation(
+                "thread_creation at dispatched requires codex_thread_id (string)"
+            )
+    # Compatibility decision: runtime_id on turn_dispatch is NOT required.
+    # Missing runtime_id suppresses audit event emission (dialogue.py:592,689)
+    # but does not crash recovery. Requiring it would reject records from
+    # older writers that may not persist runtime_id on all turn_dispatch
+    # entries. This is a data-quality gap, not a correctness failure.
+    entry = OperationJournalEntry(
+        idempotency_key=record["idempotency_key"],
+        operation=record["operation"],
+        phase=record["phase"],
+        collaboration_id=record["collaboration_id"],
+        created_at=record["created_at"],
+        repo_root=record["repo_root"],
+        codex_thread_id=record.get("codex_thread_id"),
+        turn_sequence=record.get("turn_sequence"),
+        runtime_id=record.get("runtime_id"),
+        context_size=record.get("context_size"),
+    )
+    return (entry.idempotency_key, entry)
 
 
 class OperationJournal:
@@ -91,10 +169,7 @@ class OperationJournal:
         the terminal-phase record for keys that are not yet completed.
         """
         terminal = self._terminal_phases(session_id)
-        return [
-            entry for entry in terminal.values()
-            if entry.phase != "completed"
-        ]
+        return [entry for entry in terminal.values() if entry.phase != "completed"]
 
     def check_idempotency(
         self, key: str, *, session_id: str
@@ -114,10 +189,7 @@ class OperationJournal:
         if not path.exists():
             return
         terminal = self._terminal_phases(session_id)
-        remaining = [
-            entry for entry in terminal.values()
-            if entry.phase != "completed"
-        ]
+        remaining = [entry for entry in terminal.values() if entry.phase != "completed"]
         tmp = path.with_suffix(".tmp")
         with tmp.open("w", encoding="utf-8") as handle:
             for entry in remaining:
@@ -129,21 +201,14 @@ class OperationJournal:
     def _terminal_phases(self, session_id: str) -> dict[str, OperationJournalEntry]:
         """Replay the log and return the last record per idempotency key."""
         path = self._operations_path(session_id)
-        if not path.exists():
-            return {}
-        terminal: dict[str, OperationJournalEntry] = {}
-        with path.open(encoding="utf-8") as handle:
-            for line in handle:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    record = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                entry = OperationJournalEntry(**record)
-                terminal[entry.idempotency_key] = entry
-        return terminal
+        results, _ = replay_jsonl(path, _journal_callback)
+        return dict(results)
+
+    def check_health(self, *, session_id: str) -> ReplayDiagnostics:
+        """Replay and return diagnostics. Test and diagnostic support only."""
+        path = self._operations_path(session_id)
+        _, diagnostics = replay_jsonl(path, _journal_callback)
+        return diagnostics
 
     def _operations_path(self, session_id: str) -> Path:
         return self._journal_dir / "operations" / f"{session_id}.jsonl"
@@ -151,7 +216,9 @@ class OperationJournal:
     def timestamp(self) -> str:
         """Return the current UTC timestamp as ISO 8601."""
 
-        return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        return (
+            datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        )
 
     def _read_markers(self) -> dict[str, dict[str, str]]:
         if not self._markers_path.exists():
