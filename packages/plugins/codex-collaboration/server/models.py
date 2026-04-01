@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
+
+if TYPE_CHECKING:
+    from .runtime import AppServerRuntimeSession
 
 
 CapabilityProfile = Literal["advisory", "execution"]
@@ -120,7 +123,7 @@ class AdvisoryRuntimeState:
     available_methods: frozenset[str]
     required_methods: frozenset[str]
     optional_methods: frozenset[str]
-    session: Any
+    session: AppServerRuntimeSession
     started_at: float
     thread_count: int = 0
     app_server_version: str | None = None
@@ -238,7 +241,9 @@ class OperationJournalEntry:
     created_at: str
     repo_root: str
     # Outcome correlation — set when logically knowable
-    codex_thread_id: str | None = None  # thread_creation: set at dispatched; turn_dispatch: set at intent
+    codex_thread_id: str | None = (
+        None  # thread_creation: set at dispatched; turn_dispatch: set at intent
+    )
     turn_sequence: int | None = None  # turn_dispatch only
     runtime_id: str | None = None  # turn_dispatch only
     context_size: int | None = None  # turn_dispatch only, set at intent (pre-dispatch)

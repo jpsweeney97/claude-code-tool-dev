@@ -7,12 +7,12 @@ from dataclasses import asdict, FrozenInstanceError
 import pytest
 
 from server.models import (
+    AdvisoryRuntimeState,
     CollaborationHandle,
     DialogueReadResult,
     DialogueReplyResult,
     DialogueStartResult,
     DialogueTurnSummary,
-    HandleStatus,
     OperationJournalEntry,
 )
 
@@ -159,3 +159,16 @@ def test_operation_journal_entry_context_size_defaults_to_none() -> None:
         repo_root="/repo",
     )
     assert entry.context_size is None
+
+
+def test_advisory_runtime_state_session_not_any() -> None:
+    """F6: session field should reference AppServerRuntimeSession, not Any.
+
+    This is a raw annotation-token assertion, not a resolved-type check.
+    from __future__ import annotations makes all annotations strings at
+    runtime. We compare string tokens -- NOT get_type_hints(), which would
+    trigger the circular import that TYPE_CHECKING is designed to avoid.
+    """
+    field_type = AdvisoryRuntimeState.__dataclass_fields__["session"].type
+    assert field_type != "Any", "session field is still typed as Any"
+    assert "AppServerRuntimeSession" in field_type
