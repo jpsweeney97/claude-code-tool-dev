@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from server.control_plane import ControlPlane
 from server.dialogue import DialogueController
 from server.journal import OperationJournal
@@ -507,6 +505,15 @@ class TestStartupRecoveryCoordinator:
                 )
                 + "\n"
             )
+
+        # Prove the malformed row was actually skipped: check_health reports
+        # a schema_violation, and list_unresolved sees the intent (not completed).
+        diags = journal.check_health(session_id="sess-1")
+        assert len(diags.diagnostics) == 1
+        assert diags.diagnostics[0].label == "schema_violation"
+        unresolved = journal.list_unresolved(session_id="sess-1")
+        assert len(unresolved) == 1
+        assert unresolved[0].phase == "intent"
 
         # Recovery should not crash. The intent row becomes the terminal phase.
         # Phase 1: turn_dispatch intent with zero completed turns → quarantine
