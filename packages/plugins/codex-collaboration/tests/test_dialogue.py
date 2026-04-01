@@ -1161,6 +1161,96 @@ class TestBestEffortRepairTurn:
             in err
         )
 
+    def test_emits_outcome_record_when_turn_confirmed(
+        self, tmp_path: Path
+    ) -> None:
+        """Confirmed inline repair must also emit an outcome record."""
+        session = FakeRuntimeSession()
+        session.read_thread_response = {
+            "thread": {
+                "id": "thr-start",
+                "turns": [
+                    {
+                        "id": "repaired-turn-1",
+                        "status": "completed",
+                        "agentMessage": "",
+                        "createdAt": "2026-04-01T00:00:00Z",
+                    },
+                ],
+            },
+        }
+        controller, _, store, journal, _ = _build_dialogue_stack(
+            tmp_path, session=session
+        )
+        start = controller.start(tmp_path)
+        store.update_status(start.collaboration_id, "unknown")
+
+        intent_entry = OperationJournalEntry(
+            idempotency_key="rt-sess-1:thr-start:1",
+            operation="turn_dispatch",
+            phase="intent",
+            collaboration_id=start.collaboration_id,
+            created_at="2026-04-01T00:00:00Z",
+            repo_root=str(tmp_path.resolve()),
+            codex_thread_id="thr-start",
+            turn_sequence=1,
+            runtime_id="rt-sess-1",
+            context_size=4096,
+        )
+        journal.write_phase(intent_entry, session_id="sess-1")
+
+        controller._best_effort_repair_turn(intent_entry)
+
+        outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
+        assert outcomes_path.exists()
+        lines = outcomes_path.read_text(encoding="utf-8").strip().split("\n")
+        records = [json.loads(line) for line in lines]
+        dialogue_outcomes = [r for r in records if r["outcome_type"] == "dialogue_turn"]
+        assert len(dialogue_outcomes) == 1
+        assert dialogue_outcomes[0]["turn_id"] == "repaired-turn-1"
+        assert dialogue_outcomes[0]["turn_sequence"] == 1
+        assert dialogue_outcomes[0]["context_size"] == 4096
+        assert dialogue_outcomes[0]["repo_root"] == str(tmp_path.resolve())
+        assert dialogue_outcomes[0]["policy_fingerprint"] is not None
+
+    def test_does_not_emit_outcome_when_turn_unconfirmed(
+        self, tmp_path: Path
+    ) -> None:
+        """Unconfirmed repair must NOT emit an outcome record."""
+        session = FakeRuntimeSession()
+        session.read_thread_response = {
+            "thread": {"id": "thr-start", "turns": []},
+        }
+        controller, _, store, journal, _ = _build_dialogue_stack(
+            tmp_path, session=session
+        )
+        start = controller.start(tmp_path)
+        store.update_status(start.collaboration_id, "unknown")
+
+        intent_entry = OperationJournalEntry(
+            idempotency_key="rt-sess-1:thr-start:1",
+            operation="turn_dispatch",
+            phase="intent",
+            collaboration_id=start.collaboration_id,
+            created_at="2026-04-01T00:00:00Z",
+            repo_root=str(tmp_path.resolve()),
+            codex_thread_id="thr-start",
+            turn_sequence=1,
+            runtime_id="rt-sess-1",
+            context_size=4096,
+        )
+        journal.write_phase(intent_entry, session_id="sess-1")
+
+        controller._best_effort_repair_turn(intent_entry)
+
+        outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
+        if outcomes_path.exists():
+            content = outcomes_path.read_text(encoding="utf-8").strip()
+            if content:
+                records = [json.loads(line) for line in content.split("\n")]
+                dialogue_outcomes = [r for r in records if r["outcome_type"] == "dialogue_turn"]
+                assert len(dialogue_outcomes) == 0
+
 
 class TestReplyRunTurnFailure:
     def test_marks_handle_unknown_and_blocks_retry(self, tmp_path: Path) -> None:

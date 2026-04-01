@@ -729,6 +729,20 @@ class DialogueController:
                     turn_id=turn_id,
                 )
             )
+            self._journal.append_outcome(
+                OutcomeRecord(
+                    outcome_id=self._uuid_factory(),
+                    timestamp=self._journal.timestamp(),
+                    outcome_type="dialogue_turn",
+                    collaboration_id=intent_entry.collaboration_id,
+                    runtime_id=intent_entry.runtime_id,
+                    context_size=intent_entry.context_size,
+                    turn_id=turn_id,
+                    turn_sequence=intent_entry.turn_sequence,
+                    policy_fingerprint=runtime.policy_fingerprint,
+                    repo_root=intent_entry.repo_root,
+                )
+            )
 
     def read(self, collaboration_id: str) -> DialogueReadResult:
         """Read dialogue state for a given collaboration_id.
