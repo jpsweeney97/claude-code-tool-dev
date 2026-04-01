@@ -150,6 +150,10 @@ Callback validates:
 
 Callback mutates a closure-captured `dict[str, CollaborationHandle]`, returns `None` always. The `results` tuple from `replay_jsonl` is empty; the real output is the closure-captured dict.
 
+**Literal validation.** `status` is validated against `HandleStatus` and `capability_class` against `CapabilityProfile`. Unknown literal values are `SchemaViolation`. This is intentionally tighter than the extra-field policy: unknown enum values would cause semantic misinterpretation by the controller (wrong filtering, wrong lifecycle transitions). New enum values require coordinated rollout: update the `Literal` type first, then start writing the new value.
+
+> **WARNING — Rollout-order constraint.** This validation is tighter than the extra-field policy. If a newer version of the plugin writes a new `status` or `capability_class` value to JSONL, and an older version of the plugin reads it, the older version will classify the record as `SchemaViolation` and silently skip the handle. The coordinated rollout requirement means: update `HandleStatus`/`CapabilityProfile` `Literal` types in all readers before any writer emits new values.
+
 #### Journal (`server/journal.py`)
 
 Replace `_terminal_phases()` with `replay_jsonl()` plus typed callback.
@@ -164,6 +168,16 @@ Callback validates all `OperationJournalEntry` field types before dataclass cons
 - Optional integer fields (`turn_sequence`, `context_size`): `type(x) is int` when present
 - Optional string fields (`codex_thread_id`, `runtime_id`): `isinstance(x, str)` when present
 
+**Per-operation+phase conditional requirements.** Recovery (`dialogue.py:446-592`) relies on specific fields existing for certain operation+phase combinations. The callback enforces these beyond the flat type checks above:
+
+| operation | phase | Additional required fields |
+|-----------|-------|--------------------------|
+| `thread_creation` | `dispatched` | `codex_thread_id` (str) |
+| `turn_dispatch` | any | `codex_thread_id` (str) |
+| `turn_dispatch` | `dispatched`/`completed` | `turn_sequence` (int) |
+
+**Compatibility decision: `runtime_id` on `turn_dispatch`.** NOT required. Missing `runtime_id` suppresses audit event emission (`dialogue.py:592,689`) but does not crash recovery. This is a data-quality gap, not a correctness failure. Requiring it would reject records from older writers.
+
 Returns `tuple[str, OperationJournalEntry]` — idempotency key and entry. `_terminal_phases()` collects into a dict (last-write-wins).
 
 ### Store Health API
@@ -174,6 +188,8 @@ Each store exposes:
 def check_health(self) -> ReplayDiagnostics:
     """Replay and return diagnostics. Test and diagnostic support only."""
 ```
+
+**Outlier: Journal.** `OperationJournal.check_health()` takes `*, session_id: str` because the journal is session-per-call (not session-at-construction like TurnStore and LineageStore). This is the intentional exception to the uniform surface. The diagnostics-consumer branch must handle this signature difference.
 
 This is a **test/support hook**, not a production API. No delivery milestone depends on it, and no production caller is wired in this branch. If a future branch needs production health checking, it promotes this method to a supported surface and adds a caller with spec backing.
 
