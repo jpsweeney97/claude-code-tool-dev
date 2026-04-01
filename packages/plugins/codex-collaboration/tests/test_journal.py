@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from server.journal import OperationJournal
-from server.models import StaleAdvisoryContextMarker
+from server.models import OperationJournalEntry, StaleAdvisoryContextMarker
 
 
 def test_stale_marker_keys_are_normalized_on_write(tmp_path: Path) -> None:
@@ -58,11 +60,6 @@ def test_clear_stale_marker_uses_normalized_repo_root(tmp_path: Path) -> None:
     journal.clear_stale_marker(Path(str(tmp_path / ".")))
 
     assert journal.load_stale_marker(tmp_path) is None
-
-
-import pytest
-
-from server.models import OperationJournalEntry
 
 
 def _make_intent(

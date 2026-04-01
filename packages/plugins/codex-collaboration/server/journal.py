@@ -64,6 +64,11 @@ def _journal_callback(
     # Recovery (dialogue.py:446-592) relies on these fields existing for
     # specific operation+phase combinations. Without enforcement, type-valid
     # but incomplete records survive to recovery and crash with RuntimeError.
+    #
+    # Completed phase is excluded: production writers (dialogue.py:300-309,
+    # :588-595, :688-695) emit completed as a minimal resolution marker
+    # without codex_thread_id or turn_sequence. Requiring those fields
+    # would reject every completed record written by production code.
     op = record["operation"]
     phase = record["phase"]
     if op == "turn_dispatch" and phase in ("intent", "dispatched"):
