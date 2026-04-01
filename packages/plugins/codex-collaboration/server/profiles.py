@@ -104,16 +104,30 @@ def resolve_profile(
             f"Use a non-phased profile or omit the profile parameter."
         )
 
-    posture = explicit_posture or profile.get("posture", _DEFAULT_POSTURE)
+    posture = (
+        explicit_posture
+        if explicit_posture is not None
+        else profile.get("posture", _DEFAULT_POSTURE)
+    )
     turn_budget = (
         explicit_turn_budget
         if explicit_turn_budget is not None
         else profile.get("turn_budget", _DEFAULT_TURN_BUDGET)
     )
-    effort = explicit_effort or profile.get("reasoning_effort")
-    sandbox = explicit_sandbox or profile.get("sandbox", _DEFAULT_SANDBOX)
-    approval_policy = explicit_approval_policy or profile.get(
-        "approval_policy", _DEFAULT_APPROVAL
+    effort = (
+        explicit_effort
+        if explicit_effort is not None
+        else profile.get("reasoning_effort")
+    )
+    sandbox = (
+        explicit_sandbox
+        if explicit_sandbox is not None
+        else profile.get("sandbox", _DEFAULT_SANDBOX)
+    )
+    approval_policy = (
+        explicit_approval_policy
+        if explicit_approval_policy is not None
+        else profile.get("approval_policy", _DEFAULT_APPROVAL)
     )
 
     # Type narrowing validation

@@ -98,9 +98,19 @@ class TestTypeNarrowing:
         with pytest.raises(ProfileValidationError, match="unknown posture"):
             resolve_profile(explicit_posture="adversrial")  # type: ignore[arg-type]
 
+    def test_empty_string_posture_rejected(self) -> None:
+        """Empty string must not silently fall back to default."""
+        with pytest.raises(ProfileValidationError, match="unknown posture"):
+            resolve_profile(explicit_posture="")  # type: ignore[arg-type]
+
     def test_unknown_effort_rejected(self) -> None:
         with pytest.raises(ProfileValidationError, match="unknown effort"):
             resolve_profile(explicit_effort="turbo")  # type: ignore[arg-type]
+
+    def test_empty_string_effort_rejected(self) -> None:
+        """Empty string must not silently fall back to default."""
+        with pytest.raises(ProfileValidationError, match="unknown effort"):
+            resolve_profile(explicit_effort="")  # type: ignore[arg-type]
 
     def test_zero_turn_budget_rejected(self) -> None:
         with pytest.raises(ProfileValidationError, match="turn_budget"):
