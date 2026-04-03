@@ -119,6 +119,13 @@ Process all `new` and `revised` claims (sorted ascending):
 - `revised`: same merger check. A revised claim whose normalized text
   matches a live occurrence merges (convergent re-expression).
 
+For claims that produce a new occurrence (not merged), scoutable
+classification ([T4-SB-05](scouting-behavior.md#t4-sb-05)) determines
+the initial verification status: `unverified` if scoutable,
+`not_scoutable` if not. Classification happens at registration time
+before entry creation in `verification_state`
+([T4-SM-06](#t4-sm-06) lifecycle).
+
 ### T2/T3/Synthesis Interaction
 
 Both phases produce claims that feed into T2 counter computation (step 3)
@@ -169,6 +176,10 @@ ClaimRef {
 ```
 
 Unique by construction. Derived from `ClaimOccurrence`.
+
+**Wire format:** When serialized in `claim_provenance_index`
+([T4-PR-03](provenance-and-audit.md#t4-pr-03)), `ClaimRef` is a dense
+array: `[introduction_turn, claim_key, occurrence_index]`.
 
 ## <a id="t4-sm-05"></a>T4-SM-05: Evidence Record
 
@@ -280,6 +291,15 @@ evidence. The authoritative surfaces remain: the actual queries in
 `query`, the tool outputs in the transcript, and the mechanical diff
 ([T4-PR-11](provenance-and-audit.md#t4-pr-11)).
 
+Non-authoritative does not mean unauditable. `read_anchor` is a declared
+justification class that the adjudicator reviews against the actual read
+scope and tool output ([T4-PR-12](provenance-and-audit.md#t4-pr-12)).
+The field records the agent's stated reason for the read scope; the
+adjudicator independently verifies whether that claim holds. These roles
+are compatible: `read_anchor` is not evidence of read-scope
+justification, but it IS the surface against which the adjudicator
+checks justification.
+
 ## <a id="t4-sm-06"></a>T4-SM-06: Verification State Model
 
 ```text
@@ -338,8 +358,8 @@ else:
 
 **This same rule governs:**
 - Verification state updates (this section)
-- Scout target selection skip conditions
-  ([T4-SB-02](scouting-behavior.md#t4-sb-02))
+- Scout target selection
+  ([T4-SB-03](scouting-behavior.md#t4-sb-03))
 - Synthesis supported-claim aggregation
   ([T4-PR-09](provenance-and-audit.md#t4-pr-09))
 
@@ -394,12 +414,14 @@ Keyed by `claim_id`. Two variants:
 ProvenanceEntry (scouted) {
   claim_id: int
   claim_ref: ClaimRef
+  type: "scouted"
   record_indices: list[int]
 }
 
 ProvenanceEntry (not_scoutable) {
   claim_id: int
   claim_ref: ClaimRef
+  type: "not_scoutable"
   classification_trace: ClassificationTrace
 }
 ```

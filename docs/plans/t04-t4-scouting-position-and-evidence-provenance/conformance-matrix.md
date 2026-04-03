@@ -35,7 +35,7 @@ requirement wins and the matrix has a bug.
 | 16 | T4-PR-09 | **Synthesis aggregation:** `supported` = `status == "supported"` |
 | 17 | T4-SB-03, T4-F-09 | **Graduated attempt limit:** `not_found` → skip after 1. `ambiguous`/`conflicted` → skip after 2. Terminal → skip |
 | 18 | T4-SB-04 | **Second-attempt queries:** MUST differ from first attempt (objective criterion) |
-| 19 | T4-SM-08 | **Compression accounting:** 6-turn tier 2, 8-turn tier 3 |
+| 19 | T4-SM-08 | **Compression accounting (example scenario from T4-SM-08):** 6-turn → tier 2, 8-turn → tier 3 |
 | 20 | T4-SM-08, T4-F-07 | **No snippet recovery:** Tier 3 uses `path:line_range`. No reads during synthesis |
 | 21 | T4-SM-10, T4-F-08 | **Evidence NOT in synthesis:** No machine blocks |
 | 22 | T4-SM-08 | **Evidence in transcript:** Atomic round commit (step 5e) |
@@ -62,7 +62,7 @@ requirement wins and the matrix has a bug.
 | 43 | T4-SB-05, T4-PR-09 | **`not_scoutable` synthesis policy.** MUST appear in scored synthesis. Cannot suppress via classification. Adjudicator scores independently |
 | 44 | T4-CT-02, T4-CT-03 | **Containment source.** `scope_envelope` from consultation contract (immutable). NOT benchmark tool-class restriction |
 | 45 | T4-PR-06, T4-BR-06 | **Ledger completeness.** MUST — synthesis-contract violation if missing. Enforcement deferred to T7. Benchmark runs blocked until operational. NOT a G3 concern |
-| 46 | T4-SM-06, T4-SB-05 | **`not_scoutable` across all registration paths.** New, revised, forced-new, reintroduction all have scoutable/not-scoutable split |
+| 46 | T4-SM-06, T4-SB-05 | **`not_scoutable` across all registration paths.** New, revised, forced-new, reintroduction all have scoutable/`not_scoutable` split |
 | 47 | T4-SM-07 | **Single increment point for `scout_budget_spent`.** Step 5b only. NOT in lifecycle entries |
 | 48 | T4-BR-05 | **Synthesis-format contract updates declared.** Claim ledger grammar, atomic line rule, `not_scoutable` in trajectories — all named with owner and target |
 | 49 | T4-SM-06, T4-SM-02 | **`claim_id` allocation deterministic.** After Phase 1.5 and Phase 2 merger resolution. Merged claims reuse. Same transcript → same IDs |

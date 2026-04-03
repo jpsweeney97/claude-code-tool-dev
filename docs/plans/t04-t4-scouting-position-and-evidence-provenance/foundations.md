@@ -44,7 +44,7 @@ Future changes are tracked at the file level via git history.
 
 ## Design Decisions
 
-Twelve locked design decisions. Each carries a stable requirement ID.
+Thirteen locked design decisions. Each carries a stable requirement ID.
 
 ### <a id="t4-f-01"></a>T4-F-01: Control Before Scouting
 

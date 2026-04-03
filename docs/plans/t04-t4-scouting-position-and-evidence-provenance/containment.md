@@ -34,6 +34,10 @@ marker ([T4-SM-09](state-model.md#t4-sm-09)) → T1 termination.
 
 ### Pre-Execution Confinement
 
+Confinement is a harness function, consistent with
+[T4-CT-03](#t4-ct-03). The harness enforces these constraints before
+tool execution; the agent receives only post-confinement results.
+
 | Tool | Confinement |
 |------|------------|
 | `Read` | Target path checked against `allowed_roots` BEFORE execution. Out-of-scope → rejected, no output |

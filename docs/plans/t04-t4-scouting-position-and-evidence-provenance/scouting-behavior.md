@@ -309,7 +309,7 @@ scouting, not scoring.
 
 `not_scoutable` claims MUST appear in the scored synthesis if they are
 factual claims about the repo. The agent cannot suppress claims by
-classifying them as not-scoutable. The adjudicator scores them
+classifying them as `not_scoutable`. The adjudicator scores them
 independently ([T4-PR-09](provenance-and-audit.md#t4-pr-09) aggregation
 does not count them as `supported` — they have no evidence).
 

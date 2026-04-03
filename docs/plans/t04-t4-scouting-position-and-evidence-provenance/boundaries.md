@@ -21,7 +21,7 @@ replaces.
 | T1 termination | Scope breach uses T1. T4 owns partial-round and pending marker ([T4-SM-09](state-model.md#t4-sm-09)) |
 | T5 mode | Direct tools. `agent_local` preserved |
 | `ConsultEvidence` | Out of scope |
-| Benchmark artifact set | No new required artifacts |
+| Benchmark artifact set | No new agent-produced files. T7 proof-surface artifacts ([T4-BR-09](benchmark-readiness.md#t4-br-09) item 8) are T7 deliverables, not T4 outputs. Content additions within synthesis + transcript declared in [T4-BD-02](#t4-bd-02) |
 | Synthesis assembler `scout_outcomes` key | **Changed:** entries become `EvidenceRecord`s ([T4-PR-01](provenance-and-audit.md#t4-pr-01)). Declared migration |
 
 ## <a id="t4-bd-02"></a>T4-BD-02: Declared T2/T3/Synthesis Input Changes
