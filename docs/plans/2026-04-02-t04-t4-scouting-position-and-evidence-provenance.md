@@ -5,7 +5,7 @@
 **Related gate:** G3 in [2026-04-01-t04-convergence-loop-risk-register.md](../reviews/2026-04-01-t04-convergence-loop-risk-register.md)
 **Related risks:** J, D, F, E in [2026-04-01-t04-convergence-loop-risk-analysis.md](../reviews/2026-04-01-t04-convergence-loop-risk-analysis.md)
 **Depends on:** T2 accepted at [2026-04-02-t04-t2-synthetic-claim-and-closure-contract.md](2026-04-02-t04-t2-synthetic-claim-and-closure-contract.md)
-**Status:** Draft for review (revision 17).
+**Status:** Draft for review (revision 21).
 
 ## Revision History
 
@@ -28,6 +28,10 @@
 | 15 | (1) Canonical provenance surface cleanup: all stale checkpoint-based `[ref:]` references updated to claim ledger throughout §5.3 audit chain, verification checklist, and rejected-alternatives "Changed to" sentences. (2) Narrative-to-ledger relationship: claim ledger is canonical factual-claim inventory. Every synthesis factual claim MUST have a ledger entry. Narrative-only factual claims are synthesis-contract violations. Dedup rule for harness/checker join path. (3) Silent mode downgrade → hard invalid-run: benchmark `agent_local` runs MUST hard-fail on mode mismatch with failure artifact. Scoped to benchmark behavior. (4) Benchmark-execution prerequisite: runner/manifest validator MUST reject runs when T7 narrative-claim inventory/checker unavailable. Independent of G3. (5) Decomposition obligation before `not_scoutable` classification: agent MUST attempt decomposition into scoutable subclaims when truth condition preserved. `ClassificationTrace` extended with `decomposition_attempted`, `subclaims_considered`, `residual_reason`. (6) Corpus calibration requirement: `not_scoutable` rate validated via dry run, report by task ID. Required artifact. (7) Read-scope eligibility expanded: whole-file justified by file-level truth conditions (presence/absence, pattern/convention claims), not path mention. Under-reading finding added (adjudicator, non-mechanical, same weight as omission). (8) Claim-shape adequacy: query-type quota is necessary but not sufficient for relational/multi-file claims. Adjudicator audits query-set-to-claim-shape match. |
 | 16 | (1) Decomposition converted from mandatory runtime to audit-side analysis. Agent MUST NOT register decomposed subclaims — T2/T3 pipeline boundary (`claim_source`, counter semantics, registry construction undefined for decomposed claims). Agent SHOULD consider decomposition; records analysis in ClassificationTrace. Adjudicator audits adequacy as methodology finding. (2) Narrative-to-ledger category list aligned with benchmark exactly: added "current code relationships" to mirror [benchmark.md:123-128]. (3) Pre-T7 enforcement story made single-valued: benchmark runs are blocked until T7 (§6.2 prerequisite). All "adjudicator catches violations pre-T7" language removed from benchmark-oriented sections. Contract obligation exists regardless; enforcement is T7-only. (4) Under-reading, claim-shape inadequacy, and misclassification defined as **methodology findings** in `adjudication.json` — do not change claim labels, are recorded for system comparison. Finding format is T7 adjudication-format dependency. (5) Mode-mismatch failure artifact destination defined: invalid-run entry in `runs.json`. Schema is T7 benchmark-contract dependency. (6) Hygiene: header updated to rev 16, verification checklist renumbered (55-70), stale SHOULD→MUST in checklist item 45, duplicate item numbers resolved. |
 | 17 | (1) Methodology findings given concrete benchmark consequence: candidate-only per-run threshold gate (pass-rule condition 5). `methodology_finding_threshold` pinned in versioned benchmark contract, recorded in `manifest.json`. Threshold breach is a valid scored run that fails condition 5 — not an invalid run, not grounds alone for rerun. Five finding kinds defined: `under_reading`, `shape_inadequacy`, `misclassification`, `decomposition_skipped`, `narrative_ledger_violation`. Finding row schema: `(run_id, inventory_claim_id, finding_kind, detection, ledger_claim_id?, detail)`. Row keyed by T7 adjudicator `inventory_claim_id`, not ledger `claim_id` (narrative-ledger violations have no ledger ID). Detection field distinguishes `judgment` from `mechanical`. All stale "creates pressure" / "for system comparison" language replaced with explicit T7 dependency. (2) Benchmark-execution prerequisite extended to all T7 schema dependencies: narrative inventory/checker AND methodology-finding format AND mode-mismatch schema AND `methodology_finding_threshold`. Scoped to scored runs — calibration dry runs permitted but MUST NOT be used for pass/fail comparisons. (3) Decomposition analysis SHOULD→MUST. No criterion-based exceptions. `decomposition_attempted: false` is always a `decomposition_skipped` methodology finding. Valid "nothing to decompose" path: `decomposition_attempted: true, subclaims_considered: [], residual_reason` populated. (4) Adjudication scope amendment: benchmark must expand adjudicator authority to include candidate process artifacts (query traces, ClassificationTrace, claim ledger) alongside final synthesis. (5) Narrative-ledger violations typed as `narrative_ledger_violation` methodology finding for benchmark accounting. |
+| 18 | (1) Methodology findings authority model unified: body, §6.2, and checklist now consistently say "T4 specifies the required semantics; T7 owns adding the condition to the benchmark contract; the live benchmark currently has four conditions." Four locations updated: §4.4, §4.7, §5.3, checklist item 68. (2) Safety-leak taxonomy corrected: containment failure is a `safety_violation` (scored contract failure), not a run-condition invalidation. Aligns with [benchmark.md:145, 171]. (3) Sort tiebreaker: `(claim_key, status)` → `(claim_key, status, claim_text)`. (4) Second-attempt query diversity tightened to mandatory-type queries; supplementary queries excluded. (5) `ClassificationTrace` state-machine invariants as six-row validity table. (6) Methodology finding `detail` field: structured object with per-kind required keys. (7) Wire format example expanded to show all ClassificationTrace fields. (8) Benchmark-run scope guard for `scope_envelope`. (9) `detection-method` → `detection` normalization. |
+| 19 | (1) Scope_envelope authority downgrade: removed benchmark-invalidity claim from §4.6. T4 now states a local execution gate (containment is inoperative without `allowed_roots`), not a benchmark-contract judgment. Scope amendment row in §6.2 expanded to full benchmark-relevant scope configuration: `allowed_roots` equivalence, `source_classes`, and `scope_root` selection rule — all as T7 obligations. Consultation-transport coupling declared explicitly. (2) `scope_root` derivation rule added to §4.6: constrained to `allowed_roots` membership, per-step recording in `ScoutStep.scope_root` required for audit, comparability rules deferred to benchmark contract. (3) Methodology finding `detail` field fully typed: all required keys have explicit types (`str`, `int`, `bool`, `1|2|3` enum). T4's contract floor; T7 MUST publish validator-grade JSON Schema before benchmark readiness. Prerequisite item 2 expanded to cover typed `detail`. (4) Embedded `classification_trace.claim_id` equality invariant: inner `claim_id` MUST equal containing provenance entry's `claim_id`. Stated explicitly for standalone vs. embedded disambiguation. (5) `max_evidence` declared as benchmark-contract parameter under benchmark change control. Current change-control clause ([benchmark.md:200-207]) does not yet cover execution parameters; amendment explicitly requires extending it. Added to §6.2 amendment table and checklist item 42. (6) State-machine table disambiguated: column renamed "Structurally valid?" with explicit footnote distinguishing structural validity (validator concern) from methodology consequence (adjudicator concern). (7) Query diversity: mechanical text-level rule declared necessary but not sufficient. Adjudicator evaluates substantive diversity using existing claim-shape and contradiction-target audit surfaces. No finding kind prescribed. (8) Safety-violating artifact handling: removed "usable for benchmark adjudication purposes" assertion — T4 does not own artifact-handling policy. Whether leaked-run artifacts may be accessed, redacted, or used is T7-owned. (9) Benchmark artifact auditability: new §6.2 amendment row and scored-run prerequisite (item 7) requiring `manifest.json`/`runs.json` to record run kind, scope config, benchmark parameters. Per-step `scope_root` recoverable from transcript or extracted artifact. (10) Scored-run dependency list expanded from 4 to 7 items: added scope formalization (5), `max_evidence` under change control (6), artifact auditability (7). Stale "four dependencies" summary corrected to seven with explicit rationale: items 1-4 gate artifact completeness, items 5-7 gate comparability and auditability. (11) Checklist item 70 updated to mirror full §6.2 prerequisite block. |
+| 20 | (1) Cross-surface integration: prerequisite items 5-6 expanded to match amendment row and checklist — scope configuration with `allowed_roots` equivalence, `source_classes` inclusion or irrelevance, `scope_root` selection rule for all query types; `max_evidence` under benchmark change control. All three surfaces (prerequisites, amendment row, checklist item 70) now say the same thing. (2) `scope_root` derivation: shallowest-root rule for path-targeted queries (non-disjoint roots handled), anti-narrowing constraint for all multi-root cases, conceptual-query determinism explicitly deferred to benchmark contract (T4 does not invent a local pseudo-rule). `scope_root_rationale` removed — non-authoritative explanation is insufficient for benchmark comparability control. (3) Audit path: transcript-only `scope_root` recovery, extracted scout-step artifact removed. §3.9 rows updated for per-step metadata. (4) Transcript-fidelity verification narrowed to spec sub-dependency; parser and diff-engine implementation listed as separate T7 deliverables. (5) Amendment row explicitly prohibits justification-only scope policy — selection must be validator-enforceable without trusting agent narrative. |
+| 21 | (1) Transcript parser and mechanical diff engine added as scored-run prerequisite (item 8, §6.2). T4's authoritative omission surface (§5.3) depends on harness-computed mechanical diff — format spec (item 7) makes data recoverable in principle, item 8 requires the machinery that recovers it. Blocker ledger expanded from 7 to 8 items with three categories: artifact completeness (1-4), comparability and auditability (5-7), operational readiness (8). (2) "Always available, not gated" language in §5.3 reviewer workflow reconciled: mechanical diff is not gated by agent choices but requires operational §3.9 parser and diff engine. (3) Checklist item 32 updated from "untruncated output and parseable format" to full §3.9 dependency shape (normative clause, parseable format with per-step metadata, operational parser and diff engine). (4) Conceptual-query `scope_root` blocker (§4.6) made explicitly non-decaying: if T7 cannot define a validator-enforceable rule, scored runs remain blocked indefinitely. (5) §3.9 verification sentence cross-references prerequisite item 8 for parser/diff-engine gating. Checklist item 70 mirrors all 8 prerequisite items as distinct entries. (6) §3.9 opening paragraph rewritten: blanket "MUST NOT proceed" replaced with graduated readiness model (spec sub-dependency unblocks specification work, operational readiness unblocks scored runs via item 8, non-scoring runs permitted between the two). (7) Harness toolchain identity (parser/diff engine version or build digest) added to §6.2 auditability amendment row and prerequisite item 7 — item 8 makes parser/diff load-bearing, so their identity must be recorded for omission-audit reproducibility. (8) Item 8 enforcement narrowed to runner-only — manifest validators verify toolchain identity (item 7) but cannot prove parser/diff executed for a given run. Runner clause split: (1)-(7) manifest-verifiable, (8) runner-enforced. Checklist item 70 mirrors this distinction. (9) Harness toolchain identity added to checklist item 70's auditability clause to match item 7. (10) Derived omission-audit proof surface: new §6.2 amendment row. Contract floor: run binding (`run_id`, transcript digest, toolchain identity), evidence-record keyed entries with uncited-match references (not full content duplication), completeness invariant (every scouted evidence record covered, all per-step metadata recovered, no unresolved failures), manifest binding (artifact digest for post-hoc integrity). T4 defines floor; T7 owns schema and storage. (11) Item 8 recast from "operational" to "produce the proof surface." Acceptance test: proof surface present, run-bound, evidence-record complete, extraction-failure-free. Absence or incompleteness invalidates scored run. (12) Runner enforcement unified: (1)-(8) all manifest-verifiable. Item 8 verified via proof surface presence and manifest-recorded artifact digest. Prior "runner-only" split removed. (13) Non-scoring run classification: exploratory shakedowns permitted before prerequisites (non-evidentiary, MUST NOT inform benchmark policy). Policy-influencing calibration runs require all eight prerequisites. (14) Mirror alignment: benchmark config version or digest added to item 7 and checklist item 70. `scope_root` recoverability aligned to "run transcript" across amendment row, item 7, and item 70. (15) Proof-surface completeness scoped to synthesis-active records (per §5.3), not all historical provenance entries — aligns with omission surface definition and resolves interpretive ambiguity for conceded claims. (16) Validator-grade schema dependency added to proof-surface amendment row — matches methodology-finding pattern; T7 MUST publish before benchmark readiness. (17) Threshold bootstrap resolved: initial `methodology_finding_threshold` is a benchmark contract decision (T7-owned), not derived from calibration; calibration validates empirically and proposes adjustment under change control. (18) Checklist item 70 item-8 mirror updated from "operational" to proof-surface production with acceptance test (run-bound, evidence-record complete, extraction-failure-free). |
 
 ## 1. Decision
 
@@ -247,22 +251,24 @@ computation with their original extraction status.
 Layer 2 processes the current turn's claims in two deterministic phases.
 
 **Canonical intra-phase ordering:** Before processing, each phase sorts
-its claims by `(claim_key, status)` ascending (lexicographic on both
-fields). This makes `claim_id` allocation (§3.4) deterministic from
-claim text content, not from extractor output order. T2 preserves raw
-extractor order for counter computation but T4's processing order is
-independent — the sort happens at T4's layer 2 entry, after T2/T3 have
-already processed the claims.
+its claims by `(claim_key, status, claim_text)` ascending (lexicographic
+on all three fields). The tertiary `claim_text` key breaks ties when two
+claims share the same `claim_key` and `status` within a single turn.
+This makes `claim_id` allocation (§3.4) deterministic from claim text
+content, not from extractor output order. T2 preserves raw extractor
+order for counter computation but T4's processing order is independent —
+the sort happens at T4's layer 2 entry, after T2/T3 have already
+processed the claims.
 
 **Phase 1 — Status changes:** Process all `conceded` and `reinforced`
-claims (sorted by `(claim_key, status)` ascending):
+claims (sorted by `(claim_key, status, claim_text)` ascending):
 - `conceded`: remove entry from `verification_state`. Occurrence stays
   in registry (evidence history) but is now dead.
 - `reinforced`: resolve referent (§3.1.1), share `ClaimRef`. No state
   change.
 
 **Phase 2 — New registrations:** Process all `new` and `revised` claims
-(sorted by `(claim_key, status)` ascending):
+(sorted by `(claim_key, status, claim_text)` ascending):
 - `new`: merger check against **live** occurrences (per §3.1). Phase 1
   already processed concessions, so `verification_state` reflects the
   current turn's concessions.
@@ -578,6 +584,14 @@ Both completed and abandoned (§3.7) rounds count — a round that starts
 with a tool call and then aborts still consumed the increment at 5b.
 `max_scout_rounds = max_evidence + 2` — allows up to 2 abandoned rounds
 per run before the effort budget is exhausted.
+`max_evidence` is a benchmark-contract parameter, not a T4 constant.
+Its value MUST be governed by benchmark change control
+([benchmark.md:200-207](../superpowers/specs/codex-collaboration/dialogue-supersession-benchmark.md))
+and recorded in `manifest.json`. The current benchmark change-control
+clause covers corpus, adjudication labels, metrics, and pass rule but
+does not yet cover execution parameters; bringing `max_evidence` under
+that regime is a T7 benchmark-contract dependency (§6.2). T4 consumes
+`max_evidence` but does not define its value.
 
 **Pipeline-data mapping:** `<!-- pipeline-data -->` field `scout_count`
 maps to `evidence_count` (= `len(evidence_log)`), preserving the
@@ -691,10 +705,14 @@ transcript"
 ([benchmark.md:95-96](../superpowers/specs/codex-collaboration/dialogue-supersession-benchmark.md)).
 T4's evidence provenance — specifically the mechanical omission diff
 (§5.3), query coverage audit (§4.4), and containment verification
-(§4.6) — depends on this interpretation. **T4 implementation MUST NOT
-proceed until this dependency is resolved.** The benchmark contract must
-also specify a parseable transcript format sufficient for the harness to
-extract tool call inputs, outputs, and evidence blocks mechanically.
+(§4.6) — depends on this interpretation. This dependency resolves in
+two layers: (a) the **spec sub-dependency** — normative clause and
+parseable transcript format with per-step metadata recovery, which
+unblocks T4 specification work; (b) **operational readiness** —
+transcript parser and mechanical diff engine functional (§6.2
+prerequisite item 8), which unblocks scored benchmark runs.
+Exploratory non-scoring runs are permitted between (a) and (b);
+policy-influencing calibration runs require both layers (§6.2).
 
 **What T4 requires from the transcript:**
 
@@ -823,12 +841,14 @@ the mandatory query types were present. A shape-inadequacy finding is a
 **methodology finding** (`finding_kind: shape_inadequacy`,
 `detection: judgment`) that appears in `adjudication.json`. It does not
 change claim labels. Methodology findings are recorded in
-`adjudication.json` for benchmark consumption (§6.2). Their effect on
-the pass rule (per-run `methodology_finding_threshold` gate, condition
-5) requires a T7 benchmark-contract amendment. Before that amendment,
-findings exist as structured audit data without mechanical pass/fail
-consequences. The methodology finding format is a T7 adjudication-format
-dependency (§6.2).
+`adjudication.json` for benchmark consumption (§6.2). T4 specifies the
+required semantics: a per-run `methodology_finding_threshold` gate as
+pass-rule condition 5 (threshold breach = valid scored run that fails
+condition 5, not an invalid run). T7 owns adding this condition to the
+benchmark contract — the live benchmark currently has four conditions.
+Until the amendment lands, findings exist as structured audit data
+without mechanical pass/fail consequences. The methodology finding
+format is a T7 adjudication-format dependency (§6.2).
 
 **`read_anchor` field:** For Read tool calls, records the justification
 for the read scope (§5.3 read-scope rule). `null` for Grep/Glob calls.
@@ -849,12 +869,22 @@ it detects systematic bias across the benchmark corpus.
 
 **Second-attempt queries:** When a claim gets a second scout attempt
 (§4.3), the agent MUST use different queries than the first attempt. At
-least one query in the second round MUST differ in query text from ALL
-queries in the first round (not just type reclassification — the actual
-search string must change). The `query` fields from the first round's
+least one mandatory-type query (definition or falsification) in the
+second round MUST have query text that does not appear in any first-round
+query of the same type (not just type reclassification — the actual
+search string must change). Supplementary queries do not count toward
+this diversity requirement. The `query` fields from the first round's
 `ScoutStep`s are in the evidence block — the agent has them in context.
-Objective difference criterion: `query_text_2 != query_text_1` for at
-least one step pair.
+Objective difference criterion: there exists
+`t ∈ {definition, falsification}` and a round-2 query `q2` of type `t`
+such that `q2.query` is unequal to the `query` field of every round-1
+`ScoutStep` of type `t`. This text-level rule is the minimum mechanical
+check. Substantive diversity — whether the second attempt explores a
+materially different investigative direction — is adjudicated using the
+existing claim-shape (§4.4) and `expected_contradiction_target` audit
+surfaces. The adjudicator may treat semantically recycled retries as
+inadequate query coverage using existing methodology-finding surfaces,
+without requiring a specific finding kind.
 
 ### 4.5 Scope breach handling
 
@@ -886,6 +916,33 @@ by this containment contract:
 | `Grep` | `path` parameter set to `scope_root` within `allowed_roots`. Only results under scope root |
 | `Glob` | `path` parameter set to `scope_root` within `allowed_roots`. Only results under scope root |
 
+**`scope_root` derivation:** For each `Grep` or `Glob` step, `scope_root`
+is set to a path within `allowed_roots`. When `allowed_roots` contains a
+single entry, `scope_root` equals that entry. When multiple roots exist:
+
+- If the query target names or implies a file or directory path,
+  `scope_root` is the shallowest `allowed_root` whose subtree contains
+  that path. `allowed_roots` is not guaranteed disjoint; the
+  shallowest-root rule resolves overlaps deterministically.
+- If the query target is conceptual (no specific path), `scope_root`
+  MUST be in `allowed_roots` and recorded in `ScoutStep.scope_root`.
+  T4 does not define a deterministic selection rule for this case.
+  Scored benchmark runs are blocked until the benchmark contract
+  defines a validator-enforceable conceptual-query root-selection
+  rule (§6.2 amendment row). If no such rule can be defined, scored
+  runs remain blocked — the blocker does not decay into a softer
+  requirement. The anti-narrowing constraint applies regardless: the agent
+  MUST NOT select a narrower root to exclude files that might contain
+  contradictory evidence.
+- If the query target spans multiple roots, each tool call uses the
+  shallowest root containing its search target; a single query MAY
+  produce multiple tool calls with different `scope_root` values.
+
+Every `scope_root` selection MUST be recorded in `ScoutStep.scope_root`.
+T4 constrains `scope_root` to membership in `allowed_roots` and requires
+per-step recording; the benchmark contract owns comparability rules for
+`scope_root` selection across compared runs (§6.2).
+
 **Post-containment capture:** The transcript records **post-containment**
 output. "Raw" in T4's provenance story means "unprocessed by the agent"
 — not "unfiltered by the harness." Containment is a harness function
@@ -911,15 +968,34 @@ mechanical diff (§5.3) operates on post-containment output and remains
 authoritative because both sides of the diff (tool output, citations)
 are post-containment.
 
+**Benchmark-run scope requirement:** For any benchmark run (scored
+comparison, calibration dry run, or schema shakedown), `scope_envelope`
+with non-empty `allowed_roots` MUST be present in the consultation
+configuration. T4's containment contract (§4.5) requires `allowed_roots`
+for pre-execution confinement; without it, containment is inoperative and
+the run MUST NOT proceed. The consultation contract's unrestricted
+default
+([consultation-contract.md:127](../../packages/plugins/cross-model/references/consultation-contract.md))
+applies to non-benchmark consultations; benchmark execution requires
+`scope_envelope` presence as a T4 precondition. Formalizing this as a
+benchmark run condition is a T7 benchmark-contract dependency (§6.2).
+
 **Safety interaction:** The benchmark treats forbidden-path leakage as a
-safety failure
-([benchmark.md:145](../superpowers/specs/codex-collaboration/dialogue-supersession-benchmark.md)).
+`safety_violation` — a scored contract failure, not a run-condition
+invalidation
+([benchmark.md:145](../superpowers/specs/codex-collaboration/dialogue-supersession-benchmark.md),
+[benchmark.md:171](../superpowers/specs/codex-collaboration/dialogue-supersession-benchmark.md)).
 Containment is T4's mechanism for preventing this, but a containment
 failure is still a safety violation on the run — regardless of whether
 the root cause is in the harness, the scope_envelope configuration, or
 the tool invocation. T4 owns the pre-execution and post-execution
 containment checks (§4.5). If a leak occurs despite correct checks, the
-run is invalid per the benchmark safety rule.
+run remains valid and scored. The leak is recorded as a
+`safety_violation` and contributes to the aggregate
+`safety_violations` count; the benchmark cannot pass unless that count
+remains zero (`safety_violations == 0`). Whether and how a
+safety-violating run's artifacts may be accessed, redacted, quarantined,
+or used for adjudication is a T7-owned policy decision outside T4 scope.
 
 **DECLARED SAFETY DEPENDENCY: Allowed-scope secret handling.** Within
 `allowed_roots`, files may contain secrets (credentials, tokens, private
@@ -1022,13 +1098,26 @@ no entity fitting the grammar could be identified — criterion 1 failure).
 `decomposition_attempted` records whether the agent performed the
 mandatory decomposition check before classification.
 `decomposition_attempted: false` is always a `decomposition_skipped`
-methodology finding — no exceptions. `subclaims_considered` lists any
-subclaims the agent identified during decomposition (empty list `[]` if
-decomposition was attempted but no subclaim candidates were found — a
-valid outcome when `residual_reason` is populated).
-`residual_reason` explains why no subclaims were found or why
-identified subclaims were not individually scoutable (null only when
-`subclaims_considered` is non-empty and explains itself).
+methodology finding — no exceptions.
+
+**State-machine invariants for `subclaims_considered` and
+`residual_reason`:**
+
+| `decomposition_attempted` | `subclaims_considered` | `residual_reason` | Structurally valid? |
+|---------------------------|----------------------|-------------------|---------------------|
+| `false` | MUST be `null` | MUST be `null` | Yes — decomposition not performed |
+| `true` | `[]` (empty) | MUST be non-null `str` | Yes — attempted, none found, reason required |
+| `true` | non-empty `list[str]` | MUST be non-null `str` | Yes — subclaims found but not individually scoutable, reason required |
+| `true` | `null` | any | **No** — decomposition attempted implies subclaims were evaluated |
+| `true` | non-empty `list[str]` | `null` | **No** — non-empty subclaims require explanation of why none is scoutable |
+| `false` | non-null | any | **No** — no decomposition means no subclaim data |
+
+"Structurally valid" means the trace passes schema and invariant checks.
+A structurally valid trace can still constitute a methodology finding:
+`decomposition_attempted: false` is always a `decomposition_skipped`
+finding regardless of structural validity. Validators MUST reject
+structurally invalid traces; the adjudicator evaluates methodology
+consequences for structurally valid ones.
 All fields are **explicitly
 non-authoritative** — they are the agent's explanation of its
 classification, not proof. The adjudicator uses them as a starting
@@ -1047,8 +1136,9 @@ decomposition where the adjudicator identifies scoutable subclaims the
 agent missed is also a methodology finding (`finding_kind:
 misclassification`, `detection: judgment`). Both appear in
 `adjudication.json` (§6.2 T7 adjudication-format dependency).
-Methodology findings are recorded for benchmark consumption; their
-effect on the pass rule requires a T7 amendment (§6.2). The adjudicator
+Methodology findings are recorded for benchmark consumption. T4 specifies
+their required pass-rule effect as condition 5 (§6.2); T7 owns adding
+this condition to the benchmark contract. The adjudicator
 still independently evaluates the claim's truth value — `not_scoutable`
 affects scouting, not scoring.
 
@@ -1127,7 +1217,7 @@ maps each `claim_id` to its provenance entry. Two variants:
 claim_provenance_index: [
   { claim_id: 0, claim_ref: [3, "compute_action behavior", 0], type: "scouted", record_indices: [2, 5] },
   { claim_id: 1, claim_ref: [4, "validate_input return type", 0], type: "scouted", record_indices: [3] },
-  { claim_id: 2, claim_ref: [5, "module uses dependency injection", 0], type: "not_scoutable", classification_trace: { candidate_entity: "module", failed_criterion: 3 } }
+  { claim_id: 2, claim_ref: [5, "module uses dependency injection", 0], type: "not_scoutable", classification_trace: { claim_id: 2, candidate_entity: "module", failed_criterion: 3, decomposition_attempted: true, subclaims_considered: [], residual_reason: "module is an architectural label, not a code entity with inspectable state" } }
 ]
 ```
 
@@ -1137,6 +1227,13 @@ equals `next_claim_id`. All allocated `claim_id`s persist in the index,
 including claims later conceded (concession removes from
 `verification_state` but the provenance entry is historical). No sparse
 IDs, no gaps, no reordering.
+When `classification_trace` is embedded in a provenance entry,
+`classification_trace.claim_id` MUST equal the containing entry's
+`claim_id`. This is redundant by construction (the trace is created
+during the same registration that allocates the `claim_id`), but the
+invariant is stated explicitly because `ClassificationTrace` is also
+referenced standalone in §4.7 adjudicator audit. Validators MUST reject
+entries where the two values diverge.
 
 Each entry retains the full `ClaimRef` for human readability. The `type`
 field distinguishes scouted (has `record_indices`) from not_scoutable
@@ -1371,10 +1468,12 @@ but appears in `adjudication.json` as a finding row keyed by
 `inventory_claim_id`. This is an adjudicator judgment, not a mechanical
 harness check — the harness can only diff what was actually read, not
 what the agent failed to inspect. Methodology findings are recorded for
-benchmark consumption; their effect on the pass rule (per-run
-`methodology_finding_threshold` gate, condition 5) requires a T7
-benchmark-contract amendment (§6.2). Before that amendment, findings
-exist as structured audit data without mechanical pass/fail consequences.
+benchmark consumption. T4 specifies the required pass-rule effect: a
+per-run `methodology_finding_threshold` gate as condition 5 (threshold
+breach = valid scored run that fails condition 5, not an invalid run).
+T7 owns adding this condition to the benchmark contract (§6.2). Until
+the amendment lands, findings exist as structured audit data without
+mechanical pass/fail consequences.
 
 **match_digest is a human convenience, not a gate.** `match_digest` is
 a guide in the compressed evidence block, capped at 20 lines. On large
@@ -1391,7 +1490,8 @@ post-containment output regardless of agent-authored summaries.
 **Reviewer workflow:**
 1. Claim in synthesis → `claim_provenance_index` → record indices →
    evidence block
-2. Harness-computed mechanical diff (always available, not gated)
+2. Harness-computed mechanical diff (not gated by agent choices;
+   derived omission-audit proof surface per §3.9 and §6.2)
 3. Compare uncited match content against disposition (using per-tool
    relevance classification)
 4. match_digest for quick human triage (convenience overlay)
@@ -1480,12 +1580,17 @@ complementary.
 | Surface | Required change | Owner | Target |
 |---------|----------------|-------|--------|
 | Benchmark run conditions | Add normative clause: "raw run transcript means untruncated post-containment tool output for every tool call" | T7 | [benchmark.md:95](../superpowers/specs/codex-collaboration/dialogue-supersession-benchmark.md) |
-| Benchmark artifact contract | Specify parseable transcript format sufficient for mechanical diff extraction | T7 | [benchmark.md:101-112](../superpowers/specs/codex-collaboration/dialogue-supersession-benchmark.md) |
-| Transcript parser | Implement harness-side tool for extracting tool inputs/outputs/evidence blocks from transcript | T7 | New harness component |
+| Benchmark artifact contract | Specify parseable transcript format sufficient for mechanical diff extraction and per-step metadata recovery (including resolved `scope_root`) | T7 | [benchmark.md:101-112](../superpowers/specs/codex-collaboration/dialogue-supersession-benchmark.md) |
+| Transcript parser | Implement harness-side tool for extracting tool inputs/outputs/evidence blocks and per-step scout metadata (`ScoutStep` fields including `scope_root`) from transcript | T7 | New harness component |
 | Mechanical diff engine | Implement harness-side `post_containment_output - citations = uncited` computation | T7 | New harness component |
 
-**Verification:** T4 implementation unblocked when the benchmark contract
-text includes the normative clause AND a transcript format spec exists.
+**Verification:** The spec sub-dependency is satisfied when the benchmark
+contract includes the normative clause and a transcript format spec
+(including per-step metadata recovery) exists. Parser and diff-engine
+implementation are separate T7 deliverables gated by prerequisite
+item 8 (below). Scored-run readiness
+requires additional prerequisites (see "Benchmark-execution prerequisites"
+below).
 
 **Allowed-scope safety (§4.6):**
 
@@ -1529,42 +1634,99 @@ but the mechanical enforcement requires T7. The coverage metric cannot
 be defined independently of the inventory — computing coverage requires
 enumerating narrative claims, which IS the inventory problem.
 
-**Benchmark-execution prerequisite (comprehensive):** Scored benchmark
-runs and pass/fail comparisons MUST NOT proceed until ALL of the
-following T7 dependencies are operational:
+**Benchmark-execution prerequisites (comprehensive):** Any benchmark run
+(scored comparison, calibration dry run, or schema shakedown) MUST have
+`scope_envelope` with non-empty `allowed_roots` present in the
+consultation configuration (§4.6 — containment is inoperative without
+it). In addition, scored benchmark runs and pass/fail comparisons MUST
+NOT proceed until ALL of the following T7 dependencies are operational:
 
 1. Narrative-claim inventory and ledger completeness checker
 2. Methodology-finding format defined in `adjudication.json` schema
-   (five finding kinds, detection-method field, `inventory_claim_id`
-   key)
+   (five finding kinds, `detection` field, `inventory_claim_id`
+   key, typed `detail` object per finding kind)
 3. Mode-mismatch invalid-run schema defined in `runs.json` schema
 4. `methodology_finding_threshold` defined in benchmark contract and
    recorded in `manifest.json`
+5. Benchmark-relevant scope configuration formalized: `scope_envelope`
+   with non-empty `allowed_roots` as a run condition, `allowed_roots`
+   equivalence rule for compared runs, `source_classes` inclusion or
+   explicit irrelevance, and `scope_root` selection rule for all
+   query types including conceptual queries (amendment row, §4.6
+   confinement table)
+6. `max_evidence` defined in benchmark contract, recorded in
+   `manifest.json`, and under benchmark change control
+   ([benchmark.md:200-207](../superpowers/specs/codex-collaboration/dialogue-supersession-benchmark.md))
+7. Benchmark artifact contract extended for post-hoc compliance audit
+   (run kind, resolved scope configuration, benchmark parameters,
+   benchmark config version or digest, harness toolchain identity
+   (parser/diff engine version or build digest) recorded in
+   `manifest.json`/`runs.json`; per-step `scope_root` recoverable
+   from run transcript)
+8. Transcript parser and mechanical diff engine produce the derived
+   omission-audit proof surface for the scored transcript (§3.9,
+   §6.2 omission-audit proof surface amendment). T4's authoritative
+   omission surface (§5.3) depends on harness-computed
+   `post_containment_output − citations = uncited`. Format spec
+   (item 7) makes the data recoverable in principle; item 8 requires
+   the machinery that recovers it AND the derived artifact that
+   proves it ran. Acceptance test: proof surface is present,
+   run-bound, evidence-record complete, and free of unresolved
+   extraction failures. Absence or incompleteness invalidates the
+   scored run.
 
 The benchmark runner or manifest validator MUST reject scored runs when
-any of (1)-(4) is unavailable. Without (1), `supported_claim_rate`
+any of (1)-(8) is unavailable. Items (1)-(7) are verifiable from
+artifact metadata. Item 8 is verifiable from the derived omission-audit
+proof surface: the runner produces it, the manifest records its digest,
+and a post-hoc validator confirms run binding, evidence-record
+completeness, and absence of extraction failures. Without (1), `supported_claim_rate`
 ([benchmark.md:160](../superpowers/specs/codex-collaboration/dialogue-supersession-benchmark.md))
 is computed against an incomplete claim population — the comparison is
 contaminated, not merely degraded. Without (2)-(4), benchmark artifacts
 are incomplete: `adjudication.json` and `runs.json` lack structures T4
 requires, and the pass rule cannot evaluate condition 5.
 
-Non-scoring runs (corpus calibration dry runs per §4.7, schema
-shakedown) are permitted before these dependencies land — their results
-MUST NOT be used for pass/fail comparisons.
+Non-scoring runs are permitted before these dependencies land in two
+classes: (a) **exploratory shakedowns** (schema validation, format
+testing, integration checks) — permitted before any prerequisites,
+results are non-evidentiary and MUST NOT inform benchmark policy,
+threshold setting, or corpus calibration decisions that affect scored
+comparisons; (b) **policy-influencing calibration** (corpus calibration
+per §4.7, classification criteria tuning, threshold setting) — require
+all eight prerequisites because their conclusions shape the benchmark's
+rules. Exception: the initial `methodology_finding_threshold` value is
+a benchmark contract decision (T7-owned), not a calibration output;
+calibration validates it empirically and may propose adjustment under
+benchmark change control. Neither class may be used for pass/fail
+comparisons.
 
 This prerequisite is independent of G3 (which governs scouted provenance
 retention). Benchmark-readiness requires BOTH: G3 accepted (scouted
-provenance chain) AND all four T7 dependencies above operational.
+provenance chain) AND all eight T7 dependencies above operational.
+
+Items 1-4 gate artifact completeness: without them, `adjudication.json`,
+`runs.json`, and the pass rule lack structures T4 requires. Items 5-7
+gate comparability and auditability: without formalized scope, a defined
+evidence budget, and auditable artifact metadata, runs are not comparable
+and compliance is not verifiable even if artifacts are structurally
+complete. Item 8 gates operational readiness and run-level proof: without parser
+and diff engine producing the derived omission-audit artifact, T4's
+authoritative omission surface is specified but neither computable nor
+provably computed for a given run.
 
 **Benchmark-contract amendment dependencies:**
 
 | Surface | Required change | Owner | Target |
 |---------|----------------|-------|--------|
-| Methodology finding format | Define finding row schema: `(run_id, inventory_claim_id, finding_kind, detection, ledger_claim_id?, detail)`. Five finding kinds: `under_reading` (judgment), `shape_inadequacy` (judgment), `misclassification` (judgment), `decomposition_skipped` (mechanical), `narrative_ledger_violation` (mechanical). Row keyed by `inventory_claim_id` from T7 adjudicator claim inventory. Optional `ledger_claim_id` cross-reference for finding kinds that have one. Findings do not change claim labels | T7 | [benchmark.md](../superpowers/specs/codex-collaboration/dialogue-supersession-benchmark.md) / `adjudication.json` schema |
+| Methodology finding format | Define finding row schema: `(run_id, inventory_claim_id, finding_kind, detection, ledger_claim_id?, detail)`. Five finding kinds: `under_reading` (judgment), `shape_inadequacy` (judgment), `misclassification` (judgment), `decomposition_skipped` (mechanical), `narrative_ledger_violation` (mechanical). Row keyed by `inventory_claim_id` from T7 adjudicator claim inventory. Optional `ledger_claim_id` cross-reference for finding kinds that have one. Findings do not change claim labels. `detail` MUST be an object with per-kind required keys and typed values. The T7 adjudicator emits finding rows in `adjudication.json`; T4-owned source artifacts (`ScoutStep` query traces, `ClassificationTrace`, claim ledger) and T7-owned inventory/checker outputs MUST make the required keys recoverable where applicable. Required keys by kind: `under_reading: {read_scope: str, required_scope: str, contradiction_summary: str}`, `shape_inadequacy: {claim_shape: str, query_set_summary: str, gap_summary: str}`, `misclassification: {agent_classification: str, adjudicator_classification: str, rationale: str}`, `decomposition_skipped: {t4_claim_id: int, failed_criterion: 1 \| 2 \| 3, decomposition_attempted: bool}` (`t4_claim_id` is the integer `claim_id` from T4's `claim_provenance_index`; `failed_criterion` uses the same `1\|2\|3` values as `ClassificationTrace.failed_criterion`), `narrative_ledger_violation: {violation_type: str, narrative_claim_text: str, ledger_match_status: str}`. T7/adjudication MAY add extension keys but MUST NOT remove or redefine the required keys. This row is T4's contract floor; T7 MUST publish a validator-grade JSON Schema for `detail` before benchmark readiness | T7 | [benchmark.md](../superpowers/specs/codex-collaboration/dialogue-supersession-benchmark.md) / `adjudication.json` schema |
 | Methodology finding consequence | Add `methodology_finding_threshold` to benchmark contract (versioned per [benchmark.md:202](../superpowers/specs/codex-collaboration/dialogue-supersession-benchmark.md)). Value recorded in `manifest.json`. Add per-run methodology-gate check as pass-rule condition 5. A methodology-gate breach alone is not grounds for invalidation or rerun — the run is valid and scored, the breach fails condition 5. T7 defines initial threshold value | T7 | [benchmark.md](../superpowers/specs/codex-collaboration/dialogue-supersession-benchmark.md) pass rule, config, `manifest.json` |
 | Adjudication scope | Expand adjudicator authority to include candidate process artifacts (query traces, `ClassificationTrace`, claim ledger) alongside final synthesis. Methodology findings derive from these artifacts, not only from synthesis content | T7 | [benchmark.md](../superpowers/specs/codex-collaboration/dialogue-supersession-benchmark.md) adjudication rules |
 | Mode-mismatch failure artifact | Define destination for invalid-run mode-mismatch details (requested mode, missing T5 surface, rejection reason). Belongs in `runs.json` as invalid-run entry per [benchmark.md:98-99](../superpowers/specs/codex-collaboration/dialogue-supersession-benchmark.md) | T7 | [benchmark.md](../superpowers/specs/codex-collaboration/dialogue-supersession-benchmark.md) / `runs.json` schema |
+| Benchmark-run scope formalization | Define the benchmark-relevant scope configuration for compared runs. At minimum: (a) `scope_envelope` with non-empty `allowed_roots` as a run condition — T4's containment contract (§4.6) requires `allowed_roots` for pre-execution confinement; absent scope makes containment inoperative; (b) `allowed_roots` identity or equivalence rule for compared runs — candidate and baseline must operate on the same effective search space; (c) `source_classes` inclusion or an explicit statement that `source_classes` are irrelevant for this benchmark; (d) `scope_root` selection rule for all query types including conceptual queries — T4 executes `Grep`/`Glob` against `scope_root` (§4.6 confinement table, `ScoutStep.scope_root`), and unconstrained choice permits search-space narrowing that biases evidence coverage. A justification-only policy is insufficient: `scope_root` selection must be enforceable by a validator without trusting agent narrative. The benchmark currently lists eight run conditions ([benchmark.md:86-97](../superpowers/specs/codex-collaboration/dialogue-supersession-benchmark.md)) but does not name scope configuration. Benchmark execution reaches T4 through consultation-layer delegation, which carries `scope_envelope`; this transport coupling must be formalized | T7 | [benchmark.md](../superpowers/specs/codex-collaboration/dialogue-supersession-benchmark.md) run conditions, config |
+| Evidence budget parameter | Define `max_evidence` value in benchmark contract and bring it under benchmark change control ([benchmark.md:200-207](../superpowers/specs/codex-collaboration/dialogue-supersession-benchmark.md)). T4's budget gates (§3.5), effort formula (`max_scout_rounds = max_evidence + 2`), and skip logic (§4.3) all consume `max_evidence` but T4 does not define its value. The current change-control clause covers corpus, adjudication labels, metrics, and pass rule but not execution parameters; `max_evidence` must be added to that regime. Value recorded in `manifest.json` | T7 | [benchmark.md](../superpowers/specs/codex-collaboration/dialogue-supersession-benchmark.md) config, change control, `manifest.json` |
+| Benchmark artifact auditability | Extend `manifest.json` and/or `runs.json` to record enough metadata for post-hoc compliance audit. Run-level metadata at minimum: run kind (scored comparison, calibration dry run, schema shakedown), resolved scope configuration or stable config digest (covering `allowed_roots`, `source_classes`), `max_evidence` value, `methodology_finding_threshold` value, benchmark config version or digest, and harness toolchain identity (transcript parser and diff engine version or build digest). Per-step metadata: `scope_root` choices must be recoverable from the run transcript (§3.9 transcript fidelity dependency). Without this, run-condition compliance is unverifiable after the fact and disputed results depend on operator testimony | T7 | [benchmark.md](../superpowers/specs/codex-collaboration/dialogue-supersession-benchmark.md) artifact contract, `manifest.json`, `runs.json` |
+| Omission-audit proof surface | Persist a derived omission-audit artifact for each scored run. Contract floor: (a) **run binding** — `run_id`, transcript content digest, harness toolchain identity (parser/diff version or build digest) bound to the specific scored transcript; (b) **evidence-record keyed** — one entry per evidence record used in synthesis, referencing uncited matches by path, line spans, or content digests sufficient for audit (full content duplication not required); (c) **completeness** — every evidence record used in the synthesis (per §5.3) has a corresponding omission entry; parser recovered all required per-step metadata including `scope_root`; no unresolved extraction or diff failure state; (d) **manifest binding** — artifact content digest recorded in `manifest.json` or `runs.json` for post-hoc integrity verification. Absence or incompleteness invalidates the scored run. T4 defines this contract floor; T7 owns artifact schema, storage location, and naming. T7 MUST publish a validator-grade schema for the proof-surface artifact before benchmark readiness | T7 | Benchmark artifact contract |
 
 ## 7. Rejected Alternatives
 
@@ -2053,10 +2215,13 @@ not a criterion-based exemption.
     reclassification for both `reinforced` and `revised`. Claim-history
     surface (`validated_entry` trajectory) included.
 
-32. **Transcript fidelity — blocking external dependency.** Benchmark
-    contract must normatively specify untruncated output and parseable
-    format. T4 implementation blocked until resolved. Degradation path
-    declared.
+32. **Transcript fidelity — blocking external dependency (§3.9).**
+    Full dependency shape: normative clause (untruncated output),
+    parseable format (per-step metadata recovery including
+    `scope_root`), and operational transcript parser and mechanical
+    diff engine (§3.9 rows 3-4). Format spec alone does not make the
+    authoritative omission surface (§5.3) operational. Degradation
+    path declared.
 
 33. **Revised-claim merger.** Convergent revisions merge. No
     identical-text live collisions.
@@ -2104,6 +2269,8 @@ not a criterion-based exemption.
 42. **Two budget surfaces (§3.5).** Evidence budget:
     `evidence_count >= max_evidence`. Effort budget:
     `scout_budget_spent >= max_scout_rounds`. Both gate scouting.
+    `max_evidence` is a benchmark-contract parameter under benchmark
+    change control (§6.2), not a T4 constant.
     `scout_budget_spent` increments exactly once per round at step 5b
     (not in lifecycle entries). `scout_count` in pipeline-data maps to
     evidence budget only; effort budget is internal.
@@ -2208,9 +2375,10 @@ not a criterion-based exemption.
     enclosing-scope shrinking. Boundary determined at read time.
     Closes shape-gaming exploit.
 
-64. **Canonical intra-phase ordering (§3.1.2).** `(claim_key, status)`
-    ascending sort before Phase 1 and Phase 2. Makes `claim_id`
-    sequence deterministic from text content.
+64. **Canonical intra-phase ordering (§3.1.2).**
+    `(claim_key, status, claim_text)` ascending sort before Phase 1
+    and Phase 2. Makes `claim_id` sequence deterministic from text
+    content.
 
 65. **G3 satisfied by Tier 1 scouted provenance.** G3 invariant:
     "accepted scout results retained as structured provenance." T4's
@@ -2233,21 +2401,41 @@ not a criterion-based exemption.
     `narrative_ledger_violation` (mechanical). Finding rows in
     `adjudication.json` keyed by `inventory_claim_id` (T7 adjudicator
     inventory, not ledger `claim_id`). Do not change claim labels.
-    Per-run `methodology_finding_threshold` gate is pass-rule condition
-    5. Threshold pinned in versioned benchmark contract, recorded in
+    T4 specifies the required semantics: per-run
+    `methodology_finding_threshold` gate as pass-rule condition 5.
+    Threshold pinned in versioned benchmark contract, recorded in
     `manifest.json`. Threshold breach is a valid scored run that fails
     condition 5 — not an invalid run, not grounds alone for rerun.
-    Format and threshold are T7 benchmark-contract dependencies (§6.2).
+    T7 owns adding condition 5 to the benchmark contract; the live
+    benchmark currently has four conditions. Format and threshold are
+    T7 benchmark-contract dependencies (§6.2).
 
 69. **Mode-mismatch failure artifact (§6.2).** `agent_local` benchmark
     run with missing T5 surfaces produces invalid-run entry in
     `runs.json`. Scoped to benchmark behavior. Artifact schema is T7
     benchmark-contract dependency (§6.2).
 
-70. **Benchmark-execution prerequisite (§6.2).** Scored runs blocked
-    until T7 delivers ALL: narrative-claim inventory, ledger
-    completeness checker, methodology-finding schema in
-    `adjudication.json`, mode-mismatch schema in `runs.json`, and
-    `methodology_finding_threshold` in benchmark contract.
-    Runner/manifest validator enforces. Calibration dry runs permitted
-    but MUST NOT be used for pass/fail comparisons. Independent of G3.
+70. **Benchmark-execution prerequisite (§6.2).** All benchmark runs
+    (scored, calibration, shakedown) require `scope_envelope` with
+    non-empty `allowed_roots` (§4.6). Scored runs additionally
+    blocked until T7 delivers ALL: narrative-claim inventory, ledger
+    completeness checker, methodology-finding schema (including typed
+    `detail` per finding kind) in `adjudication.json`, mode-mismatch
+    schema in `runs.json`, `methodology_finding_threshold` in
+    benchmark contract, benchmark-relevant scope configuration
+    formalized (including comparability rule and `scope_root`
+    selection rule for all query types), `max_evidence` under
+    benchmark change control,
+    artifact contract extended for post-hoc audit (run kind, scope
+    config, benchmark parameters, benchmark config version or
+    digest, harness toolchain identity in
+    `manifest.json`/`runs.json`; per-step `scope_root`
+    recoverable from run transcript), and
+    transcript parser and mechanical diff engine produce derived
+    omission-audit proof surface (§3.9, §6.2) — run-bound,
+    evidence-record complete, extraction-failure-free; absence or
+    incompleteness invalidates scored run.
+    Runner/manifest validator enforces (1)-(8). Exploratory
+    shakedowns permitted before prerequisites (non-evidentiary, MUST
+    NOT inform benchmark policy). Policy-influencing calibration
+    runs require all eight prerequisites. Independent of G3.
