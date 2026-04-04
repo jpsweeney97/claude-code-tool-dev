@@ -68,6 +68,50 @@ during a benchmark run.
 | B7 | Forward-compatibility planning | comparative | 6 | What would it take to add `codex.dialogue.fork` without breaking the current lineage and recovery model? | `docs/superpowers/specs/codex-collaboration/contracts.md`, `docs/superpowers/specs/codex-collaboration/decisions.md`, `packages/plugins/codex-collaboration/server/lineage_store.py`, `packages/plugins/codex-collaboration/server/dialogue.py`, `packages/plugins/codex-collaboration/server/runtime.py` |
 | B8 | Supersession analysis | comparative | 8 | Can Claude-side scouting replace cross-model context-injection for dialogue in this repo, or what concrete quality loss would remain? | `packages/plugins/cross-model/skills/dialogue/SKILL.md`, `packages/plugins/cross-model/agents/`, `packages/plugins/cross-model/context-injection/`, `docs/superpowers/specs/codex-collaboration/`, `packages/plugins/codex-collaboration/server/` |
 
+## Corpus Compliance
+
+For benchmark v1, each row's primary evidence anchors are load-bearing scope
+constraints, not advisory reading suggestions. They define the scored scouting
+surface for that task under
+[T4-CT-02](../../../plans/t04-t4-scouting-position-and-evidence-provenance/containment.md#t4-ct-02).
+This is a deliberate comparability-over-breadth trade: benchmark v1 prefers a
+deterministic scored scouting surface over the full answer-space breadth an
+open-ended repo search might explore.
+
+B1-B7 are corpus-compliant as written. Their prompts either name or imply
+specific paths directly, or span explicit anchor groups that permit
+deterministic per-target cross-root scouting without inventing a benchmark-only
+root-selection rule.
+B4 is compliant for `scope_root` determinism, but its anchor set intentionally
+narrows the discoverable answer space for an open-ended installability audit
+relative to a full-repo packaging review.
+
+Any future corpus row must be classified under this section before it may
+appear in a scored comparison.
+
+### B8 Anchored Decomposition
+
+B8 remains in the scored corpus, but not as an open-ended conceptual multi-root
+search. It is scored only through the anchored decomposition below:
+
+1. Baseline dialogue evidence path:
+   `packages/plugins/cross-model/skills/dialogue/SKILL.md`,
+   `packages/plugins/cross-model/agents/`, and
+   `packages/plugins/cross-model/context-injection/`
+2. Candidate normative design surface:
+   `docs/superpowers/specs/codex-collaboration/`
+3. Candidate implemented runtime surface:
+   `packages/plugins/codex-collaboration/server/`
+
+The final synthesis may answer whether Claude-side scouting can replace
+context-injection, but each `Glob`/`Grep`/`Read` step MUST stay anchored to one
+of those path groups. Discovery outside the listed anchors is not part of
+scored B8. Under this decomposition, B8 is treated as a deterministic
+cross-root task for benchmark v1 rather than a blocked conceptual multi-root
+task. The anchor constraint applies to the `path` parameter of each scouting
+step, not to the reasoning that motivates the next step. Cross-group reasoning
+is expected; cross-group target expansion is not.
+
 ## Known Limitation
 
 All 8 corpus tasks are drawn from the codex-collaboration repository itself.
@@ -94,9 +138,46 @@ Every baseline/candidate pair must be run under the same conditions:
    search, or ad hoc external tools.
 8. Both systems must retain the raw run transcript and final synthesis used for
    scoring.
+9. Conceptual scored tasks must satisfy the corpus-design constraint: the row
+   must be single-root by construction, deterministically cross-root under
+   [T4-CT-02](../../../plans/t04-t4-scouting-position-and-evidence-provenance/containment.md#t4-ct-02),
+   or executed through documented path-anchored decomposition from its primary
+   evidence anchors.
+
+For scored runs, the primary evidence anchors define the benchmark-scoped
+`allowed_roots` for that row. Scored scouting beyond those anchors is out of
+scope for this contract. B8 is valid under this rule only through the anchored
+decomposition in [Corpus Compliance](#corpus-compliance). Related benchmark-side
+amendment obligations remain governed by
+[T4-BR-09](../../../plans/t04-t4-scouting-position-and-evidence-provenance/benchmark-readiness.md#t4-br-09).
 
 If a run violates any condition, that run is invalid and must be rerun from the
 same commit. Invalid runs do not count toward the aggregate result.
+
+## Scored-Run Prerequisite Status
+
+This contract amendment does **not** make scored benchmark runs ready. It
+partially addresses
+[T4-BR-07](../../../plans/t04-t4-scouting-position-and-evidence-provenance/benchmark-readiness.md#t4-br-07)
+prerequisite item 5 by:
+
+- defining benchmark-scoped `allowed_roots` from the primary evidence anchors
+- eliminating ambiguous conceptual multi-root scored tasks through corpus design
+  or documented anchored decomposition
+
+The following T4-BR-07 requirements remain open in this contract:
+
+- item 5 subrequirements not addressed here:
+  named `scope_envelope` as a benchmark run parameter,
+  `allowed_roots` equivalence for compared baseline/candidate runs,
+  and `source_classes` inclusion or explicit irrelevance
+- items 1-4 and 6-8 in full, including artifact completeness, controlled
+  evidence budget, auditable benchmark metadata, and omission-audit proof
+  execution
+
+Scored runs remain blocked until the full T4-BR-07 prerequisite gate is
+operational. This section resolves the conceptual-query part of that gate; it
+does not supersede the rest of the benchmark-readiness contract.
 
 ## Required Benchmark Artifacts
 

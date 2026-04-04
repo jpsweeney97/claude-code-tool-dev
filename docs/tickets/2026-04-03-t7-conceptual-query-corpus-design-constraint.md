@@ -56,6 +56,65 @@ Without resolution, scored benchmark runs remain blocked indefinitely.
 - General conceptual multi-root selection algorithm
 - Changes to T4's anti-narrowing constraint or scope_root recording
 
+## Corpus Compliance Review
+
+All 8 benchmark tasks were reviewed against T4's `scope_root` derivation cases.
+
+| Task | Prompt character | T4 case | Status |
+|------|------------------|---------|--------|
+| B1 | Evaluative across named spec + implementation files | Cross-root deterministic | Compliant as written |
+| B2 | Analytical within one implementation subtree | Path-targeted | Compliant as written |
+| B3 | Adversarial review across named implementation, test, and ticket surfaces | Cross-root deterministic | Compliant as written |
+| B4 | Open-ended planning across four explicit plugin/artifact anchors | Cross-root deterministic | Compliant as written; anchor set narrower than a full-repo installability audit |
+| B5 | Evaluative across named policy + runtime files | Cross-root deterministic | Compliant as written |
+| B6 | Evaluative across named spec + schema + model surfaces | Cross-root deterministic | Compliant as written |
+| B7 | Forward-compatibility planning across named lineage/runtime/spec surfaces | Cross-root deterministic | Compliant as written |
+| B8 | Comparative supersession question spanning two subsystems | Anchored decomposition required | Compliant only via benchmark-contract decomposition |
+
+## B8 Resolution
+
+B8 stays in benchmark v1. It does not require exclusion, but it also does not
+remain a free-form conceptual multi-root search. The authoritative decomposition
+now lives in the benchmark contract's
+[`Corpus Compliance`](../superpowers/specs/codex-collaboration/dialogue-supersession-benchmark.md#corpus-compliance)
+section.
+
+**Resolution:** B8 is Path-2 compliant by documented decomposition. The scored
+task remains valid because the benchmark contract can treat it as deterministic
+cross-root scouting rather than ambiguous conceptual multi-root selection.
+
+## Change Control Review Note
+
+This ticket's contract amendment was reviewed against
+`T4-BR-09` amendment row 5 and `T4-BR-07` prerequisite item 5.
+
+- Delivered here:
+  benchmark-scoped `allowed_roots` from corpus anchors and a
+  validator-enforceable elimination of ambiguous conceptual multi-root scored
+  tasks
+- Still open outside this ticket:
+  named `scope_envelope` as a run-condition parameter,
+  baseline/candidate `allowed_roots` equivalence,
+  and `source_classes` inclusion or explicit irrelevance
+
+The broader T4-BR-07 prerequisite gate remains open even though this ticket's
+Path-2 corpus-design work is now closed.
+
+## Delivery Status
+
+Delivered in this ticket:
+
+- benchmark contract run-condition amendment for the Path-2 corpus-design rule
+- corpus compliance classification for B1-B8
+- authoritative B8 scored-run resolution via benchmark-contract decomposition
+
+Still open for follow-through:
+
+- T6 composition review must record whether benchmark v1 coverage remains
+  adequate under the constrained corpus
+- broader T4-BR-07 prerequisites outside the conceptual-query slice remain
+  open benchmark-readiness work
+
 ## Acceptance criteria
 
 1. Benchmark contract run conditions include the corpus design constraint
