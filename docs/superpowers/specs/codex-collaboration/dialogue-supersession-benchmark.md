@@ -205,3 +205,12 @@ this contract version. Any future change to them requires:
 1. editing this contract,
 2. explaining why the previous contract was insufficient, and
 3. rerunning any comparison that relied on the changed rule.
+
+Changes that affect scouting scope, evidence provenance requirements, or
+benchmark-readiness assumptions must also review
+[T-04 T4: Scouting Position and Evidence Provenance](../../../plans/t04-t4-scouting-position-and-evidence-provenance/README.md)
+and
+[T4-BR-09: Benchmark-Contract Amendment Dependencies](../../../plans/t04-t4-scouting-position-and-evidence-provenance/benchmark-readiness.md#t4-br-09).
+
+This cross-spec review requirement is mandatory. Benchmark changes in those
+domains are incomplete unless T4 is reviewed in the same change.

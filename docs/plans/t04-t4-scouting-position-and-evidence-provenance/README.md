@@ -23,6 +23,13 @@ Related gate: G3 in
 Depends on: T2 accepted at
 [T2 contract](../2026-04-02-t04-t2-synthetic-claim-and-closure-contract.md).
 
+**Status:** This README is supporting documentation for the canonical
+normative T4 specification in this directory. The T4 spec remains under
+`docs/plans/` for historical continuity and stable references; that location
+is not a signal that the contract is planning scratch or otherwise
+non-normative. Future T4 edits should continue to land here unless a later
+tooling-backed relocation is explicitly approved.
+
 ## Authority Model
 
 Each file carries frontmatter declaring its `authority` (from `spec.yaml`)

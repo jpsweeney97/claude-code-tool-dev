@@ -51,6 +51,13 @@ Official plugin comparison is pinned to upstream commit `9cb4fe4`. If upstream c
 | 7 | [dialogue-supersession-benchmark.md](dialogue-supersession-benchmark.md) | delivery | Fixed-corpus benchmark contract for retiring context-injection by default |
 | 8 | [decisions.md](decisions.md) | decisions | Greenfield rules, accepted tradeoffs, architecture option analysis, open questions |
 
+## Related Specs
+
+- [T-04 T4: Scouting Position and Evidence Provenance](../../../plans/t04-t4-scouting-position-and-evidence-provenance/README.md)
+  is the canonical normative scouting and evidence-provenance contract that
+  the benchmark and related dialogue work depend on, even though it remains
+  under `docs/plans/` for historical continuity.
+
 ## Cross-Reference Conventions
 
 - Relative markdown links with semantic kebab-case anchors (e.g., `[promotion protocol](promotion-protocol.md#preconditions)`)
