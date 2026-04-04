@@ -26,7 +26,7 @@ requirement wins and the matrix has a bug.
 | 7 | T4-SM-02 | **Two-phase processing:** Phase 1 → Phase 1.5 → Phase 2. Same-turn concession + reintroduction → deterministic fresh identity |
 | 8 | T4-SM-04 | **ClaimRef uniqueness:** `(turn, key, occurrence_index)` unique |
 | 9 | T4-SM-03 | **Referent resolution — dead exclusion:** Filters to live candidates. No live → routed to Phase 1.5 reclassification |
-| 10 | T4-SM-05 | **Evidence record structure:** `claim_text` non-empty. `entity` follows grammar. Steps 2-5. Each citation has valid `source_step_index`. Total citations ≤ 5, Glob = 0. `match_digest` capped at 20 lines |
+| 10 | T4-SM-05 | **Evidence record structure:** `index == evidence_log` position. `claim_text` non-empty. `entity` follows grammar. Steps 2-5. Each citation has valid `source_step_index`. Total citations ≤ 5, Glob = 0. `match_digest` capped at 20 lines |
 | 11 | T4-SB-04 | **Query coverage:** At least one `definition` and one `falsification` query per round |
 | 12 | T4-SM-05, T4-F-04 | **Disposition from full output:** Mixed evidence → `conflicted` |
 | 13 | T4-SM-05, T4-F-05 | **Polarity preservation:** `conflicted` cites both polarities |

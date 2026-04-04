@@ -222,6 +222,10 @@ CitationSpan {
 
 ### Key Fields
 
+- `index`: dense append-time identifier for the record. Assigned as
+  `len(evidence_log)` immediately before append, so
+  `evidence_log[i].index == i` is an invariant for the run.
+  `record_indices` and synthesis trajectory joins use this key.
 - `claim_text`: unnormalized snapshot. Self-contained record.
 - `entity`: grammar `<path_or_symbol>`, `<path_or_symbol> <qualifier>`,
   or `<entity> × <entity>` for relational claims
@@ -376,8 +380,8 @@ exists in the evidence set and no `contradicts` disposition exists.
 | Revised claim (new occurrence, scoutable) | Allocate `claim_id`. New `ClaimRef`, new entry at `unverified`, `scout_attempts=0` |
 | Revised claim (new occurrence, not scoutable) | Allocate `claim_id`. New `ClaimRef`, new entry at `not_scoutable`, `scout_attempts=0`. Terminal |
 | Revised claim (merged) | Reuse existing `claim_id`. Shares existing `ClaimRef`. No new entry. T2/T3 still count as `revised` |
-| Evidence stored | Append index, recompute from full set, `scout_attempts += 1` |
-| `not_found` stored | Append index (no effect on effective set), `scout_attempts += 1` |
+| Evidence stored | Append record with `index = len(evidence_log)` (pre-append), recompute from full set, `scout_attempts += 1` |
+| `not_found` stored | Append record with `index = len(evidence_log)` (pre-append; no effect on effective set), `scout_attempts += 1` |
 | `minimum_fallback` | Never enters model |
 | `reinforced` | Shares referent's `ClaimRef`. No new entry |
 | Forced-new (dead referent, scoutable) | Allocate `claim_id`. Reclassified to `new` ([T4-SM-02](#t4-sm-02) Phase 1.5). New occurrence, new `ClaimRef`, new entry at `unverified` |

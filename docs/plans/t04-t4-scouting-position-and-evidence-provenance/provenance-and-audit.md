@@ -28,7 +28,8 @@ Only `EvidenceRecord` entries appear in the trajectory. No uncited or
 un-dispositioned content enters the scored synthesis. Each trajectory
 entry MUST include the record index to enable deterministic join from
 synthesis claims to specific evidence records
-([T4-PR-02](#t4-pr-02)).
+([T4-PR-02](#t4-pr-02)). Deterministic here means the T4-SM-05
+invariant holds: for `evidence_log[i]`, `record.index == i`.
 
 ### Projection to Per-Turn Scout Outcomes
 
