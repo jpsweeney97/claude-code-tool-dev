@@ -1,0 +1,74 @@
+shared_contract_version: 1
+readme: README.md
+
+authorities:
+  foundation:
+    description: Core design decisions, rationale, cross-cutting architectural
+      constraints including transcript fidelity dependency.
+    default_claims: [architecture_rule, decision_record]
+
+  state-model:
+    description: Data structures, schemas, wire formats, processing rules, and
+      state machines for claims, evidence, verification, and budgets.
+    default_claims: [persistence_schema, interface_contract]
+
+  scouting-behavior:
+    description: Behavioral rules for the scouting loop — mechanics, target
+      selection, query coverage, claim classification, and methodology findings.
+    default_claims: [behavior_contract]
+
+  containment:
+    description: Scope confinement enforcement — pre-execution checks,
+      scope_root derivation, post-containment capture, safety interaction.
+    default_claims: [enforcement_mechanism]
+
+  provenance:
+    description: Synthesis citation surface, provenance index, claim ledger,
+      audit chain, and mechanical omission surface.
+    default_claims: [interface_contract, behavior_contract]
+
+  benchmark-readiness:
+    description: Non-decaying blockers, scored-run prerequisite gates,
+      benchmark-contract amendment obligations. Load-bearing readiness contract.
+    default_claims: [enforcement_mechanism]
+
+  boundaries:
+    description: Non-changes, helper-era migration, T2/T3/synthesis input
+      change declarations.
+    default_claims: [implementation_plan]
+
+  supporting:
+    description: Non-normative reference — rejected alternatives, conformance
+      matrix, crosswalk, reading order.
+    default_claims: []
+
+precedence:
+  normative_first: true
+  claim_precedence: {}
+  fallback_authority_order: []
+  unresolved: ambiguity_finding
+
+boundary_rules:
+  - on_change_to: [foundation]
+    review_authorities: [provenance, containment, benchmark-readiness]
+    reason: Transcript fidelity and architectural constraints directly
+      constrain audit chain, containment model, and readiness gates.
+  - on_change_to: [state-model]
+    review_authorities: [scouting-behavior, provenance, benchmark-readiness]
+    reason: Schemas define data structures consumed by scouting, provenance,
+      and readiness gates.
+  - on_change_to: [containment]
+    review_authorities: [provenance, benchmark-readiness]
+    reason: Audit chain depends on post-containment output; readiness gates
+      reference containment scope requirements.
+  - on_change_to: [scouting-behavior]
+    review_authorities: [provenance, benchmark-readiness]
+    reason: Scouting outputs flow into provenance; readiness gates reference
+      scouting-dependent methodology findings.
+  - on_change_to: [provenance]
+    review_authorities: [benchmark-readiness]
+    reason: Readiness gates reference provenance surfaces and audit chain.
+  - on_change_to: [benchmark-readiness]
+    review_authorities: [provenance, containment]
+    reason: Readiness changes may affect auditability claims and containment
+      scope requirements.
