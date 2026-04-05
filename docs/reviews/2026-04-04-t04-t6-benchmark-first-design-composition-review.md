@@ -1,6 +1,6 @@
 # T-04 T6: Benchmark-First Design Composition Review
 
-**Scope:** T6 asks whether the five accepted gate designs (T1-T5) compose into a single coherent state model, loop structure, and synthesis contract (`benchmark-first-design-plan.md:39`). If they do not, the conflicting gates are reopened (`benchmark-first-design-plan.md:52`). The T7 ticket additionally requires T6 to record whether benchmark-v1 coverage remains adequate under the constrained corpus (`t7-conceptual-query-corpus-design-constraint.md:113-114`, acceptance criterion 4 at `:125`).
+**Scope:** T6 asks whether the five accepted gate designs (T1-T5) compose into a single coherent state model, loop structure, and synthesis contract (`2026-04-01-t04-benchmark-first-design-plan.md:39`). If they do not, the conflicting gates are reopened (`2026-04-01-t04-benchmark-first-design-plan.md:52`). The T7 ticket additionally requires T6 to record whether benchmark-v1 coverage remains adequate under the constrained corpus (`t7-conceptual-query-corpus-design-constraint.md:113-114`, acceptance criterion 4 at `:125`).
 
 ### State Model: COMPOSES
 
@@ -68,29 +68,49 @@ These extensions are compatible — no field conflicts, no semantic contradictio
 | `dialogue-synthesis-format.md` (current consumer-facing synthesis contract) | 7 assembly sections, checkpoint grammar, `server_assisted\|manual_legacy` epilogue |
 | T4 spec tree (`provenance-and-audit.md`, `boundaries.md`, `state-model.md`) | `EvidenceRecord` schema, `claim_provenance_index` wire format, `## Claim Ledger` grammar, `not_scoutable` |
 
-T6's done-when requires "one consistent benchmark-first design" (`benchmark-first-design-plan.md:39`). Two compatible documents describing different surfaces of the same contract is not one consistent contract.
+T6's done-when requires "one consistent benchmark-first design"
+(`2026-04-01-t04-benchmark-first-design-plan.md:39`). Two compatible
+documents describing different surfaces of the same contract is not one
+consistent contract.
 
-**The split creates concrete failure paths.** `event_schema.py:137` rejects `agent_local`. `SKILL.md:435` falls back to `server_assisted`. Current consumers either ignore the new surfaces or coerce the new vocabulary. These are live invalid-run paths: the T6 consolidation artifact addresses the specification gap (what the synthesis contract says); the consumer-code changes (`event_schema.py`, `SKILL.md`, test fixtures) are T7 executable-slice work defined by T5's Primary Migration Set (`t5:195-206`, 7 surfaces across normative contract, schema, producer contract, and test enforcement layers).
+**The split creates concrete failure paths.** `event_schema.py:137`
+rejects `agent_local`. `SKILL.md:435` falls back to `server_assisted`.
+Current consumers either ignore the new surfaces or coerce the new
+vocabulary. Ownership of fixing these paths is corrected below:
+`agent_local` documentation is T5-owned, while the consumer-code
+breakpoints are T7 executable-slice work.
 
-**Consolidation artifact:**
+T4's synthesis extensions remain compatible, but the original version of
+this section overstated T6's ownership of the remaining surfaces.
 
-| Property | Value |
-|---|---|
-| **Canonical surface** | `dialogue-synthesis-format.md` — becomes the single authoritative specification of what the synthesis artifact contains |
-| **Derivative surfaces** | T4 spec files (`provenance-and-audit.md`, `boundaries.md`) retain design-rationale authority but are no longer required reading for synthesis consumers |
-| **Deprecation path** | None — T4 spec files remain authoritative for provenance design semantics. Only the consumer-facing synthesis specification consolidates into one document |
+**Adjudication correction:** verification against
+`benchmark-readiness.md:79-102` shows that `claim_provenance_index`,
+`## Claim Ledger`, and the two `not_scoutable` synthesis-format updates
+are T7-owned surfaces, while `agent_local` mode documentation is T5-owned
+(`benchmark-readiness.md:35-36`). The canonical semantic shape of those
+surfaces remains in the T4/T5 normative specs:
+`provenance-and-audit.md`, `state-model.md`, `boundaries.md`, and
+`2026-04-02-t04-t5-mode-strategy.md`. `benchmark-readiness.md` governs
+gate ownership; it does not override canonical wire-format shape. For
+example, `benchmark-readiness.md:87` describes the provenance index as
+"claim_id-keyed schema", while
+`provenance-and-audit.md:84-90` defines the canonical dense-array wire
+format.
 
-**Surfaces to merge:**
+**Corrected ownership map:**
 
-| Surface | Authoritative design source | Target location in `dialogue-synthesis-format.md` |
-|---|---|---|
-| `EvidenceRecord` schema | T4-PR-01 (`provenance-and-audit.md:15-63`) | Evidence trajectory section |
-| `claim_provenance_index` wire format | T4-PR-03 (`provenance-and-audit.md:65-106`) | Pipeline-data epilogue |
-| `## Claim Ledger` grammar | T4-PR-05 (`provenance-and-audit.md:121-163`) | New assembly section (8th section) |
-| `not_scoutable` vocabulary | T4-BD-02 | Claim trajectory and evidence trajectory sections |
-| `agent_local` mode | T5 §6 (`t5:195-206`) | Mode vocabulary and epilogue |
+| Surface | Owner | Canonical semantic source | Correction |
+|---|---|---|---|
+| `claim_provenance_index` wire format | T7 | `provenance-and-audit.md:65-106`, `state-model.md:180-182` | Not T6 consolidation work; also blocked by audit F6/F7/F11 |
+| `## Claim Ledger` grammar | T7 | `provenance-and-audit.md:121-210` | Not T6 consolidation work |
+| `not_scoutable` in claim/evidence trajectory | T7 | `boundaries.md:35`, `provenance-and-audit.md:108-119`, `state-model.md:376-392` | Not T6 consolidation work |
+| `agent_local` mode vocabulary and epilogue | T5 | `2026-04-02-t04-t5-mode-strategy.md:118-160,195-206` | Not T6 consolidation work |
+| Evidence-trajectory consumer projection | Unassigned in current gate tables | `provenance-and-audit.md:14-48` | The prior row labeled this as `EvidenceRecord` schema; that was too broad. The consumer-facing surface is the evidence-trajectory projection, not the full state-model `EvidenceRecord` schema. |
 
-**Done when:** `dialogue-synthesis-format.md` specifies every surface that T4 and T5 designs require, and no consumer needs to read the T4 spec tree to know what the synthesis contains.
+This correction changes the ownership reading, not the composition
+verdict. The synthesis contract remains incomplete as a single
+consumer-facing surface, but this review no longer treats the missing
+surfaces as an implicit T6-owned consolidation packet.
 
 ### Coverage Adequacy Under the Constrained Corpus
 
@@ -120,7 +140,14 @@ The T7 ticket requires T6 to record whether benchmark-v1 coverage remains adequa
 
 **This is T7 executable-slice work:** the benchmark harness must read corpus metadata and populate consultation configuration at setup time. The design of what goes into `scope_envelope` is specified (T4-CT-04). The design of where `allowed_roots` come from is specified (benchmark contract). The wiring is harness plumbing.
 
-**Mode migration spans T6 and T7.** The specification gap (`agent_local` absent from `dialogue-synthesis-format.md`) is addressed by the T6 consolidation artifact. The consumer-code breakpoints (`event_schema.py:137` rejection, `SKILL.md:435` fallback) are T7 executable-slice work — T5's Primary Migration Set (`t5:195-206`) defines 7 surfaces that must accept `agent_local` (normative contract, schema, producer contract, test enforcement). T6 consolidation makes the specification consistent; T7 implementation makes the code consistent with the specification.
+**Mode migration spans T5 and T7.** The specification gap
+(`agent_local` absent from `dialogue-synthesis-format.md`) is T5-owned
+per `benchmark-readiness.md:35-36`. The downstream consumer-code
+breakpoints (`event_schema.py:137` rejection, `SKILL.md:435` fallback)
+are T7 executable-slice work per T5's Primary Migration Set
+(`2026-04-02-t04-t5-mode-strategy.md:195-206`), which defines 7
+surfaces across normative contract, schema, producer contract, and test
+enforcement.
 
 ### B8 Anchor Adequacy
 
@@ -140,23 +167,27 @@ B8 is unblocked for `scope_root` determinism (Path-2 resolved the conceptual mul
 |---|---|---|
 | State model | **Composes** | None — T3/T4 identity boundary verified |
 | Loop structure | **Composes** | None — four-spec control flow coherent (consultation contract resolves ambiguity) |
-| Synthesis contract | **Does not yet compose** | T6 consolidation artifact below |
+| Synthesis contract | **Does not yet compose** | Ownership correction below; see disposition for routed and unassigned surfaces |
 | Coverage adequacy | **Adequate for comparability; B8 conditional** | B8 supersession credibility depends on T7 enforcement gaps |
 
-**T6 disposition: T6 remains open pending synthesis contract consolidation.** No gate needs reopening — T4's extensions are compatible with the existing format, and T5's `agent_local` is a valid addition. The composition failure is that T6 has not yet produced the consolidated contract.
+**T6 disposition: adjudication correction to ownership framing.**
+No gate needs reopening — the accepted designs remain compatible. The
+synthesis-contract gap recorded by this review is real, but the
+remaining remediation is not a single T6 consolidation artifact. The
+unresolved wire-format surfaces are T7-owned in
+`benchmark-readiness.md:79-102`, `agent_local` documentation surfaces are
+T5-owned in `benchmark-readiness.md:35-36`, and audit findings F6/F7/F11
+remain unassigned in current gate tables even though they target gaps in
+the T4 provenance/state-model authority set that must be resolved before
+the affected wire formats can be stably canonized. The evidence-
+trajectory consumer projection likewise remains unassigned in current
+gate tables and needs either an explicit owner or an explicit
+declaration that no T4-T7 gate owns it.
 
-The governing plan provides two exit states: gates compose (done) or gates don't compose (reopen conflicting gates, `benchmark-first-design-plan.md:52`). The synthesis contract gap is not a gate conflict — no gate's design is wrong. It is incomplete T6 consolidation work: the accepted designs are compatible but have not yet been merged into the single consistent contract that T6 promises.
-
-**T6 consolidation artifact: unified synthesis contract**
-
-| Property | Value |
-|---|---|
-| Canonical surface | `dialogue-synthesis-format.md` |
-| Authoritative design sources | T4-PR-01, T4-PR-03, T4-PR-05, T4-BD-01, T4-BD-02, T5 §6 |
-| Surfaces to add | `EvidenceRecord`, `claim_provenance_index`, `## Claim Ledger`, `not_scoutable`, `agent_local` |
-| Includes | T5 Primary Migration Set specification surfaces (`agent_local` in mode vocabulary and epilogue). Consumer-code surfaces (schema, parser, tests) are T7 implementation of this specification |
-| Done when | `dialogue-synthesis-format.md` specifies all surfaces that T4 and T5 designs require; no consumer needs the T4 spec tree to know what the synthesis contains. Consumer-code acceptance of `agent_local` is T7 work per T5 §6 |
-| Authority after consolidation | `dialogue-synthesis-format.md` is the single authoritative synthesis specification. T4 spec files retain design-rationale authority |
+This review therefore records the boundary and the downstream owners. It
+does not assign T6 to absorb T4/T5/T7 remediation as implicit scope. The
+original "T6 consolidation artifact" table should be read as superseded
+by this adjudication correction.
 
 **Deferred to T7 (genuinely executable-slice work):**
 
