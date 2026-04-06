@@ -121,7 +121,8 @@ all applicable exit conditions in this table are satisfied.
 Ownership remains intentionally deferred here. The next packet that
 attempts to freeze either wire format for scored benchmark use MUST
 either resolve the applicable row directly or assign a remediation owner
-in current gate tables before canonization can be claimed.
+in current gate tables. Canonization MUST NOT be claimed until all
+applicable exit conditions in this table are satisfied.
 
 ## <a id="t4-br-06"></a>T4-BR-06: Narrative Factual-Claim Inventory
 
