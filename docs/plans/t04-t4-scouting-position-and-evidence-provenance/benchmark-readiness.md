@@ -101,6 +101,28 @@ format.
 | `not_scoutable` in claim trajectory | Add `not_scoutable` to the claim trajectory vocabulary (`new → reinforced/revised/conceded/not_scoutable`) | T7 | [dialogue-synthesis-format.md:16](../../../packages/plugins/cross-model/references/dialogue-synthesis-format.md) |
 | `not_scoutable` in evidence trajectory | Note which claims were classified as not scoutable (no evidence entry) | T7 | [dialogue-synthesis-format.md:14](../../../packages/plugins/cross-model/references/dialogue-synthesis-format.md) |
 
+### <a id="f6-f7-f11-blockers"></a>F6/F7/F11 Provenance Wire-Format Blockers
+
+`claim_provenance_index` and `ClassificationTrace` have named T7
+consumer surfaces in [T4-BR-04](#t4-br-04) and [T4-BR-05](#t4-br-05),
+but the audit findings below remain unassigned in current gate tables.
+T7 consumer work MAY proceed as exploratory shakedowns
+([T4-BR-08(a)](#t4-br-08)) against the current contract.
+Policy-influencing calibration ([T4-BR-08(b)](#t4-br-08)), scored
+benchmark runs, and benchmark-stability claims MUST NOT proceed until
+all applicable exit conditions in this table are satisfied.
+
+| Finding | Blocking surface | Exit condition |
+|---------|------------------|----------------|
+| F6 | Concession lifecycle semantics across three unresolved sub-gaps: retained `ProvenanceEntry` status for conceded claims, dense-array representation of conceded positions, and claim-ledger policy for conceded claims | Canonical contract states (a) how concession status is represented in `claim_provenance_index`, (b) how conceded positions appear in the dense array, and (c) whether conceded claims appear in the claim ledger |
+| F7 | Serialization boundary from agent working state into `<!-- pipeline-data -->` during synthesis composition | Canonical contract names the emitting component, composition step, and interface that serialize `claim_provenance_index` into synthesis output |
+| F11 | Versioning policy for external benchmark wire formats with named T7 consumers | Canonical contract adds explicit versioning rules for `claim_provenance_index` and `ClassificationTrace`, including version fields, bump triggers, and consumer expectations |
+
+Ownership remains intentionally deferred here. The next packet that
+attempts to freeze either wire format for scored benchmark use MUST
+either resolve the applicable row directly or assign a remediation owner
+in current gate tables before canonization can be claimed.
+
 ## <a id="t4-br-06"></a>T4-BR-06: Narrative Factual-Claim Inventory
 
 **NOT a G3 concern** ([T4-PR-08](provenance-and-audit.md#t4-pr-08)).
@@ -128,6 +150,13 @@ without it). In addition, **scored benchmark runs and pass/fail
 comparisons** MUST NOT proceed until ALL of the following T7 dependencies
 are operational:
 
+Scored runs that depend on `claim_provenance_index` or
+`ClassificationTrace` MUST also satisfy the blocker conditions in
+[F6/F7/F11 provenance wire-format blockers](#f6-f7-f11-blockers).
+Until those blockers are resolved, the affected wire formats remain
+provisional for benchmark-readiness purposes even if downstream T7
+consumer work has started.
+
 ### Eight-Item Prerequisite Gate
 
 | # | Category | Prerequisite | What it gates |
@@ -149,6 +178,13 @@ artifact metadata. Item 8 is verifiable from the derived omission-audit
 proof surface: the runner produces it, the manifest records its digest,
 and a post-hoc validator confirms run binding, evidence-record
 completeness, and absence of extraction failures.
+
+For `claim_provenance_index` and `ClassificationTrace`, the benchmark
+runner or manifest validator MUST also reject scored-run readiness claims
+and policy-influencing calibration against those formats until all
+applicable rows in
+[F6/F7/F11 provenance wire-format blockers](#f6-f7-f11-blockers) are
+resolved in the cited benchmark contract version or digest.
 
 Without (1), `supported_claim_rate`
 ([benchmark.md:160](../../superpowers/specs/codex-collaboration/dialogue-supersession-benchmark.md))
