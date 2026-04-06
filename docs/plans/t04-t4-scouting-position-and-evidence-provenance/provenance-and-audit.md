@@ -67,13 +67,14 @@ checkpoint. See [T4-PR-05](#t4-pr-05).
 Two provenance variants:
 
 ```text
+claim_provenance_index_schema_version: 1
 claim_provenance_index: [
   { claim_id: 0, claim_ref: [3, "compute_action behavior", 0],
-    type: "scouted", record_indices: [2, 5] },
+    conceded: false, type: "scouted", record_indices: [2, 5] },
   { claim_id: 1, claim_ref: [4, "validate_input return type", 0],
-    type: "scouted", record_indices: [3] },
+    conceded: true, type: "scouted", record_indices: [3] },
   { claim_id: 2, claim_ref: [5, "module uses dependency injection", 0],
-    type: "not_scoutable", classification_trace: {
+    conceded: true, type: "not_scoutable", classification_trace: {
       claim_id: 2, candidate_entity: "module", failed_criterion: 3,
       decomposition_attempted: true, subclaims_considered: [],
       residual_reason: "module is an architectural label, not a code
@@ -87,7 +88,18 @@ Dense JSON array. Invariant: `claim_provenance_index[i].claim_id == i`
 for all entries. Array length equals `next_claim_id`. All allocated
 `claim_id`s persist in the index, including claims later conceded
 (concession removes from `verification_state` but the provenance entry
-is historical). No sparse IDs, no gaps, no reordering.
+is historical). Every entry carries required `conceded: bool`; it is
+`false` at registration and flips to `true` only after Phase 1
+concession. No sparse IDs, no gaps, no reordering.
+
+`claim_provenance_index_schema_version` is a sibling pipeline-data field
+that versions the `claim_provenance_index` array contract. Version `1`
+is the first versioned shape and includes the required `conceded` field
+on every entry. Embedded `ClassificationTrace` inherits this version
+because it is serialized inside `claim_provenance_index` entries, not as
+a standalone pipeline-data field. This packet establishes the carrier
+and current value only; full bump-trigger policy remains governed by
+F11.
 
 ### Embedded claim_id Equality Invariant
 
@@ -153,6 +165,9 @@ tags or leave them in narrative prose with no provenance.
 - Each line is one atomic factual claim. One `FACT:`, one `[ref:]`.
 - `[evidence: not_scoutable]` annotation for Tier 2 claims.
 - No outcome tags. Facts are facts, not dialogue events.
+- Conceded claims do not gain a claim-ledger tag solely by virtue of
+  concession status. Concession-history reporting is dialogue-state
+  reporting, not a new ledger annotation class.
 - The `[ref:]` annotation is the harness join point. The `claim_id`
   integer is parse-safe. The harness reads: `[ref: N]` →
   `claim_provenance_index[N]` → record indices (Tier 1) or
@@ -169,6 +184,13 @@ contract or spec requirements, or current code relationships
 ([benchmark.md:123-128](../../superpowers/specs/codex-collaboration/dialogue-supersession-benchmark.md))
 in the synthesis MUST have a corresponding claim ledger entry with
 `[ref:]`. This mirrors the benchmark's claim inventory categories exactly.
+This boundary is category-based, not section-based: a repository-facing
+factual claim in those categories requires a ledger entry regardless of
+which synthesis section contains it. Dialogue-state reporting about who
+conceded, when a position shifted, or how a disagreement resolved does
+not require a ledger entry unless it also introduces a repository-facing
+factual claim.
+
 Narrative prose may elaborate on, contextualize, or provide reasoning
 about ledger facts, but MUST NOT introduce independent factual claims in
 any benchmark-scored category that lack a ledger entry.
@@ -178,16 +200,18 @@ any benchmark-scored category that lack a ledger entry.
 The benchmark still scores the full synthesis
 ([benchmark.md:118-123](../../superpowers/specs/codex-collaboration/dialogue-supersession-benchmark.md)):
 the adjudicator enumerates every distinct factual claim from the complete
-synthesis. A narrative-only factual claim (present in prose but absent
-from the ledger) is scored normally by the adjudicator AND recorded as a
-methodology finding (`finding_kind: narrative_ledger_violation`,
-`detection: mechanical`). The claim is not exempt from scoring; the
-missing ledger entry is an additional methodology finding that counts
-toward the per-run `methodology_finding_threshold`
+synthesis. A narrative-only repository-facing factual claim in the
+categories above (present in prose but absent from the ledger) is scored
+normally by the adjudicator AND recorded as a methodology finding
+(`finding_kind: narrative_ledger_violation`, `detection: mechanical`).
+The claim is not exempt from scoring; the missing ledger entry is an
+additional methodology finding that counts toward the per-run
+`methodology_finding_threshold`
 ([T4-BR-07](benchmark-readiness.md#t4-br-07) pass-rule condition 5). The
 finding row is keyed by `inventory_claim_id` (from T7 adjudicator claim
 inventory), not ledger `claim_id` — by definition, narrative-only claims
-have no ledger ID.
+have no ledger ID. Dialogue-state reporting alone does not create this
+finding class.
 
 ### Dedup Rule
 
@@ -197,7 +221,8 @@ provenance join. The adjudicator scores distinct factual claims per the
 benchmark
 ([benchmark.md:123](../../superpowers/specs/codex-collaboration/dialogue-supersession-benchmark.md));
 the dedup rule prevents double-counting in the harness join path, not in
-adjudication.
+adjudication. Dialogue-state concession reporting does not create a
+competing ledger join and therefore does not change this rule.
 
 ### Mechanical Enforcement
 
@@ -205,9 +230,11 @@ Ledger completeness is not mechanically enforceable without a narrative
 factual-claim inventory (requires semantic extraction). Benchmark runs
 MUST NOT proceed until T7 delivers the inventory and ledger completeness
 checker ([T4-BR-07](benchmark-readiness.md#t4-br-07)). After T7, the
-ledger checker mechanically flags narrative facts without ledger entries.
-The narrative-to-ledger MUST is a synthesis contract obligation that
-agents must comply with regardless of enforcement availability.
+ledger checker mechanically flags repository-facing narrative facts in
+the categories above that lack ledger entries. Dialogue-state reporting
+alone is out of scope for this check. The narrative-to-ledger MUST is a
+synthesis contract obligation that agents must comply with regardless of
+enforcement availability.
 
 ## <a id="t4-pr-07"></a>T4-PR-07: Provenance Coverage of Scored Claims
 

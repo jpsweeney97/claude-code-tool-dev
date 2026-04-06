@@ -112,17 +112,28 @@ Policy-influencing calibration ([T4-BR-08(b)](#t4-br-08)), scored
 benchmark runs, and benchmark-stability claims MUST NOT proceed until
 all applicable exit conditions in this table are satisfied.
 
+Resolved-row convention: resolved findings remain in this table. The
+`Finding` cell gains `(resolved)`, and the `Exit condition` cell is
+replaced by `Resolved in ...` citations to the authoritative clauses
+that closed the gap.
+
 | Finding | Blocking surface | Exit condition |
 |---------|------------------|----------------|
-| F6 | Concession lifecycle semantics across three unresolved sub-gaps: retained `ProvenanceEntry` status for conceded claims, dense-array representation of conceded positions, and claim-ledger policy for conceded claims | Canonical contract states (a) how concession status is represented in `claim_provenance_index`, (b) how conceded positions appear in the dense array, and (c) whether conceded claims appear in the claim ledger |
+| F6 (resolved) | Concession lifecycle semantics across three unresolved sub-gaps: retained `ProvenanceEntry` status for conceded claims, dense-array representation of conceded positions, and claim-ledger policy for conceded claims | Resolved in [T4-SM-01](state-model.md#t4-sm-01), [T4-SM-02](state-model.md#t4-sm-02), [T4-SM-06](state-model.md#t4-sm-06), [T4-SM-07](state-model.md#t4-sm-07), [T4-PR-03](provenance-and-audit.md#t4-pr-03), and [T4-PR-06](provenance-and-audit.md#t4-pr-06) |
 | F7 | Serialization boundary from agent working state into `<!-- pipeline-data -->` during synthesis composition | Canonical contract names the emitting component, composition step, and interface that serialize `claim_provenance_index` into synthesis output |
 | F11 | Versioning policy for external benchmark wire formats with named T7 consumers | Canonical contract adds explicit versioning rules for `claim_provenance_index` and `ClassificationTrace`, including version fields, bump triggers, and consumer expectations |
 
-Ownership remains intentionally deferred here. The next packet that
-attempts to freeze either wire format for scored benchmark use MUST
-either resolve the applicable row directly or assign a remediation owner
-in current gate tables. Canonization MUST NOT be claimed until all
-applicable exit conditions in this table are satisfied.
+Option B ownership posture now applies to this subsection. F6 and F7
+target T4 contract surfaces as post-closure amendments. F11 remains
+split between a T4-side normative versioning obligation and a T7-side
+consumer-adoption obligation, so ownership is recorded here in prose
+rather than as a new table column while the F11 row remains monolithic.
+
+For the remaining unresolved rows, the next packet that attempts to
+freeze either wire format for scored benchmark use MUST either resolve
+the applicable row directly or assign a remediation owner in current
+gate tables. Canonization MUST NOT be claimed until all applicable exit
+conditions in this table are satisfied.
 
 ## <a id="t4-br-06"></a>T4-BR-06: Narrative Factual-Claim Inventory
 
@@ -154,9 +165,10 @@ are operational:
 Scored runs that depend on `claim_provenance_index` or
 `ClassificationTrace` MUST also satisfy the blocker conditions in
 [F6/F7/F11 provenance wire-format blockers](#f6-f7-f11-blockers).
-Until those blockers are resolved, the affected wire formats remain
-provisional for benchmark-readiness purposes even if downstream T7
-consumer work has started.
+Until all applicable blocker conditions in that subsection are
+satisfied, the affected wire formats remain provisional for
+benchmark-readiness purposes even if downstream T7 consumer work has
+started.
 
 ### Eight-Item Prerequisite Gate
 
