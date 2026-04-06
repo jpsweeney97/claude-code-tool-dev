@@ -56,8 +56,10 @@ An occurrence is **live** if its `ClaimRef` has an active entry in
 `verification_state`. Conceded claims are removed from
 `verification_state` ([T4-SM-06](#t4-sm-06) lifecycle). Their occurrences
 remain in the registry for evidence history but are excluded from merger
-candidacy. Reintroduction after concession always creates a new
-occurrence.
+candidacy. The retained provenance entry at the conceded claim's
+`claim_id` remains historical and flips `conceded` from `false` to
+`true`; no other provenance fields are removed or rewritten.
+Reintroduction after concession always creates a new occurrence.
 
 **No claims discarded.** All validated claims proceed to T2 counter
 computation with their original extraction status.
@@ -82,7 +84,9 @@ processed the claims.
 
 Process all `conceded` and `reinforced` claims (sorted ascending):
 - `conceded`: remove entry from `verification_state`. Occurrence stays
-  in registry (evidence history) but is now dead.
+  in registry (evidence history) but is now dead. In the same lifecycle
+  event, set `claim_provenance_index[claim_id].conceded = true` on the
+  retained provenance entry.
 - `reinforced`: resolve referent ([T4-SM-03](#t4-sm-03)), share
   `ClaimRef`. No state change.
 
@@ -335,6 +339,9 @@ annotations ([T4-PR-05](provenance-and-audit.md#t4-pr-05) `[ref:]`).
 `ClaimRef` ([T4-SM-04](#t4-sm-04)) remains the structural identity for
 registry lookups and lifecycle tracking. `claim_id` is the
 serialization-safe integer that appears in external surfaces.
+After concession, the earlier `claim_id` remains a distinct historical
+join target with `conceded = true`; a reintroduced claim allocates a new
+`claim_id` and a new `ClaimRef` rather than reviving the old one.
 
 ### Status Derivation (One Rule, Used Everywhere)
 
@@ -386,7 +393,7 @@ exists in the evidence set and no `contradicts` disposition exists.
 | `reinforced` | Shares referent's `ClaimRef`. No new entry |
 | Forced-new (dead referent, scoutable) | Allocate `claim_id`. Reclassified to `new` ([T4-SM-02](#t4-sm-02) Phase 1.5). New occurrence, new `ClaimRef`, new entry at `unverified` |
 | Forced-new (dead referent, not scoutable) | Allocate `claim_id`. Reclassified to `new` ([T4-SM-02](#t4-sm-02) Phase 1.5). New occurrence, new `ClaimRef`, new entry at `not_scoutable`. Terminal |
-| `conceded` | Remove entry from `verification_state`. Occurrence stays in registry, excluded from merger and resolution |
+| `conceded` | Remove entry from `verification_state`. Set retained provenance entry's `conceded=true`. Occurrence stays in registry, excluded from merger and resolution |
 | Reintroduction after concession (scoutable) | Allocate `claim_id`. New occurrence (concession exception), new `ClaimRef`, new `unverified` entry |
 | Reintroduction after concession (not scoutable) | Allocate `claim_id`. New occurrence (concession exception), new `ClaimRef`, new `not_scoutable` entry. Terminal |
 | Pending round (abandoned) | `scout_attempts += 1`. No evidence index appended, no status recompute |
@@ -418,6 +425,7 @@ Keyed by `claim_id`. Two variants:
 ProvenanceEntry (scouted) {
   claim_id: int
   claim_ref: ClaimRef
+  conceded: bool
   type: "scouted"
   record_indices: list[int]
 }
@@ -425,6 +433,7 @@ ProvenanceEntry (scouted) {
 ProvenanceEntry (not_scoutable) {
   claim_id: int
   claim_ref: ClaimRef
+  conceded: bool
   type: "not_scoutable"
   classification_trace: ClassificationTrace
 }
@@ -432,7 +441,12 @@ ProvenanceEntry (not_scoutable) {
 
 Scouted claims accumulate `record_indices` as evidence records are
 created (step 5d). `not_scoutable` claims get their
-`ClassificationTrace` at Phase 2 registration.
+`ClassificationTrace` at Phase 2 registration. `conceded` is required on
+all entries, defaults to `false` at creation time, and flips to `true`
+only when the claim is conceded during Phase 1. Concession does not
+change `type`, does not remove `claim_ref`, and does not remove
+`record_indices` or `classification_trace`; the retained entry remains
+the historical provenance surface for that `claim_id`.
 
 **Serialization boundary:** The `dict[int, ProvenanceEntry]` above is
 the agent's internal working state. When serialized to
@@ -440,6 +454,9 @@ the agent's internal working state. When serialized to
 [T4-PR-03](provenance-and-audit.md#t4-pr-03): entries ordered by
 `claim_id`, array index == `claim_id`, length == `next_claim_id`. The
 transformation is mechanical — no information is added or removed.
+`conceded` therefore serializes directly into the external
+`claim_provenance_index` surface without changing tier semantics or
+removing retained provenance data.
 
 ### Two Budget Surfaces
 

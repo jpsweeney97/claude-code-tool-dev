@@ -15,7 +15,7 @@ replaces.
 
 | Surface | Status |
 |---------|-----|
-| Pipeline `<!-- pipeline-data -->` | `scout_count` = `len(evidence_log)`. **New field:** `claim_provenance_index` ([T4-PR-03](provenance-and-audit.md#t4-pr-03)) for claim→record join |
+| Pipeline `<!-- pipeline-data -->` | `scout_count` = `len(evidence_log)`. **New fields:** `claim_provenance_index_schema_version` and `claim_provenance_index` ([T4-PR-03](provenance-and-audit.md#t4-pr-03)) for claim→record join |
 | Synthesis artifact content | Narrative, inline citations, checkpoint (outcome-based, unchanged), claim ledger ([T4-PR-05](provenance-and-audit.md#t4-pr-05)), `<!-- pipeline-data -->` |
 | T3 continuity registry | `set[claim_key]`. T4 builds parallel occurrence registry ([T4-SM-01](state-model.md#t4-sm-01)) |
 | T1 termination | Scope breach uses T1. T4 owns partial-round and pending marker ([T4-SM-09](state-model.md#t4-sm-09)) |
@@ -34,8 +34,9 @@ replaces.
 | Claim-history surface | Synthesis `validated_entry` trajectory ([dialogue-synthesis-format.md:7](../../../packages/plugins/cross-model/references/dialogue-synthesis-format.md)) | Reclassified claims appear as `new` in per-turn records and claim trajectory |
 | `not_scoutable` verification status | Synthesis claim trajectory, evidence trajectory, claim ledger grammar | New terminal state not in current synthesis-format vocabulary. Requires format update ([T4-BR-05](benchmark-readiness.md#t4-br-05)) |
 | Claim ledger section | New `## Claim Ledger` in synthesis | Flat factual claim inventory with `FACT:` lines and `[ref: N]`. Separate from checkpoint ([T4-PR-05](provenance-and-audit.md#t4-pr-05)) |
-| Ledger completeness (MUST, enforcement deferred) | Claim ledger | Factual narrative claims MUST have ledger entries with `[ref:]` ([T4-PR-06](provenance-and-audit.md#t4-pr-06)). Synthesis-contract violation if missing. Not a G3 concern |
-| `claim_provenance_index` | Pipeline `<!-- pipeline-data -->` | Replaces `evidence_map` (rev 10-11). Two variants: scouted and not_scoutable ([T4-PR-03](provenance-and-audit.md#t4-pr-03)) |
+| Ledger completeness (MUST, enforcement deferred) | Claim ledger | Repository-facing factual narrative claims MUST have ledger entries with `[ref:]`; dialogue-state reporting is outside that category boundary ([T4-PR-06](provenance-and-audit.md#t4-pr-06)). Synthesis-contract violation if missing. Not a G3 concern |
+| `claim_provenance_index` | Pipeline `<!-- pipeline-data -->` | Replaces `evidence_map` (rev 10-11). Two variants: scouted and not_scoutable, each carrying required `conceded: bool` ([T4-PR-03](provenance-and-audit.md#t4-pr-03)) |
+| `claim_provenance_index_schema_version` | Pipeline `<!-- pipeline-data -->` | Versions the `claim_provenance_index` array contract specifically. Initial value `1` marks the first versioned shape; full bump-trigger policy remains under F11 |
 
 ## <a id="t4-bd-03"></a>T4-BD-03: Helper-Era Migration
 
