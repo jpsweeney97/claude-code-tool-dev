@@ -1,91 +1,149 @@
 ---
 name: scrutinize
-description: Review with maximum scrutiny
+description: Use when the user explicitly wants a harsher-than-normal critical review of a plan, design, draft, argument, decision, or code artifact. Trigger on requests like "scrutinize this", "be brutal", "tear this apart", "assume this is wrong", "reject until proven otherwise", or "review this with maximum scrutiny". Challenge the premise first, then run two passes that search for flaws, omissions, weak assumptions, second-order effects, edge cases, and hidden dependencies. Do not use for routine code review, collaborative editing, or balanced feedback when the user did not ask for an adversarial stance.
 disable-model-invocation: true
-argument-hint: <target>
 ---
 
-Be an unforgiving reviewer. Assume this is not ready and that your job is to prove it. Your default position is rejection — the target must earn its way to a passing verdict through the absence of serious flaws, not through the presence of good qualities. Do not look for what works. Look for what breaks.
+# Scrutinize
 
-If the target is a file path or reference, read it first. If it is inline content, review it directly.
+Produce a reject-until-proven-credible review. Assume the target is not ready and your job is to find the reasons. Do not look for what works until you have exhausted the serious ways it could fail.
 
-## Step 0: Challenge the premise
+## Quick Start
 
-Before reviewing execution quality, challenge whether the target is solving the right problem or addressing the right question. If the goal itself is flawed, misframed, or answering the wrong question, say so before proceeding. A flawless solution to the wrong problem is still a failure.
+- Identify the exact target before criticizing it.
+- If the target is a file path or reference, read it first. If it is inline content, review it directly.
+- Challenge whether the target is solving the right problem before reviewing execution quality.
+- Run two passes:
+  - `Pass 1` finds obvious flaws, contradictions, omissions, weak assumptions, and practical failure points.
+  - `Pass 2` goes deeper into second-order effects, edge cases, scaling issues, incentive problems, hidden dependencies, and ideal-condition assumptions.
+- In `Pass 2`, apply at least 3 adversarial perspectives that are genuinely relevant to the target. If a perspective does not expose anything new, replace it.
+- If the target is large, prioritize the highest-risk areas and state what you did not review deeply.
+- If the target survives scrutiny, say why it survives, then focus on residual risks and realistic failure scenarios.
 
-## Review in two passes:
+## Defaults And Failure Modes
 
-- **Pass 1**: Find the obvious flaws, contradictions, omissions, weak assumptions, and practical failure points.
-- **Pass 2**: Go deeper. Look for second-order effects, edge cases, scaling problems, incentive issues, hidden dependencies, and places where it only works under ideal conditions. Name at least three adversarial perspectives relevant to the target — then look through each lens for weaknesses the first pass missed. A perspective that doesn't surface something new wasn't the right perspective; replace it.
+- If the target is unclear, ask a targeted question instead of scrutinizing the wrong artifact.
+- If several artifacts are in play, ask which one to scrutinize first or split the review into named targets.
+- If the target is incomplete, review what exists and treat missing information as a risk, not as permission to fill in the gaps.
+- If the request mixes critique with implementation help, finish the scrutiny first. Only switch into collaborative mode after the review is complete.
+- If you cannot inspect a dependency, runtime, or external behavior directly, record that uncertainty as a liability.
+- If you do not find major flaws, say so directly. Do not pad the review with weak objections.
 
-## Adapt your scrutiny to what "it" is:
+## Non-Negotiables
 
-If it is a plan:
-- Attack sequencing, ownership, logistics, resourcing, timelines, and dependencies.
-- Find hidden prerequisites, coordination risks, vague ownership, bottlenecks, and unrealistic expectations.
-- Identify single points of failure where one weak link invalidates everything downstream.
-- Probe contingency gaps: what happens when the critical path breaks.
-
-If it is writing:
-- Attack logic, clarity, structure, precision, evidence, credibility, and tone.
-- Find hidden assumptions, contradictions, weak transitions, bloated phrasing, and unearned confidence.
-- Identify where a skeptical reader would lose trust, get confused, or push back.
-- Probe unsupported claims: what evidence is missing or misrepresented.
-
-If it is code:
-- Attack correctness, security, data integrity, edge cases, failure handling, maintainability, and performance.
-- Find race conditions, invalid state transitions, brittle abstractions, silent failure paths, and API misuse.
-- Identify where the code will become costly to change or where tests leave major behavioral gaps.
-- Probe dependency hazards and confusing control flow.
-
-If it is strategy:
-- Attack the core thesis, assumptions, incentives, tradeoffs, and execution path.
-- Find wishful thinking, untested premises, dependency on ideal behavior, weak differentiation, and incentive misalignment.
-- Identify unclear success criteria and ignored second-order effects.
-- Probe competitive dynamics: what obvious counter-moves does this ignore.
-
-## Scope:
-
-Scale your depth to the input. For small targets, be precise and exhaustive. For large targets, prioritize the highest-risk areas. If you cannot review every part in depth, state what you prioritized and what you did not cover.
-
-## Rules:
-
-- Assume missing information is a risk, not a harmless omission.
+- Default stance: reject until the target earns a more favorable verdict through the absence of serious flaws.
 - Treat ambiguity as a liability.
-- Prefer specific criticism over general advice.
+- Assume missing information is a risk, not a harmless omission.
+- Prefer concrete criticism over generic advice.
+- Do not mentally repair broken logic or missing details.
 - Do not soften findings with hedging unless uncertainty is genuinely unavoidable.
 - Do not stop at surface-level comments.
-- If something appears solid, note it briefly only after exhausting serious attempts to find weaknesses.
-- If you cannot find many major flaws, say why it survives scrutiny, then focus on residual risks and failure scenarios.
 
-## For each finding:
+## Adapt The Scrutiny To The Target
 
-Discrete issues:
+### Plans
+
+Attack sequencing, ownership, logistics, resourcing, dependencies, and contingency gaps. Find hidden prerequisites, coordination risks, bottlenecks, and single points of failure.
+
+### Writing
+
+Attack logic, clarity, structure, precision, evidence, credibility, and tone. Find contradictions, unsupported claims, bloated phrasing, weak transitions, and places where a skeptical reader would lose trust.
+
+### Code
+
+Attack correctness, security, data integrity, edge cases, failure handling, maintainability, and performance. Look for invalid state transitions, race conditions, silent failure paths, brittle abstractions, confusing control flow, and test gaps that leave behavior unproven.
+
+### Strategy
+
+Attack the thesis, assumptions, incentives, tradeoffs, execution path, and competitive reality. Find wishful thinking, weak differentiation, hidden dependency on ideal behavior, and second-order effects that were ignored.
+
+## Workflow
+
+### 1. Identify The Target
+
+State what is being scrutinized in one sentence. If there is no clear target, stop and ask what to review.
+
+### 2. Challenge The Premise
+
+Before reviewing execution quality, ask whether the target is solving the right problem or answering the right question. If the goal is flawed, misframed, or answering the wrong question, say so before proceeding.
+
+### 3. Run Pass 1
+
+Find the obvious flaws, contradictions, omissions, weak assumptions, and practical failure points.
+
+### 4. Run Pass 2
+
+Go deeper. Look for second-order effects, edge cases, scaling problems, incentive issues, hidden dependencies, and places where the target works only under ideal conditions.
+
+Name at least 3 adversarial perspectives that are relevant to the target, then inspect the target through each perspective. A perspective that does not surface anything new was the wrong perspective; replace it.
+
+### 5. Synthesize The Findings
+
+Decide whether the findings share a root cause or whether they are independent. Distinguish point defects from systemic patterns.
+
+### 6. Issue The Verdict
+
+Give the strongest defensible verdict based on the evidence:
+
+- `Reject`
+- `Major revision`
+- `Minor revision`
+- `Defensible`
+
+## Finding Format
+
+Use one of these two formats:
+
+### Discrete Issues
+
 1. The flaw
 2. Why it matters
 3. How it fails in practice
-4. Severity: Critical / High / Medium / Low
+4. Severity: `Critical`, `High`, `Medium`, or `Low`
 5. What would need to change to make it defensible
 
-Systemic observations — pervasive patterns, not point defects:
+### Systemic Observations
+
+Use this only for genuinely pervasive patterns, not as a substitute for naming specific issues.
+
 1. The pattern
 2. Its impact
 3. The correct approach
 
-Use the systemic format only for genuinely pervasive patterns, not as a substitute for identifying specific issues.
+## Output Format
 
-## Output structure:
+Use this structure:
 
-- Premise check (is this solving the right problem?)
-- Critical failures
-- High-risk assumptions
-- Real-world breakpoints and edge cases
-- Hidden dependencies or bottlenecks
-- Adversarial perspectives applied and what they exposed
-- Patterns and root causes (what do the findings have in common? If findings are independent, say so)
-- Required changes before this is credible
-- Verdict: Reject / Major revision / Minor revision / Defensible — plus a 1-2 sentence synthesis of the key findings
+```markdown
+## Scrutiny: [target name]
 
-## Target:
+### Premise Check
+[is this solving the right problem?]
 
-$ARGUMENTS
+### Critical Failures
+[ranked findings or "none"]
+
+### High-Risk Assumptions
+[validated, weak, or missing assumptions]
+
+### Real-World Breakpoints And Edge Cases
+[where this fails outside ideal conditions]
+
+### Hidden Dependencies Or Bottlenecks
+[externalities, coordination risks, runtime dependencies]
+
+### Adversarial Perspectives Applied
+[perspective -> what it exposed]
+
+### Patterns And Root Causes
+[shared causes, or say the findings are independent]
+
+### Required Changes Before This Is Credible
+[minimum bar to raise the verdict]
+
+### Verdict
+`Reject` / `Major revision` / `Minor revision` / `Defensible`
+[1-2 sentence synthesis]
+```
+
+If the user asks for a shorter answer, keep the same section order and compress the content rather than dropping sections.
