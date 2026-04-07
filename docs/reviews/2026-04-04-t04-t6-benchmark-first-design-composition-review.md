@@ -105,7 +105,7 @@ format.
 | `## Claim Ledger` grammar | T7 | `provenance-and-audit.md:121-210` | Not T6 consolidation work |
 | `not_scoutable` in claim/evidence trajectory | T7 | `boundaries.md:35`, `provenance-and-audit.md:108-119`, `state-model.md:376-392` | Not T6 consolidation work |
 | `agent_local` mode vocabulary and epilogue | T5 | `2026-04-02-t04-t5-mode-strategy.md:118-160,195-206` | Not T6 consolidation work |
-| Evidence-trajectory consumer projection | Unassigned in current gate tables | `provenance-and-audit.md:14-48` | The prior row labeled this as `EvidenceRecord` schema; that was too broad. The consumer-facing surface is the evidence-trajectory projection, not the full state-model `EvidenceRecord` schema. |
+| Evidence-trajectory consumer projection | No separate gate owner required | `provenance-and-audit.md:14-48` | Prior row said `EvidenceRecord` schema (too broad). Surface is the consumer projection: internal synthesis input, not emitted proof surface. Reclassified from "Unassigned" at administrative close (2026-04-06). |
 
 This correction changes the ownership reading, not the composition
 verdict. The synthesis contract remains incomplete as a single
@@ -176,13 +176,14 @@ synthesis-contract gap recorded by this review is real, but the
 remaining remediation is not a single T6 consolidation artifact. The
 unresolved wire-format surfaces are T7-owned in
 `benchmark-readiness.md:79-102`, `agent_local` documentation surfaces are
-T5-owned in `benchmark-readiness.md:35-36`, and audit findings F6/F7/F11
-remain unassigned in current gate tables even though they target gaps in
-the T4 provenance/state-model authority set that must be resolved before
-the affected wire formats can be stably canonized. The evidence-
-trajectory consumer projection likewise remains unassigned in current
-gate tables and needs either an explicit owner or an explicit
-declaration that no T4-T7 gate owns it.
+T5-owned in `benchmark-readiness.md:35-36`. Audit findings F6/F7/F11
+have been resolved as post-closure T4 contract amendments (F6 in PR #93,
+F7 and F11 in PR #94), removing the provenance wire-format blockers that
+previously gated stable canonization of the affected wire formats. The
+evidence-trajectory consumer projection requires no separate T4-T7 gate
+owner — it is an internal synthesis input specified by T4 (T4-PR-01) and
+declared in T4-BD-01, not an emitted proof surface (see Administrative
+Close below).
 
 This review therefore records the boundary and the downstream owners. It
 does not assign T6 to absorb T4/T5/T7 remediation as implicit scope. The
@@ -193,3 +194,45 @@ by this adjudication correction.
 
 1. **B8 anchor-adequacy decision rule** — define when the benchmark operator should invoke Change Control to expand B8's path groups. Benchmark execution procedure, not design composition.
 2. **`scope_envelope` harness wiring** — populate consultation-layer `scope_envelope` from corpus anchor metadata at setup time. T4 specifies what `scope_envelope` must contain (T4-CT-04); T4-BR-07 item 5 explicitly defers the harness wiring to T7. No T1-T5 design change required (proof above).
+
+---
+
+## T6 Administrative Close (2026-04-06)
+
+**Done-when criterion** (`2026-04-01-t04-benchmark-first-design-plan.md:39`):
+the accepted gates compose into a single coherent state model, loop
+structure, and synthesis contract; if they do not, the conflicting gates
+are reopened.
+
+**Close rationale.** The verdict table above is preserved as a
+review-time snapshot. At review time, the synthesis contract did not yet
+compose into a single consumer-facing surface. However, the adjudication
+correction established that the remaining non-composition is not T6
+scope: wire-format surfaces are T7-owned, `agent_local` documentation is
+T5-owned, and no gate needs reopening because the accepted designs
+remain compatible. T6's contribution was verifying that the five gate
+designs compose without conflict and routing the remaining consolidation
+work to its correct owners.
+
+Since the review, three post-closure T4 contract amendments have landed:
+
+- **F6** (PR #93): established the `ClassificationTrace` embedding model,
+  version carrier, and concession lifecycle rules in T4-PR-03.
+- **F7** and **F11** (PR #94): named the synthesis emission interface
+  (T4-PR-03), codified the single-carrier version scope, and established
+  the bump-trigger policy and exact-match consumer expectations.
+
+These resolved all three provenance wire-format blocker rows in
+`benchmark-readiness.md`. The blocker table gate is now open.
+
+The evidence-trajectory consumer projection (`provenance-and-audit.md:
+34-48`) requires no separate T4-T7 gate owner. It is an internal
+synthesis input consumed from `turn_history`, specified by T4 (T4-PR-01)
+and declared in T4-BD-01. It is not serialized into `<!-- pipeline-data
+-->` and is not a benchmark proof surface. If a future T7 consumer
+depends on it directly — bypassing synthesis output — this classification
+should be reopened.
+
+**T6 is closed.** No accepted-gate conflict remains, and the remaining
+synthesis-contract consolidation is routed work (T7/T5-owned or
+explicitly not gate-owned). T7 may proceed.

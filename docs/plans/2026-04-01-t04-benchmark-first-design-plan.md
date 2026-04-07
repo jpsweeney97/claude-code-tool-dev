@@ -37,6 +37,7 @@ The design-side gate work is still correct, but the first executable verificatio
 
 **Phase 3** (after T1, T3, T4, T5):
 - `T6: consolidate T1-T5 into one consistent benchmark-first design` - done when: the accepted gates compose into a single coherent state model, loop structure, and synthesis contract; if they do not, the conflicting gates are reopened
+  - **Closed 2026-04-06.** State model and loop structure compose. Remaining synthesis-contract consolidation is routed work — see [administrative close](../reviews/2026-04-04-t04-t6-benchmark-first-design-composition-review.md#t6-administrative-close-2026-04-06) for ownership details. All F6/F7/F11 wire-format blockers resolved (PRs #93, #94).
 
 **Phase 4** (after T6):
 - `T7: define the minimal executable slice required for a real dry-run` - done when: there is an agreed smallest buildable slice that can execute one dialogue and expose the fields the dry-run must inspect
