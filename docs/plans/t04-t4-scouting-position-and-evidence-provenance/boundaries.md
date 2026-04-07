@@ -36,7 +36,7 @@ replaces.
 | Claim ledger section | New `## Claim Ledger` in synthesis | Flat factual claim inventory with `FACT:` lines and `[ref: N]`. Separate from checkpoint ([T4-PR-05](provenance-and-audit.md#t4-pr-05)) |
 | Ledger completeness (MUST, enforcement deferred) | Claim ledger | Repository-facing factual narrative claims MUST have ledger entries with `[ref:]`; dialogue-state reporting is outside that category boundary ([T4-PR-06](provenance-and-audit.md#t4-pr-06)). Synthesis-contract violation if missing. Not a G3 concern |
 | `claim_provenance_index` | Pipeline `<!-- pipeline-data -->` | Replaces `evidence_map` (rev 10-11). Two variants: scouted and not_scoutable, each carrying required `conceded: bool` ([T4-PR-03](provenance-and-audit.md#t4-pr-03)) |
-| `claim_provenance_index_schema_version` | Pipeline `<!-- pipeline-data -->` | Versions the `claim_provenance_index` array contract specifically. Initial value `1` marks the first versioned shape; full bump-trigger policy remains under F11 |
+| `claim_provenance_index_schema_version` | Pipeline `<!-- pipeline-data -->` | Versions the `claim_provenance_index` array contract specifically and governs embedded `ClassificationTrace` because it is not a standalone pipeline-data field. Initial value `1`; version scope and bump-trigger policy in [T4-PR-03](provenance-and-audit.md#t4-pr-03) |
 
 ## <a id="t4-bd-03"></a>T4-BD-03: Helper-Era Migration
 
