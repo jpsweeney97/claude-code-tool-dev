@@ -456,7 +456,10 @@ the agent's internal working state. When serialized to
 transformation is mechanical — no information is added or removed.
 `conceded` therefore serializes directly into the external
 `claim_provenance_index` surface without changing tier semantics or
-removing retained provenance data.
+removing retained provenance data. The artifact handoff occurs only in
+the Phase 3 synthesis assembler's `<!-- pipeline-data -->` JSON
+epilogue as specified in
+[T4-PR-03](provenance-and-audit.md#t4-pr-03).
 
 ### Two Budget Surfaces
 

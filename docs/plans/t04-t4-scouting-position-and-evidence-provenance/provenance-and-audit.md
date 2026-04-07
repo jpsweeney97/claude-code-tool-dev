@@ -92,14 +92,69 @@ is historical). Every entry carries required `conceded: bool`; it is
 `false` at registration and flips to `true` only after Phase 1
 concession. No sparse IDs, no gaps, no reordering.
 
+### Synthesis Emission Interface
+
+`claim_provenance_index` leaves agent working state only during Phase 3
+synthesis of the `codex-dialogue` agent. The emitting component is the
+Phase 3 synthesis assembler, which assembles the markdown synthesis from
+`turn_history` and then emits the JSON epilogue under the
+`<!-- pipeline-data -->` sentinel
+([dialogue-synthesis-format.md:3](../../../packages/plugins/cross-model/references/dialogue-synthesis-format.md),
+[dialogue-synthesis-format.md:140](../../../packages/plugins/cross-model/references/dialogue-synthesis-format.md)).
+At that composition step, the internal `dict[int, ProvenanceEntry]`
+defined in [T4-SM-07](state-model.md#t4-sm-07) is mechanically
+serialized as the dense `claim_provenance_index` array, accompanied by
+`claim_provenance_index_schema_version`, in that epilogue. No evidence block,
+`scout_outcomes` projection ([T4-PR-01](#t4-pr-01)), or other synthesis
+section is an alternate artifact interface for this surface.
+
 `claim_provenance_index_schema_version` is a sibling pipeline-data field
 that versions the `claim_provenance_index` array contract. Version `1`
 is the first versioned shape and includes the required `conceded` field
 on every entry. Embedded `ClassificationTrace` inherits this version
 because it is serialized inside `claim_provenance_index` entries, not as
-a standalone pipeline-data field. This packet establishes the carrier
-and current value only; full bump-trigger policy remains governed by
-F11.
+a standalone pipeline-data field. Version `1` is the current schema in
+this contract; the version-scope and bump-trigger rules below govern how
+this carrier applies to embedded `ClassificationTrace` and when it MUST
+increment.
+
+### Version Scope
+
+`claim_provenance_index_schema_version` is the sole version carrier for
+the external provenance wire format emitted in `<!-- pipeline-data -->`.
+It governs both the `claim_provenance_index` array contract and the
+shape of any embedded `classification_trace` object inside a
+`not_scoutable` entry. Because `ClassificationTrace` is embedded rather
+than emitted as a standalone pipeline-data field, any schema change to
+embedded `ClassificationTrace` is also a schema change to
+`claim_provenance_index`. Independent versioning for embedded
+`ClassificationTrace` adds no information unless it becomes a standalone
+artifact surface in a future contract revision.
+
+### Bump Trigger Policy
+
+`claim_provenance_index_schema_version` is a monotonic integer. It MUST
+increment whenever a T7 consumer that correctly implements the prior
+version would require parser or expectation changes to remain correct
+for scored-run readiness or policy-influencing calibration.
+
+Version bumps are REQUIRED for:
+
+- any field addition, removal, rename, or requiredness change in
+  `claim_provenance_index` entries or embedded `ClassificationTrace`
+- any field type, nullability, allowed-value, or invariant change that a
+  consumer may rely on
+- any change to the `ProvenanceEntry` variant set, discriminator
+  semantics, dense-array/index semantics, or embedded-versus-standalone
+  placement of `ClassificationTrace`
+
+Version bumps are NOT required for:
+
+- examples, cross-references, wording clarifications, or other
+  editorial changes that do not alter emitted fields, invariants, or
+  consumer obligations
+- adjudicator workflow guidance or benchmark-governance prose that
+  leaves the emitted wire format and required consumer behavior unchanged
 
 ### Embedded claim_id Equality Invariant
 

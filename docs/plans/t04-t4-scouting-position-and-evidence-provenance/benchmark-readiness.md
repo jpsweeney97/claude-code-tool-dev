@@ -105,9 +105,9 @@ format.
 
 `claim_provenance_index` and `ClassificationTrace` have named T7
 consumer surfaces in [T4-BR-04](#t4-br-04) and [T4-BR-05](#t4-br-05),
-but the audit findings below remain unassigned in current gate tables.
-T7 consumer work MAY proceed as exploratory shakedowns
-([T4-BR-08(a)](#t4-br-08)) against the current contract.
+and the rev17 audit findings below were resolved as post-closure
+contract amendments. T7 consumer work MAY proceed as exploratory
+shakedowns ([T4-BR-08(a)](#t4-br-08)) against the current contract.
 Policy-influencing calibration ([T4-BR-08(b)](#t4-br-08)), scored
 benchmark runs, and benchmark-stability claims MUST NOT proceed until
 all applicable exit conditions in this table are satisfied.
@@ -120,20 +120,32 @@ that closed the gap.
 | Finding | Blocking surface | Exit condition |
 |---------|------------------|----------------|
 | F6 (resolved) | Concession lifecycle semantics across three unresolved sub-gaps: retained `ProvenanceEntry` status for conceded claims, dense-array representation of conceded positions, and claim-ledger policy for conceded claims | Resolved in [T4-SM-01](state-model.md#t4-sm-01), [T4-SM-02](state-model.md#t4-sm-02), [T4-SM-06](state-model.md#t4-sm-06), [T4-SM-07](state-model.md#t4-sm-07), [T4-PR-03](provenance-and-audit.md#t4-pr-03), and [T4-PR-06](provenance-and-audit.md#t4-pr-06) |
-| F7 | Serialization boundary from agent working state into `<!-- pipeline-data -->` during synthesis composition | Canonical contract names the emitting component, composition step, and interface that serialize `claim_provenance_index` into synthesis output |
-| F11 | Versioning policy for external benchmark wire formats with named T7 consumers | Canonical contract adds explicit versioning rules for `claim_provenance_index` and `ClassificationTrace`, including version fields, bump triggers, and consumer expectations |
+| F7 (resolved) | Serialization boundary from agent working state into `<!-- pipeline-data -->` during synthesis composition | Resolved in [T4-SM-07](state-model.md#t4-sm-07) and [T4-PR-03](provenance-and-audit.md#t4-pr-03) |
+| F11 (resolved) | Versioning policy for external benchmark wire formats with named T7 consumers | Resolved in [T4-PR-03](provenance-and-audit.md#t4-pr-03) and [F11 Consumer Expectations](#f11-consumer-expectations) |
 
 Option B ownership posture now applies to this subsection. F6 and F7
-target T4 contract surfaces as post-closure amendments. F11 remains
-split between a T4-side normative versioning obligation and a T7-side
-consumer-adoption obligation, so ownership is recorded here in prose
-rather than as a new table column while the F11 row remains monolithic.
+target T4 contract surfaces as post-closure amendments. F11 resolves
+through a T4-side normative versioning rule in
+[T4-PR-03](provenance-and-audit.md#t4-pr-03) and a T7-side consumer
+expectation rule in this subsection, so the split remains recorded in
+prose rather than as a new table column.
 
-For the remaining unresolved rows, the next packet that attempts to
-freeze either wire format for scored benchmark use MUST either resolve
-the applicable row directly or assign a remediation owner in current
-gate tables. Canonization MUST NOT be claimed until all applicable exit
-conditions in this table are satisfied.
+While any row in this subsection remains unresolved, the next packet
+that attempts to freeze either wire format for scored benchmark use MUST
+either resolve the applicable row directly or assign a remediation owner
+in current gate tables. Canonization MUST NOT be claimed until all
+applicable exit conditions in this table are satisfied.
+
+### <a id="f11-consumer-expectations"></a>F11 Consumer Expectations
+
+For scored-run readiness and policy-influencing calibration, any T7
+component that consumes `claim_provenance_index` or relies on embedded
+`ClassificationTrace` semantics MUST declare exact support for specific
+`claim_provenance_index_schema_version` values. Unsupported versions
+MUST be rejected for those uses: no silent fallback, best-effort
+coercion, or partial-compatibility claim is allowed. Support for a new
+version requires an explicit consumer update before scored runs may rely
+on artifacts carrying that version.
 
 ## <a id="t4-br-06"></a>T4-BR-06: Narrative Factual-Claim Inventory
 
