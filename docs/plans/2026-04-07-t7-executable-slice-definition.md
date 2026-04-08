@@ -262,7 +262,7 @@ Behavior 5 requires a stable, inspectable format. The minimum required fields pe
 |-------|------|-------------|
 | `turn` | int | Current turn number |
 | `claims` | list | Each claim: `{id: int, text: "<claim>", status: "<verification status>", scout_attempts: int}` |
-| `counters` | object | `{total_claims: int, supported: int, contradicted: int, not_scoutable: int, unverified: int, evidence_count: int}` |
+| `counters` | object | `{total_claims: int, supported: int, contradicted: int, conflicted: int, ambiguous: int, not_scoutable: int, unverified: int, evidence_count: int}` (V3 emission contract is authoritative for the full field set) |
 | `effective_delta` | object | Counter changes since last turn (on terminal turn, overall delta) |
 
 This schema is the minimum for the shakedown inspector. Scored-run work may extend it with `claim_provenance_index`, `ClassificationTrace`, and other T4 surfaces.

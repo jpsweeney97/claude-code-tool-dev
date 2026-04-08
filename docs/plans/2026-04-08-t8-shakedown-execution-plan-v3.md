@@ -105,7 +105,7 @@ All prose follows the closing sentinel. No other JSON fence is permitted in the 
       "target": "string"
     }
   ],
-  "disposition": "supports|contradicts|ambiguous|conflicted|null",
+  "disposition": "supports|contradicts|ambiguous|conflicted|not_found|null",
   "citations": [
     {
       "path": "/abs/path",
@@ -158,12 +158,13 @@ All prose follows the closing sentinel. No other JSON fence is permitted in the 
   - `disposition: null`
   - `citations: []`
 - Scouting turns MUST include at least one `definition` query and one `falsification` query.
-- Terminal turn MUST set `terminal: true` and include:
+- If a scouting turn's queries return no usable evidence (no matching files, empty results, no relevant content), set `disposition` to `"not_found"`. This is distinct from `"ambiguous"` (evidence found but mixed) and signals that retry with different queries may be productive.
+- Terminal turn MUST set `terminal: true` and include an `epilogue` object. `converged` is `true` when the dialogue completed normally and the verification ledger stabilized; `false` for controlled early exits (dialogue-tool failure, budget exhaustion, other non-convergence). The epilogue is:
 
 ```json
 {
   "ledger_summary": "string",
-  "converged": true,
+  "converged": "true|false",
   "effective_delta_overall": {
     "total_claims": 0,
     "supported": 0,
@@ -273,12 +274,18 @@ Phase 0 is smoke evidence only. It does not finalize the poll budget.
 Required before exit:
 
 - unit/subprocess tests pass
-- live smoke covers all load-bearing branches:
-  - scope file create
-  - scope file remove
-  - Grep rewrite
-  - pathless deny
-  - main-thread passthrough
+- live smoke covers all load-bearing guard branches:
+  - scope file create (SubagentStart lifecycle)
+  - scope file remove (SubagentStop lifecycle)
+  - Read allow (file anchor)
+  - Read allow (non-anchor file within scope directory)
+  - Read deny (out-of-scope file)
+  - Grep rewrite (path-targeted)
+  - Glob rewrite (path-targeted, scope directory)
+  - pathless deny — Grep (no path)
+  - pathless deny — Glob (no path)
+  - main-thread passthrough (no `agent_id`)
+  - no active-run pointer passthrough (containment inactive)
   - `agent_id` mismatch passthrough
   - seed-present poll success
   - seed-present poll timeout deny
