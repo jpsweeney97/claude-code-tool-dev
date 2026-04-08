@@ -1,9 +1,9 @@
 # T8 Execution Plan V3: Minimum Runnable Shakedown Delivery
 
 **Date:** 2026-04-08
-**Status:** `Proposed`
+**Status:** `Accepted`
 **Design authority:** [2026-04-07-t7-executable-slice-definition.md](2026-04-07-t7-executable-slice-definition.md), [2026-04-07-t8-minimum-runnable-shakedown-packet.md](2026-04-07-t8-minimum-runnable-shakedown-packet.md)
-**Accepted snapshot:** `feature/t8-ordering-validation` at commit `4d3851d0`
+**Accepted snapshot:** `feature/t8-ordering-validation` at commit `440967a2`
 **Purpose:** Convert the accepted T7/T8 design packet into an executable delivery sequence with explicit ownership, gate artifacts, calibration evidence, and fallback paths.
 
 ## Authorities
