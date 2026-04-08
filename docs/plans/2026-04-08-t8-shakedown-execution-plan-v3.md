@@ -164,7 +164,7 @@ All prose follows the closing sentinel. No other JSON fence is permitted in the 
 ```json
 {
   "ledger_summary": "string",
-  "converged": "true|false",
+  "converged": true,
   "effective_delta_overall": {
     "total_claims": 0,
     "supported": 0,

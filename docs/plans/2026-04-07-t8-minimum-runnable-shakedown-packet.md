@@ -245,7 +245,7 @@ Key constraints:
 
 **Create:** `skills/dialogue-codex/SKILL.md` (~300 lines)
 
-NOT user-invocable (preloaded into agent). The 6 behaviors:
+NOT user-invocable (preloaded into agent). The 7 behaviors:
 
 1. **Claim extraction:** After each Codex reply, identify factual claims. Classify as scoutable (mechanically verifiable against source code via path/symbol) or `not_scoutable`.
 
