@@ -46,7 +46,7 @@ Operator invokes /shakedown-b1
 **Three components:**
 - `shakedown-b1` skill — operator-facing harness (seed, spawn, capture)
 - `shakedown-dialogue` agent — execution context, loads `dialogue-codex` skill via `skills` frontmatter
-- `dialogue-codex` skill — 6 T4 behavioral instructions (claim extraction, registration, scouting, emission)
+- `dialogue-codex` skill — 7 T4 behavioral instructions (claim extraction, registration, scouting, emission, and dialogue-tool failure termination)
 
 ## Interface Contracts
 
@@ -115,7 +115,7 @@ Pure-function module imported by both hook scripts:
 - `write_json_file(path: Path, data: dict) -> None` (atomic write via tmp+replace, following `publish_session_id.py` pattern)
 - `build_scope_from_seed(seed: dict, agent_id: str) -> dict`
 - `is_path_within_scope(file_path: str, file_anchors: list[str], scope_directories: list[str]) -> bool` (canonical paths via `os.path.realpath` — checks if path is a file anchor or within a scope directory)
-- `select_scope_root(file_anchors: list[str], scope_directories: list[str], query_path: str | None, tool_name: str) -> str | None` (per-query scope_root selection per T4-CT-02 and T7 Scope Directory Derivation amendment. If `query_path` names or implies a specific file: returns the shallowest file anchor whose subtree contains it (for Grep), or the shallowest scope directory (for Glob, which requires a directory). If `query_path` is None: returns None. **B1-specific pathless-query rule:** when the function returns None, the guard denies the call with `permissionDecisionReason` listing both scope directories and instructing the agent to reissue with an explicit `path` targeting one of them. This is a hard deny, not a fallback: T4 does not define a deterministic selection rule for conceptual queries (containment.md:57-65), so the shakedown requires the agent to make the scope choice explicit rather than the guard making it silently. The `dialogue-codex` skill instructs path-targeted queries, so this deny path should be rare. Scored runs are blocked on this until T4-BR-07 is resolved.)
+- `select_scope_root(file_anchors: list[str], scope_directories: list[str], query_path: str | None, tool_name: str) -> str | None` (per-query scope_root selection per T4-CT-02 and T8's decomposition of T7 `allowed_roots` into `file_anchors` + `scope_directories`. If `query_path` names or implies a specific file: returns the shallowest file anchor whose subtree contains it (for Grep), or the shallowest scope directory (for Glob, which requires a directory). If `query_path` is None: returns None. **B1-specific pathless-query rule:** when the function returns None, the guard denies the call with `permissionDecisionReason` listing both scope directories and instructing the agent to reissue with an explicit `path` targeting one of them. This is a hard deny, not a fallback: T4 does not define a deterministic selection rule for conceptual queries (containment.md:57-65), so the shakedown requires the agent to make the scope choice explicit rather than the guard making it silently. The `dialogue-codex` skill instructs path-targeted queries, so this deny path should be rare. Scored runs are blocked on this until T4-BR-07 is resolved.)
 - `derive_scope_directories(file_anchors: list[str]) -> list[str]` (deduplicated parent directories of file anchors — used by harness to populate seed file)
 - `clean_stale_files(shakedown_dir: Path, max_age_hours: int = 24) -> None` (removes seed, scope, active-run, marker, and completion-marker files older than `max_age_hours`)
 
@@ -317,7 +317,7 @@ allowed-tools: Bash, Read, Write, Agent, mcp__plugin_codex-collaboration_codex-c
      "created_at": "<ISO timestamp>"
    }
    ```
-   `scope_directories` are deduplicated parent directories of the `file_anchors` (per T7 Scope Directory Derivation amendment). All three tools use the same scope boundary: a file is in scope if it is a file anchor or within a scope directory. `Read` checks membership; `Grep`/`Glob` rewrite `path` to the matching member.
+   `scope_directories` are deduplicated parent directories of the `file_anchors` (T8-specific decomposition of T7 `allowed_roots` for directory-targeted queries). All three tools use the same scope boundary: a file is in scope if it is a file anchor or within a scope directory. `Read` checks membership; `Grep`/`Glob` rewrite `path` to the matching member.
 8. **Spawn agent:**
 
    ```python
@@ -383,7 +383,7 @@ All paths relative to `packages/plugins/codex-collaboration/`.
 | `scripts/containment_lifecycle.py` | 1b | 100 | SubagentStart + SubagentStop hook handler |
 | `scripts/containment_guard.py` | 1c | 150 | PreToolUse containment enforcement |
 | `agents/shakedown-dialogue.md` | 2a | 20 | Agent definition (tools allowlist, skills ref) |
-| `skills/dialogue-codex/SKILL.md` | 2b | 300 | T4 behavioral instructions (6 behaviors) |
+| `skills/dialogue-codex/SKILL.md` | 2b | 300 | T4 behavioral instructions (7 behaviors) |
 | `skills/shakedown-b1/SKILL.md` | 3 | 120 | Orchestration harness |
 | `scripts/clean_stale_shakedown.py` | 3 | 15 | CLI wrapper for `clean_stale_files()` — invoked by harness via Bash |
 | `scripts/ordering_test_start.py` | 0 | 35 | Ordering validation: SubagentStart marker with monotonic timestamp |
@@ -419,7 +419,7 @@ All paths relative to `packages/plugins/codex-collaboration/`.
 | SubagentStart ordering not guaranteed by docs | Guard includes bootstrap poll (provisional 2s window, every 100ms) when seed-present + no-scope. Bounded startup bridge: timing gaps within the window are bridged; poll timeout = fail-closed deny with diagnosable error. Phase 0 measures whether the window is sufficient; calibrate if needed | 0 |
 | Plugin agents ignore `hooks` frontmatter | All hooks in `hooks.json` (verified from docs) | 1 |
 | `updatedInput` replaces entire input | Guard echoes ALL original fields alongside modified `path` | 1c |
-| File anchors are files, Glob needs directories | T7 Scope Directory Derivation amendment: `allowed_roots` includes both file anchors and scope directories. All three tools use the same scope boundary. `scope_root ∈ allowed_roots` preserved | 1a, 1c |
+| File anchors are files, Glob needs directories | T8 decomposes T7 `allowed_roots` into file anchors and scope directories. All three tools use the same scope boundary. `scope_root ∈ allowed_roots` preserved | 1a, 1c |
 | Conceptual queries — scope directory selection unresolved in T4 | B1 pathless-query rule: guard denies with scope directory list, agent must reissue with explicit `path`. Skill instructs path-targeted queries. Scored runs blocked until T4-BR-07 | 1c |
 | Glob results may include non-anchor files | Acceptable for shakedown (manual inspection). Read allows any file within scope directories for discovery-then-inspect consistency. Scored runs restrict Read to file anchors via post-execution filtering (T4-CT-01, deferred) | 1c |
 | Same-session shakedown retry while prior run active | Harness rejects second launch if active-run pointer has live seed or scope. No overwrite path — operator waits or cleans up manually | 3 |
@@ -458,7 +458,7 @@ All paths relative to `packages/plugins/codex-collaboration/`.
 
 ### Acceptance Criteria (from T7)
 
-1. `dialogue-codex` skill implements all 6 behaviors, invocable through dialogue infrastructure
+1. `dialogue-codex` skill implements all 7 behaviors, invocable through dialogue infrastructure
 2. Containment hooks registered and functional (SubagentStart/Stop + PreToolUse for Read/Grep/Glob)
 3. B1 seed file has non-empty `file_anchors` and `scope_directories`; SubagentStart promotes to scope with `agent_id`
 4. Transcript capture writes to stable path
