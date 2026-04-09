@@ -230,7 +230,7 @@ The `SubagentStart` and `SubagentStop` matchers use the shakedown agent's custom
 
 The shakedown dialogue runs inside a **dedicated subagent** dispatched by the shakedown harness. This is a structural requirement, not an optimization: the containment hook uses the subagent's `agent_id` (from `hooks#common-input-fields`) to distinguish shakedown tool calls from the operator's same-session tool usage. The `agent_id` is captured by the `SubagentStart` lifecycle hook at spawn time and written into the scope file before the subagent's first tool call executes (see Hook State Transport).
 
-A new `dialogue-codex` skill must instruct Claude to execute 6 concrete behaviors for the B1 shakedown:
+A new `dialogue-codex` skill must instruct Claude to execute 6 core behaviors for the B1 shakedown:
 
 1. **Extract factual claims** from each Codex reply.
 2. **Register/update local claim state** before the next follow-up — new claims registered, revised claims updated, `not_scoutable` classification applied where the scoutable criteria ([scouting-behavior.md:215-221](t04-t4-scouting-position-and-evidence-provenance/scouting-behavior.md#L215)) are not met.
@@ -238,6 +238,8 @@ A new `dialogue-codex` skill must instruct Claude to execute 6 concrete behavior
 4. **Execute at least one definition and one falsification query** when scouting occurs, within the 2-5 tool call range ([T4-SB-04](t04-t4-scouting-position-and-evidence-provenance/scouting-behavior.md#t4-sb-04)).
 5. **Emit structured per-turn state** after each completed round: an evidence block (target claim, file path, line range, disposition, citations) and a verification-state summary (all tracked claims with current status). This is the inspector's primary observable surface — without it, the per-turn checklist cannot be executed. The format must be stable across turns (same field names, same structure) so the inspector can compare rounds.
 6. **Produce a follow-up that visibly uses current ledger/evidence state** and concludes with inspectable epilogue fields on the terminal turn.
+
+Execution plan V3 adds a seventh execution-layer behavior: if `codex.dialogue.start` or `codex.dialogue.reply` fails, terminate the run on the next turn with a non-converged terminal epilogue instead of continuing with stale state.
 
 This is the B1-subset of the skill. It is not the full scored-run T4 consumer surface.
 
@@ -262,7 +264,7 @@ Behavior 5 requires a stable, inspectable format. The minimum required fields pe
 |-------|------|-------------|
 | `turn` | int | Current turn number |
 | `claims` | list | Each claim: `{id: int, text: "<claim>", status: "<verification status>", scout_attempts: int}` |
-| `counters` | object | `{total_claims: int, supported: int, contradicted: int, not_scoutable: int, unverified: int, evidence_count: int}` |
+| `counters` | object | `{total_claims: int, supported: int, contradicted: int, conflicted: int, ambiguous: int, not_scoutable: int, unverified: int, evidence_count: int}` (V3 emission contract is authoritative for the full field set) |
 | `effective_delta` | object | Counter changes since last turn (on terminal turn, overall delta) |
 
 This schema is the minimum for the shakedown inspector. Scored-run work may extend it with `claim_provenance_index`, `ClassificationTrace`, and other T4 surfaces.
@@ -314,7 +316,7 @@ Inspection granularity is **per-turn**, consistent with the risk analysis: "each
 
 The shakedown is ready to run only when all of the following exist:
 
-1. The `dialogue-codex` skill is implemented with all 6 behaviors and can be invoked through the existing dialogue infrastructure.
+1. The `dialogue-codex` skill is implemented with the 6 core behaviors plus the V3 execution-layer failure-termination behavior, and can be invoked through the existing dialogue infrastructure.
 2. Containment hooks are registered: `SubagentStart`/`SubagentStop` lifecycle hooks (matched on shakedown agent type) for scope file create/remove, and `PreToolUse` guard for `Read`/`Grep`/`Glob` with `allowed_roots` enforcement.
 3. B1 anchor-to-scope wiring writes a seed file with non-empty `allowed_roots` to `${CLAUDE_PLUGIN_DATA}/shakedown/seed-<session_id>.json` before spawning the subagent; the `SubagentStart` hook promotes it to a scope file with `agent_id`.
 4. Transcript capture writes post-containment output to a stable shakedown path.
@@ -390,7 +392,7 @@ T8 receives this definition and implements the minimum runnable packet.
 
 **Implementation items:**
 
-1. `dialogue-codex` skill with 6 concrete behaviors (including per-turn state emission), running inside a dedicated subagent (custom agent type for hook matching)
+1. `dialogue-codex` skill with the 6 core behaviors (including per-turn state emission), running inside a dedicated subagent (custom agent type for hook matching); V3 adds the execution-layer dialogue-tool failure-termination behavior
 2. Loop mechanics producing inspectable state
 3. Containment hooks: `SubagentStart`/`SubagentStop` lifecycle hooks (scope file create/remove) + `PreToolUse` guard for `Read`/`Grep`/`Glob` (activation requires `session_id` + `agent_id` match)
 4. B1 anchor-to-scope wiring (harness writes seed file with `allowed_roots`, `SubagentStart` promotes to scope file with `agent_id`, `SubagentStop` removes)
