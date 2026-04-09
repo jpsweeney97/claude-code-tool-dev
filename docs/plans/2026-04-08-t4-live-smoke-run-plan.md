@@ -168,49 +168,57 @@ $SETUP cleanup $RUN_ID
 
 ### Group 3: Timing-sensitive scenarios
 
-Run last. Each involves a real delay (1.7s for poll_success, 2s timeout for poll_timeout_deny).
+Run last.
 
 | # | Scenario | Execution | Key observation |
 |---|----------|-----------|-----------------|
-| 13 | `poll_success` | Spawn agent, Read with delayed scope promotion | Read succeeds after poll, telemetry: `poll_success` |
+| 13 | `poll_success` | **Synthetic only** — not live-runnable (see below) | Guard poll branch validated by unit test |
 | 14 | `poll_timeout_deny` | Spawn agent, Read with disabled scope promotion | Agent reports denial after ~2s, telemetry: `poll_timeout_deny` |
 
-#### `poll_success` timing calibration
+#### `poll_success` — reclassified as synthetic coverage
 
-The `--delay-ms` value must satisfy two constraints simultaneously:
+SubagentStart hooks are synchronous in Claude Code: they block agent startup until the
+hook command exits. The lifecycle hook's `time.sleep(delay_ms / 1000)` in the `delay`
+path (`containment_lifecycle.py:88-89`) delays the entire subagent, not just scope
+promotion. By the time the agent makes its first Read (triggering PreToolUse), the scope
+file is always present. The guard's poll path (`containment_guard.py:93-98`) requires
+PreToolUse to fire while no scope file exists — structurally impossible under synchronous
+SubagentStart.
 
-- **Above** the subagent startup time (Phase 0 median: 1524ms) so the guard fires before scope promotion
-- **Below** 2000ms (poll timeout) so promotion lands before the guard gives up
+**Evidence**: Two diagnostic runs with `--delay-ms 1700` and `--delay-ms 5000` both
+produced `read_allow_anchor` instead of `poll_success`. A 5s delay exceeds the 2s poll
+timeout, yet the scope file was still present before the first Read — confirming the
+delay blocks agent startup, not just scope promotion.
 
-Default: **1700ms** — provides ~176ms margin above startup and ~300ms below timeout.
+**Synthetic coverage**: `test_containment_guard.py:402` validates the `poll_success`
+guard branch using `threading.Timer` to simulate asynchronous scope promotion. This
+proves the guard logic is correct in isolation. `poll_timeout_deny` (scenario #14)
+provides live end-to-end proof that the bounded poll path and denial behavior work.
+
+**Classification**: harness-model bug (smoke assumed async SubagentStart), not a runtime
+containment defect.
+
+#### `poll_timeout_deny` execution
 
 ```bash
-$SETUP prepare poll_success --delay-ms 1700
+$SETUP prepare poll_timeout_deny
 # Note the run_id: RUN_ID=<...>
-```
 
-If the scenario fails, diagnose and adjust:
+# Terminal A: spawn shakedown-dialogue with the recipe's prompt
+# Agent reports denial after ~2s (poll timeout)
 
-| Symptom | Diagnosis | Adjustment |
-|---------|-----------|------------|
-| Telemetry shows `read_allow_anchor` instead of `poll_success` | Scope was promoted before the guard fired — delay too short | Increase by 100ms |
-| Agent reports denial, telemetry shows `poll_timeout_deny` | Scope was not promoted in time — delay too long | Decrease by 100ms |
-| Telemetry shows `poll_success` | Correct | None |
+# Terminal B:
+telem_check $RUN_ID
+# Expected: 1 row with branch_id=poll_timeout_deny, decision=deny
 
-**Retry procedure:** If calibration requires a retry, clean up and re-prepare. The retry adds extra telemetry rows for the retried `run_id`, but Phase 2 verification uses distinct branch IDs, not row count, so retries do not invalidate the exit gate. Document the final working `--delay-ms` value in the smoke log.
-
-```bash
-# On retry: cleanup the failed attempt, re-prepare with adjusted delay
 $SETUP cleanup $RUN_ID
-$SETUP prepare poll_success --delay-ms <adjusted_value>
-# New RUN_ID from output
 ```
 
 ## Post-Run Verification
 
 After all 14 scenarios:
 
-### 1. Branch coverage (primary gate)
+### 1. Branch coverage (primary gate — 8 live branches)
 
 ```bash
 python3 -c "
@@ -221,7 +229,6 @@ expected = {
     'glob_rewrite_path_targeted',
     'grep_pathless_deny',
     'grep_rewrite_path_targeted',
-    'poll_success',
     'poll_timeout_deny',
     'read_allow_anchor',
     'read_allow_scope_directory',
@@ -239,7 +246,10 @@ sys.exit(0 if ok else 1)
 "
 ```
 
-Expected: exactly the 9 branch IDs listed, no more, no fewer. Retries produce duplicate rows for existing branch IDs — they do not create new distinct IDs. Any unexpected branch ID is evidence of branch drift or a telemetry bug and must fail the gate.
+Expected: exactly the 8 live branch IDs listed, no more, no fewer. `poll_success` is
+validated by unit test only (see Group 3 reclassification above). Retries produce
+duplicate rows for existing branch IDs — they do not create new distinct IDs. Any
+unexpected branch ID is evidence of branch drift or a telemetry bug and must fail the gate.
 
 ### 2. Row sanity check
 
@@ -247,7 +257,10 @@ Expected: exactly the 9 branch IDs listed, no more, no fewer. Retries produce du
 wc -l $DATA_DIR/shakedown/poll-telemetry.jsonl
 ```
 
-Expected: **at least 10** rows. The 10 telemetry-producing scenarios are: `scope_file_create` (emits `read_allow_anchor`), scenarios #3–#9, and scenarios #13–#14. More than 10 is acceptable if `poll_success` required calibration retries. Fewer than 10 means a scenario did not emit telemetry.
+Expected: **at least 9** rows. The 9 telemetry-producing live scenarios are:
+`scope_file_create` (emits `read_allow_anchor`), scenarios #3–#9, and scenario #14
+(`poll_timeout_deny`). More than 9 is acceptable from calibration retries or diagnostic
+runs. Fewer than 9 means a scenario did not emit telemetry.
 
 ### 3. Fill the smoke log
 
@@ -263,7 +276,8 @@ cp $DATA_DIR/shakedown/poll-telemetry.jsonl $REPO_ROOT/docs/plans/t8-t4-poll-tel
 
 ### 5. T4 exit gate
 
-All 14 rows filled. All `pass_fail` = pass. Branch coverage = 9/9.
+All 14 rows filled. 13 live `pass` + 1 `synthetic-covered`. Branch coverage = 8/8 live.
+`poll_success` covered by `test_containment_guard.py:402`.
 
 ## Post-Smoke Cleanup
 
@@ -290,7 +304,7 @@ All transcript artifacts are deliberately preserved by `cleanup_scenario`. `clea
 
 | Risk | Mitigation |
 |------|------------|
-| `poll_success` timing mismatch | Use 1700ms default. Adjust per the calibration table. Document final value |
+| `poll_success` not live-runnable | Reclassified as synthetic-covered. SubagentStart is synchronous — see Group 3 reclassification. Guard branch validated by `test_containment_guard.py:402` |
 | Stale state from a failed scenario bleeds into the next | Always `cleanup <run_id>` between scenarios. Before retrying, inspect `ls $DATA_DIR/shakedown/` for leftover `active-run-*`, `seed-*`, `scope-*` files |
 | Agent ignores the prompt and retries after denial | The `shakedown-dialogue.md` instructions prohibit retry. If it happens, the first tool call still produces the correct telemetry — extra rows are filtered by `run_id` so they don't contaminate other scenarios |
 | `CLAUDE_PLUGIN_DATA` differs from expected | Verify with `cat $DATA_DIR/session_id` before starting. If empty, the SessionStart hook did not fire — restart the Claude session |
