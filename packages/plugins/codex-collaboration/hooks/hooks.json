@@ -10,6 +10,28 @@
         ]
       }
     ],
+    "SubagentStart": [
+      {
+        "matcher": "shakedown-dialogue",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/containment_lifecycle.py\""
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "shakedown-dialogue",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/containment_lifecycle.py\""
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "mcp__plugin_codex-collaboration_codex-collaboration__codex\\.consult|mcp__plugin_codex-collaboration_codex-collaboration__codex\\.dialogue\\.start|mcp__plugin_codex-collaboration_codex-collaboration__codex\\.dialogue\\.reply",
@@ -17,6 +39,15 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/codex_guard.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "^(Read|Grep|Glob)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/containment_guard.py\""
           }
         ]
       }
