@@ -198,6 +198,10 @@ Worktree: `/Users/jp/Projects/active/claude-code-tool-dev-t8-impl`
 | Error markers | 0 | 0 | PASS |
 | poll_success synthetic | Unit test at `test_containment_guard.py:402` | `threading.Timer` validates guard poll branch in isolation | COVERED |
 
+Defensive deny branches `grep_deny_out_of_scope` and `glob_deny_out_of_scope` exist for
+targeted out-of-scope queries, but they are not part of the planned live matrix and did
+not appear in this run.
+
 ## Diagnostic Runs (Excluded)
 
 Two `poll_success` calibration attempts produced `read_allow_anchor` telemetry rows.

@@ -40,6 +40,10 @@ def _plugin_data_from_env() -> Path | None:
     return Path(plugin_data).expanduser().resolve()
 
 
+def _log_error(message: str) -> None:
+    print(message, file=sys.stderr)
+
+
 def handle_payload(payload: dict[str, Any], *, data_dir: Path) -> None:
     """Dispatch lifecycle behavior based on `hook_event_name`."""
 
@@ -50,10 +54,9 @@ def handle_payload(payload: dict[str, Any], *, data_dir: Path) -> None:
     if event_name == "SubagentStop":
         _handle_subagent_stop(payload, data_dir=data_dir)
         return
-    print(
+    _log_error(
         "containment-lifecycle: unsupported hook_event_name. "
         f"Got: {event_name!r:.100}",
-        file=sys.stderr,
     )
 
 
@@ -61,6 +64,10 @@ def _handle_subagent_start(payload: dict[str, Any], *, data_dir: Path) -> None:
     session_id = payload.get("session_id")
     agent_id = payload.get("agent_id")
     if not isinstance(session_id, str) or not isinstance(agent_id, str):
+        _log_error(
+            "containment-lifecycle: missing session_id or agent_id. "
+            f"Got: session_id={session_id!r:.100}, agent_id={agent_id!r:.100}"
+        )
         return
 
     clean_stale_files(shakedown_dir(data_dir))
@@ -74,10 +81,9 @@ def _handle_subagent_start(payload: dict[str, Any], *, data_dir: Path) -> None:
 
     scope_path = scope_file_path(data_dir, run_id)
     if scope_path.exists():
-        print(
+        _log_error(
             "containment-lifecycle: scope already exists for run. "
             f"Got: {run_id!r:.100}",
-            file=sys.stderr,
         )
         return
 
@@ -90,10 +96,9 @@ def _handle_subagent_start(payload: dict[str, Any], *, data_dir: Path) -> None:
     elif start_behavior == "disable":
         return
     elif start_behavior != "normal":
-        print(
+        _log_error(
             "containment-lifecycle: invalid smoke-control start_behavior. "
             f"Got: {start_behavior!r:.100}",
-            file=sys.stderr,
         )
         return
 
@@ -109,6 +114,10 @@ def _handle_subagent_stop(payload: dict[str, Any], *, data_dir: Path) -> None:
     session_id = payload.get("session_id")
     agent_id = payload.get("agent_id")
     if not isinstance(session_id, str) or not isinstance(agent_id, str):
+        _log_error(
+            "containment-lifecycle: missing session_id or agent_id. "
+            f"Got: session_id={session_id!r:.100}, agent_id={agent_id!r:.100}"
+        )
         return
 
     run_id = read_active_run_id(data_dir, session_id)
@@ -135,7 +144,13 @@ def _handle_subagent_stop(payload: dict[str, Any], *, data_dir: Path) -> None:
         )
         write_text_file(transcript_done_path(data_dir, run_id), "")
     except Exception as exc:
-        write_text_file(transcript_error_path(data_dir, run_id), str(exc))
+        try:
+            write_text_file(transcript_error_path(data_dir, run_id), str(exc))
+        except Exception as marker_exc:
+            _log_error(
+                "containment-lifecycle: write transcript error marker failed. "
+                f"Got: {marker_exc!r:.100}"
+            )
     finally:
         try:
             scope_path.unlink()
@@ -153,20 +168,23 @@ def _copy_file_atomic(*, source: Path, destination: Path) -> None:
 def main() -> int:
     data_dir = _plugin_data_from_env()
     if data_dir is None:
+        _log_error("containment-lifecycle: CLAUDE_PLUGIN_DATA missing")
         return 0
     try:
         payload = json.load(sys.stdin)
-    except (ValueError, OSError, UnicodeDecodeError):
+    except (ValueError, OSError, UnicodeDecodeError) as exc:
+        _log_error(f"containment-lifecycle: invalid hook payload. Got: {exc!r:.100}")
         return 0
     if not isinstance(payload, dict):
+        _log_error(
+            "containment-lifecycle: hook payload is not a JSON object. "
+            f"Got: {type(payload).__name__}"
+        )
         return 0
     try:
         handle_payload(payload, data_dir=data_dir)
     except Exception as exc:
-        print(
-            f"containment-lifecycle: internal error ({exc})",
-            file=sys.stderr,
-        )
+        _log_error(f"containment-lifecycle: internal error ({exc})")
     return 0
 
 

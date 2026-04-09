@@ -250,6 +250,9 @@ Expected: exactly the 8 live branch IDs listed, no more, no fewer. `poll_success
 validated by unit test only (see Group 3 reclassification above). Retries produce
 duplicate rows for existing branch IDs — they do not create new distinct IDs. Any
 unexpected branch ID is evidence of branch drift or a telemetry bug and must fail the gate.
+The guard also emits defensive deny branches `grep_deny_out_of_scope` and
+`glob_deny_out_of_scope` for targeted paths outside scope; those are not part of the
+planned live matrix, and any appearance during the live run is unexpected.
 
 ### 2. Row sanity check
 

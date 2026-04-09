@@ -255,7 +255,7 @@ def select_scope_root(
     *,
     cwd: str | None = None,
 ) -> str | None:
-    """Select the shallowest allowed scope root for a Grep or Glob query."""
+    """Select the shallowest matching file anchor or scope directory for Grep/Glob."""
 
     if query_path is None:
         return None

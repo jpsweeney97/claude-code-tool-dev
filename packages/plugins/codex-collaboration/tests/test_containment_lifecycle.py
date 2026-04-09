@@ -234,3 +234,52 @@ def test_subagent_stop_writes_error_marker_on_copy_failure(tmp_path: Path) -> No
     assert result.returncode == 0
     assert transcript_error_path(tmp_path, "run-1").exists()
     assert not scope_file_path(tmp_path, "run-1").exists()
+
+
+def test_subagent_stop_missing_transcript_path_writes_error_marker(tmp_path: Path) -> None:
+    write_text_file(active_run_path(tmp_path, "session-1"), "run-1")
+    write_json_file(
+        scope_file_path(tmp_path, "run-1"),
+        {
+            **_seed_payload(),
+            "agent_id": "agent-1",
+        },
+    )
+
+    result = _run_lifecycle(
+        {
+            "hook_event_name": "SubagentStop",
+            "session_id": "session-1",
+            "agent_id": "agent-1",
+        },
+        data_dir=tmp_path,
+    )
+
+    assert result.returncode == 0
+    assert transcript_error_path(tmp_path, "run-1").exists()
+    assert not scope_file_path(tmp_path, "run-1").exists()
+
+
+def test_subagent_stop_agent_id_mismatch_keeps_scope(tmp_path: Path) -> None:
+    write_text_file(active_run_path(tmp_path, "session-1"), "run-1")
+    write_json_file(
+        scope_file_path(tmp_path, "run-1"),
+        {
+            **_seed_payload(),
+            "agent_id": "agent-expected",
+        },
+    )
+
+    result = _run_lifecycle(
+        {
+            "hook_event_name": "SubagentStop",
+            "session_id": "session-1",
+            "agent_id": "agent-other",
+            "agent_transcript_path": str(tmp_path / "missing.jsonl"),
+        },
+        data_dir=tmp_path,
+    )
+
+    assert result.returncode == 0
+    assert scope_file_path(tmp_path, "run-1").exists()
+    assert not transcript_error_path(tmp_path, "run-1").exists()

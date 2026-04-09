@@ -20,9 +20,7 @@ from server.containment import (  # noqa: E402
     append_jsonl,
     is_path_within_scope,
     poll_telemetry_path,
-    read_active_run_id,
     read_active_run_id_strict,
-    read_json_file,
     read_json_file_strict,
     scope_file_path,
     seed_file_path,
@@ -153,11 +151,10 @@ def _enforce_active_scope(
 ) -> dict[str, Any] | None:
     file_anchors = scope.get("file_anchors")
     scope_directories = scope.get("scope_directories")
-    if not _is_string_list(file_anchors) or not _is_string_list(scope_directories):
-        raise ValueError(
-            "containment-guard failed: invalid scope file. "
-            f"Got: {scope!r:.100}"
-        )
+    if not _scope_has_valid_shape(scope):
+        return _deny(_invalid_scope_reason(scope))
+    assert _is_string_list(file_anchors)
+    assert _is_string_list(scope_directories)
 
     if tool_name == "Read":
         file_path = tool_input.get("file_path")
@@ -185,14 +182,11 @@ def _enforce_active_scope(
             )
         resolved_path = _resolve_query_path(file_path, cwd=cwd)
         decision = _allow({**tool_input, "file_path": resolved_path})
-        try:
-            branch_id = "poll_success" if poll_succeeded else _read_allow_branch_id(
-                file_path,
-                list(file_anchors),
-                cwd=cwd,
-            )
-        except Exception:
-            branch_id = "read_allow_unknown"
+        branch_id = "poll_success" if poll_succeeded else _read_allow_branch_id(
+            file_path,
+            list(file_anchors),
+            cwd=cwd,
+        )
         _try_append_branch_telemetry(
             data_dir=data_dir,
             branch_id=branch_id,
@@ -227,6 +221,15 @@ def _enforce_active_scope(
             cwd=cwd,
         )
         if rewritten is None:
+            _try_append_branch_telemetry(
+                data_dir=data_dir,
+                branch_id="grep_deny_out_of_scope",
+                payload=payload,
+                run_id=run_id,
+                decision="deny",
+                query_path=path_value,
+                rewritten_path=None,
+            )
             return _deny(_out_of_scope_reason("Grep", list(scope_directories)))
         decision = _allow({**tool_input, "path": rewritten})
         branch_id = "poll_success" if poll_succeeded else "grep_rewrite_path_targeted"
@@ -263,6 +266,15 @@ def _enforce_active_scope(
         cwd=cwd,
     )
     if rewritten is None:
+        _try_append_branch_telemetry(
+            data_dir=data_dir,
+            branch_id="glob_deny_out_of_scope",
+            payload=payload,
+            run_id=run_id,
+            decision="deny",
+            query_path=path_value,
+            rewritten_path=None,
+        )
         return _deny(_out_of_scope_reason("Glob", list(scope_directories)))
     decision = _allow({**tool_input, "path": rewritten})
     branch_id = "poll_success" if poll_succeeded else "glob_rewrite_path_targeted"
@@ -326,8 +338,8 @@ def _try_append_branch_telemetry(**kwargs: Any) -> None:
     """Best-effort telemetry — never affects authorization decisions."""
     try:
         _append_branch_telemetry(**kwargs)
-    except Exception:
-        pass
+    except Exception as exc:
+        _log_error(f"containment-guard: telemetry append failed ({exc})")
 
 
 def _deny(reason: str) -> dict[str, Any]:
@@ -409,6 +421,40 @@ def _is_string_list(value: object) -> bool:
     return isinstance(value, list) and all(isinstance(item, str) for item in value)
 
 
+def _scope_has_valid_shape(scope: dict[str, Any]) -> bool:
+    return (
+        isinstance(scope.get("session_id"), str)
+        and isinstance(scope.get("run_id"), str)
+        and isinstance(scope.get("agent_id"), str)
+        and bool(scope.get("agent_id"))
+        and isinstance(scope.get("created_at"), str)
+        and _is_string_list(scope.get("file_anchors"))
+        and _is_string_list(scope.get("scope_directories"))
+    )
+
+
+def _seed_has_valid_shape(seed: dict[str, Any]) -> bool:
+    return (
+        isinstance(seed.get("session_id"), str)
+        and isinstance(seed.get("run_id"), str)
+        and isinstance(seed.get("created_at"), str)
+        and _is_string_list(seed.get("file_anchors"))
+        and _is_string_list(seed.get("scope_directories"))
+    )
+
+
+def _invalid_scope_reason(scope: dict[str, Any]) -> str:
+    return f"containment-guard: invalid scope file. Got: {scope!r:.100}"
+
+
+def _invalid_seed_reason(seed: dict[str, Any]) -> str:
+    return f"containment-guard: invalid seed file. Got: {seed!r:.100}"
+
+
+def _log_error(message: str) -> None:
+    print(message, file=sys.stderr)
+
+
 def _payload_requires_fail_closed(payload: dict[str, Any], *, data_dir: Path) -> bool:
     agent_id = payload.get("agent_id")
     session_id = payload.get("session_id")
@@ -416,30 +462,62 @@ def _payload_requires_fail_closed(payload: dict[str, Any], *, data_dir: Path) ->
         return False
     if not isinstance(session_id, str) or not session_id:
         return True
-    run_id = read_active_run_id(data_dir, session_id)
+    try:
+        run_id = read_active_run_id_strict(data_dir, session_id)
+    except ValueError as exc:
+        _log_error(f"containment-guard: fail-closed active-run probe failed ({exc})")
+        return True
     if run_id is None:
         return False
-    scope = read_json_file(scope_file_path(data_dir, run_id))
-    if scope is not None and scope.get("agent_id") == agent_id:
+    try:
+        scope = read_json_file_strict(scope_file_path(data_dir, run_id))
+    except ValueError as exc:
+        _log_error(f"containment-guard: fail-closed scope probe failed ({exc})")
         return True
-    seed = read_json_file(seed_file_path(data_dir, run_id))
-    return seed is not None
+    if scope is not None:
+        if not _scope_has_valid_shape(scope):
+            _log_error(_invalid_scope_reason(scope))
+            return True
+        return scope.get("agent_id") == agent_id
+    try:
+        seed = read_json_file_strict(seed_file_path(data_dir, run_id))
+    except ValueError as exc:
+        _log_error(f"containment-guard: fail-closed seed probe failed ({exc})")
+        return True
+    if seed is None:
+        return False
+    if not _seed_has_valid_shape(seed):
+        _log_error(_invalid_seed_reason(seed))
+        return True
+    return True
 
 
 def main() -> int:
     data_dir = _plugin_data_from_env()
     if data_dir is None:
+        _log_error("containment-guard: CLAUDE_PLUGIN_DATA missing")
         return 0
     try:
         payload = json.load(sys.stdin)
-    except (ValueError, OSError, UnicodeDecodeError):
+    except (ValueError, OSError, UnicodeDecodeError) as exc:
+        _log_error(f"containment-guard: invalid hook payload. Got: {exc!r:.100}")
         return 0
     if not isinstance(payload, dict):
+        _log_error(
+            "containment-guard: hook payload is not a JSON object. "
+            f"Got: {type(payload).__name__}"
+        )
         return 0
     try:
         response = evaluate_payload(payload, data_dir=data_dir)
     except Exception as exc:
-        if _payload_requires_fail_closed(payload, data_dir=data_dir):
+        _log_error(f"containment-guard: internal error ({exc})")
+        try:
+            require_fail_closed = _payload_requires_fail_closed(payload, data_dir=data_dir)
+        except Exception as probe_exc:
+            _log_error(f"containment-guard: fail-closed probe crashed ({probe_exc})")
+            require_fail_closed = True
+        if require_fail_closed:
             print(
                 json.dumps(
                     _deny(f"containment-guard: internal error ({exc})"),

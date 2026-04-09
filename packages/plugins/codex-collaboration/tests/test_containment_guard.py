@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import os
 import subprocess
 import sys
 import threading
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from typing import Any
 
@@ -375,6 +377,29 @@ def test_grep_pathless_deny_lists_scope_directories(tmp_path: Path) -> None:
     assert _read_telemetry(tmp_path)[0]["branch_id"] == "grep_pathless_deny"
 
 
+def test_grep_out_of_scope_deny_records_branch(tmp_path: Path) -> None:
+    fixture = _make_scope_fixture(tmp_path)
+    _activate_scope(
+        tmp_path,
+        file_anchors=[fixture["anchor"]],
+        scope_directories=[fixture["scope_dir"]],
+    )
+
+    result = _run_guard(
+        _payload(
+            tool_name="Grep",
+            tool_input={"pattern": "outside", "path": fixture["outside"]},
+            cwd=fixture["scope_dir"],
+        ),
+        data_dir=tmp_path,
+    )
+
+    output = _stdout_json(result)
+    assert output is not None
+    assert output["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert _read_telemetry(tmp_path)[0]["branch_id"] == "grep_deny_out_of_scope"
+
+
 def test_glob_pathless_deny_lists_scope_directories(tmp_path: Path) -> None:
     fixture = _make_scope_fixture(tmp_path)
     _activate_scope(
@@ -397,6 +422,29 @@ def test_glob_pathless_deny_lists_scope_directories(tmp_path: Path) -> None:
     assert output["hookSpecificOutput"]["permissionDecision"] == "deny"
     assert fixture["scope_dir"] in output["hookSpecificOutput"]["permissionDecisionReason"]
     assert _read_telemetry(tmp_path)[0]["branch_id"] == "glob_pathless_deny"
+
+
+def test_glob_out_of_scope_deny_records_branch(tmp_path: Path) -> None:
+    fixture = _make_scope_fixture(tmp_path)
+    _activate_scope(
+        tmp_path,
+        file_anchors=[fixture["anchor"]],
+        scope_directories=[fixture["scope_dir"]],
+    )
+
+    result = _run_guard(
+        _payload(
+            tool_name="Glob",
+            tool_input={"pattern": "*.txt", "path": fixture["outside"]},
+            cwd=fixture["scope_dir"],
+        ),
+        data_dir=tmp_path,
+    )
+
+    output = _stdout_json(result)
+    assert output is not None
+    assert output["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert _read_telemetry(tmp_path)[0]["branch_id"] == "glob_deny_out_of_scope"
 
 
 def test_poll_success_records_branch(tmp_path: Path) -> None:
@@ -548,6 +596,171 @@ def test_parse_failure_passthroughs(tmp_path: Path) -> None:
 
     assert result.returncode == 0
     assert result.stdout == ""
+    assert "invalid hook payload" in result.stderr
+
+
+def test_missing_plugin_data_logs_and_passthroughs(tmp_path: Path) -> None:
+    env = dict(os.environ)
+    env.pop("CLAUDE_PLUGIN_DATA", None)
+    result = subprocess.run(
+        [sys.executable, SCRIPT],
+        input=json.dumps(_payload(tool_name="Read", tool_input={"file_path": "/tmp/x"})),
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0
+    assert result.stdout == ""
+    assert "CLAUDE_PLUGIN_DATA missing" in result.stderr
+
+
+def test_invalid_scope_structure_denies_without_passthrough(tmp_path: Path) -> None:
+    fixture = _make_scope_fixture(tmp_path)
+    write_text_file(active_run_path(tmp_path, "session-1"), "run-1")
+    write_json_file(
+        scope_file_path(tmp_path, "run-1"),
+        {
+            "session_id": "session-1",
+            "run_id": "run-1",
+            "agent_id": "agent-1",
+            "file_anchors": 42,
+            "scope_directories": [fixture["scope_dir"]],
+            "created_at": "2026-04-08T00:00:00Z",
+        },
+    )
+
+    result = _run_guard(
+        _payload(
+            tool_name="Read",
+            tool_input={"file_path": fixture["anchor"]},
+            cwd=fixture["scope_dir"],
+        ),
+        data_dir=tmp_path,
+    )
+
+    output = _stdout_json(result)
+    assert result.returncode == 0
+    assert output is not None
+    assert output["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert "invalid scope file" in output["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+def test_payload_requires_fail_closed_on_invalid_scope_shape(tmp_path: Path) -> None:
+    module = _load_guard_module()
+    fixture = _make_scope_fixture(tmp_path)
+    write_text_file(active_run_path(tmp_path, "session-1"), "run-1")
+    write_json_file(
+        scope_file_path(tmp_path, "run-1"),
+        {
+            "session_id": "session-1",
+            "run_id": "run-1",
+            "agent_id": "agent-1",
+            "file_anchors": 42,
+            "scope_directories": [fixture["scope_dir"]],
+            "created_at": "2026-04-08T00:00:00Z",
+        },
+    )
+
+    assert module._payload_requires_fail_closed(
+        _payload(
+            tool_name="Read",
+            tool_input={"file_path": fixture["anchor"]},
+            cwd=fixture["scope_dir"],
+        ),
+        data_dir=tmp_path,
+    )
+
+
+def test_payload_requires_fail_closed_false_for_other_agent_scope(tmp_path: Path) -> None:
+    fixture = _make_scope_fixture(tmp_path)
+    module = _load_guard_module()
+    _activate_scope(
+        tmp_path,
+        agent_id="other-agent",
+        file_anchors=[fixture["anchor"]],
+        scope_directories=[fixture["scope_dir"]],
+    )
+
+    assert not module._payload_requires_fail_closed(
+        _payload(
+            tool_name="Read",
+            tool_input={"file_path": fixture["outside"]},
+            agent_id="agent-1",
+            cwd=fixture["scope_dir"],
+        ),
+        data_dir=tmp_path,
+    )
+
+
+def test_payload_requires_fail_closed_true_for_seed_bootstrap(tmp_path: Path) -> None:
+    fixture = _make_scope_fixture(tmp_path)
+    module = _load_guard_module()
+    _seed_scope(
+        tmp_path,
+        file_anchors=[fixture["anchor"]],
+        scope_directories=[fixture["scope_dir"]],
+    )
+
+    assert module._payload_requires_fail_closed(
+        _payload(
+            tool_name="Read",
+            tool_input={"file_path": fixture["anchor"]},
+            cwd=fixture["scope_dir"],
+        ),
+        data_dir=tmp_path,
+    )
+
+
+def test_main_denies_when_fail_closed_probe_crashes(tmp_path: Path) -> None:
+    module = _load_guard_module()
+    fixture = _make_scope_fixture(tmp_path)
+    _activate_scope(
+        tmp_path,
+        file_anchors=[fixture["anchor"]],
+        scope_directories=[fixture["scope_dir"]],
+    )
+    payload_text = json.dumps(
+        _payload(
+            tool_name="Read",
+            tool_input={"file_path": fixture["anchor"]},
+            cwd=fixture["scope_dir"],
+        )
+    )
+    stdout_buffer = io.StringIO()
+    stderr_buffer = io.StringIO()
+    original_stdin = module.sys.stdin
+    original_env = os.environ.get("CLAUDE_PLUGIN_DATA")
+    module.sys.stdin = io.StringIO(payload_text)
+    os.environ["CLAUDE_PLUGIN_DATA"] = str(tmp_path)
+
+    def _raise_eval(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("boom")
+
+    def _raise_probe(*args: object, **kwargs: object) -> bool:
+        raise RuntimeError("probe boom")
+
+    original_evaluate_payload = module.evaluate_payload
+    original_fail_closed = module._payload_requires_fail_closed
+    module.evaluate_payload = _raise_eval
+    module._payload_requires_fail_closed = _raise_probe
+    try:
+        with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
+            exit_code = module.main()
+    finally:
+        module.evaluate_payload = original_evaluate_payload
+        module._payload_requires_fail_closed = original_fail_closed
+        module.sys.stdin = original_stdin
+        if original_env is None:
+            os.environ.pop("CLAUDE_PLUGIN_DATA", None)
+        else:
+            os.environ["CLAUDE_PLUGIN_DATA"] = original_env
+
+    assert exit_code == 0
+    output = json.loads(stdout_buffer.getvalue())
+    assert output["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert "internal error" in output["hookSpecificOutput"]["permissionDecisionReason"]
+    assert "fail-closed probe crashed" in stderr_buffer.getvalue()
 
 
 def test_telemetry_write_failure_preserves_read_allow(tmp_path: Path) -> None:
