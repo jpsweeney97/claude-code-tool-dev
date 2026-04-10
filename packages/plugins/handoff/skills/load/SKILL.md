@@ -127,19 +127,11 @@ When user runs `/load [path]`:
 
 5. **Archive the handoff:**
    - Create `<project_root>/docs/handoffs/archive/` if needed
-   - Move handoff to `archive/<filename>`
-
-   **Auto-commit the archive:**
-   ```bash
-   git mv "<source_path>" "<archive_path>"
-   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/auto_commit.py" -m "docs(handoff): archive <filename>" --staged "<source_path>" "<archive_path>"
-   ```
-   If `git mv` fails (file is untracked — e.g., loaded from legacy `.claude/handoffs/`), fall back:
+   - Move handoff to `archive/<filename>` via plain `mv`:
    ```bash
    mv "<source_path>" "<archive_path>"
-   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/auto_commit.py" -m "docs(handoff): archive <filename>" "<source_path>" "<archive_path>"
    ```
-   If the commit fails, warn: "Handoff archived but not committed — <reason>".
+   Handoffs are local-only working memory — no git operation fires. See `references/handoff-contract.md` for the Git Tracking section.
 
 6. **Write state file:**
    - Create `<project_root>/docs/handoffs/.session-state/` if needed. If creating, also write a `.gitignore` inside it with content `*` followed by `!.gitignore` (state files are ephemeral and must not be git-tracked).
