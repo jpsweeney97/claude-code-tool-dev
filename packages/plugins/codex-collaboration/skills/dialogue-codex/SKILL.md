@@ -249,7 +249,7 @@ All prose follows the closing sentinel. Do NOT emit any other JSON fence in the 
 
 ### State Object Fields
 
-Every turn, all 14 fields present:
+Every turn, all 13 fields present:
 
 | Field | Type | Rules |
 |-------|------|-------|
