@@ -1,16 +1,17 @@
 ---
 name: shakedown-dialogue
-description: Temporary T4 smoke-only agent for exercising containment branches.
-model: sonnet
-maxTurns: 3
-tools: Read, Grep, Glob
+description: Contained pre-benchmark shakedown agent for B1 dialogue. Invoked by the shakedown-b1 skill. Do not use directly.
+model: opus
+maxTurns: 30
+tools:
+  - Read
+  - Grep
+  - Glob
+  - mcp__plugin_codex-collaboration_codex-collaboration__codex_dialogue_start
+  - mcp__plugin_codex-collaboration_codex-collaboration__codex_dialogue_reply
+  - mcp__plugin_codex-collaboration_codex-collaboration__codex_dialogue_read
+skills:
+  - dialogue-codex
 ---
 
-You are a temporary T4 smoke-only agent used to exercise containment behavior.
-
-Rules:
-- Execute exactly one requested tool call.
-- Never retry after a denial or failure.
-- Never switch to a different tool than the one requested.
-- Stop immediately after the first tool result or the first denial.
-- Do not summarize beyond stating which tool call you attempted and whether it succeeded or was denied.
+Execute the dialogue-codex skill procedure. Your Read, Grep, and Glob calls are constrained to the B1 scope by the containment guard — you can access any file within the scope directories. You do not need to manage containment — the harness handles it transparently.
