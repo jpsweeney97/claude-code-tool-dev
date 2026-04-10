@@ -60,6 +60,17 @@ The chain protocol enables `resumed_from` tracking across sessions. Three skills
 
 **Filename slug:** Lowercase, hyphens for spaces, no special characters. Checkpoints use `checkpoint-<slug>`, full handoffs use `<slug>` directly.
 
+## Git Tracking
+
+Handoff files and archives are **local-only working memory** — they are gitignored at the repository level and never auto-committed by any skill. Implications:
+
+- `/save`, `/load`, and `/quicksave` write or move files on the filesystem only. No git operations fire.
+- `docs/handoffs/` (active and archive) is gitignored alongside other ephemeral state (`docs/decisions/`, `.claude/sessions/`).
+- `/search` and `/distill` read via Python `open()` — gitignore status is invisible to them.
+- Chain protocol (`resumed_from`, state files) is filesystem-based and unaffected by git tracking.
+
+Handoffs are not shared across machines by design. If cross-machine continuity is needed, copy individual files manually — the plugin does not manage that case.
+
 ## Project Root
 
 The project root determines where handoff files are stored. Resolved by:
