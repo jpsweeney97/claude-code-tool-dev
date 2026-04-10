@@ -7,9 +7,9 @@ tools:
   - Read
   - Grep
   - Glob
-  - mcp__plugin_codex-collaboration_codex-collaboration__codex.dialogue.start
-  - mcp__plugin_codex-collaboration_codex-collaboration__codex.dialogue.reply
-  - mcp__plugin_codex-collaboration_codex-collaboration__codex.dialogue.read
+  - mcp__plugin_codex-collaboration_codex-collaboration__codex_dialogue_start
+  - mcp__plugin_codex-collaboration_codex-collaboration__codex_dialogue_reply
+  - mcp__plugin_codex-collaboration_codex-collaboration__codex_dialogue_read
 skills:
   - dialogue-codex
 ---

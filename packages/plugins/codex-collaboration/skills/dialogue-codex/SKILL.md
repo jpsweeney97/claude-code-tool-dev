@@ -18,9 +18,9 @@ This document is your complete behavioral contract. Do NOT reference external au
 
 | Tool | MCP name | Purpose |
 |------|----------|---------|
-| Dialogue start | `mcp__plugin_codex-collaboration_codex-collaboration__codex.dialogue.start` | Create a dialogue thread. Params: `repo_root` (required), `profile` (optional) |
-| Dialogue reply | `mcp__plugin_codex-collaboration_codex-collaboration__codex.dialogue.reply` | Continue a dialogue turn. Params: `collaboration_id` (required), `objective` (required), `explicit_paths` (optional) |
-| Dialogue read | `mcp__plugin_codex-collaboration_codex-collaboration__codex.dialogue.read` | Read dialogue state. Params: `collaboration_id` (required) |
+| Dialogue start | `mcp__plugin_codex-collaboration_codex-collaboration__codex_dialogue_start` | Create a dialogue thread. Params: `repo_root` (required), `profile` (optional) |
+| Dialogue reply | `mcp__plugin_codex-collaboration_codex-collaboration__codex_dialogue_reply` | Continue a dialogue turn. Params: `collaboration_id` (required), `objective` (required), `explicit_paths` (optional) |
+| Dialogue read | `mcp__plugin_codex-collaboration_codex-collaboration__codex_dialogue_read` | Read dialogue state. Params: `collaboration_id` (required) |
 | Read | `Read` | Read file contents for evidence gathering |
 | Grep | `Grep` | Search for patterns. Every Grep call MUST include a `path` parameter — pathless Grep is denied by containment |
 | Glob | `Glob` | Find files by pattern. Every Glob call MUST include a `path` parameter |
