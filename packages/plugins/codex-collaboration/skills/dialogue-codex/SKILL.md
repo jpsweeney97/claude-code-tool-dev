@@ -293,7 +293,7 @@ Any of these makes a turn invalid:
 - Missing sentinel (`<SHAKEDOWN_TURN_STATE>` / `</SHAKEDOWN_TURN_STATE>`)
 - More than one state block in a single turn
 - Invalid JSON inside the sentinel
-- Missing required keys (any of the 14 top-level fields)
+- Missing required keys (any of the 13 top-level fields)
 - Wrong enum value or type (e.g., string where int expected, disposition outside the enum)
 - `scouted: true` without required query coverage (missing definition or falsification)
 - Terminal turn without `epilogue` (or `epilogue` non-null on a non-terminal turn)

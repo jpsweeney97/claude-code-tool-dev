@@ -13,9 +13,12 @@ _STALE_PATTERNS = (
     "active-run-*",
     "seed-*.json",
     "scope-*.json",
+    "metadata-*.json",
+    "transcript-*.jsonl",
     "smoke-control-*.json",
     "ordering-marker-*.json",
     "ordering-result-*.json",
+    "inspection-*.md",
     "transcript-*.done",
     "transcript-*.error",
 )

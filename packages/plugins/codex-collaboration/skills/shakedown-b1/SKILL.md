@@ -154,7 +154,7 @@ If the Agent tool itself fails (spawn error, unexpected termination): update met
 
 ## Per-Turn Checks (items 1-6)
 - [ ] 1. Exactly one state block per turn with correct sentinel
-- [ ] 2. All 14 top-level fields present, correct types
+- [ ] 2. All 13 top-level fields present, correct types
 - [ ] 3. Counter arithmetic consistent (sum of statuses = total_claims)
 - [ ] 4. effective_delta is per-turn (not cumulative)
 - [ ] 5. Scouting turns have >=1 definition + >=1 falsification query

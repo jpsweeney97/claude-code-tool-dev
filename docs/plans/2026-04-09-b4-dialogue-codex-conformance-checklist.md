@@ -275,7 +275,7 @@ Any of these is a parse failure:
 - [ ] JSON is in a fenced `json` block between sentinels
 - [ ] No other JSON fence in the turn
 - [ ] `turn` is monotonically increasing (1, 2, 3, ...)
-- [ ] All 14 top-level fields present on every turn
+- [ ] All 13 top-level fields present on every turn
 - [ ] `counters` has all 8 subfields
 - [ ] `effective_delta` has all 8 subfields (per-turn delta, not cumulative)
 - [ ] `scouted: true` turns have non-null `target_claim_id`, `target_claim`, `scope_root`, `queries`, `disposition`, `citations`
@@ -560,7 +560,7 @@ Scouting claim 1 (relational, primary entity `McpServer`):
 ### What this exemplar demonstrates
 
 - Correct sentinel wrapping with fenced JSON block
-- All 14 top-level fields present
+- All 13 top-level fields present
 - Relational-scoutable claim (claim 1): entity `McpServer × _dialogue_factory`, primary entity (`McpServer`) determines scout focus. The claim is conditional — it describes the deferred-factory branch, not the direct-injection branch (`dialogue_controller` parameter). Within `mcp_server.py` the types are `Any`, so the evidence grounds the factory mechanism but not the concrete type produced
 - 3 tool calls (within 2-5 range): 1 definition + 1 falsification + 1 supplementary
 - Definition query reads the primary entity's lazy initializer (`mcp_server.py:115-134`), grounding the factory-callback pattern: `self._dialogue_factory()` at L129, one-way pin at L132-133, factory cleared at L133
