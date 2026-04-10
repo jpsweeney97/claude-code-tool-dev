@@ -11,13 +11,42 @@ import os
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "server"))
+# Add package root to sys.path for server imports.
+_PACKAGE_ROOT = Path(__file__).resolve().parent.parent
+if str(_PACKAGE_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PACKAGE_ROOT))
 
-from containment import clean_stale_files, shakedown_dir
+def main() -> int:
+    plugin_data = os.environ.get("CLAUDE_PLUGIN_DATA", "")
+    if not plugin_data:
+        print(
+            "clean_stale_shakedown failed: CLAUDE_PLUGIN_DATA not set. "
+            f"Got: {plugin_data!r:.100}",
+            file=sys.stderr,
+        )
+        return 1
 
-data_dir = Path(os.environ.get("CLAUDE_PLUGIN_DATA", ""))
-if not data_dir.is_dir():
-    print(f"CLAUDE_PLUGIN_DATA not set or not a directory: {data_dir!r}", file=sys.stderr)
-    sys.exit(1)
+    data_dir = Path(plugin_data).expanduser().resolve()
+    if not data_dir.is_dir():
+        print(
+            "clean_stale_shakedown failed: CLAUDE_PLUGIN_DATA is not a directory. "
+            f"Got: {plugin_data!r:.100}",
+            file=sys.stderr,
+        )
+        return 1
 
-clean_stale_files(shakedown_dir(data_dir))
+    from server.containment import clean_stale_files, shakedown_dir
+
+    clean_stale_files(shakedown_dir(data_dir))
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except Exception as exc:
+        print(
+            f"clean_stale_shakedown failed: unexpected error. Got: {exc!r:.100}",
+            file=sys.stderr,
+        )
+        raise SystemExit(1) from exc
