@@ -150,11 +150,7 @@ When user runs `/save [title]` or confirms a signal phrase offer:
 
 8. **Write file** to `<project_root>/docs/handoffs/YYYY-MM-DD_HH-MM_<slug>.md`
 
-   **Auto-commit the handoff:**
-   ```bash
-   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/auto_commit.py" -m "docs(handoff): save <title>" "<file_path>"
-   ```
-   If the commit fails, warn: "Handoff saved but not committed — <reason>". The file is already written; only the commit is skipped.
+   Handoffs are local-only working memory — the file is durable on disk but is not committed. See `references/handoff-contract.md` for the Git Tracking section.
 
 9. **Cleanup state file** per chain protocol in [handoff-contract.md](../../references/handoff-contract.md):
    - `trash` the state file at `<project_root>/docs/handoffs/.session-state/handoff-<session_id>` if it exists. If `trash` fails, warn the user that the state file persists but do not block — the 24-hour TTL will clean it up.

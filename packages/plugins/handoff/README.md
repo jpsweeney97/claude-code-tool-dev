@@ -56,7 +56,6 @@ Core logic lives in `scripts/`. Skills handle UX and judgment; scripts handle de
 
 | Script | Purpose | Called By |
 |--------|---------|-----------|
-| `auto_commit.py` | Narrow-scope git commit for handoff files | `/save`, `/load`, `/quicksave` skills |
 | `cleanup.py` | Archive pruning and state file TTL | SessionStart hook |
 | `quality_check.py` | Handoff/checkpoint format validation | PostToolUse hook |
 | `defer.py` | Ticket ID allocation, rendering, writing | `/defer` skill |
@@ -74,13 +73,13 @@ Core logic lives in `scripts/`. Skills handle UX and judgment; scripts handle de
 
 | Location | Contents | Retention |
 |----------|----------|-----------|
-| `<project_root>/docs/handoffs/` | Active handoffs and checkpoints | No auto-prune (git-tracked) |
-| `<project_root>/docs/handoffs/archive/` | Archived handoffs (moved by `/load`) | No auto-prune (git-tracked) |
+| `<project_root>/docs/handoffs/` | Active handoffs and checkpoints | No auto-prune (gitignored, local-only) |
+| `<project_root>/docs/handoffs/archive/` | Archived handoffs (moved by `/load`) | No auto-prune (gitignored, local-only) |
 | `<project_root>/docs/handoffs/.session-state/handoff-<UUID>` | Chain protocol state files | 24 hours |
 | `docs/tickets/` | Deferred work tickets | Permanent |
 | `docs/learnings/learnings.md` | Distilled knowledge entries | Permanent |
 
-Handoff files are git-tracked and auto-committed on create and archive. Use `git log --grep='docs(handoff):'` to view handoff history.
+Handoff files are gitignored and local-only — `/save`, `/load`, and `/quicksave` write or move files on the filesystem without committing. See `references/handoff-contract.md` for the Git Tracking section.
 
 ### Handoff Frontmatter
 

@@ -61,11 +61,7 @@ Fast state capture for context-pressure session cycling. Produces 22-55 line doc
    - Populate frontmatter `files:` from file paths listed in the Active Files section
    - Required sections (5) are always included — use placeholder content for thin sessions (e.g., "No commands run yet" for Verification Snapshot). Conditional sections (3) are omitted when not applicable.
 
-   **Auto-commit the checkpoint:**
-   ```bash
-   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/auto_commit.py" -m "docs(handoff): save <title>" "<file_path>"
-   ```
-   If the commit fails, warn but continue.
+   Checkpoints are local-only working memory — the file is durable on disk but is not committed. See `references/handoff-contract.md` for the Git Tracking section.
 
 7. **Cleanup state file** per chain protocol:
    - `trash` the state file at `<project_root>/docs/handoffs/.session-state/handoff-<session_id>` if it exists. If `trash` fails, warn the user that the state file persists but do not block — the 24-hour TTL will clean it up.
