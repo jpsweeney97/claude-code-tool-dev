@@ -727,11 +727,22 @@ class DialogueController:
         handle: CollaborationHandle,
         runtime: object,
     ) -> int:
-        """Derive next 1-based turn_sequence from completed turn count via thread/read.
+        """Derive next 1-based turn_sequence from completed turn count.
 
         dialogue.start does not consume a slot (contracts.md:266).
-        Counts only turns with status 'completed' to avoid overcounting interrupted turns.
+
+        First-turn fast path: if TurnStore has no local metadata for this
+        collaboration, no turns have ever completed — return 1 without calling
+        read_thread(). This avoids racing thread materialization on the App
+        Server (thread/start returns before thread/read is ready).
+
+        Subsequent turns: fall back to read_thread() and count completed turns,
+        preserving remote-authoritative validation.
         """
+        local_turns = self._turn_store.get_all(handle.collaboration_id)
+        if not local_turns:
+            return 1
+
         thread_data = runtime.session.read_thread(handle.codex_thread_id)
         raw_turns = thread_data.get("thread", {}).get("turns", [])
         completed_count = sum(

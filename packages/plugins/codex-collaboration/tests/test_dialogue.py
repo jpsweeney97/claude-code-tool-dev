@@ -1836,6 +1836,79 @@ class TestReplyParseFailure:
         assert reply2.turn_sequence == 2
 
 
+class TestFirstTurnFastPath:
+    """First reply after start must not require a materialized read_thread."""
+
+    def test_first_reply_skips_read_thread(self, tmp_path: Path) -> None:
+        """First reply derives turn_sequence=1 from empty TurnStore, no read_thread."""
+        focus = tmp_path / "focus.py"
+        focus.write_text("print('focus')\n", encoding="utf-8")
+
+        class TrackingSession(FakeRuntimeSession):
+            """Tracks read_thread calls to prove the fast path skips it."""
+
+            def __init__(self) -> None:
+                super().__init__()
+                self.read_thread_calls: int = 0
+
+            def read_thread(self, thread_id: str) -> dict:
+                self.read_thread_calls += 1
+                return super().read_thread(thread_id)
+
+        session = TrackingSession()
+        controller, _, _, _, _ = _build_dialogue_stack(tmp_path, session=session)
+        start = controller.start(tmp_path)
+
+        reply = controller.reply(
+            collaboration_id=start.collaboration_id,
+            objective="First turn",
+            explicit_paths=(Path("focus.py"),),
+        )
+
+        assert reply.turn_sequence == 1
+        assert session.read_thread_calls == 0, (
+            "First reply should use TurnStore fast path, not read_thread"
+        )
+
+    def test_second_reply_uses_read_thread(self, tmp_path: Path) -> None:
+        """After a completed turn, subsequent replies fall back to read_thread."""
+        focus = tmp_path / "focus.py"
+        focus.write_text("print('focus')\n", encoding="utf-8")
+
+        class TrackingSession(FakeRuntimeSession):
+            def __init__(self) -> None:
+                super().__init__()
+                self.read_thread_calls: int = 0
+
+            def read_thread(self, thread_id: str) -> dict:
+                self.read_thread_calls += 1
+                return super().read_thread(thread_id)
+
+        session = TrackingSession()
+        controller, _, _, _, _ = _build_dialogue_stack(tmp_path, session=session)
+        start = controller.start(tmp_path)
+
+        # First reply: fast path, no read_thread
+        reply1 = controller.reply(
+            collaboration_id=start.collaboration_id,
+            objective="First turn",
+            explicit_paths=(Path("focus.py"),),
+        )
+        assert reply1.turn_sequence == 1
+        assert session.read_thread_calls == 0
+
+        # Second reply: TurnStore has turn 1, so read_thread is called
+        reply2 = controller.reply(
+            collaboration_id=start.collaboration_id,
+            objective="Second turn",
+            explicit_paths=(Path("focus.py"),),
+        )
+        assert reply2.turn_sequence == 2
+        assert session.read_thread_calls == 1, (
+            "Second reply should use read_thread to count completed turns"
+        )
+
+
 class TestRecoveryOutcomeEmission:
     def test_recovery_confirmed_emits_outcome_record(self, tmp_path: Path) -> None:
         """Startup recovery that confirms a turn also emits an outcome record."""
