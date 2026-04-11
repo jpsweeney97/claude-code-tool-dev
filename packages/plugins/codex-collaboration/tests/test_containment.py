@@ -204,12 +204,17 @@ def test_clean_stale_files_removes_old_state_only(tmp_path: Path) -> None:
     os.utime(old_scope, (stale_time, stale_time))
     os.utime(old_done, (stale_time, stale_time))
 
-    containment.clean_stale_files(shakedown_dir)
+    result = containment.clean_stale_files(shakedown_dir)
 
     assert not old_scope.exists()
     assert not old_done.exists()
     assert fresh_seed.exists()
     assert retained_transcript.exists()
+    assert set(result.removed) == {old_scope, old_done}
+    assert set(result.skipped_fresh) == {fresh_seed, retained_transcript}
+    assert result.failed_stat == ()
+    assert result.failed_unlink == ()
+    assert result.had_errors is False
 
 
 def test_clean_stale_files_returns_result_with_removed_and_fresh(
@@ -501,6 +506,57 @@ def test_clean_stale_result_report_applies_prefix_to_every_line(
     # or aggregated separately from the summary line.
     for line in lines:
         assert line.startswith("containment-lifecycle:")
+
+
+def test_clean_stale_files_mixed_batch_tracks_every_outcome(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    shakedown = containment.shakedown_dir(tmp_path)
+    shakedown.mkdir(parents=True)
+    removable = shakedown / "scope-run-1.json"
+    fresh = shakedown / "seed-run-2.json"
+    stat_fails = shakedown / "transcript-run-3.jsonl"
+    unlink_fails = shakedown / "transcript-run-4.done"
+    for path in (removable, fresh, stat_fails, unlink_fails):
+        path.write_text("{}", encoding="utf-8")
+    stale_time = time.time() - (26 * 3600)
+    os.utime(removable, (stale_time, stale_time))
+    os.utime(unlink_fails, (stale_time, stale_time))
+
+    original_stat = Path.stat
+    original_unlink = Path.unlink
+
+    def failing_stat(
+        self: Path, *args: object, **kwargs: object
+    ) -> os.stat_result:
+        if self == stat_fails:
+            raise PermissionError(13, "denied", str(self))
+        return original_stat(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    def failing_unlink(self: Path, *args: object, **kwargs: object) -> None:
+        if self == unlink_fails:
+            raise PermissionError(13, "denied", str(self))
+        return original_unlink(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    with monkeypatch.context() as patched:
+        patched.setattr(Path, "stat", failing_stat)
+        patched.setattr(Path, "unlink", failing_unlink)
+        result = containment.clean_stale_files(shakedown)
+
+    # Patch reverted here — .exists() is safe again.
+    assert result.removed == (removable,)
+    assert result.skipped_fresh == (fresh,)
+    assert len(result.failed_stat) == 1
+    assert result.failed_stat[0][0] == stat_fails
+    assert len(result.failed_unlink) == 1
+    assert result.failed_unlink[0][0] == unlink_fails
+    assert result.had_errors is True
+    assert "failed_stat=1" in result.report()
+    assert "failed_unlink=1" in result.report()
+    assert not removable.exists()
+    assert fresh.exists()
+    assert stat_fails.exists()
+    assert unlink_fails.exists()
 
 
 def test_read_active_run_id_strict_returns_none_when_missing(tmp_path: Path) -> None:
