@@ -264,6 +264,36 @@ def test_clean_stale_files_captures_unlink_failures(
     assert result.had_errors is True
 
 
+def test_clean_stale_files_captures_stat_failures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    shakedown = containment.shakedown_dir(tmp_path)
+    shakedown.mkdir(parents=True)
+    unreadable = shakedown / "seed-run-1.json"
+    unreadable.write_text("{}", encoding="utf-8")
+
+    original_stat = Path.stat
+
+    def failing_stat(self: Path, *args: object, **kwargs: object) -> os.stat_result:
+        if self == unreadable:
+            raise PermissionError(13, "denied", str(self))
+        return original_stat(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    with monkeypatch.context() as patched:
+        patched.setattr(Path, "stat", failing_stat)
+        result = containment.clean_stale_files(shakedown)
+
+    # Patch reverted here — safe to use .exists() again.
+    assert unreadable.exists(), "stat failure should not cause deletion attempt"
+    assert result.removed == ()
+    assert result.failed_unlink == ()
+    assert len(result.failed_stat) == 1
+    failed_path, failed_repr = result.failed_stat[0]
+    assert failed_path == unreadable
+    assert "PermissionError" in failed_repr
+    assert result.had_errors is True
+
+
 def test_read_active_run_id_strict_returns_none_when_missing(tmp_path: Path) -> None:
     assert containment.read_active_run_id_strict(tmp_path, "session-1") is None
 
