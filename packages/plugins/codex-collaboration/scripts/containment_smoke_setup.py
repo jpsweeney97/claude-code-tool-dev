@@ -115,7 +115,12 @@ def prepare_scenario(
 ) -> dict[str, Any]:
     """Write scenario state and return the operator recipe."""
 
-    clean_stale_files(shakedown_dir(data_dir))
+    cleanup_result = clean_stale_files(shakedown_dir(data_dir))
+    if cleanup_result.had_errors:
+        print(
+            cleanup_result.report(prefix="containment_smoke_setup: "),
+            file=sys.stderr,
+        )
     resolved_session_id = session_id or _read_session_id(data_dir)
     resolved_run_id = run_id or str(uuid.uuid4())
     _assert_no_live_conflict(
@@ -502,9 +507,24 @@ def _timestamp() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
-if __name__ == "__main__":
+def _run_with_wrapper(argv: list[str] | None = None) -> None:
+    """Call ``main()`` and apply the fail-fast wrapper.
+
+    Extracted from the ``__main__`` block so the wrapper is testable
+    in-process via direct call (Round 6 testability refactor).
+    **Behavior-preserving**: same stderr text
+    (``containment_smoke_setup failed: <exc>``), same ``SystemExit(1)``
+    on any exception from ``main(argv)``, and same ``SystemExit(main(argv))``
+    happy-path exit for normal flow. The only structural change is that the
+    ``__main__`` block now dispatches through a callable function so tests
+    can exercise the full wrapper boundary without spawning a subprocess.
+    """
     try:
-        raise SystemExit(main())
+        raise SystemExit(main(argv))
     except Exception as exc:
         print(f"containment_smoke_setup failed: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
+
+
+if __name__ == "__main__":
+    _run_with_wrapper()

@@ -70,7 +70,9 @@ def _handle_subagent_start(payload: dict[str, Any], *, data_dir: Path) -> None:
         )
         return
 
-    clean_stale_files(shakedown_dir(data_dir))
+    cleanup_result = clean_stale_files(shakedown_dir(data_dir))
+    if cleanup_result.had_errors:
+        _log_error(cleanup_result.report(prefix="containment-lifecycle: "))
     run_id = read_active_run_id(data_dir, session_id)
     if run_id is None:
         return
