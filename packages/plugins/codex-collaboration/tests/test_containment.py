@@ -294,6 +294,145 @@ def test_clean_stale_files_captures_stat_failures(
     assert result.had_errors is True
 
 
+def test_clean_stale_files_returns_empty_when_shakedown_root_missing(
+    tmp_path: Path,
+) -> None:
+    shakedown = containment.shakedown_dir(tmp_path)
+    assert not shakedown.exists()
+
+    result = containment.clean_stale_files(shakedown)
+
+    assert result.removed == ()
+    assert result.skipped_fresh == ()
+    assert result.failed_stat == ()
+    assert result.failed_unlink == ()
+    assert result.had_errors is False
+
+
+def test_clean_stale_files_raises_when_root_lstat_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    shakedown = containment.shakedown_dir(tmp_path)
+    shakedown.mkdir(parents=True)
+
+    original_lstat = Path.lstat
+
+    def failing_lstat(
+        self: Path, *args: object, **kwargs: object
+    ) -> os.stat_result:
+        if self == shakedown:
+            raise PermissionError(13, "denied", str(self))
+        return original_lstat(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    with monkeypatch.context() as patched:
+        patched.setattr(Path, "lstat", failing_lstat)
+        with pytest.raises(OSError, match="cannot lstat shakedown root"):
+            containment.clean_stale_files(shakedown)
+
+
+def test_clean_stale_files_raises_on_dangling_root_symlink(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "nonexistent-target"
+    link = tmp_path / "shakedown"
+    try:
+        link.symlink_to(target)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unavailable: {exc}")
+    assert not target.exists()
+    assert link.is_symlink()
+
+    with pytest.raises(OSError, match="possible broken symlink"):
+        containment.clean_stale_files(link)
+
+
+def test_clean_stale_files_raises_when_root_is_not_a_directory(
+    tmp_path: Path,
+) -> None:
+    not_a_dir = tmp_path / "not-a-dir"
+    not_a_dir.write_text("this is a file", encoding="utf-8")
+
+    with pytest.raises(
+        NotADirectoryError, match="shakedown root is not a directory"
+    ):
+        containment.clean_stale_files(not_a_dir)
+
+
+def test_clean_stale_files_raises_when_enumeration_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Enumeration failure (directory exists and is stat-able but cannot be
+    listed) must raise with actionable context, not silently return empty.
+
+    This is the Round 3 review gap: ``stat()`` on a ``chmod 0o000``
+    directory succeeds with mode ``0o40000`` (because stat only needs
+    execute permission on the parent), so the two-stage ``lstat``/``stat``
+    root check cannot detect this class. The enumeration guard is a
+    separate layer on top of the stat checks, and this test forces
+    ``os.listdir`` to raise to verify the guard propagates the error
+    with the expected context message.
+
+    Monkeypatches ``os.listdir`` so the test is portable (no reliance on
+    the host's permission semantics). The companion test
+    ``test_clean_stale_files_raises_when_root_directory_unreadable``
+    exercises the same code path using a real ``chmod 0o000``.
+    """
+    shakedown = containment.shakedown_dir(tmp_path)
+    shakedown.mkdir(parents=True)
+
+    def failing_listdir(path: object) -> list[str]:
+        raise PermissionError(13, "Permission denied", str(path))
+
+    with monkeypatch.context() as patched:
+        patched.setattr(os, "listdir", failing_listdir)
+        with pytest.raises(OSError, match="cannot enumerate shakedown root"):
+            containment.clean_stale_files(shakedown)
+
+
+@pytest.mark.skipif(
+    not hasattr(os, "geteuid") or os.geteuid() == 0,
+    reason=(
+        "POSIX permission check: chmod 0o000 is bypassed by root "
+        "and unavailable on platforms without os.geteuid"
+    ),
+)
+def test_clean_stale_files_raises_when_root_directory_unreadable(
+    tmp_path: Path,
+) -> None:
+    """Real ``chmod 0o000`` on the shakedown root exercises the full
+    enumeration path without any monkeypatch.
+
+    Verifies the end-to-end claim:
+    - ``Path.lstat`` succeeds on a mode-0o000 directory (it's still a
+      filesystem entry)
+    - ``Path.stat`` succeeds with mode ``0o40000`` (stat only needs
+      execute on the parent)
+    - ``S_ISDIR(0o40000)`` is True
+    - ``os.listdir`` raises ``PermissionError`` (no read bit)
+    - ``clean_stale_files`` re-raises with ``"cannot enumerate"`` context
+
+    Without this test, a refactor that accidentally replaced
+    ``os.listdir`` with ``Path.glob`` (or some other silent-swallow
+    primitive) could pass the mock-based test above (which only exercises
+    the raise path) while reintroducing the silent-failure class this
+    ticket is meant to eliminate. The real chmod exercise catches that.
+
+    Skipped when running as root (POSIX permission checks are bypassed)
+    or on platforms without ``os.geteuid`` (e.g., Windows).
+    """
+    shakedown = containment.shakedown_dir(tmp_path)
+    shakedown.mkdir(parents=True)
+    (shakedown / "scope-run-1.json").write_text("{}", encoding="utf-8")
+    try:
+        os.chmod(shakedown, 0o000)
+        with pytest.raises(OSError, match="cannot enumerate shakedown root"):
+            containment.clean_stale_files(shakedown)
+    finally:
+        # Restore permissions so pytest's tmp_path teardown can remove
+        # the directory and its contents.
+        os.chmod(shakedown, 0o755)
+
+
 def test_read_active_run_id_strict_returns_none_when_missing(tmp_path: Path) -> None:
     assert containment.read_active_run_id_strict(tmp_path, "session-1") is None
 
