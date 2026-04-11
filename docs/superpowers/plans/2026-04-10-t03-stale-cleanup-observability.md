@@ -2214,7 +2214,7 @@ If `gh pr diff --name-only "$PR_NUM"` returns a different file count than local 
 | Cleanup tests cover undeletable files, broken directory entries, and mixed success/failure batches | Task 2 (undeletable), Task 3 (per-file stat failure), Task 4 (4 root-level scenarios including dangling symlink), Task 6 (mixed batch exercising every bucket), Task 8 (caller wiring tests forcing `had_errors`) |
 | Helper paths used by cleanup no longer collapse materially different failure modes into the same 'missing' result when that would hide operational state | Task 1 replaces `shakedown_path.exists()` with a two-stage `lstat()`/`stat()` check that distinguishes "truly absent" from "dangling symlink" from "permission denied". Replaces per-file `path.is_file()` with explicit `path.stat()` + `S_ISREG`. The `read_active_run_id`/`read_json_file` lenient helpers are documented as out of scope because they are not called by `clean_stale_files` itself. |
 
-**Resolution map for all review findings (six review rounds):**
+**Resolution map for all review findings (seven review rounds):**
 
 | Finding | Resolution |
 |---|---|
