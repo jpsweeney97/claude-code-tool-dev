@@ -234,6 +234,36 @@ def test_clean_stale_files_returns_result_with_removed_and_fresh(
     assert result.had_errors is False
 
 
+def test_clean_stale_files_captures_unlink_failures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    shakedown = containment.shakedown_dir(tmp_path)
+    shakedown.mkdir(parents=True)
+    stale = shakedown / "scope-run-1.json"
+    stale.write_text("{}", encoding="utf-8")
+    stale_time = time.time() - (26 * 3600)
+    os.utime(stale, (stale_time, stale_time))
+
+    original_unlink = Path.unlink
+
+    def failing_unlink(self: Path, *args: object, **kwargs: object) -> None:
+        if self == stale:
+            raise PermissionError(13, "denied", str(self))
+        return original_unlink(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    with monkeypatch.context() as patched:
+        patched.setattr(Path, "unlink", failing_unlink)
+        result = containment.clean_stale_files(shakedown)
+
+    assert stale.exists(), "stale file should still be on disk after failed unlink"
+    assert result.removed == ()
+    assert len(result.failed_unlink) == 1
+    failed_path, failed_repr = result.failed_unlink[0]
+    assert failed_path == stale
+    assert "PermissionError" in failed_repr
+    assert result.had_errors is True
+
+
 def test_read_active_run_id_strict_returns_none_when_missing(tmp_path: Path) -> None:
     assert containment.read_active_run_id_strict(tmp_path, "session-1") is None
 
