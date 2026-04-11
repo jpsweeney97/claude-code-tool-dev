@@ -14,7 +14,12 @@ Rewrite `clean_stale_files()` to:
 - **Capture** per-file `stat()` and `unlink()` failures into the result buckets so individual errors do not abort the run.
 - Replace `path.is_file()` with an explicit `path.stat()` + `S_ISREG` check so per-file stat errors become observable (Python's stdlib `Path.is_file()` silently catches `OSError` and returns `False`, which was absorbing stat errors before the explicit `try/except` could see them).
 
-Update **all three callers** — `clean_stale_shakedown.py` (CLI wrapper), `containment_lifecycle.py:73` (hook handler), and `containment_smoke_setup.py:118` (smoke scenario prep) — to capture the result and log `report(prefix=...)` to stderr when `had_errors` is True. Add **in-process caller-wiring tests** that force `had_errors=True` via monkeypatched `Path.unlink` and assert on captured stderr, so a regression in the per-file logging wiring is caught automatically. Add **one subprocess-level lifecycle test** that exercises a real `chmod 0o000` on the shakedown directory through the `main()` boundary and asserts both the fail-open exit code (`0`) and the stderr contents (`containment-lifecycle: internal error` + `cannot enumerate shakedown root`), so the root-level propagation path is covered end-to-end through the actual hook entry point — not just via direct calls into `_handle_subagent_start`. Root-level raised errors are caught by each caller's existing outer exception boundary; **T-03 does not change any caller's exit-code contract**. The lifecycle hook's fail-open policy (exit `0` even on internal errors) is deliberate — the hook runner must never see a failed hook, and the operator observability contract is stderr-based. See the **Fail-Open Hook Policy** subsection under Design Decisions for the rationale and contract shape.
+Update **all three callers** — `clean_stale_shakedown.py` (CLI wrapper), `containment_lifecycle.py:73` (hook handler), and `containment_smoke_setup.py:118` (smoke scenario prep) — so each surfaces **two distinct error surfaces** with caller-appropriate framing:
+
+- **Per-file failures** (e.g., `Path.unlink` raising `PermissionError` mid-sweep) — `clean_stale_files` returns a `CleanStaleResult` with `had_errors=True`. Each caller gates `report(prefix=...)` output on `had_errors` so multi-line reports retain caller attribution after grep/aggregation. The wrapper is silent on clean runs per Round 5 Choice 3B.
+- **Root-level failures** (e.g., `chmod 0o000` on the shakedown root, dangling symlink, lstat denied) — `clean_stale_files` raises `OSError` before returning any result. Root-level raises **never go through `report(prefix=...)`** — they propagate to each caller's **outer exception boundary**, which produces a caller-specific wrapper message with a caller-specific exit-code contract: `clean_stale_shakedown failed: <exc>` → exit `1`, `containment-lifecycle: internal error (<exc>)` → return `0` (fail-OPEN), `containment_smoke_setup failed: <exc>` → exit `1`.
+
+Add **in-process seam tests** that force `had_errors=True` via monkeypatched `Path.unlink` and call each caller's seam function (`_handle_subagent_start`, `prepare_scenario`) directly — these pin the per-file surface at the seam (not the outer boundary), so a regression in the `had_errors` gate or `report(prefix=...)` rendering is caught automatically. Add **four outer-boundary tests** for the root-level surface, two per caller: lifecycle subprocess (real `chmod 0o000` through `main()`, asserts exit `0` + caller-attributed stderr) plus lifecycle in-process fallback (Round 5 — platform-agnostic via monkeypatched `os.listdir`, pins the fail-OPEN conversion on root/Windows where the subprocess test skips); and smoke-setup subprocess (Round 5 — real `chmod 0o000` through the `__main__` fail-fast wrapper, asserts exit `1` + wrapper-prefixed stderr) plus smoke-setup in-process fallback (Round 6 — platform-agnostic via monkeypatched `os.listdir` calling the extracted `_run_with_wrapper(argv)` function directly, after a behavior-preserving testability refactor that moves the `__main__` block's try/except into a callable function). These four tests pin the **two different outer-boundary contract shapes** on every platform regardless of `geteuid` availability. **T-03 does not change any caller's exit-code contract**. The lifecycle hook's fail-open policy (exit `0` even on internal errors) is deliberate — the hook runner must never see a failed hook, and the operator observability contract is stderr-based. See the **Fail-Open Hook Policy** subsection under Design Decisions for the rationale and contract shape.
 
 **Tech Stack:** Python 3.11+, `pathlib.Path`, `stat.S_ISREG`/`S_ISDIR`, `@dataclass(frozen=True)`, pytest with `monkeypatch.context()` for scoped patching of `Path.stat`/`Path.unlink`, `capsys` for stderr capture, `importlib.util` for in-process loading of script modules.
 
@@ -96,7 +101,7 @@ Together the two tests prove that T-03's observability contract survives through
 
 **In scope:**
 - `packages/plugins/codex-collaboration/server/containment.py` — `clean_stale_files()` rewrite plus new `CleanStaleResult` dataclass with prefixed `report()`
-- `packages/plugins/codex-collaboration/scripts/clean_stale_shakedown.py` — wrapper logs `result.report()`
+- `packages/plugins/codex-collaboration/scripts/clean_stale_shakedown.py` — wrapper logs `result.report()` to stderr **only on `had_errors`** (Choice 3B, Round 5); root-level raises propagate to the existing outer `except Exception` boundary which prints `clean_stale_shakedown failed: <exc>` and exits `1` (unchanged)
 - `packages/plugins/codex-collaboration/scripts/containment_lifecycle.py` — hook handler logs `result.report(prefix="containment-lifecycle: ")` on `had_errors`
 - `packages/plugins/codex-collaboration/scripts/containment_smoke_setup.py` — smoke-setup logs `result.report(prefix="containment_smoke_setup: ")` on `had_errors`
 - `packages/plugins/codex-collaboration/tests/test_containment.py` — coverage tests for every outcome bucket, root-level failures including dangling symlink, `report()` rendering with and without prefix, mixed-batch scenario, tightened happy-path test
@@ -107,7 +112,7 @@ Together the two tests prove that T-03's observability contract survives through
 - `read_active_run_id()` and `read_json_file()` lenient helpers at `containment.py:81` and `:114`. Not called by `clean_stale_files`; strict alternates exist at `:92` and `:126`. Migrating their 5+ call sites is a separate refactor.
 - Module-scope `server.containment` imports in `containment_lifecycle.py` and `containment_smoke_setup.py` (separate adjacent sharp edge noted in the resumed handoff).
 
-**Key correctness constraints (derived from five rounds of adversarial review):**
+**Key correctness constraints (derived from six rounds of adversarial review):**
 1. **`Path.exists()` silently swallows `OSError`.** Never gate the root check with it — use `lstat()` (and then `stat()` for symlink resolution).
 2. **`Path.is_file()` silently swallows `OSError`.** Never use it after a stat call; check `S_ISREG(stat_result.st_mode)` instead.
 3. **`Path.stat()` follows symlinks.** A dangling symlink at the shakedown root raises `FileNotFoundError` from `stat()`, which would be indistinguishable from "directory truly absent" without a prior `lstat()` call.
@@ -127,12 +132,12 @@ Together the two tests prove that T-03's observability contract survives through
 | File | Change type | Responsibility |
 |---|---|---|
 | `packages/plugins/codex-collaboration/server/containment.py` | Modify | Add `CleanStaleResult` dataclass with `report(prefix)` method; rewrite `clean_stale_files()` with three-stage failure check (`lstat`/`stat`/`os.listdir`), `fnmatch`-based discovery, and per-file failure capture |
-| `packages/plugins/codex-collaboration/scripts/clean_stale_shakedown.py` | Modify | Capture result and print `report()` (no prefix) to stderr |
+| `packages/plugins/codex-collaboration/scripts/clean_stale_shakedown.py` | Modify | Capture result and print `report()` (no prefix) to stderr **on `had_errors`** (Choice 3B, Round 5); root-level raises surface via the existing outer `except Exception` boundary as `clean_stale_shakedown failed: <exc>` + exit `1` (unchanged) |
 | `packages/plugins/codex-collaboration/scripts/containment_lifecycle.py` | Modify | Capture result in `_handle_subagent_start` and `_log_error(result.report(prefix="containment-lifecycle: "))` when `had_errors` |
-| `packages/plugins/codex-collaboration/scripts/containment_smoke_setup.py` | Modify | Capture result in `prepare_scenario` and print `result.report(prefix="containment_smoke_setup: ")` to stderr when `had_errors` |
+| `packages/plugins/codex-collaboration/scripts/containment_smoke_setup.py` | Modify | Capture result in `prepare_scenario` and print `result.report(prefix="containment_smoke_setup: ")` to stderr when `had_errors`. **Round 6 testability refactor** (behavior-preserving): extract the `__main__` block's try/except into a module-level `_run_with_wrapper(argv)` function so the fail-FAST wrapper is callable from in-process tests. Same stderr text, same `SystemExit(1)` on exception, same `SystemExit(main(argv))` happy path — no contract change, only structural. |
 | `packages/plugins/codex-collaboration/tests/test_containment.py` | Modify | Add 13 new tests; tighten 1 existing test |
 | `packages/plugins/codex-collaboration/tests/test_containment_lifecycle.py` | Modify | Add 3 new tests covering both error surfaces: (1) in-process test forcing per-file `had_errors=True` and asserting on prefixed stderr; (2) subprocess test exercising a real `chmod 0o000` through `main()` and asserting fail-open exit code plus caller-attributed stderr context; (3) platform-agnostic in-process fallback test that calls `main()` directly with monkeypatched `os.listdir` so root/Windows still pin the fail-open conversion contract |
-| `packages/plugins/codex-collaboration/tests/test_containment_smoke_setup.py` | **Create** | New file with 2 focused tests covering both error surfaces: (1) in-process test forcing per-file `had_errors=True` through `prepare_scenario` via direct `_scenario_definition` stub, asserting on prefixed stderr; (2) subprocess test exercising a real `chmod 0o000` through smoke-setup's `__main__` wrapper, asserting fail-fast exit 1 plus outer-wrapper-attributed stderr context (pins smoke-setup's fail-FAST contract in contrast to lifecycle's fail-OPEN contract) |
+| `packages/plugins/codex-collaboration/tests/test_containment_smoke_setup.py` | **Create** | New file with 3 focused tests covering both error surfaces: (1) in-process test forcing per-file `had_errors=True` through `prepare_scenario` via direct `_scenario_definition` stub, asserting on prefixed stderr (pins the **seam** for the per-file surface); (2) subprocess test exercising a real `chmod 0o000` through smoke-setup's `__main__` wrapper, asserting fail-fast exit 1 plus outer-wrapper-attributed stderr context (pins the **outer boundary** for the root-level surface on non-root POSIX); (3) **Round 6 in-process fallback** that monkeypatches `os.listdir` and calls the extracted `_run_with_wrapper(argv)` function directly, asserting `SystemExit(1)` + wrapper-prefixed stderr — pins the same outer-boundary contract on every platform regardless of `os.geteuid` availability |
 
 ---
 
@@ -1149,11 +1154,15 @@ Both internal callers have **two distinct error surfaces** that T-03 treats sepa
 
 Root-level raises **do not go through `report(prefix=…)`** — `report()` is a method on `CleanStaleResult`, which does not exist when the helper raises before returning. Instead, each caller's outer boundary produces its own wrapper message using the strings above. Any documentation or assertion that says "all three callers print `report()` on error" is wrong at the root-level surface (Round 5 drift fix).
 
-The wiring tests in this task cover **both error surfaces through each caller's outer boundary**:
+The wiring tests in this task cover both error surfaces, but at **different layers**:
 
-- **Per-file surface** — in-process tests via `_load_lifecycle_module()` and `_load_smoke_setup_module()` that monkeypatch `Path.unlink` to force `had_errors=True`, call the caller entry point directly, and assert on `capsys`-captured stderr. These catch regressions in the `if cleanup_result.had_errors:` gate and in `report(prefix=...)` wiring. Without these tests, the plan's verification would pass even if the new logging block were accidentally deleted.
+- **Per-file surface** (seam-level coverage) — in-process tests via `_load_lifecycle_module()` and `_load_smoke_setup_module()` that monkeypatch `Path.unlink` to force `had_errors=True`, call the caller's **seam function** (`_handle_subagent_start`, `prepare_scenario`) directly, and assert on `capsys`-captured stderr. These pin the `if cleanup_result.had_errors:` gate and `report(prefix=...)` rendering **at the seam** — they do NOT exercise `main()` or `__main__` and therefore do NOT pin outer-boundary behavior for the per-file path. No additional outer-boundary regression is required for the per-file path because that path returns normally and does not cross the exception boundary. Without these seam tests, the plan's verification would pass even if the new logging block were accidentally deleted.
 
-- **Root-level surface** — two tests for lifecycle (one subprocess via `_run_lifecycle` using real `chmod 0o000`, plus a platform-agnostic in-process fallback calling `main()` directly with monkeypatched `os.listdir` so the fail-open conversion contract is pinned on root/Windows where the subprocess test skips) and one subprocess test for smoke-setup (real `chmod 0o000` via `_run_smoke_setup`). These pin the **two different outer-boundary contract shapes** in the table above — a smoke-setup root-failure regression cannot ship with every other T-03 test passing, and root/Windows CI runs still have automated coverage of the lifecycle fail-open conversion.
+- **Root-level surface** (outer-boundary coverage) — **two tests per caller** (four total), pinning the **outer exception boundary** for each caller's contract shape on every platform:
+  - **Lifecycle (fail-OPEN, exit 0)**: `test_subagent_start_surfaces_cleanup_enumeration_failure` (subprocess via `_run_lifecycle` using real `chmod 0o000`, authoritative end-to-end proof on non-root POSIX; SKIPs on root/Windows) + `test_main_fail_open_conversion_via_monkeypatched_listdir` (Round 5 platform-agnostic in-process fallback calling `main()` directly with monkeypatched `os.listdir`, runs on every platform).
+  - **Smoke-setup (fail-FAST, exit 1)**: `test_prepare_scenario_surfaces_cleanup_enumeration_failure` (subprocess via `_run_smoke_setup` using real `chmod 0o000`, authoritative end-to-end proof on non-root POSIX; SKIPs on root/Windows) + `test_prepare_scenario_main_wrapper_fail_fast_via_monkeypatched_listdir` (Round 6 platform-agnostic in-process fallback calling the extracted `_run_with_wrapper(argv)` function directly with monkeypatched `os.listdir`, runs on every platform).
+
+These four tests pin the **two different outer-boundary contract shapes** in the table above — a root-level failure regression in either caller cannot ship with every other T-03 test passing, and root/Windows CI runs still have automated coverage of both contract shapes via the in-process fallbacks. The Round 6 smoke-setup in-process fallback is enabled by a behavior-preserving testability refactor that extracts the `__main__` block's try/except into a module-level `_run_with_wrapper(argv)` function — see Task 8 Step 2 for the refactor and the Round 6 Resolution Map entry for the rationale.
 
 - [ ] **Step 1: Update `containment_lifecycle.py:73`**
 
@@ -1198,16 +1207,61 @@ Replace with:
 
 `sys` is already imported at line 9.
 
-- [ ] **Step 3: Add the two lifecycle caller-wiring tests**
+Also refactor the `__main__` block to expose the fail-fast wrapper as a testable function (Round 6 Option C — behavior-preserving testability refactor). Find this block at lines 505-510 of `scripts/containment_smoke_setup.py`:
 
-Two tests go in `tests/test_containment_lifecycle.py`:
+```python
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except Exception as exc:
+        print(f"containment_smoke_setup failed: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+```
 
-1. **In-process test** (`test_subagent_start_logs_cleanup_errors_with_lifecycle_prefix`) — uses `_load_lifecycle_module` to call `_handle_subagent_start` directly with monkeypatched `Path.unlink`. Exercises the per-file `had_errors=True` wiring. Does NOT touch `main()`.
-2. **Subprocess test** (`test_subagent_start_surfaces_cleanup_enumeration_failure`) — uses `_run_lifecycle` to invoke the script via `subprocess.run` with a real `chmod 0o000` on the shakedown directory. Exercises the full `main()` boundary including the fail-open `except Exception → return 0` conversion. Covers Round 4's missing root-level propagation path.
+Replace with:
 
-The subprocess pattern is mandatory for the second test because an in-process `_handle_subagent_start` call bypasses `main()`'s outer try/except and therefore cannot observe the exception-to-exit-code conversion — which is exactly the contract under test.
+```python
+def _run_with_wrapper(argv: list[str] | None = None) -> None:
+    """Call ``main()`` and apply the fail-fast wrapper.
 
-Add these imports (if missing) and both tests. The file already imports `os` and `subprocess`; `time` and `pytest` may need to be added at the top with the other imports:
+    Extracted from the ``__main__`` block so the wrapper is testable
+    in-process via direct call (Round 6 testability refactor).
+    **Behavior-preserving**: same stderr text
+    (``containment_smoke_setup failed: <exc>``), same ``SystemExit(1)``
+    on any exception from ``main(argv)``, and same ``SystemExit(main(argv))``
+    happy-path exit for normal flow. The only structural change is that the
+    ``__main__`` block now dispatches through a callable function so tests
+    can exercise the full wrapper boundary without spawning a subprocess.
+    """
+    try:
+        raise SystemExit(main(argv))
+    except Exception as exc:
+        print(f"containment_smoke_setup failed: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+
+
+if __name__ == "__main__":
+    _run_with_wrapper()
+```
+
+**Why this is a refactor and not a contract change** — the `__main__` behavior is bit-for-bit identical:
+
+- **Happy path** — `main(argv)` returns normally → `raise SystemExit(main(argv))` fires with the returned exit code. `SystemExit` inherits from `BaseException`, not `Exception`, so the `except Exception` does NOT catch it; the `SystemExit(N)` propagates up through `_run_with_wrapper()` and out to the Python runtime, producing exit code `N` — same as before.
+- **Exception path** — `main(argv)` raises → `raise SystemExit(main(argv))` never reaches the `SystemExit` side because `main(argv)` raises first; the `except Exception` catches it, prints `containment_smoke_setup failed: <exc>` to stderr, and raises `SystemExit(1) from exc` — same stderr text, same exit code, same exception chaining as before.
+
+The refactor's sole purpose is testability: the wrapper is now callable as `smoke_setup._run_with_wrapper(argv)`, which enables the Round 6 in-process fallback test in Step 5 to exercise the full wrapper boundary on every platform — including root and Windows, where the subprocess `chmod 0o000` test skips. See the Round 6 Resolution Map entry for the motivation and the asymmetry it resolves (lifecycle's `main()` is already callable because the fail-open boundary is inside `main()` itself; smoke-setup's fail-FAST boundary was trapped in the `__main__` guard block and was therefore only reachable via subprocess).
+
+- [ ] **Step 3: Add the three lifecycle caller-wiring tests**
+
+Three tests go in `tests/test_containment_lifecycle.py`:
+
+1. **In-process seam test** (`test_subagent_start_logs_cleanup_errors_with_lifecycle_prefix`) — uses `_load_lifecycle_module` to call `_handle_subagent_start` directly with monkeypatched `Path.unlink`. Pins the per-file `had_errors=True` → `report(prefix=...)` wiring **at the seam**. Does NOT touch `main()` and therefore does NOT pin outer-boundary behavior — that is covered by the next two tests.
+2. **Subprocess outer-boundary test** (`test_subagent_start_surfaces_cleanup_enumeration_failure`) — uses `_run_lifecycle` to invoke the script via `subprocess.run` with a real `chmod 0o000` on the shakedown directory. Exercises the full `main()` boundary including the fail-open `except Exception → return 0` conversion. Authoritative end-to-end proof on non-root POSIX; SKIPs on root/Windows.
+3. **In-process outer-boundary fallback** (`test_main_fail_open_conversion_via_monkeypatched_listdir`, Round 5) — calls `main()` directly with monkeypatched `os.listdir`, `sys.stdin`, and `CLAUDE_PLUGIN_DATA`. Pins the same fail-open exception-to-exit-code conversion contract as the subprocess test but runs on every platform regardless of `os.geteuid` availability, so root and Windows CI still have automated coverage when the subprocess test skips.
+
+The subprocess pattern is mandatory for test #2 to exercise the REAL OS-level boundary (argv parsing, `sys.executable` resolution, `SystemExit` raised by `raise SystemExit(main())`) on supported platforms. Test #3 is the platform-agnostic fallback that pins the language-level fail-open conversion where test #2 cannot run.
+
+Add these imports (if missing) and all three tests. The file already imports `os` and `subprocess`; `time` and `pytest` may need to be added at the top with the other imports:
 
 ```python
 # Verify these imports are present at the top of test_containment_lifecycle.py;
@@ -1237,6 +1291,14 @@ def test_subagent_start_logs_cleanup_errors_with_lifecycle_prefix(
     """Force a per-file unlink failure during _handle_subagent_start's cleanup
     step and verify the lifecycle caller logs the cleanup report via _log_error
     with the ``containment-lifecycle:`` prefix on every reported line.
+
+    **Pins the per-file surface at the seam, not the outer boundary**: this
+    test calls ``_handle_subagent_start`` directly and never touches
+    ``main()``, so it does not exercise the fail-open exception-to-exit-code
+    conversion. That contract is pinned by
+    ``test_subagent_start_surfaces_cleanup_enumeration_failure`` (subprocess)
+    and ``test_main_fail_open_conversion_via_monkeypatched_listdir`` (Round 5
+    in-process fallback).
 
     Uses the in-process importlib pattern so Path.unlink can be monkeypatched.
     """
@@ -1554,6 +1616,16 @@ def test_prepare_scenario_logs_cleanup_errors_with_smoke_setup_prefix(
     and verify the smoke-setup caller logs the cleanup report to stderr with
     the ``containment_smoke_setup:`` prefix on every reported line.
 
+    **Pins the per-file surface at the seam, not the outer boundary**: this
+    test calls ``prepare_scenario`` directly and never touches ``main()`` or
+    the ``__main__`` fail-fast wrapper, so it does not exercise the
+    exception-to-exit conversion. That contract is pinned by
+    ``test_prepare_scenario_surfaces_cleanup_enumeration_failure`` (Round 5
+    subprocess) and
+    ``test_prepare_scenario_main_wrapper_fail_fast_via_monkeypatched_listdir``
+    (Round 6 in-process fallback via the extracted ``_run_with_wrapper()``
+    testability refactor).
+
     Uses a **direct seam** to decouple the test from scenario choreography:
     monkeypatches ``smoke_setup._scenario_definition`` to raise a sentinel
     ``RuntimeError`` *after* the cleanup step has already run and logged.
@@ -1764,6 +1836,120 @@ def test_prepare_scenario_surfaces_cleanup_enumeration_failure(
         "wrapped error must carry the clean_stale_files failure context "
         f"(Stage 3 enumeration); got stderr={result.stderr!r}"
     )
+
+
+def test_prepare_scenario_main_wrapper_fail_fast_via_monkeypatched_listdir(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Platform-agnostic proof that smoke-setup's ``_run_with_wrapper``
+    fail-FAST boundary converts a cleanup ``OSError`` to ``SystemExit(1)`` +
+    wrapper-prefixed stderr.
+
+    This test complements (does not replace)
+    ``test_prepare_scenario_surfaces_cleanup_enumeration_failure``, which
+    uses a real ``chmod 0o000`` + subprocess for the end-to-end proof. The
+    subprocess test is the authoritative end-to-end proof WHEN the platform
+    supports it (non-root POSIX with ``os.geteuid``); when that test SKIPs
+    (root or Windows), this in-process fallback still pins the
+    language-level wrapper conversion contract at
+    ``containment_smoke_setup._run_with_wrapper()``.
+
+    Parallels ``test_main_fail_open_conversion_via_monkeypatched_listdir``
+    in ``test_containment_lifecycle.py`` — same pattern (monkeypatched
+    ``os.listdir``, direct in-process call, ``monkeypatch.context()``
+    scoping), different contract shape: fail-FAST ``SystemExit(1)`` with
+    ``containment_smoke_setup failed:`` prefix, not lifecycle's fail-OPEN
+    ``return 0``. Both in-process fallbacks together pin the two different
+    outer-boundary contract shapes on every platform regardless of
+    ``os.geteuid`` availability.
+
+    Why this fallback requires a refactor (Round 6 resolution): lifecycle's
+    fail-OPEN boundary is inside ``main()`` itself, so calling
+    ``lifecycle.main()`` directly exercises it. Smoke-setup's fail-FAST
+    boundary was originally in the ``__main__`` guard block — structurally
+    unreachable from an in-process test. Round 6 extracted the ``__main__``
+    try/except into ``smoke_setup._run_with_wrapper(argv)`` as a
+    **behavior-preserving refactor** (same stderr text, same
+    ``SystemExit(1)`` on exception, same happy-path
+    ``SystemExit(main(argv))``). The wrapper is now callable from this
+    test, closing the platform-gating gap without weakening the Round 5
+    promise that a smoke-setup root-failure regression cannot ship with
+    every other T-03 test passing.
+
+    Coupling note: the ``prepare`` command requires ``--repo-root`` for
+    ``_repo_paths()`` validation against B1 fixture files, so the test
+    must provide a valid repo root even though the test never reaches
+    ``prepare_scenario`` choreography (the monkeypatched ``os.listdir``
+    raises during ``clean_stale_files`` earlier in ``prepare_scenario``).
+    The repo root is derived from the test file's own location via
+    ``Path(__file__).resolve().parents[4]``, staying within the same
+    filesystem-layout coupling class as the existing ``SCRIPT`` constant
+    and the sibling subprocess test — deepen existing coupling rather than
+    broaden dependency surface.
+
+    Runs on every platform (no skipif).
+    """
+    smoke_setup = _load_smoke_setup_module()
+
+    shakedown = containment.shakedown_dir(tmp_path)
+    shakedown.mkdir(parents=True)
+    (shakedown / "scope-run-1.json").write_text("{}", encoding="utf-8")
+
+    repo_root = Path(__file__).resolve().parents[4]
+
+    def _raising_listdir(path: object) -> list[str]:
+        raise PermissionError(13, "Permission denied", str(path))
+
+    argv = [
+        "--data-dir", str(tmp_path),
+        "--repo-root", str(repo_root),
+        "prepare", "scope_file_remove",
+        "--session-id", "wiring-test-session",
+        "--run-id", "wiring-test-run",
+    ]
+
+    # Patch os.listdir in a ``monkeypatch.context()`` block so the patch
+    # reverts immediately after ``_run_with_wrapper`` returns. Constraint
+    # #6 in the Key correctness constraints list requires every monkeypatch
+    # in this plan to be scoped to a ``with monkeypatch.context()`` block
+    # so the patches do not leak into other tests or into
+    # ``capsys.readouterr()`` below.
+    #
+    # The ``os.listdir`` patch works because ``containment.py`` uses
+    # ``import os; os.listdir(...)`` (attribute lookup at call time), not
+    # ``from os import listdir`` (reference captured at import time). If a
+    # future refactor changes the import style in ``containment.py``, this
+    # monkeypatch target becomes wrong — see Step 6 diagnostic paths for
+    # the recovery hint.
+    with monkeypatch.context() as patched:
+        patched.setattr("os.listdir", _raising_listdir)
+
+        with pytest.raises(SystemExit) as exc_info:
+            smoke_setup._run_with_wrapper(argv)
+
+    # Fail-FAST conversion: wrapper raises SystemExit(1) — NOT lifecycle's
+    # fail-OPEN return 0. The smoke-setup script is a developer/operator
+    # tool invoked directly, not a hook, so loud failure is the correct
+    # default. See the contract shape table in the Task 8 lead-in.
+    assert exc_info.value.code == 1, (
+        "smoke-setup _run_with_wrapper must fail-fast on internal errors; "
+        f"got exit={exc_info.value.code!r}"
+    )
+
+    captured = capsys.readouterr()
+    # Outer-boundary contract: stderr carries the wrapper prefix.
+    assert "containment_smoke_setup failed" in captured.err, (
+        "_run_with_wrapper must wrap internal errors with its caller "
+        f"prefix; got stderr={captured.err!r}"
+    )
+    # Observability contract: the wrapped exception carries the Stage 3
+    # enumeration failure context from clean_stale_files.
+    assert "cannot enumerate shakedown root" in captured.err, (
+        "wrapped error must carry the clean_stale_files failure context "
+        f"(Stage 3 enumeration); got stderr={captured.err!r}"
+    )
 ```
 
 - [ ] **Step 6: Run the smoke-setup caller-wiring tests**
@@ -1773,7 +1959,7 @@ cd packages/plugins/codex-collaboration
 uv run pytest tests/test_containment_smoke_setup.py -v
 ```
 
-Expected: both tests PASS on non-root POSIX with `os.geteuid`. The subprocess `test_prepare_scenario_surfaces_cleanup_enumeration_failure` SKIPs when running as root or on Windows (same skipif guard as the other chmod tests). The in-process `test_prepare_scenario_logs_cleanup_errors_with_smoke_setup_prefix` runs on every platform.
+Expected: all three tests PASS on non-root POSIX with `os.geteuid`. The subprocess `test_prepare_scenario_surfaces_cleanup_enumeration_failure` SKIPs when running as root or on Windows (same skipif guard as the other chmod tests). The in-process seam test `test_prepare_scenario_logs_cleanup_errors_with_smoke_setup_prefix` runs on every platform. The Round 6 in-process fallback `test_prepare_scenario_main_wrapper_fail_fast_via_monkeypatched_listdir` also runs on every platform — its purpose is to guarantee wrapper-contract coverage when the subprocess chmod test skips.
 
 Diagnostic paths for the in-process test failures:
 
@@ -1790,6 +1976,16 @@ Diagnostic paths for the subprocess test failures (Round 5 additions):
 - If the **subprocess test FAILS with `RuntimeError("resolve repo paths failed: required B1 fixture paths missing")`** in stderr, one of the B1 fixture files has been moved, renamed, or deleted. The fixtures referenced are `docs/superpowers/specs/codex-collaboration/contracts.md`, `delivery.md`, `foundations.md`, `packages/plugins/codex-collaboration/server/mcp_server.py`, `packages/plugins/codex-collaboration/server/dialogue.py`, and `packages/plugins/codex-collaboration/scripts/codex_guard.py`. Recovery options: (a) restore the missing fixture file at its expected location, (b) update `_repo_paths()` in `containment_smoke_setup.py` to point at the new location, or (c) update the test to use a different `--repo-root` (last resort — couples the test to a different repo layout).
 - If the **subprocess test FAILS because `Path(__file__).resolve().parents[4]` does not point at the repo root**, the test file has been moved within the repo. Recompute the `parents[N]` index based on the new location: count the directories from the test file up to the repo root. Currently the test is at `packages/plugins/codex-collaboration/tests/test_containment_smoke_setup.py`, so `parents[4]` walks `tests → codex-collaboration → plugins → packages → repo_root`.
 - If the **subprocess test FAILS because the chmod restore in the `finally` block raises**, you are running as root in a filesystem that rejects the chmod for some reason. Rerun without root. The `finally` block's `os.chmod(shakedown, 0o755)` is mandatory for `tmp_path` teardown.
+
+Diagnostic paths for the in-process fallback test failures (Round 6 additions):
+
+- If the **in-process fallback test FAILS with `AttributeError: module '...' has no attribute '_run_with_wrapper'`**, Step 2's testability refactor was not applied or was applied incorrectly. Re-read Step 2 and verify the `__main__` block was replaced with a module-level `def _run_with_wrapper(argv: list[str] | None = None) -> None:` function definition followed by a 1-line `if __name__ == "__main__": _run_with_wrapper()` dispatch. The function must be at **module level** — NOT nested inside another function and NOT inside the `if __name__ == "__main__":` guard, otherwise `_load_smoke_setup_module()` cannot see it.
+- If the **in-process fallback test FAILS because `SystemExit` is never raised** (i.e., `pytest.raises(SystemExit)` reports `Failed: DID NOT RAISE`), the `os.listdir` monkeypatch is not taking effect and `main()` is completing the scenario normally. Two likely causes: (a) `containment.py` may have been refactored to use `from os import listdir` instead of `os.listdir`, making the attribute-lookup patch a no-op — patch `containment.os.listdir` directly, or revert the import style; (b) the `_run_with_wrapper` refactor was applied but the `raise SystemExit(main(argv))` line was replaced with plain `main(argv)` — then happy-path `main()` never converts its return code into `SystemExit` and only the exception path would reach the wrapper.
+- If the **in-process fallback test FAILS with `exc_info.value.code == 0`** (when 1 was expected), the `_run_with_wrapper` refactor has lost behavior: the `except Exception` block is not converting the caught exception into `SystemExit(1)`. Re-read Step 2's refactor and verify `raise SystemExit(main(argv))` is inside the `try:` so an exception from `main(argv)` gets caught before the `SystemExit` can fire, and that the `except` block unconditionally raises `SystemExit(1) from exc`.
+- If the **in-process fallback test FAILS because stderr is empty** (no `containment_smoke_setup failed` line), the `_run_with_wrapper` refactor is missing the `print(f"containment_smoke_setup failed: {exc}", file=sys.stderr)` call in the except block. Re-read Step 2 — the print MUST precede the `raise SystemExit(1) from exc` so the stderr output is emitted before Python starts tearing down the stack.
+- If the **in-process fallback test FAILS with `RuntimeError("resolve repo paths failed: required B1 fixture paths missing")`** raised before the monkeypatch fires, one of the B1 fixture files has been moved, renamed, or deleted. Same B1 fixture coupling as the subprocess test — `_repo_paths()` validation runs in `main()` BEFORE `prepare_scenario` calls `clean_stale_files`. Recovery options match the subprocess test's recovery options above: restore the missing fixture, update `_repo_paths()`, or update the test's `--repo-root` argument.
+- If the **in-process fallback test FAILS because `Path(__file__).resolve().parents[4]` does not point at the repo root**, the test file has been moved within the repo. Same recovery as the subprocess test above: recompute the `parents[N]` index based on the new location (currently `tests → codex-collaboration → plugins → packages → repo_root` = 4 levels up).
+- If the **in-process fallback test FAILS with an argparse error** (a `SystemExit(2)` from argparse instead of `SystemExit(1)` from the wrapper, typically preceded by argparse's `usage: ...` stderr output), the `argv` list passed to `_run_with_wrapper` is malformed. Verify: flat list of strings (no nested lists), all required subcommand args present (`prepare`, `scope_file_remove`), and all required parent-parser options provided (`--data-dir`, `--repo-root`, `--session-id`, `--run-id`). Note that an argparse `SystemExit(2)` is ALSO caught by `pytest.raises(SystemExit)` — the `.code` comparison is what distinguishes the two failure modes.
 
 - [ ] **Step 7: Run the full lifecycle and smoke-setup test files to catch regressions**
 
@@ -1852,8 +2048,9 @@ Expected: all tests pass. Previous baseline was `519 passed`. T-03 adds the foll
 | 8 | `test_main_fail_open_conversion_via_monkeypatched_listdir` (Round 5 — platform-agnostic in-process fallback for the lifecycle fail-open conversion contract) |
 | 8 | `test_prepare_scenario_logs_cleanup_errors_with_smoke_setup_prefix` |
 | 8 | `test_prepare_scenario_surfaces_cleanup_enumeration_failure` (Round 5 — smoke-setup subprocess root-failure test pinning the fail-FAST `__main__` wrapper contract) |
+| 8 | `test_prepare_scenario_main_wrapper_fail_fast_via_monkeypatched_listdir` (Round 6 — platform-agnostic in-process fallback for the smoke-setup fail-FAST wrapper contract via the `_run_with_wrapper()` testability refactor) |
 
-18 new tests plus 1 tightened existing test (13 in `test_containment.py`, 3 in `test_containment_lifecycle.py`, 2 in the new `test_containment_smoke_setup.py`). Expected new baseline: `537 passed`.
+19 new tests plus 1 tightened existing test (13 in `test_containment.py`, 3 in `test_containment_lifecycle.py`, 3 in the new `test_containment_smoke_setup.py`). Expected new baseline: `538 passed`.
 
 Platform-conditional outcomes (all acceptable). After Round 5 there are now **three** chmod tests that share the same `hasattr(os, "geteuid") + os.geteuid() == 0` skipif guard:
 
@@ -1861,15 +2058,18 @@ Platform-conditional outcomes (all acceptable). After Round 5 there are now **th
 2. `test_subagent_start_surfaces_cleanup_enumeration_failure` (Task 8 — lifecycle subprocess chmod test)
 3. `test_prepare_scenario_surfaces_cleanup_enumeration_failure` (Task 8 — smoke-setup subprocess chmod test, Round 5)
 
-All three skip together on root or Windows. The platform-agnostic in-process fallback `test_main_fail_open_conversion_via_monkeypatched_listdir` (Task 8, Round 5) runs on every platform regardless of `geteuid` availability — it ensures root and Windows still have automated coverage of the lifecycle fail-open conversion contract that the subprocess chmod test pins on supported platforms.
+All three skip together on root or Windows. Two platform-agnostic in-process fallbacks run on every platform regardless of `geteuid` availability, ensuring root and Windows still have automated coverage of both outer-boundary contracts that the subprocess chmod tests pin on supported platforms:
+
+- `test_main_fail_open_conversion_via_monkeypatched_listdir` (Task 8, Round 5) — pins lifecycle's fail-OPEN conversion contract by calling `lifecycle.main()` directly with monkeypatched `os.listdir`.
+- `test_prepare_scenario_main_wrapper_fail_fast_via_monkeypatched_listdir` (Task 8, Round 6) — pins smoke-setup's fail-FAST wrapper contract by calling `smoke_setup._run_with_wrapper(argv)` directly with monkeypatched `os.listdir`. Enabled by the Round 6 testability refactor that extracts the `__main__` block's try/except into a module-level callable function (see Task 8 Step 2).
 
 | Condition | Baseline | Notes |
 |---|---|---|
-| macOS/Linux non-root (primary dev + CI) | `537 passed` | All 18 new tests run |
-| Running as root | `534 passed, 3 skipped` | All three chmod tests skip; in-process fallback still runs |
-| No symlink support (rare CI) | `536 passed, 1 skipped` | Dangling-symlink test skips |
-| Running as root AND no symlink support | `533 passed, 4 skipped` | 3 chmod + 1 symlink |
-| Windows | `534 passed, 3 skipped` | All three chmod tests skip via `hasattr(os, "geteuid")` |
+| macOS/Linux non-root (primary dev + CI) | `538 passed` | All 19 new tests run |
+| Running as root | `535 passed, 3 skipped` | All three chmod tests skip; both in-process fallbacks (lifecycle Round 5 + smoke-setup Round 6) still run |
+| No symlink support (rare CI) | `537 passed, 1 skipped` | Dangling-symlink test skips |
+| Running as root AND no symlink support | `534 passed, 4 skipped` | 3 chmod + 1 symlink |
+| Windows | `535 passed, 3 skipped` | All three chmod tests skip via `hasattr(os, "geteuid")`; both in-process fallbacks still run |
 
 - [ ] **Step 2: Run file-scoped Ruff on every changed/created file**
 
@@ -1945,11 +2145,16 @@ gh pr create --draft --title "[codex] Harden stale cleanup observability and fai
   - Stage 3 (`os.listdir`): unreadable directory (e.g., `chmod 0o000`) raises with `"cannot enumerate"`. This stage is necessary because `stat()` on a `chmod 0o000` directory succeeds (mode `0o40000`, `S_ISDIR` true) — the two-stage root check above cannot detect this class, and the stdlib `Path.glob()` would silently return `[]` here. `os.listdir()` + `fnmatch.fnmatch()` replaces the `glob` loop.
 - Replaces `Path.is_file()` with explicit `Path.stat()` + `S_ISREG` so per-file stat failures become observable (stdlib `is_file()` silently catches `OSError`)
 - `CleanStaleResult.report(prefix="")` renders a multi-line operator-facing report with summary line plus one line per failure with path and error repr. The `prefix` parameter applies to *every* line so multi-line reports retain caller attribution after grep/aggregation.
-- All three callers now log the report on errors:
-  - `clean_stale_shakedown.py` — prints `report()` to stderr **only when `had_errors`** (Round 5 Choice 3B: silent on clean runs to preserve operator signal; loud on failure)
-  - `containment_lifecycle.py` — logs `report(prefix="containment-lifecycle: ")` via `_log_error` on `had_errors`
-  - `containment_smoke_setup.py` — prints `report(prefix="containment_smoke_setup: ")` to stderr on `had_errors`
-- Wiring tests force `had_errors=True` in both internal callers and assert on captured stderr, so regressions are caught automatically
+- All three callers now surface cleanup failures at **two distinct error surfaces**:
+  - **Per-file surface** (`clean_stale_files` returns `CleanStaleResult` with `had_errors=True`):
+    - `clean_stale_shakedown.py` — prints `report()` to stderr **only when `had_errors`** (Round 5 Choice 3B: silent on clean runs to preserve operator signal; loud on failure)
+    - `containment_lifecycle.py` — logs `report(prefix="containment-lifecycle: ")` via `_log_error` on `had_errors`
+    - `containment_smoke_setup.py` — prints `report(prefix="containment_smoke_setup: ")` to stderr on `had_errors`
+  - **Root-level surface** (`clean_stale_files` raises `OSError` before returning — never produces a `CleanStaleResult`, so `report()` is not invoked; each caller's outer exception boundary handles the raise with its own contract shape):
+    - `clean_stale_shakedown.py` — outer `except Exception` prints `clean_stale_shakedown failed: ...` → exit `1` (fail-fast CLI tool)
+    - `containment_lifecycle.py` — `main()`'s outer `except Exception` at lines 184-188 logs `containment-lifecycle: internal error (...)` → return `0` (**fail-OPEN** hook policy — see Fail-Open Hook Policy design decision)
+    - `containment_smoke_setup.py` — `_run_with_wrapper()`'s outer `except Exception` (Round 6 testability refactor of the `__main__` block) prints `containment_smoke_setup failed: ...` → exit `1` (fail-fast operator tool)
+- Wiring tests pin both surfaces: in-process **seam tests** force `had_errors=True` in each internal caller and assert on captured stderr; **four outer-boundary tests** exercise root-level raises through each caller's outer exception boundary (lifecycle subprocess + Round 5 in-process fallback; smoke-setup subprocess + Round 6 in-process fallback via `_run_with_wrapper()`). Regressions at either surface are caught automatically on every supported platform.
 
 ## Implements
 - Ticket [T-20260410-03](docs/tickets/2026-04-10-T-20260410-03-harden-stale-cleanup-observability-and-failure-rep.md)
@@ -1959,7 +2164,7 @@ gh pr create --draft --title "[codex] Harden stale cleanup observability and fai
 - Sibling module-scope `server.containment` imports in `containment_lifecycle.py` and `containment_smoke_setup.py` are left unchanged (adjacent sharp edge outside T-03's scope).
 
 ## Test plan
-- [ ] CI: `uv run pytest` in `packages/plugins/codex-collaboration` (expected: 537 passed on macOS/Linux non-root; 534 passed + 3 skipped if running as root or on Windows — all three chmod tests skip; 536 passed + 1 skipped if no symlink support; 533 passed + 4 skipped in the root-or-Windows ∩ no-symlink intersection)
+- [ ] CI: `uv run pytest` in `packages/plugins/codex-collaboration` (expected: 538 passed on macOS/Linux non-root; 535 passed + 3 skipped if running as root or on Windows — all three chmod tests skip; 537 passed + 1 skipped if no symlink support; 534 passed + 4 skipped in the root-or-Windows ∩ no-symlink intersection)
 - [ ] CI: file-scoped `uv run ruff check` over every modified/created file
 - [ ] Manual: happy-path, first-run, dangling-symlink-corruption, unreadable-directory (`chmod 0o000`), empty-env, and nonexistent-path subprocess smoke checks for `scripts/clean_stale_shakedown.py`
 
@@ -2003,11 +2208,11 @@ If `gh pr diff --name-only "$PR_NUM"` returns a different file count than local 
 | Criterion | Covered by |
 |---|---|
 | `clean_stale_files` returns or logs explicit cleanup results rather than silently succeeding when deletions fail | Task 1 (returns `CleanStaleResult`; raises on every root-level failure *except* legitimate first-run); Task 7 (wrapper logs `report()` on `had_errors`, silent on clean runs per Round 5 Choice 3B); Task 8 (internal callers log on `had_errors`, verified by wiring tests for both per-file and root-level surfaces) |
-| `PermissionError` and related `OSError` cases during stale cleanup are surfaced to callers with actionable context | **Per-file surface** (returned via `CleanStaleResult.had_errors`): Task 1 (`failed_stat` and `failed_unlink` hold `(path, repr)` tuples; `report()` renders path + error_repr per line, not just counts); Task 5 (verifies the rendering includes actionable data); Tasks 7-8 log `report(prefix=…)` on `had_errors` in all three callers (the wrapper gates its print on `had_errors` per Choice 3B; lifecycle and smoke-setup gate via `_log_error` and `print` respectively). **Root-level surface** (raised as `OSError`, never `report()`): caught by each caller's outer exception boundary — `clean_stale_shakedown.py:main()` prints `"clean_stale_shakedown failed: <exc>"` and exits `1`; `containment_lifecycle.py:main()` prints `"containment-lifecycle: internal error (<exc>)"` and returns `0` (fail-OPEN, see Fail-Open Hook Policy design decision); `containment_smoke_setup.py` `__main__` wrapper prints `"containment_smoke_setup failed: <exc>"` and exits `1` (fail-FAST). Root-level coverage **through each caller's outer boundary** is pinned by three Round 5 additions: `test_subagent_start_surfaces_cleanup_enumeration_failure` (Task 8 — lifecycle subprocess chmod, fail-open contract), `test_main_fail_open_conversion_via_monkeypatched_listdir` (Task 8 — platform-agnostic in-process fallback for the lifecycle fail-open conversion that runs even on root/Windows), and `test_prepare_scenario_surfaces_cleanup_enumeration_failure` (Task 8 — smoke-setup subprocess chmod, fail-fast contract). The wrapper's root-level boundary is covered by Task 7 Steps 6-7 manual probes, not by an automated test. |
+| `PermissionError` and related `OSError` cases during stale cleanup are surfaced to callers with actionable context | **Per-file surface** (returned via `CleanStaleResult.had_errors`): Task 1 (`failed_stat` and `failed_unlink` hold `(path, repr)` tuples; `report()` renders path + error_repr per line, not just counts); Task 5 (verifies the rendering includes actionable data); Tasks 7-8 log `report(prefix=…)` on `had_errors` in all three callers (the wrapper gates its print on `had_errors` per Choice 3B; lifecycle and smoke-setup gate via `_log_error` and `print` respectively). **Root-level surface** (raised as `OSError`, never `report()`): caught by each caller's outer exception boundary — `clean_stale_shakedown.py:main()` prints `"clean_stale_shakedown failed: <exc>"` and exits `1`; `containment_lifecycle.py:main()` prints `"containment-lifecycle: internal error (<exc>)"` and returns `0` (fail-OPEN, see Fail-Open Hook Policy design decision); `containment_smoke_setup.py:_run_with_wrapper()` (Round 6 testability refactor of the `__main__` block) prints `"containment_smoke_setup failed: <exc>"` and exits `1` (fail-FAST). Root-level coverage **through each caller's outer boundary** is pinned by **four automated tests** added across Rounds 5 and 6: `test_subagent_start_surfaces_cleanup_enumeration_failure` (Task 8 — lifecycle subprocess chmod, fail-OPEN contract, non-root POSIX only), `test_main_fail_open_conversion_via_monkeypatched_listdir` (Task 8 Round 5 — platform-agnostic in-process fallback for the lifecycle fail-OPEN conversion that runs even on root/Windows), `test_prepare_scenario_surfaces_cleanup_enumeration_failure` (Task 8 Round 5 — smoke-setup subprocess chmod, fail-FAST contract, non-root POSIX only), and `test_prepare_scenario_main_wrapper_fail_fast_via_monkeypatched_listdir` (Task 8 Round 6 — platform-agnostic in-process fallback for the smoke-setup fail-FAST conversion via the `_run_with_wrapper()` refactor, runs on every platform). Both contract shapes (fail-OPEN and fail-FAST) are therefore pinned on every platform regardless of `os.geteuid` availability. The CLI wrapper's (`clean_stale_shakedown.py`) root-level boundary is covered by Task 7 Steps 6-7 manual probes, not by an automated test. |
 | Cleanup tests cover undeletable files, broken directory entries, and mixed success/failure batches | Task 2 (undeletable), Task 3 (per-file stat failure), Task 4 (4 root-level scenarios including dangling symlink), Task 6 (mixed batch exercising every bucket), Task 8 (caller wiring tests forcing `had_errors`) |
 | Helper paths used by cleanup no longer collapse materially different failure modes into the same 'missing' result when that would hide operational state | Task 1 replaces `shakedown_path.exists()` with a two-stage `lstat()`/`stat()` check that distinguishes "truly absent" from "dangling symlink" from "permission denied". Replaces per-file `path.is_file()` with explicit `path.stat()` + `S_ISREG`. The `read_active_run_id`/`read_json_file` lenient helpers are documented as out of scope because they are not called by `clean_stale_files` itself. |
 
-**Resolution map for all review findings (five review rounds):**
+**Resolution map for all review findings (six review rounds):**
 
 | Finding | Resolution |
 |---|---|
@@ -2032,6 +2237,9 @@ If `gh pr diff --name-only "$PR_NUM"` returns a different file count than local 
 | **Round 5 Medium (assumption — stderr monitoring path)**: The Round 4 Fail-Open Hook Policy assumes that operators reading hook stderr actually see the `containment-lifecycle: internal error (…)` lines, but the assumption was never explicitly validated. The reviewer cross-referenced [`docs/tickets/closed-tickets/2026-02-15-plan-review-errata.md:439`](../../tickets/closed-tickets/2026-02-15-plan-review-errata.md), which rejected stderr-only logging for the MCP server conversation guard with the conclusion "MCP servers run as subprocesses with no stderr monitoring path. Fail-fast or nothing." | Added an explicit assumption paragraph to the Fail-Open Hook Policy design decision distinguishing hook-script stderr from MCP-server stderr: hook scripts run per-event and their stderr is captured by Claude Code's hook runner, while MCP servers are long-lived background subprocesses with no real monitoring path. T-03 accepts this structural difference as load-bearing, but also commits that "if operational experience later shows hook stderr is being swallowed in practice, the correct fix is NOT to flip fail-open — it is to add a structured telemetry emission path orthogonal to stderr." Empirical validation of the hook stderr monitoring path is a potential follow-up outside T-03's scope. |
 | **Round 5 Medium (platform gating)**: The lifecycle root-failure subprocess test `test_subagent_start_surfaces_cleanup_enumeration_failure` is gated on `hasattr(os, "geteuid") + os.geteuid() == 0`, so on root or Windows the only automated proof of `main()`'s fail-open conversion through the caller boundary disappears. Helper-level coverage via `test_clean_stale_files_raises_when_enumeration_fails` still runs everywhere, but it tests the helper directly, not through the caller boundary. | Task 8 Step 3 adds `test_main_fail_open_conversion_via_monkeypatched_listdir`, a platform-agnostic in-process fallback that uses `monkeypatch.setattr("os.listdir", _raising_listdir)` + `monkeypatch.setattr("sys.stdin", io.StringIO(payload_json))` + `monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(data_dir))` to call `lifecycle.main()` directly and assert: (a) exit code 0 (fail-open conversion), (b) stderr contains `"containment-lifecycle: internal error"`, (c) stderr contains `"cannot enumerate shakedown root"`. This test runs on every platform regardless of `geteuid` availability, so root and Windows CI runs still have automated coverage of the lifecycle fail-open conversion contract. Subprocess and in-process tests are kept side-by-side (not one replacing the other): the subprocess test is the authoritative end-to-end proof on supported platforms; the in-process test is the platform-agnostic minimum coverage. |
 | **Round 5 Medium (wrapper signal-to-noise)**: Task 7 Step 2's wrapper code printed `result.report()` to stderr unconditionally, so on a clean run the wrapper produced `clean_stale_files: removed=0, fresh=0` to stderr. This trains operators to discount cleanup stderr — they learn the cleanup output is normal noise and stop reading it, which defeats the entire observability rewrite when an actual error occurs. | Task 7 Step 2 wrapper code gated on `if result.had_errors: print(result.report(), file=sys.stderr)` so the wrapper is silent on clean runs and only prints on actual errors. Matches Unix convention (silent on success, noisy on failure) and matches the existing internal-caller pattern (lifecycle and smoke-setup already gated on `had_errors`). Task 7 Step 2 prose updated to explain the gating rationale. Task 7 Step 4 and Step 5 expected stderr changed from `clean_stale_files: removed=0, fresh=0` to *(empty)*. Task 7 Step 6 and Step 7 diagnostic notes updated: the regression-detection signal is now "stderr is empty + exit=0" rather than "stderr contains `clean_stale_files: removed=0, fresh=0` + exit=0". Self-review bullet at line 1685 ("prints `report()` to stderr unconditionally") and self-review row at line 1741 ("wrapper logs unconditionally") both updated to reflect the gated behavior. |
+| **Round 6 Medium (smoke-setup outer-boundary asymmetry)**: The lifecycle `main()` boundary had both a subprocess chmod test and a platform-agnostic in-process fallback (Round 5), but smoke-setup's `__main__` boundary had only the subprocess chmod test. On root or Windows — where the subprocess chmod test skips — the lifecycle fail-OPEN contract was still pinned by the in-process fallback calling `main()` directly, but the smoke-setup fail-FAST contract was entirely unpinned. The plan's claim that "a smoke-setup root-failure regression cannot ship with every other T-03 test passing" and that root-level coverage is pinned "through each caller's outer boundary" was only true on non-root POSIX. Structural cause of the asymmetry: lifecycle's fail-OPEN boundary was inside `main()` itself (callable from tests), but smoke-setup's fail-FAST boundary lived in the `__main__` guard block (structurally unreachable from in-process tests without `runpy`). | Round 6 **testability refactor (Option C, behavior-preserving)**: extract the `containment_smoke_setup.py` `__main__` try/except into a module-level `_run_with_wrapper(argv: list[str] \| None = None) -> None` function, keeping bit-for-bit identical behavior (same stderr text `containment_smoke_setup failed: <exc>`, same `SystemExit(1)` on any `Exception`, same `SystemExit(main(argv))` for the happy path). Task 8 Step 2 now includes this refactor as a second edit block alongside the per-file `had_errors` wiring. Task 8 Step 5 adds `test_prepare_scenario_main_wrapper_fail_fast_via_monkeypatched_listdir` — a platform-agnostic in-process fallback that calls `smoke_setup._run_with_wrapper(argv)` directly with `monkeypatch.setattr("os.listdir", _raising_listdir)` scoped in a `monkeypatch.context()` block (per constraint #6), catches `SystemExit` via `pytest.raises`, and asserts: (a) `exc_info.value.code == 1` (fail-FAST contract), (b) stderr contains `"containment_smoke_setup failed"` (wrapper prefix), (c) stderr contains `"cannot enumerate shakedown root"` (Stage 3 actionable context). Task 8 Step 6 diagnostic paths extended with 7 new branches covering the refactor's failure modes (missing `_run_with_wrapper`, `SystemExit` never raised, exit code 0, empty stderr, B1 fixture missing, `parents[N]` index off, argparse `SystemExit(2)` masquerading as wrapper exit). Both outer-boundary contract shapes (fail-OPEN and fail-FAST) are now pinned on every platform regardless of `os.geteuid` availability. The Round 5 "cannot ship" promise now holds unconditionally. |
+| **Round 6 Medium (top-of-document summary drift)**: Round 5 corrected the per-file vs root-level error-surface distinction in Task 8's lead-in and in self-review row 2, but **four sibling locations at the top of the document** still flattened the distinction: (a) the architecture paragraph at line 17 still described the work as "log `report(prefix=...)` to stderr when `had_errors` is True" plus "one subprocess-level lifecycle test" — stale, there are now four root-level tests covering both contract shapes on every platform; (b) the Scope in-scope row at line 99 said "wrapper logs `result.report()`" without the Choice 3B gating or the root-level outer-boundary path; (c) the File Structure row at line 130 had the same flattening; (d) the PR body at line 1948 said "All three callers now log the report on errors" followed by per-file-only bullets — false for the root-level path, where `clean_stale_files` raises before returning a `CleanStaleResult` and each caller's outer boundary produces its own wrapper message instead of `report(prefix=...)`. Round 6 reviewer: "that is false for root-level raises and reintroduces the same summary-drift pattern Round 5 was fixing." The "find sibling sections" pattern recursed: Round 5 caught two drift locations; four more lived at the top of the document. | Rewrote all four locations to distinguish the per-file surface (caller gates `report(prefix=...)` on `had_errors`) from the root-level surface (caller's outer exception boundary produces a caller-specific wrapper message with a caller-specific exit-code contract). Architecture paragraph (line 17) now uses bullets to make the two-surface structure visually explicit, names all four root-level tests (lifecycle subprocess + Round 5 in-process fallback + smoke-setup subprocess + Round 6 in-process fallback), and states the three outer-boundary wrapper messages verbatim: `clean_stale_shakedown failed: <exc>` → exit 1, `containment-lifecycle: internal error (<exc>)` → return 0, `containment_smoke_setup failed: <exc>` → exit 1. Scope row and File Structure rows for `clean_stale_shakedown.py` now spell out both Choice 3B gating and the root-level outer-boundary path. PR body splits the single bullet list into two nested groups — "Per-file surface" with the three existing `report(prefix=...)` bullets, and "Root-level surface" with the three wrapper messages verbatim plus each caller's exit-code contract (fail-fast vs fail-OPEN). |
+| **Round 6 Low (Task 8 per-file test scope overstatement)**: Task 8's lead-in at line 1152 claimed the wiring tests cover "both error surfaces **through each caller's outer boundary**", but the per-file lifecycle test at line 1205 (`test_subagent_start_logs_cleanup_errors_with_lifecycle_prefix`) explicitly calls `_handle_subagent_start` directly — its own docstring says "Does NOT touch `main()`" — and the per-file smoke-setup test at line 1548 (`test_prepare_scenario_logs_cleanup_errors_with_smoke_setup_prefix`) calls `prepare_scenario` directly via a monkeypatched `_scenario_definition` seam. Those tests prove the `if cleanup_result.had_errors:` gate and `report(prefix=...)` rendering **at the seam** — they do NOT exercise `main()` or `__main__` and therefore do NOT pin outer-boundary behavior for the per-file path. The distinction matters because the draft's value now is being precise about which boundary each test actually pins. | Rewrote Task 8's lead-in (line 1152) to distinguish **seam-level coverage** (per-file surface, proven by calling the seam function directly) from **outer-boundary coverage** (root-level surface, proven by the subprocess tests and the in-process fallbacks). Added the tightened phrasing: "No additional outer-boundary regression is required for the per-file path because that path returns normally and does not cross the exception boundary." Docstring precision notes added to both per-file tests at lines 1205 and 1548 stating explicitly that they pin the per-file surface at the seam (not the outer boundary) and naming which tests pin the outer boundary. |
 
 **Explicit design decisions documented:**
 
@@ -2039,7 +2247,7 @@ Three forced design decisions live in the "Design Decisions" section at the top 
 
 1. **Dangling shakedown root symlink** → corruption, not first-run. Tested in Task 4 (`test_clean_stale_files_raises_on_dangling_root_symlink`) and manually verified in Task 7 Step 6.
 2. **Enumeration primitive is `os.listdir()` + `fnmatch.fnmatch()`**, not `Path.glob()`. `Path.glob()` silently returns `[]` on unreadable directories (verified empirically on Python 3.14); `os.listdir()` raises loudly. Tested in Task 4 (`test_clean_stale_files_raises_when_enumeration_fails` + `test_clean_stale_files_raises_when_root_directory_unreadable`) and manually verified in Task 7 Step 7 via a real `chmod 0o000` scenario through the wrapper script. Scale tradeoff is noted inline (materializing the full directory listing is acceptable at current shakedown scale; `os.scandir()` is a drop-in replacement if the envelope ever grows).
-3. **Fail-Open Hook Policy for `containment_lifecycle.py`**: `main()` at lines 184-188 deliberately catches every internal exception and returns `0`, because `SubagentStart` treats non-zero exit codes as "block the spawn" and a containment-state defect must not escalate into blocking unrelated agent spawns. T-03 enriches the stderr surface but does not change this exit-code contract. The contract shape is documented as a table of (failure class → stderr strings + exit code) pairs in the design decision. Locked in by constraint #11 in the Key correctness constraints list so a future maintainer cannot silently flip the policy. Round 5 added an explicit hook-stderr-monitoring assumption note distinguishing this context from the MCP-server stderr precedent at [`docs/tickets/closed-tickets/2026-02-15-plan-review-errata.md:439`](../../tickets/closed-tickets/2026-02-15-plan-review-errata.md). Tested in Task 8 via **two complementary lifecycle tests**: (a) `test_subagent_start_surfaces_cleanup_enumeration_failure` (subprocess via `_run_lifecycle` + real `chmod 0o000`, the authoritative end-to-end proof on supported platforms; SKIPs on root/Windows), and (b) `test_main_fail_open_conversion_via_monkeypatched_listdir` (Round 5 — platform-agnostic in-process fallback that calls `lifecycle.main()` directly with monkeypatched `os.listdir`, runs on every platform, ensures root/Windows still pin the contract). Both pin the dual-assertion contract (`exit_code == 0` AND stderr contains caller-prefixed actionable context). The smoke-setup script's structurally different fail-FAST `__main__` wrapper (exit 1, not exit 0) is pinned by Round 5's `test_prepare_scenario_surfaces_cleanup_enumeration_failure` in `test_containment_smoke_setup.py` — that contract is not a forced T-03 design decision because the wrapper is pre-existing in the script, but T-03 now adds a regression test for it.
+3. **Fail-Open Hook Policy for `containment_lifecycle.py`**: `main()` at lines 184-188 deliberately catches every internal exception and returns `0`, because `SubagentStart` treats non-zero exit codes as "block the spawn" and a containment-state defect must not escalate into blocking unrelated agent spawns. T-03 enriches the stderr surface but does not change this exit-code contract. The contract shape is documented as a table of (failure class → stderr strings + exit code) pairs in the design decision. Locked in by constraint #11 in the Key correctness constraints list so a future maintainer cannot silently flip the policy. Round 5 added an explicit hook-stderr-monitoring assumption note distinguishing this context from the MCP-server stderr precedent at [`docs/tickets/closed-tickets/2026-02-15-plan-review-errata.md:439`](../../tickets/closed-tickets/2026-02-15-plan-review-errata.md). Tested in Task 8 via **two complementary lifecycle tests**: (a) `test_subagent_start_surfaces_cleanup_enumeration_failure` (subprocess via `_run_lifecycle` + real `chmod 0o000`, the authoritative end-to-end proof on supported platforms; SKIPs on root/Windows), and (b) `test_main_fail_open_conversion_via_monkeypatched_listdir` (Round 5 — platform-agnostic in-process fallback that calls `lifecycle.main()` directly with monkeypatched `os.listdir`, runs on every platform, ensures root/Windows still pin the contract). Both pin the dual-assertion contract (`exit_code == 0` AND stderr contains caller-prefixed actionable context). The smoke-setup script's structurally different fail-FAST contract (exit 1, not exit 0) is now pinned by **two complementary tests** mirroring the lifecycle pair: (c) Round 5's `test_prepare_scenario_surfaces_cleanup_enumeration_failure` (subprocess via `_run_smoke_setup` + real `chmod 0o000`, authoritative end-to-end proof on non-root POSIX; SKIPs on root/Windows) and (d) Round 6's `test_prepare_scenario_main_wrapper_fail_fast_via_monkeypatched_listdir` (platform-agnostic in-process fallback calling the extracted `_run_with_wrapper(argv)` function directly with monkeypatched `os.listdir`, runs on every platform). The Round 6 testability refactor that extracts the `__main__` block's try/except into `_run_with_wrapper()` is **behavior-preserving** (same stderr text `containment_smoke_setup failed: <exc>`, same `SystemExit(1)` on any exception, same `SystemExit(main(argv))` happy path) — no contract change, only structural. The smoke-setup fail-FAST contract is not a forced T-03 design decision because it is pre-existing in the script, but T-03 now adds two regression tests for it AND makes it testable in-process via the Round 6 refactor, so both outer-boundary contract shapes (fail-OPEN and fail-FAST) are pinned on every platform regardless of `os.geteuid` availability.
 
 **Placeholder scan:** No "TBD", "TODO", "implement later", or hand-waved language. Every test body, code replacement, and expected output is inlined.
 
@@ -2064,3 +2272,6 @@ Three forced design decisions live in the "Design Decisions" section at the top 
 - Round 5's smoke-setup subprocess test introduces a parallel `_run_smoke_setup` helper modeled on `_run_lifecycle` (same shape: `subprocess.run([sys.executable, SCRIPT, *argv], capture_output=True, text=True)`). The deliberate divergence is that `_run_smoke_setup` does NOT pass `env=` because smoke-setup uses `--data-dir` for data directory override; the subprocess inherits the parent environment unmodified
 - Round 5's in-process fallback test `test_main_fail_open_conversion_via_monkeypatched_listdir` runs on every platform regardless of `os.geteuid` availability — verified by inspection that it has no `@pytest.mark.skipif` decorator and uses pure monkeypatching (`os.listdir`, `sys.stdin`, `CLAUDE_PLUGIN_DATA`) instead of real chmod. This guarantees that root and Windows CI runs still have automated coverage of the lifecycle fail-open conversion contract through `main()`'s outer except block, which the subprocess chmod test cannot provide on those platforms
 - Round 5's wrapper signal-to-noise change (Task 7 Step 2 gating `print` on `had_errors`) is verified by Task 7 Step 4 and Step 5 manual probes (expected stderr empty on clean and first-run paths). The internal callers (lifecycle, smoke-setup) were already gated on `had_errors` since the original draft, so this change brings the wrapper into alignment with them rather than introducing a new pattern
+- Round 6's `_run_with_wrapper` testability refactor (Task 8 Step 2, second edit block) is **behavior-preserving** by inspection of the three preserved invariants: (1) stderr text is identical (`containment_smoke_setup failed: {exc}`), (2) `SystemExit(1)` is raised on any `Exception` caught from `main(argv)`, (3) happy-path `SystemExit(main(argv))` propagates the main-returned exit code unchanged (because `SystemExit` inherits from `BaseException` and is not caught by `except Exception`). The only structural change is that the try/except moves from the `__main__` guard block into a module-level `_run_with_wrapper(argv)` function, which the `__main__` block now dispatches to via a single `_run_with_wrapper()` call. Ruff's redundant-call detection and the existing smoke-setup subprocess test both catch regressions to any of the three invariants
+- Round 6's in-process fallback `test_prepare_scenario_main_wrapper_fail_fast_via_monkeypatched_listdir` runs on every platform regardless of `os.geteuid` availability — verified by inspection that it has no `@pytest.mark.skipif` decorator and uses pure monkeypatching (`os.listdir` only) instead of real chmod. This closes the Round 5 coverage gap where smoke-setup's outer-boundary contract was only pinned on non-root POSIX: the subprocess chmod test still covers the real OS-level boundary when the platform allows it, and the Round 6 in-process fallback guarantees the language-level wrapper conversion contract is pinned everywhere else (root, Windows, any future CI environment without chmod support)
+- Round 6's new monkeypatch (`monkeypatch.setattr("os.listdir", _raising_listdir)` in `test_prepare_scenario_main_wrapper_fail_fast_via_monkeypatched_listdir`) is inside `with monkeypatch.context() as patched:` per constraint #6, matching the pattern of the Round 5 lifecycle fallback and every other monkeypatch in this plan. No unscoped monkeypatches are introduced
