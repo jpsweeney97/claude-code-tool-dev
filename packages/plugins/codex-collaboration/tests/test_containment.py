@@ -433,6 +433,76 @@ def test_clean_stale_files_raises_when_root_directory_unreadable(
         os.chmod(shakedown, 0o755)
 
 
+def test_clean_stale_result_report_clean_run_is_single_summary_line(
+    tmp_path: Path,
+) -> None:
+    result = containment.CleanStaleResult(
+        removed=(tmp_path / "scope-run-1.json",),
+        skipped_fresh=(tmp_path / "seed-run-2.json",),
+        failed_stat=(),
+        failed_unlink=(),
+    )
+    assert result.report() == "clean_stale_files: removed=1, fresh=1"
+
+
+def test_clean_stale_result_report_renders_failure_paths_and_errors(
+    tmp_path: Path,
+) -> None:
+    stat_failed = tmp_path / "seed-run-1.json"
+    unlink_failed = tmp_path / "transcript-run-1.jsonl"
+    result = containment.CleanStaleResult(
+        removed=(tmp_path / "scope-run-1.json",),
+        skipped_fresh=(),
+        failed_stat=((stat_failed, "PermissionError(13, 'denied')"),),
+        failed_unlink=((unlink_failed, "PermissionError(13, 'denied')"),),
+    )
+
+    lines = result.report().splitlines()
+
+    assert lines[0] == (
+        "clean_stale_files: removed=1, fresh=0, failed_stat=1, failed_unlink=1"
+    )
+    assert lines[1] == f"  failed_stat {stat_failed}: PermissionError(13, 'denied')"
+    assert lines[2] == (
+        f"  failed_unlink {unlink_failed}: PermissionError(13, 'denied')"
+    )
+    assert len(lines) == 3
+
+
+def test_clean_stale_result_report_applies_prefix_to_every_line(
+    tmp_path: Path,
+) -> None:
+    stat_failed = tmp_path / "seed-run-1.json"
+    unlink_failed = tmp_path / "transcript-run-1.jsonl"
+    result = containment.CleanStaleResult(
+        removed=(tmp_path / "scope-run-1.json",),
+        skipped_fresh=(),
+        failed_stat=((stat_failed, "PermissionError(13, 'denied')"),),
+        failed_unlink=((unlink_failed, "PermissionError(13, 'denied')"),),
+    )
+
+    lines = result.report(prefix="containment-lifecycle: ").splitlines()
+
+    assert lines[0] == (
+        "containment-lifecycle: clean_stale_files: "
+        "removed=1, fresh=0, failed_stat=1, failed_unlink=1"
+    )
+    assert lines[1] == (
+        f"containment-lifecycle:   failed_stat {stat_failed}: "
+        f"PermissionError(13, 'denied')"
+    )
+    assert lines[2] == (
+        f"containment-lifecycle:   failed_unlink {unlink_failed}: "
+        f"PermissionError(13, 'denied')"
+    )
+    assert len(lines) == 3
+    # Regression guard against P3: every report line carries the prefix so
+    # caller attribution is not lost when the per-failure lines are grepped
+    # or aggregated separately from the summary line.
+    for line in lines:
+        assert line.startswith("containment-lifecycle:")
+
+
 def test_read_active_run_id_strict_returns_none_when_missing(tmp_path: Path) -> None:
     assert containment.read_active_run_id_strict(tmp_path, "session-1") is None
 
