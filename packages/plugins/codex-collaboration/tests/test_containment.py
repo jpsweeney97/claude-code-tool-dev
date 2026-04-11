@@ -212,6 +212,28 @@ def test_clean_stale_files_removes_old_state_only(tmp_path: Path) -> None:
     assert retained_transcript.exists()
 
 
+def test_clean_stale_files_returns_result_with_removed_and_fresh(
+    tmp_path: Path,
+) -> None:
+    shakedown = containment.shakedown_dir(tmp_path)
+    shakedown.mkdir(parents=True)
+    old_scope = shakedown / "scope-run-1.json"
+    fresh_seed = shakedown / "seed-run-2.json"
+    old_scope.write_text("{}", encoding="utf-8")
+    fresh_seed.write_text("{}", encoding="utf-8")
+    stale_time = time.time() - (26 * 3600)
+    os.utime(old_scope, (stale_time, stale_time))
+
+    result = containment.clean_stale_files(shakedown)
+
+    assert isinstance(result, containment.CleanStaleResult)
+    assert result.removed == (old_scope,)
+    assert result.skipped_fresh == (fresh_seed,)
+    assert result.failed_stat == ()
+    assert result.failed_unlink == ()
+    assert result.had_errors is False
+
+
 def test_read_active_run_id_strict_returns_none_when_missing(tmp_path: Path) -> None:
     assert containment.read_active_run_id_strict(tmp_path, "session-1") is None
 
