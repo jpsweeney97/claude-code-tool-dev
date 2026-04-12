@@ -211,8 +211,8 @@ def test_prepare_scenario_surfaces_cleanup_enumeration_failure(
     ``prepare_scenario``, out of ``main()``, and is caught by
     ``_run_with_wrapper()`` in ``containment_smoke_setup.py`` (the Round 6
     testability refactor extracted from the ``__main__`` block), which
-    prints ``"containment_smoke_setup failed: <exc>"`` to stderr and raises
-    ``SystemExit(1)``.
+    prints ``"containment_smoke_setup failed: unexpected error. Got:
+    <repr(exc)>"`` to stderr and raises ``SystemExit(1)``.
 
     This is the smoke-setup counterpart to
     ``test_subagent_start_surfaces_cleanup_enumeration_failure`` in

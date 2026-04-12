@@ -511,18 +511,24 @@ def _run_with_wrapper(argv: list[str] | None = None) -> None:
     """Call ``main()`` and apply the fail-fast wrapper.
 
     Extracted from the ``__main__`` block so the wrapper is testable
-    in-process via direct call (Round 6 testability refactor).
-    **Behavior-preserving**: same stderr text
-    (``containment_smoke_setup failed: <exc>``), same ``SystemExit(1)``
-    on any exception from ``main(argv)``, and same ``SystemExit(main(argv))``
-    happy-path exit for normal flow. The only structural change is that the
-    ``__main__`` block now dispatches through a callable function so tests
-    can exercise the full wrapper boundary without spawning a subprocess.
+    in-process via direct call (Round 6 testability refactor). On any
+    exception from ``main(argv)``, prints
+    ``containment_smoke_setup failed: unexpected error. Got: <repr(exc)>``
+    to stderr (capped at 100 chars via ``{exc!r:.100}``) and raises
+    ``SystemExit(1)``. The happy path exits via ``SystemExit(main(argv))``.
+    The structural change from inlined-in-``__main__`` to extracted is so
+    tests can exercise the full wrapper boundary without spawning a
+    subprocess. The ``Got: {exc!r:.100}`` format mirrors the lifecycle
+    fail-OPEN log convention so both outer-boundary contracts produce a
+    parseable, class-preserving exception trail.
     """
     try:
         raise SystemExit(main(argv))
     except Exception as exc:
-        print(f"containment_smoke_setup failed: {exc}", file=sys.stderr)
+        print(
+            f"containment_smoke_setup failed: unexpected error. Got: {exc!r:.100}",
+            file=sys.stderr,
+        )
         raise SystemExit(1) from exc
 
 
