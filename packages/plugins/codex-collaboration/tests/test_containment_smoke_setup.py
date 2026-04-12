@@ -208,9 +208,10 @@ def test_prepare_scenario_surfaces_cleanup_enumeration_failure(
     Real ``chmod 0o000`` on the shakedown directory makes ``clean_stale_files``
     raise ``OSError('clean_stale_files failed: cannot enumerate shakedown
     root. …')`` from Stage 3. That exception propagates out of
-    ``prepare_scenario``, out of ``main()``, and is caught by the ``__main__``
-    wrapper at ``containment_smoke_setup.py:505-510``, which prints
-    ``"containment_smoke_setup failed: <exc>"`` to stderr and raises
+    ``prepare_scenario``, out of ``main()``, and is caught by
+    ``_run_with_wrapper()`` in ``containment_smoke_setup.py`` (the Round 6
+    testability refactor extracted from the ``__main__`` block), which
+    prints ``"containment_smoke_setup failed: <exc>"`` to stderr and raises
     ``SystemExit(1)``.
 
     This is the smoke-setup counterpart to

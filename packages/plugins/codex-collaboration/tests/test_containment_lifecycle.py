@@ -378,9 +378,9 @@ def test_subagent_start_surfaces_cleanup_enumeration_failure(
     raise ``OSError('clean_stale_files failed: cannot enumerate shakedown
     root. …')`` from Stage 3. That exception propagates out of
     ``_handle_subagent_start``, out of ``handle_payload``, and is caught by
-    ``main()``'s outer ``except Exception`` block at lines 184-188 of
+    ``main()``'s outer ``except Exception`` block in
     ``containment_lifecycle.py``, which logs ``containment-lifecycle:
-    internal error (<exc>)`` to stderr and returns ``0``.
+    internal error. Got: <repr(exc)>`` to stderr and returns ``0``.
 
     This test locks in the deliberate fail-open policy: the hook returns
     ``0`` (so the hook runner never sees a failed hook and unrelated agent
@@ -460,8 +460,8 @@ def test_main_fail_open_conversion_via_monkeypatched_listdir(
       behavior cannot be proven by an in-process call.
     - This in-process test runs on every platform regardless of ``geteuid``
       availability, ensuring root and Windows still have automated coverage
-      of the specific ``exception → return 0 + stderr log`` conversion at
-      ``main()`` lines 184-188.
+      of the specific ``exception → return 0 + stderr log`` conversion in
+      ``main()``'s outer ``except Exception`` block.
 
     Together they pin the fail-open contract under both platform conditions.
     Without this in-process fallback, root and Windows CI runs had no

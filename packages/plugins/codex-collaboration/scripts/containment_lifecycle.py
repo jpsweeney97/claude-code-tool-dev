@@ -186,7 +186,16 @@ def main() -> int:
     try:
         handle_payload(payload, data_dir=data_dir)
     except Exception as exc:
-        _log_error(f"containment-lifecycle: internal error ({exc})")
+        # Deliberately fail-OPEN: ``SubagentStart`` treats any non-zero exit
+        # as "block the spawn", so a containment-state defect must surface
+        # via stderr, never via exit code. Do not change this to propagate
+        # or return non-zero without a paired policy update. Pinned by
+        # ``test_main_fail_open_conversion_via_monkeypatched_listdir`` and
+        # ``test_subagent_start_surfaces_cleanup_enumeration_failure`` in
+        # ``tests/test_containment_lifecycle.py``.
+        _log_error(
+            f"containment-lifecycle: internal error. Got: {exc!r:.100}"
+        )
     return 0
 
 
