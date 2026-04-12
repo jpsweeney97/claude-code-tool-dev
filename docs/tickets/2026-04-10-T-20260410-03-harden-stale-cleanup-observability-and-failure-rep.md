@@ -3,13 +3,13 @@
 ```yaml
 id: T-20260410-03
 date: '2026-04-10'
-status: deferred
+status: done
 summary: Harden stale cleanup observability and failure reporting
 priority: medium
 source_type: pr-review
 source_ref: 'PR #101'
 effort: M
-branch: feature/b4-agent-skill-harness-assembly
+branch: fix/t03-stale-cleanup-observability
 files:
 - packages/plugins/codex-collaboration/server/containment.py
 ```
