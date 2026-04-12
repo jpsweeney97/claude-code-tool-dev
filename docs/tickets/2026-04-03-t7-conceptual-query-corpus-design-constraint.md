@@ -3,12 +3,14 @@
 ```yaml
 id: T-20260403-01
 date: 2026-04-03
-status: open
+status: wontfix
 priority: high
 tags: [codex-collaboration, benchmark, t7, scope, corpus-design]
 blocked_by: []
-blocks: [T6-composition-check]
+blocks: []
 effort: medium
+closed_date: '2026-04-12'
+closed_reason: Benchmark tiers A and B discontinued 2026-03-17; no live consumer for this work
 ```
 
 ## Context

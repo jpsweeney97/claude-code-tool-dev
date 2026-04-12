@@ -3,12 +3,17 @@
 ```yaml
 id: T-20260327-01
 date: 2026-03-27
-status: open
+status: closed
 priority: medium
 tags: [codex-collaboration, r1, hardening]
 blocked_by: []
 blocks: []
 effort: medium
+closed_date: '2026-04-12'
+closed_reason: >-
+  Umbrella triage complete. Items 6-7 resolved (T-20260330-01, e6792de8).
+  Items 1-5 intentionally parked pending R2/delegation/advisory-widening
+  triggers. Re-enter scope via new targeted tickets when triggers fire.
 ```
 
 ## Context

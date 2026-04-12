@@ -3,13 +3,15 @@
 ```yaml
 id: T-20260410-04
 date: '2026-04-10'
-status: deferred
+status: done
 summary: Align clean_stale_shakedown.py with script conventions
 priority: medium
 source_type: pr-review
 source_ref: 'PR #101'
 effort: S
-branch: feature/b4-agent-skill-harness-assembly
+branch: fix/t03-stale-cleanup-observability
+closed_date: '2026-04-12'
+closed_reason: All acceptance criteria fulfilled by PR #104 (T-03 work)
 files:
 - packages/plugins/codex-collaboration/scripts/clean_stale_shakedown.py
 ```
