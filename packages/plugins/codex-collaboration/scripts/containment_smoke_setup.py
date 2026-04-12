@@ -115,7 +115,12 @@ def prepare_scenario(
 ) -> dict[str, Any]:
     """Write scenario state and return the operator recipe."""
 
-    clean_stale_files(shakedown_dir(data_dir))
+    cleanup_result = clean_stale_files(shakedown_dir(data_dir))
+    if cleanup_result.had_errors:
+        print(
+            cleanup_result.report(prefix="containment_smoke_setup: "),
+            file=sys.stderr,
+        )
     resolved_session_id = session_id or _read_session_id(data_dir)
     resolved_run_id = run_id or str(uuid.uuid4())
     _assert_no_live_conflict(
@@ -502,9 +507,30 @@ def _timestamp() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
-if __name__ == "__main__":
+def _run_with_wrapper(argv: list[str] | None = None) -> None:
+    """Call ``main()`` and apply the fail-fast wrapper.
+
+    Extracted from the ``__main__`` block so the wrapper is testable
+    in-process via direct call (Round 6 testability refactor). On any
+    exception from ``main(argv)``, prints
+    ``containment_smoke_setup failed: unexpected error. Got: <repr(exc)>``
+    to stderr (capped at 100 chars via ``{exc!r:.100}``) and raises
+    ``SystemExit(1)``. The happy path exits via ``SystemExit(main(argv))``.
+    The structural change from inlined-in-``__main__`` to extracted is so
+    tests can exercise the full wrapper boundary without spawning a
+    subprocess. The ``Got: {exc!r:.100}`` format mirrors the lifecycle
+    fail-OPEN log convention so both outer-boundary contracts produce a
+    parseable, class-preserving exception trail.
+    """
     try:
-        raise SystemExit(main())
+        raise SystemExit(main(argv))
     except Exception as exc:
-        print(f"containment_smoke_setup failed: {exc}", file=sys.stderr)
+        print(
+            f"containment_smoke_setup failed: unexpected error. Got: {exc!r:.100}",
+            file=sys.stderr,
+        )
         raise SystemExit(1) from exc
+
+
+if __name__ == "__main__":
+    _run_with_wrapper()

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import os
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
+from dataclasses import dataclass
+from stat import S_ISDIR, S_ISREG
 
 _SHAKEDOWN_DIRNAME = "shakedown"
 _STALE_PATTERNS = (
@@ -287,27 +290,222 @@ def select_scope_root(
     )
 
 
-def clean_stale_files(shakedown_path: Path, max_age_hours: int = 24) -> None:
-    """Remove stale shakedown state files older than `max_age_hours`."""
+class FileFailure(NamedTuple):
+    """A per-file failure from :func:`clean_stale_files`.
 
-    if not shakedown_path.exists():
-        return
+    Attributes:
+        path: The filesystem path that could not be stat'd or unlinked.
+        error: A truncated ``repr()`` of the ``OSError`` that was raised.
+    """
+
+    path: Path
+    error: str
+
+
+@dataclass(frozen=True)
+class CleanStaleResult:
+    """Outcome of a :func:`clean_stale_files` sweep.
+
+    Attributes:
+        removed: Paths that were successfully unlinked.
+        skipped_fresh: Paths under the age cutoff that were left in place.
+        failed_stat: :class:`FileFailure` entries where ``stat()`` raised
+            ``OSError`` on an individual file. These files could not be
+            checked for age and were not attempted for deletion.
+        failed_unlink: :class:`FileFailure` entries where ``unlink()`` raised
+            ``OSError`` after a successful stat. The file is still on disk.
+
+    Root-level access failures (an absent-but-existing root entry, an
+    unreadable root, a dangling symlink root, or a root path that is not
+    a directory) are raised rather than captured here, because they
+    indicate a global abort condition rather than a per-file outcome.
+    """
+
+    removed: tuple[Path, ...]
+    skipped_fresh: tuple[Path, ...]
+    failed_stat: tuple[FileFailure, ...]
+    failed_unlink: tuple[FileFailure, ...]
+
+    @property
+    def had_errors(self) -> bool:
+        """Return True when any per-file stat or unlink call failed."""
+
+        return bool(self.failed_stat or self.failed_unlink)
+
+    def report(self, prefix: str = "") -> str:
+        """Return an operator-facing multi-line report of the sweep.
+
+        Args:
+            prefix: Optional string prepended to *every* line, so that
+                multi-line reports retain caller attribution when
+                aggregated with other log output. Defaults to empty
+                (suitable when the report is printed in an unambiguous
+                single-source context such as the standalone CLI wrapper).
+
+        Returns:
+            A string whose first line is a terse count summary
+            ("removed=N, fresh=N, ...") and whose remaining lines are
+            one entry per failure, each rendered as
+            ``  failed_stat <path>: <error_repr>`` or
+            ``  failed_unlink <path>: <error_repr>``. Every line is
+            prefixed with ``prefix``. Designed for printing to stderr.
+        """
+
+        parts = [
+            f"removed={len(self.removed)}",
+            f"fresh={len(self.skipped_fresh)}",
+        ]
+        if self.failed_stat:
+            parts.append(f"failed_stat={len(self.failed_stat)}")
+        if self.failed_unlink:
+            parts.append(f"failed_unlink={len(self.failed_unlink)}")
+        lines = [prefix + "clean_stale_files: " + ", ".join(parts)]
+        for path, error in self.failed_stat:
+            lines.append(f"{prefix}  failed_stat {path}: {error}")
+        for path, error in self.failed_unlink:
+            lines.append(f"{prefix}  failed_unlink {path}: {error}")
+        return "\n".join(lines)
+
+
+def clean_stale_files(
+    shakedown_path: Path, max_age_hours: int = 24
+) -> CleanStaleResult:
+    """Remove stale shakedown state files older than ``max_age_hours``.
+
+    Returns a :class:`CleanStaleResult` describing what was removed, what was
+    skipped because it was still fresh, and any per-file ``stat()`` or
+    ``unlink()`` failures encountered during the sweep. Per-file errors do
+    not abort the run. Concurrent-deletion races after ``os.listdir()``
+    are ignored because the stale file is already gone.
+
+    Root-level handling uses a **three-stage check** to distinguish a
+    legitimate first-run absence from every corruption mode:
+
+    - Stage 1 (``lstat``): ``FileNotFoundError`` means the path entry does
+      not exist at the filesystem level — the legitimate first-run state.
+      Returns an empty :class:`CleanStaleResult`. Any other ``OSError``
+      (permission denied on the parent, stale NFS handle, etc.) is
+      re-raised with an explicit ``"cannot lstat"`` context message.
+    - Stage 2 (``stat``): Follows symlinks and validates the resolved
+      target. A dangling symlink raises ``FileNotFoundError`` *from this
+      call* (not Stage 1), re-raised as ``OSError`` with a
+      ``"possible broken symlink"`` context message. A non-directory
+      target (``S_ISDIR`` false) raises ``NotADirectoryError``.
+    - Stage 3 (``os.listdir``): Enumerates candidate entries. A
+      ``chmod 0o000`` directory passes Stage 2 (``stat`` on a directory
+      only needs execute permission on the parent, so mode ``0o40000``
+      still comes back with ``S_ISDIR`` true), but ``os.listdir`` raises
+      ``PermissionError`` when it actually tries to read the directory
+      contents. Re-raised with a ``"cannot enumerate"`` context message.
+      This stage is necessary because the stdlib ``Path.glob()`` helper
+      would silently return ``[]`` on the same input, which would mask
+      the failure as a clean empty result.
+
+    Stages 1 and 2 run without touching directory contents; Stage 3 is
+    the first operation that requires the directory's read bit. Any
+    earlier "stat succeeded" signal does not imply listability.
+
+    Raises:
+        OSError: If the shakedown root exists but cannot be stat-ed or
+            cannot be enumerated. Covers three distinct failure classes:
+            lstat failure on an existing entry, stat failure after
+            lstat succeeds (dangling symlink or similar), and
+            ``os.listdir`` failure after stat succeeds (unreadable
+            directory contents). Matches the "Explicit over Silent"
+            tenet.
+        NotADirectoryError: If the shakedown root (after symlink
+            resolution) is not a directory. Subclass of ``OSError``.
+    """
+
+    removed: list[Path] = []
+    skipped_fresh: list[Path] = []
+    failed_stat: list[FileFailure] = []
+    failed_unlink: list[FileFailure] = []
+
+    # Stage 1: lstat() without following symlinks. Distinguishes true
+    # filesystem absence from a dangling-symlink corruption state.
+    try:
+        shakedown_path.lstat()
+    except FileNotFoundError:
+        return CleanStaleResult(
+            removed=tuple(removed),
+            skipped_fresh=tuple(skipped_fresh),
+            failed_stat=tuple(failed_stat),
+            failed_unlink=tuple(failed_unlink),
+        )
+    except OSError as exc:
+        raise OSError(
+            f"clean_stale_files failed: cannot lstat shakedown root. "
+            f"Got: {exc!r:.100}"
+        ) from exc
+
+    # Stage 2: stat() follows symlinks and validates the resolved target.
+    try:
+        root_stat = shakedown_path.stat()
+    except OSError as exc:
+        raise OSError(
+            f"clean_stale_files failed: shakedown root is unreadable "
+            f"(possible broken symlink). Got: {exc!r:.100}"
+        ) from exc
+
+    if not S_ISDIR(root_stat.st_mode):
+        raise NotADirectoryError(
+            f"clean_stale_files failed: shakedown root is not a directory. "
+            f"Got: {str(shakedown_path)!r:.100}"
+        )
+
+    # Stage 3: enumerate candidates with os.listdir. Path.glob silently
+    # returns [] on directories we cannot read (verified on Python 3.14:
+    # chmod 0o000 on a directory makes root.glob("seed-*.json") return []
+    # with no exception). os.listdir raises PermissionError loudly on
+    # the same input. This stage is necessary because stat() on an
+    # unreadable directory succeeds with mode 0o40000 — the two-stage
+    # root check above cannot detect this class.
+    try:
+        entry_names = os.listdir(shakedown_path)
+    except OSError as exc:
+        raise OSError(
+            f"clean_stale_files failed: cannot enumerate shakedown root. "
+            f"Got: {exc!r:.100}"
+        ) from exc
+
+    candidates = [
+        shakedown_path / name
+        for name in entry_names
+        if any(fnmatch.fnmatch(name, pattern) for pattern in _STALE_PATTERNS)
+    ]
+
     cutoff = max_age_hours * 3600
     current_time = time.time()
-    for pattern in _STALE_PATTERNS:
-        for path in shakedown_path.glob(pattern):
-            if not path.is_file():
-                continue
-            try:
-                age_seconds = current_time - path.stat().st_mtime
-            except OSError:
-                continue
-            if age_seconds <= cutoff:
-                continue
-            try:
-                path.unlink()
-            except OSError:
-                continue
+    for path in candidates:
+        try:
+            stat_result = path.stat()
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            failed_stat.append(FileFailure(path, f"{exc!r:.100}"))
+            continue
+        if not S_ISREG(stat_result.st_mode):
+            continue
+        age_seconds = current_time - stat_result.st_mtime
+        if age_seconds <= cutoff:
+            skipped_fresh.append(path)
+            continue
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            failed_unlink.append(FileFailure(path, f"{exc!r:.100}"))
+            continue
+        removed.append(path)
+
+    return CleanStaleResult(
+        removed=tuple(removed),
+        skipped_fresh=tuple(skipped_fresh),
+        failed_stat=tuple(failed_stat),
+        failed_unlink=tuple(failed_unlink),
+    )
 
 
 def _is_string_list(value: object) -> bool:

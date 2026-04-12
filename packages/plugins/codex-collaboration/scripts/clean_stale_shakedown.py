@@ -37,7 +37,9 @@ def main() -> int:
 
     from server.containment import clean_stale_files, shakedown_dir
 
-    clean_stale_files(shakedown_dir(data_dir))
+    result = clean_stale_files(shakedown_dir(data_dir))
+    if result.had_errors:
+        print(result.report(), file=sys.stderr)
     return 0
 
 
