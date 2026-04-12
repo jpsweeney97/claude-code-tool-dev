@@ -263,9 +263,8 @@ def test_clean_stale_files_captures_unlink_failures(
     assert stale.exists(), "stale file should still be on disk after failed unlink"
     assert result.removed == ()
     assert len(result.failed_unlink) == 1
-    failed_path, failed_repr = result.failed_unlink[0]
-    assert failed_path == stale
-    assert "PermissionError" in failed_repr
+    assert result.failed_unlink[0].path == stale
+    assert "PermissionError" in result.failed_unlink[0].error
     assert result.had_errors is True
 
 
@@ -293,9 +292,8 @@ def test_clean_stale_files_captures_stat_failures(
     assert result.removed == ()
     assert result.failed_unlink == ()
     assert len(result.failed_stat) == 1
-    failed_path, failed_repr = result.failed_stat[0]
-    assert failed_path == unreadable
-    assert "PermissionError" in failed_repr
+    assert result.failed_stat[0].path == unreadable
+    assert "PermissionError" in result.failed_stat[0].error
     assert result.had_errors is True
 
 
@@ -507,8 +505,8 @@ def test_clean_stale_result_report_renders_failure_paths_and_errors(
     result = containment.CleanStaleResult(
         removed=(tmp_path / "scope-run-1.json",),
         skipped_fresh=(),
-        failed_stat=((stat_failed, "PermissionError(13, 'denied')"),),
-        failed_unlink=((unlink_failed, "PermissionError(13, 'denied')"),),
+        failed_stat=(containment.FileFailure(stat_failed, "PermissionError(13, 'denied')"),),
+        failed_unlink=(containment.FileFailure(unlink_failed, "PermissionError(13, 'denied')"),),
     )
 
     lines = result.report().splitlines()
@@ -531,8 +529,8 @@ def test_clean_stale_result_report_applies_prefix_to_every_line(
     result = containment.CleanStaleResult(
         removed=(tmp_path / "scope-run-1.json",),
         skipped_fresh=(),
-        failed_stat=((stat_failed, "PermissionError(13, 'denied')"),),
-        failed_unlink=((unlink_failed, "PermissionError(13, 'denied')"),),
+        failed_stat=(containment.FileFailure(stat_failed, "PermissionError(13, 'denied')"),),
+        failed_unlink=(containment.FileFailure(unlink_failed, "PermissionError(13, 'denied')"),),
     )
 
     lines = result.report(prefix="containment-lifecycle: ").splitlines()
@@ -596,9 +594,9 @@ def test_clean_stale_files_mixed_batch_tracks_every_outcome(
     assert result.removed == (removable,)
     assert result.skipped_fresh == (fresh,)
     assert len(result.failed_stat) == 1
-    assert result.failed_stat[0][0] == stat_fails
+    assert result.failed_stat[0].path == stat_fails
     assert len(result.failed_unlink) == 1
-    assert result.failed_unlink[0][0] == unlink_fails
+    assert result.failed_unlink[0].path == unlink_fails
     assert result.had_errors is True
     assert "failed_stat=1" in result.report()
     assert "failed_unlink=1" in result.report()

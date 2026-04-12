@@ -7,7 +7,7 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 from dataclasses import dataclass
 from stat import S_ISDIR, S_ISREG
 
@@ -290,6 +290,18 @@ def select_scope_root(
     )
 
 
+class FileFailure(NamedTuple):
+    """A per-file failure from :func:`clean_stale_files`.
+
+    Attributes:
+        path: The filesystem path that could not be stat'd or unlinked.
+        error: A truncated ``repr()`` of the ``OSError`` that was raised.
+    """
+
+    path: Path
+    error: str
+
+
 @dataclass(frozen=True)
 class CleanStaleResult:
     """Outcome of a :func:`clean_stale_files` sweep.
@@ -297,10 +309,10 @@ class CleanStaleResult:
     Attributes:
         removed: Paths that were successfully unlinked.
         skipped_fresh: Paths under the age cutoff that were left in place.
-        failed_stat: ``(path, error_repr)`` pairs where ``stat()`` raised
+        failed_stat: :class:`FileFailure` entries where ``stat()`` raised
             ``OSError`` on an individual file. These files could not be
             checked for age and were not attempted for deletion.
-        failed_unlink: ``(path, error_repr)`` pairs where ``unlink()`` raised
+        failed_unlink: :class:`FileFailure` entries where ``unlink()`` raised
             ``OSError`` after a successful stat. The file is still on disk.
 
     Root-level access failures (an absent-but-existing root entry, an
@@ -311,8 +323,8 @@ class CleanStaleResult:
 
     removed: tuple[Path, ...]
     skipped_fresh: tuple[Path, ...]
-    failed_stat: tuple[tuple[Path, str], ...]
-    failed_unlink: tuple[tuple[Path, str], ...]
+    failed_stat: tuple[FileFailure, ...]
+    failed_unlink: tuple[FileFailure, ...]
 
     @property
     def had_errors(self) -> bool:
@@ -407,8 +419,8 @@ def clean_stale_files(
 
     removed: list[Path] = []
     skipped_fresh: list[Path] = []
-    failed_stat: list[tuple[Path, str]] = []
-    failed_unlink: list[tuple[Path, str]] = []
+    failed_stat: list[FileFailure] = []
+    failed_unlink: list[FileFailure] = []
 
     # Stage 1: lstat() without following symlinks. Distinguishes true
     # filesystem absence from a dangling-symlink corruption state.
@@ -471,7 +483,7 @@ def clean_stale_files(
         except FileNotFoundError:
             continue
         except OSError as exc:
-            failed_stat.append((path, f"{exc!r:.100}"))
+            failed_stat.append(FileFailure(path, f"{exc!r:.100}"))
             continue
         if not S_ISREG(stat_result.st_mode):
             continue
@@ -484,7 +496,7 @@ def clean_stale_files(
         except FileNotFoundError:
             continue
         except OSError as exc:
-            failed_unlink.append((path, f"{exc!r:.100}"))
+            failed_unlink.append(FileFailure(path, f"{exc!r:.100}"))
             continue
         removed.append(path)
 

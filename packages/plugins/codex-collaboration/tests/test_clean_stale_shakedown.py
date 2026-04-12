@@ -34,7 +34,7 @@ from pathlib import Path
 import pytest
 
 from server import containment
-from server.containment import CleanStaleResult
+from server.containment import CleanStaleResult, FileFailure
 
 SCRIPT = str(
     Path(__file__).resolve().parent.parent / "scripts" / "clean_stale_shakedown.py"
@@ -147,7 +147,7 @@ def test_clean_stale_shakedown_emits_report_on_had_errors(
             removed=(),
             skipped_fresh=(),
             failed_stat=(),
-            failed_unlink=((failure_path, "OSError(1, 'simulated unlink failure')"),),
+            failed_unlink=(FileFailure(failure_path, "OSError(1, 'simulated unlink failure')"),),
         )
 
     monkeypatch.setattr(containment, "clean_stale_files", _stub_clean_stale_files)
