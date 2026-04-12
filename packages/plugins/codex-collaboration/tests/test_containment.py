@@ -299,6 +299,55 @@ def test_clean_stale_files_captures_stat_failures(
     assert result.had_errors is True
 
 
+def test_clean_stale_files_ignores_candidates_removed_before_stat(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    shakedown = containment.shakedown_dir(tmp_path)
+    shakedown.mkdir(parents=True)
+    missing = shakedown / "seed-run-1.json"
+
+    with monkeypatch.context() as patched:
+        patched.setattr("os.listdir", lambda _path: [missing.name])
+        result = containment.clean_stale_files(shakedown)
+
+    assert result.removed == ()
+    assert result.skipped_fresh == ()
+    assert result.failed_stat == ()
+    assert result.failed_unlink == ()
+    assert result.had_errors is False
+
+
+def test_clean_stale_files_ignores_candidates_removed_before_unlink(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    shakedown = containment.shakedown_dir(tmp_path)
+    shakedown.mkdir(parents=True)
+    stale = shakedown / "scope-run-1.json"
+    stale.write_text("{}", encoding="utf-8")
+    stale_time = time.time() - (26 * 3600)
+    os.utime(stale, (stale_time, stale_time))
+
+    original_stat = Path.stat
+    original_unlink = Path.unlink
+
+    def stat_then_remove(self: Path, *args: object, **kwargs: object) -> os.stat_result:
+        stat_result = original_stat(self, *args, **kwargs)  # type: ignore[arg-type]
+        if self == stale:
+            original_unlink(self)
+        return stat_result
+
+    with monkeypatch.context() as patched:
+        patched.setattr(Path, "stat", stat_then_remove)
+        result = containment.clean_stale_files(shakedown)
+
+    assert not stale.exists(), "simulated concurrent deletion should remove the file"
+    assert result.removed == ()
+    assert result.skipped_fresh == ()
+    assert result.failed_stat == ()
+    assert result.failed_unlink == ()
+    assert result.had_errors is False
+
+
 def test_clean_stale_files_returns_empty_when_shakedown_root_missing(
     tmp_path: Path,
 ) -> None:

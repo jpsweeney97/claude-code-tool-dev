@@ -363,7 +363,8 @@ def clean_stale_files(
     Returns a :class:`CleanStaleResult` describing what was removed, what was
     skipped because it was still fresh, and any per-file ``stat()`` or
     ``unlink()`` failures encountered during the sweep. Per-file errors do
-    not abort the run.
+    not abort the run. Concurrent-deletion races after ``os.listdir()``
+    are ignored because the stale file is already gone.
 
     Root-level handling uses a **three-stage check** to distinguish a
     legitimate first-run absence from every corruption mode:
@@ -467,6 +468,8 @@ def clean_stale_files(
     for path in candidates:
         try:
             stat_result = path.stat()
+        except FileNotFoundError:
+            continue
         except OSError as exc:
             failed_stat.append((path, f"{exc!r:.100}"))
             continue
@@ -478,6 +481,8 @@ def clean_stale_files(
             continue
         try:
             path.unlink()
+        except FileNotFoundError:
+            continue
         except OSError as exc:
             failed_unlink.append((path, f"{exc!r:.100}"))
             continue
