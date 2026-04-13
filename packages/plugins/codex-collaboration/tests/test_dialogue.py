@@ -1908,9 +1908,7 @@ class TestFirstTurnFastPath:
             "Second reply should use read_thread to count completed turns"
         )
 
-    def test_empty_plus_diagnostics_remote_zero_completed(
-        self, tmp_path: Path
-    ) -> None:
+    def test_empty_plus_diagnostics_remote_zero_completed(self, tmp_path: Path) -> None:
         """Corrupt JSONL + remote says 0 completed → proceed as turn 1."""
         focus = tmp_path / "focus.py"
         focus.write_text("print('focus')\n", encoding="utf-8")
@@ -1925,9 +1923,7 @@ class TestFirstTurnFastPath:
                 return {"thread": {"id": thread_id, "turns": []}}
 
         session = TrackingSession()
-        controller, _, _, _, _ = _build_dialogue_stack(
-            tmp_path, session=session
-        )
+        controller, _, _, _, _ = _build_dialogue_stack(tmp_path, session=session)
         start = controller.start(tmp_path)
 
         # Corrupt the JSONL to produce diagnostics without valid records
@@ -1948,9 +1944,7 @@ class TestFirstTurnFastPath:
             "Diagnostics should force remote validation even with empty local metadata"
         )
 
-    def test_empty_plus_diagnostics_remote_two_completed(
-        self, tmp_path: Path
-    ) -> None:
+    def test_empty_plus_diagnostics_remote_two_completed(self, tmp_path: Path) -> None:
         """Corrupt JSONL + remote says 2 completed → integrity error, handle unknown."""
         session = FakeRuntimeSession()
         session.read_thread_response = {
@@ -1998,10 +1992,14 @@ class TestFirstTurnFastPath:
             f.write("not valid json\n")
 
         monkeypatch.setattr(
-            session, "read_thread", lambda _tid: (_ for _ in ()).throw(RuntimeError("remote boom"))
+            session,
+            "read_thread",
+            lambda _tid: (_ for _ in ()).throw(RuntimeError("remote boom")),
         )
 
-        with pytest.raises(RuntimeError, match="session turn metadata file has replay diagnostics") as exc_info:
+        with pytest.raises(
+            RuntimeError, match="session turn metadata file has replay diagnostics"
+        ) as exc_info:
             controller.reply(
                 collaboration_id=start.collaboration_id,
                 objective="First turn",
@@ -2027,7 +2025,9 @@ class TestFirstTurnFastPath:
         start = controller.start(tmp_path)
         turn_store.write(start.collaboration_id, turn_sequence=2, context_size=4096)
 
-        with pytest.raises(RuntimeError, match="Required.*\\[1, 2\\].*present.*\\[2\\]"):
+        with pytest.raises(
+            RuntimeError, match="Required.*\\[1, 2\\].*present.*\\[2\\]"
+        ):
             controller.reply(
                 collaboration_id=start.collaboration_id,
                 objective="Next turn",
@@ -2053,7 +2053,9 @@ class TestFirstTurnFastPath:
         start = controller.start(tmp_path)
         turn_store.write(start.collaboration_id, turn_sequence=1, context_size=4096)
 
-        with pytest.raises(RuntimeError, match="Required.*\\[1, 2\\].*present.*\\[1\\]"):
+        with pytest.raises(
+            RuntimeError, match="Required.*\\[1, 2\\].*present.*\\[1\\]"
+        ):
             controller.reply(
                 collaboration_id=start.collaboration_id,
                 objective="Next turn",
@@ -2073,10 +2075,14 @@ class TestFirstTurnFastPath:
         turn_store.write(start.collaboration_id, turn_sequence=1, context_size=4096)
 
         monkeypatch.setattr(
-            session, "read_thread", lambda _tid: (_ for _ in ()).throw(RuntimeError("remote boom"))
+            session,
+            "read_thread",
+            lambda _tid: (_ for _ in ()).throw(RuntimeError("remote boom")),
         )
 
-        with pytest.raises(RuntimeError, match="cannot validate local turn metadata.*sequences=\\[1\\]") as exc_info:
+        with pytest.raises(
+            RuntimeError, match="cannot validate local turn metadata.*sequences=\\[1\\]"
+        ) as exc_info:
             controller.reply(
                 collaboration_id=start.collaboration_id,
                 objective="Next turn",
@@ -2084,9 +2090,7 @@ class TestFirstTurnFastPath:
             )
         assert exc_info.value.__cause__ is not None
 
-    def test_zero_turn_stale_metadata_integrity_error(
-        self, tmp_path: Path
-    ) -> None:
+    def test_zero_turn_stale_metadata_integrity_error(self, tmp_path: Path) -> None:
         """Stale local {1} + remote 0 completed → integrity error (zero-turn tightening).
 
         Proves the reply path applies the same zero-turn stale metadata
@@ -2223,9 +2227,7 @@ class TestRecoverStartupMetadataCompleteness:
         handle = store.get(start.collaboration_id)
         assert handle.status == "unknown"
 
-    def test_zero_turn_stale_metadata_quarantines_handle(
-        self, tmp_path: Path
-    ) -> None:
+    def test_zero_turn_stale_metadata_quarantines_handle(self, tmp_path: Path) -> None:
         """Handle with stale local metadata + remote 0 completed → quarantine."""
         session = FakeRuntimeSession()
         session.read_thread_response = {
