@@ -509,9 +509,12 @@ class DialogueController:
 
         Per contracts.md:141-151 (crash recovery contract).
 
-        Unknown handles are eligible for reattach if:
-        - they have no completed turns (vacuous metadata check), OR
-        - all completed turns have corresponding TurnStore metadata
+        Unknown handles are eligible for reattach if their local TurnStore
+        metadata passes prefix-completeness:
+        - if completed_count == 0: the TurnStore must have no metadata
+          for this collaboration (deliberate tightening — see contracts.md)
+        - if completed_count > 0: metadata keys {1..completed_count}
+          must all be present (extra keys beyond completed_count tolerated)
 
         Rollout boundary: pre-fix dialogues (turns dispatched before TurnStore)
         cannot continue after deployment. The journal is session-bounded, so
@@ -529,9 +532,11 @@ class DialogueController:
 
         # Phase 2: enumerate active and unknown handles for reattach.
         # Skip handles already resumed by phase 1 to avoid double-resume.
-        # Quarantine any handle with incomplete TurnStore metadata.
-        # Unknown handles are eligible for reattach if metadata is complete
-        # (or if they have no completed turns to check).
+        # Quarantine any handle that fails prefix-completeness:
+        # - completed_count == 0: no stale local metadata allowed
+        # - completed_count > 0: keys {1..completed_count} all present
+        # Uses the same _local_metadata_complete_for_completed_turns()
+        # helper as _next_turn_sequence() for reply/recovery symmetry.
         active_handles = self._lineage_store.list(status="active")
         unknown_handles = self._lineage_store.list(status="unknown")
         for handle in active_handles + unknown_handles:
@@ -550,13 +555,14 @@ class DialogueController:
                     for t in raw_turns
                     if isinstance(t, dict) and t.get("status") == "completed"
                 )
-                if completed_count > 0:
-                    metadata = self._turn_store.get_all(handle.collaboration_id)
-                    if len(metadata) < completed_count:
-                        self._lineage_store.update_status(
-                            handle.collaboration_id, "unknown"
-                        )
-                        continue
+                metadata = self._turn_store.get_all(handle.collaboration_id)
+                if not _local_metadata_complete_for_completed_turns(
+                    metadata, completed_count
+                ):
+                    self._lineage_store.update_status(
+                        handle.collaboration_id, "unknown"
+                    )
+                    continue
 
                 resumed_thread_id = runtime.session.resume_thread(
                     handle.codex_thread_id

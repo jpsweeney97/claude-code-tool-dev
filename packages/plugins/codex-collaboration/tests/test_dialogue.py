@@ -2187,6 +2187,98 @@ class TestFirstTurnFastPath:
         )
 
 
+class TestRecoverStartupMetadataCompleteness:
+    """recover_startup() must quarantine handles with incomplete local metadata
+    and allow reattach for prefix-complete metadata (including extra keys)."""
+
+    def test_gapped_metadata_quarantines_handle(self, tmp_path: Path) -> None:
+        """Handle with {1, 3} metadata vs remote 2 completed → quarantine.
+
+        Cardinality-matching gap: len(metadata) == completed_count == 2,
+        so the old ``len(metadata) < completed_count`` check passes.
+        Only the prefix-completeness check catches the gap (key 2 missing).
+        """
+        session = FakeRuntimeSession()
+        session.read_thread_response = {
+            "thread": {
+                "id": "thr-start",
+                "turns": [
+                    {"id": "turn-1", "status": "completed"},
+                    {"id": "turn-2", "status": "completed"},
+                ],
+            },
+        }
+        controller, _, store, _, turn_store = _build_dialogue_stack(
+            tmp_path, session=session
+        )
+        start = controller.start(tmp_path)
+
+        # Pre-populate gapped metadata: keys {1, 3}, missing key 2
+        # len == 2 == completed_count, so old cardinality check misses this
+        turn_store.write(start.collaboration_id, turn_sequence=1, context_size=4096)
+        turn_store.write(start.collaboration_id, turn_sequence=3, context_size=2048)
+
+        controller.recover_startup()
+
+        handle = store.get(start.collaboration_id)
+        assert handle.status == "unknown"
+
+    def test_zero_turn_stale_metadata_quarantines_handle(
+        self, tmp_path: Path
+    ) -> None:
+        """Handle with stale local metadata + remote 0 completed → quarantine."""
+        session = FakeRuntimeSession()
+        session.read_thread_response = {
+            "thread": {"id": "thr-start", "turns": []},
+        }
+        controller, _, store, _, turn_store = _build_dialogue_stack(
+            tmp_path, session=session
+        )
+        start = controller.start(tmp_path)
+
+        # Pre-populate stale metadata for a turn the remote never completed
+        turn_store.write(start.collaboration_id, turn_sequence=1, context_size=500)
+
+        controller.recover_startup()
+
+        handle = store.get(start.collaboration_id)
+        assert handle.status == "unknown"
+
+    def test_extra_local_keys_allows_reattach(self, tmp_path: Path) -> None:
+        """Handle with {1, 2, 3} metadata vs remote 2 completed → reattach allowed.
+
+        Proves recover_startup() applies prefix-completeness, not exact-key
+        equality. Extra local keys beyond completed_count are tolerated.
+        Without this, a buggy implementation could reject extra keys in
+        recovery while accepting them in reply.
+        """
+        session = FakeRuntimeSession()
+        session.read_thread_response = {
+            "thread": {
+                "id": "thr-start",
+                "turns": [
+                    {"id": "turn-1", "status": "completed"},
+                    {"id": "turn-2", "status": "completed"},
+                ],
+            },
+        }
+        controller, _, store, _, turn_store = _build_dialogue_stack(
+            tmp_path, session=session
+        )
+        start = controller.start(tmp_path)
+        turn_store.write(start.collaboration_id, turn_sequence=1, context_size=4096)
+        turn_store.write(start.collaboration_id, turn_sequence=2, context_size=8192)
+        turn_store.write(start.collaboration_id, turn_sequence=3, context_size=2048)
+
+        controller.recover_startup()
+
+        handle = store.get(start.collaboration_id)
+        assert handle.status != "unknown", (
+            "Extra local keys beyond completed_count should not quarantine — "
+            "prefix {1, 2} is complete for completed_count=2"
+        )
+
+
 class TestRecoveryOutcomeEmission:
     def test_recovery_confirmed_emits_outcome_record(self, tmp_path: Path) -> None:
         """Startup recovery that confirms a turn also emits an outcome record."""
