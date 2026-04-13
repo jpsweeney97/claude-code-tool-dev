@@ -3,12 +3,24 @@
 ```yaml
 id: T-20260330-02
 date: 2026-03-30
-status: open
+status: closed
+closed_date: 2026-04-13
+resolution: completed
+resolution_ref: test/t-20260330-02-skill-boundary (d4b4a988)
 priority: high
 tags: [codex-collaboration, plugin-shell, consult, supersession]
 blocked_by: []
 blocks: [T-20260330-03]
 effort: medium
+branch: test/t-20260330-02-skill-boundary
+files:
+  - packages/plugins/codex-collaboration/.claude-plugin/plugin.json
+  - packages/plugins/codex-collaboration/.mcp.json
+  - packages/plugins/codex-collaboration/scripts/codex_runtime_bootstrap.py
+  - packages/plugins/codex-collaboration/skills/consult-codex/SKILL.md
+  - packages/plugins/codex-collaboration/skills/codex-status/SKILL.md
+  - packages/plugins/codex-collaboration/README.md
+  - packages/plugins/codex-collaboration/tests/test_bootstrap.py
 ```
 
 ## Context
@@ -141,3 +153,43 @@ substrate on top of the packaged consult flow.
 | Current tool surface | `packages/plugins/codex-collaboration/server/mcp_server.py` | Existing runtime entry points |
 | Reference plugin shell | `packages/plugins/cross-model/.claude-plugin/plugin.json` | Packaging precedent only |
 | Reference MCP config | `packages/plugins/cross-model/.mcp.json` | Launch precedent only |
+
+## Resolution
+
+All 8 acceptance criteria met. The plugin shell artifacts were implemented
+incrementally prior to this ticket formally opening; this session verified
+them against the acceptance criteria and closed the remaining gaps.
+
+### Acceptance criteria mapping
+
+| # | Criterion | Artifact | Status |
+|---|-----------|----------|--------|
+| 1 | `plugin.json` exists | `.claude-plugin/plugin.json` | Present — name, version 0.2.0, metadata |
+| 2 | `.mcp.json` launches MCP server | `.mcp.json` — stdio, `uv run`, `${CLAUDE_PLUGIN_ROOT}` | Present |
+| 3 | Bootstrap entry point | `scripts/codex_runtime_bootstrap.py` — deferred dialogue init | Present |
+| 4 | Consult skill with status preflight | `skills/consult-codex/SKILL.md` — step 2 preflight, step 3 consult | Present |
+| 5 | Status skill returns structured health | `skills/codex-status/SKILL.md` — calls `codex.status`, presents fields | Present |
+| 6 | Consult dispatches through packaged surface | Verified via `--plugin-dir` smoke test | Passed |
+| 7 | Install docs for fresh session | `README.md` — prerequisites, install, smoke test steps | Present |
+| 8 | Tests cover bootstrap and skill wiring | `test_bootstrap.py` — 14 tests (session-id, factory, hook, skill boundary) | Present |
+
+### Design decision: shipped MCP surface
+
+The MCP server ships all 5 tools (`codex.status`, `codex.consult`, `codex.dialogue.start`,
+`codex.dialogue.reply`, `codex.dialogue.read`). The ticket's "consult only" scope is enforced
+at the skill layer — user-invocable skills reference only `codex.status` and `codex.consult`
+in `allowed-tools`. Dialogue tools are reachable at the MCP level but not surfaced to users.
+This is consistent with the ticket's own context section, which acknowledges the R2 dialogue
+tools exist while scoping only dialogue *orchestration* as out of scope.
+
+Three skill-metadata boundary tests (`d4b4a988`) pin this invariant:
+- `test_consult_skill_only_references_consult_tools`
+- `test_status_skill_only_references_status_tool`
+- `test_no_user_invocable_dialogue_skill_exists`
+
+### Test counts
+
+| Scope | Count |
+|-------|-------|
+| `test_bootstrap.py` | 14 |
+| Full package (`tests/`) | 566 |
