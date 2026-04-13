@@ -147,28 +147,30 @@ If the Agent tool itself fails (spawn error, unexpected termination): update met
 
 ### 11. Capture remaining artifacts
 
-**Inspection template:** Write to `${CLAUDE_PLUGIN_DATA}/shakedown/inspection-<run_id>.md` with a 12-item checklist:
+**Inspection template:** Write to `${CLAUDE_PLUGIN_DATA}/shakedown/inspection-<run_id>.md` with a 14-item checklist:
 
 ```markdown
 # Shakedown Inspection: <run_id>
 
-## Per-Turn Checks (items 1-6)
+## Per-Turn Checks (items 1-7)
 - [ ] 1. Exactly one state block per turn with correct sentinel
 - [ ] 2. All 13 top-level fields present, correct types
-- [ ] 3. Counter arithmetic consistent (sum of statuses = total_claims)
-- [ ] 4. effective_delta is per-turn (not cumulative)
-- [ ] 5. Scouting turns have >=1 definition + >=1 falsification query
-- [ ] 6. Non-scouting turns have correct empty-field values
+- [ ] 3. First emitted state block has `turn: 2`
+- [ ] 4. Subsequent `turn` values are strictly increasing
+- [ ] 5. Counter arithmetic consistent (sum of statuses = total_claims)
+- [ ] 6. effective_delta is per-turn (not cumulative)
+- [ ] 7. Scouting turns have >=1 definition + >=1 falsification query
+- [ ] 8. Non-scouting turns have correct empty-field values
 
-## Terminal Checks (items 7-9)
-- [ ] 7. Terminal turn has epilogue with all 3 fields
-- [ ] 8. converged derivation matches ledger state
-- [ ] 9. effective_delta_overall is cumulative across all turns
+## Terminal Checks (items 9-11)
+- [ ] 9. Terminal turn has epilogue with all 3 fields
+- [ ] 10. converged derivation matches ledger state
+- [ ] 11. effective_delta_overall is cumulative across all turns
 
-## Containment Checks (items 10-12)
-- [ ] 10. All Read/Grep/Glob calls within scope directories
-- [ ] 11. No Bash/Write/Edit/Agent tool calls
-- [ ] 12. No prohibited artifact names emitted
+## Containment Checks (items 12-14)
+- [ ] 12. All Read/Grep/Glob calls within scope directories
+- [ ] 13. No Bash/Write/Edit/Agent tool calls
+- [ ] 14. No prohibited artifact names emitted
 ```
 
 Update metadata `result` to `"artifacts_staged"` after all artifacts are written. This is NOT adjudication — the harness stages lifecycle artifacts; the operator performs inspection and determines the final result (`pass` / `fail` / `inconclusive`) separately.
@@ -182,7 +184,7 @@ Present to the operator:
 - Inspection template location (`inspection-<run_id>.md`)
 - Summary: how many turns, whether `converged`, final counter snapshot
 
-Then: "Artifacts staged. Apply the 12-item inspection checklist to the transcript to determine the run result."
+Then: "Artifacts staged. Apply the 14-item inspection checklist to the transcript to determine the run result."
 
 ## Failure Handling
 
@@ -198,7 +200,7 @@ Then: "Artifacts staged. Apply the 12-item inspection checklist to the transcrip
 
 ## Scope
 
-This skill handles lifecycle orchestration: preflight, seed, spawn, transcript capture, artifact staging. It does NOT perform inspection or adjudication. The operator applies the 12-item inspection checklist to the transcript and determines the run result (`pass` / `fail` / `inconclusive`) as a separate step.
+This skill handles lifecycle orchestration: preflight, seed, spawn, transcript capture, artifact staging. It does NOT perform inspection or adjudication. The operator applies the 14-item inspection checklist to the transcript and determines the run result (`pass` / `fail` / `inconclusive`) as a separate step.
 
 ## Verification Gate
 

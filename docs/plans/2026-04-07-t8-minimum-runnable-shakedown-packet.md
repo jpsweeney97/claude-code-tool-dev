@@ -2,7 +2,7 @@
 
 ## Context
 
-T7 (PR #98, merged) defines the minimum runnable packet for one pre-benchmark integration shakedown on B1. T8 implements it: builds containment hooks, a dialogue agent with the T4 behavioral loop, and an orchestration harness, then runs the shakedown against the 12-item inspection checklist.
+T7 (PR #98, merged) defines the minimum runnable packet for one pre-benchmark integration shakedown on B1. T8 implements it: builds containment hooks, a dialogue agent with the T4 behavioral loop, and an orchestration harness, then runs the shakedown against the 14-item inspection checklist.
 
 **Authority:** `docs/plans/2026-04-07-t7-executable-slice-definition.md` (444 lines, 9 scrutiny rounds)
 
@@ -153,7 +153,7 @@ PreToolUse hook for `Read|Grep|Glob`:
 **Containment active (all 3 conditions hold):**
 - **Read:** Canonicalize `tool_input.file_path`, check `is_path_within_scope(file_path, file_anchors, scope_directories)`. Out-of-scope → deny. Read allows access to any file within a scope directory, not just named file anchors. This ensures discovery-then-inspect consistency: if Glob surfaces a sibling file in a scope directory, the agent can Read it. For scored runs, Read restriction to file anchors only is a post-execution filtering concern (T4-CT-01, deferred).
 - **Grep:** Call `select_scope_root(file_anchors, scope_directories, tool_input.get("path"), "Grep")`. If path is present: rewrite `path` to the selected scope_root, echo all original `tool_input` fields + rewritten `path` → `updatedInput` with `permissionDecision: "allow"`. The agent receives post-confinement results transparently (T4 containment.md:37-39). Grep's `path` accepts both files and directories, so both file anchors and scope directories are valid. If `path` is absent: deny with `permissionDecisionReason` listing scope directories and instructing the agent to reissue with explicit `path` (B1-specific pathless-query rule — see `select_scope_root`).
-- **Glob:** Call `select_scope_root(file_anchors, scope_directories, tool_input.get("path"), "Glob")`. If path is present: rewrite to the matching scope directory (Glob requires a directory, so the function always returns a scope directory member). Echo all original `tool_input` fields + rewritten `path` → `updatedInput` with `permissionDecision: "allow"`. Glob results may include non-anchor files — acceptable for shakedown (inspector checks via checklist items 10-12); scored runs require post-execution filtering (T4-CT-01, deferred). If `path` is absent: deny with `permissionDecisionReason` listing scope directories (same pathless-query rule as Grep).
+- **Glob:** Call `select_scope_root(file_anchors, scope_directories, tool_input.get("path"), "Glob")`. If path is present: rewrite to the matching scope directory (Glob requires a directory, so the function always returns a scope directory member). Echo all original `tool_input` fields + rewritten `path` → `updatedInput` with `permissionDecision: "allow"`. Glob results may include non-anchor files — acceptable for shakedown (inspector checks via checklist items 12-14); scored runs require post-execution filtering (T4-CT-01, deferred). If `path` is absent: deny with `permissionDecisionReason` listing scope directories (same pathless-query rule as Grep).
 
 **Critical:** `updatedInput` replaces the entire input object. Must include ALL original fields (pattern, output_mode, etc.) alongside the modified `path`.
 
@@ -346,12 +346,12 @@ allowed-tools: Bash, Read, Write, Agent, mcp__plugin_codex-collaboration_codex-c
    Required template fields: task framing, opening Codex question, `repo_root`, `scope_directories`, instruction to begin with `codex.dialogue.start`. The opening question targets B1's file anchors (contracts, delivery, mcp_server) to maximize scoutable-claim yield.
 9. **Verify transcript capture:** Check for `${CLAUDE_PLUGIN_DATA}/shakedown/transcript-<run_id>.done` (completion marker written by SubagentStop lifecycle hook). If `.done` exists: transcript at `transcript-<run_id>.jsonl` is the primary inspection artifact. If `.error` exists: report the error and fail the run. If neither exists: fail the run with "Transcript capture did not complete — SubagentStop hook may have failed silently." The harness checks for completion markers immediately after the Agent tool returns. The expectation is that SubagentStop fires before result delivery (inferred from the lifecycle diagram — see T7 Hook State Transport — not an explicit doc guarantee). If neither `.done` nor `.error` exists on first check, retry once after 1 second as a heuristic to accommodate undocumented lag between SubagentStop execution and file visibility. If still absent after retry, fail the run with: "Transcript capture did not complete — undocumented timing gap may have exceeded the provisional 1-second retry window, or SubagentStop hook failed silently." The 1-second retry is a provisional operational threshold, not closure of the timing question. Phase 0 measures SubagentStart-to-PreToolUse gap, not SubagentStop marker visibility; the 1-second transcript retry can only be calibrated empirically during actual shakedown runs (Phase 4).
 10. **Capture remaining artifacts:**
-   - Transcript: already written by SubagentStop (Phase 1b) to `${CLAUDE_PLUGIN_DATA}/shakedown/transcript-<run_id>.jsonl`. Format is JSONL (matching Claude Code's transcript format per docs: `subagents/agent-<id>.jsonl`). The parent-facing agent result (summary returned to the operator) is NOT the transcript — it lacks per-turn evidence blocks, verification summaries, and follow-up text required by checklist items 1-12.
+   - Transcript: already written by SubagentStop (Phase 1b) to `${CLAUDE_PLUGIN_DATA}/shakedown/transcript-<run_id>.jsonl`. Format is JSONL (matching Claude Code's transcript format per docs: `subagents/agent-<id>.jsonl`). The parent-facing agent result (summary returned to the operator) is NOT the transcript — it lacks per-turn evidence blocks, verification summaries, and follow-up text required by checklist items 1-14.
    - Metadata: write JSON to `${CLAUDE_PLUGIN_DATA}/shakedown/metadata-<run_id>.json`
      ```json
      {"run_id", "session_id", "task_id": "B1", "classification": "pre_benchmark_integration_shakedown", "commit_sha", "timestamp", "file_anchors", "scope_directories", "result": null}
      ```
-   - Inspection template: write to `${CLAUDE_PLUGIN_DATA}/shakedown/inspection-<run_id>.md` with 12-item checklist (per-turn 1-6, terminal 7-9, containment 10-12)
+   - Inspection template: write to `${CLAUDE_PLUGIN_DATA}/shakedown/inspection-<run_id>.md` with 14-item checklist (per-turn 1-8, terminal 9-11, containment 12-14)
 
 **Verification gate:** Full lifecycle works: seed created → SubagentStart fires → scope created → agent runs contained → SubagentStop fires → scope removed → artifacts written.
 
@@ -439,7 +439,7 @@ All paths relative to `packages/plugins/codex-collaboration/`.
 | 1 | `uv run --package codex-collaboration pytest tests/test_containment*.py` passes |
 | 2 | `/reload-plugins` run; agent spawnable; `/agents` lists `codex-collaboration:shakedown-dialogue` |
 | 3 | Full lifecycle: seed → scope → containment → cleanup → artifacts |
-| 4 | 12-item inspection checklist completed; result determined |
+| 4 | 14-item inspection checklist completed; result determined |
 
 ### End-to-End
 
@@ -453,7 +453,7 @@ All paths relative to `packages/plugins/codex-collaboration/`.
 8. Verify `.done` marker exists after agent returns; transcript at `.jsonl` path
 9. Verify per-turn emission matches T7 schema
 10. Verify metadata JSON has all required fields
-11. Apply 12-item inspection checklist
+11. Apply 14-item inspection checklist
 12. Result: pass / fail (routed) / inconclusive
 
 ### Acceptance Criteria (from T7)

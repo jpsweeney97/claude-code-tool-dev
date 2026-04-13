@@ -117,7 +117,7 @@ T4 specifies two containment layers: pre-execution confinement ([T4-CT-02](t04-t
 ### Why Pre-Execution Only Is Sufficient for the Shakedown
 
 - Pre-execution confinement prevents out-of-scope tool calls entirely: `Read` is denied, `Grep`/`Glob` `path` parameters are rewritten to `scope_root` within `allowed_roots`. If input is correctly constrained, output is inherently within scope.
-- Post-execution filtering is defense-in-depth for edge cases (e.g., symlinks resolving outside scope, Grep matching content in included-but-unexpected files). These edge cases are detectable by manual per-turn inspection (checklist item 11) for the shakedown.
+- Post-execution filtering is defense-in-depth for edge cases (e.g., symlinks resolving outside scope, Grep matching content in included-but-unexpected files). These edge cases are detectable by manual per-turn inspection (checklist item 13) for the shakedown.
 - Scored runs require automated post-execution filtering because manual inspection does not scale to 8-task corpus runs. That mechanism is later T7/T8 work.
 
 ### Why PreToolUse Hooks
@@ -137,7 +137,7 @@ The PreToolUse hook uses `updatedInput` to rewrite tool parameters and `permissi
 | `Grep` | Rewrite `path` to `scope_root` within `allowed_roots` via `updatedInput`. Results inherently under scope root | [T4-CT-02](t04-t4-scouting-position-and-evidence-provenance/containment.md#t4-ct-02) |
 | `Glob` | Rewrite `path` to `scope_root` within `allowed_roots` via `updatedInput`. Results inherently under scope root | [T4-CT-02](t04-t4-scouting-position-and-evidence-provenance/containment.md#t4-ct-02) |
 
-**Deferred:** Post-execution canonical-path filtering ([T4-CT-01](t04-t4-scouting-position-and-evidence-provenance/containment.md#t4-ct-01)) is required for scored runs but not for the manually-inspected shakedown. The inspector verifies containment correctness via checklist items 10-12.
+**Deferred:** Post-execution canonical-path filtering ([T4-CT-01](t04-t4-scouting-position-and-evidence-provenance/containment.md#t4-ct-01)) is required for scored runs but not for the manually-inspected shakedown. The inspector verifies containment correctness via checklist items 12-14.
 
 ### Scope Envelope for B1
 
@@ -289,26 +289,28 @@ Inspection granularity is **per-turn**, consistent with the risk analysis: "each
 |---|----------------|
 | 1 | Extracted claims and their registration outcome |
 | 2 | Current verification-state summary |
-| 3 | Selected scout target and why it won priority |
-| 4 | Executed query set — at least one definition and one falsification query when scouting occurs |
-| 5 | Resulting evidence record and updated verification status |
-| 6 | Whether the next follow-up visibly uses that state |
+| 3 | First emitted state block has `turn: 2` |
+| 4 | Subsequent `turn` values are strictly increasing |
+| 5 | Selected scout target and why it won priority |
+| 6 | Executed query set — at least one definition and one falsification query when scouting occurs |
+| 7 | Resulting evidence record and updated verification status |
+| 8 | Whether the next follow-up visibly uses that state |
 
 ### Terminal-Turn Checklist
 
 | # | Inspection item |
 |---|----------------|
-| 7 | `effective_delta` matches recomputation from loop counters |
-| 8 | Final convergence decision matches structured control logic |
-| 9 | Synthesis epilogue is complete and internally consistent |
+| 9 | `effective_delta` matches recomputation from loop counters |
+| 10 | Final convergence decision matches structured control logic |
+| 11 | Synthesis epilogue is complete and internally consistent |
 
 ### Containment Checklist (All Turns)
 
 | # | Inspection item |
 |---|----------------|
-| 10 | `scope_envelope` is present and `allowed_roots` is non-empty |
-| 11 | All scouting tool calls stayed within B1-derived `allowed_roots` |
-| 12 | No out-of-scope results in tool output (verified by path inspection; post-execution filtering is deferred to scored-run work) |
+| 12 | `scope_envelope` is present and `allowed_roots` is non-empty |
+| 13 | All scouting tool calls stayed within B1-derived `allowed_roots` |
+| 14 | No out-of-scope results in tool output (verified by path inspection; post-execution filtering is deferred to scored-run work) |
 
 ## Acceptance Criteria
 
@@ -336,7 +338,7 @@ Action on inconclusive: re-evaluate whether B1 generates enough scoutable claims
 
 **Step 2 — Correctness check (pass/fail):**
 
-The shakedown **passes** if manual per-turn inspection confirms all 12 checklist items hold.
+The shakedown **passes** if manual per-turn inspection confirms all 14 checklist items hold.
 
 The shakedown **fails** if any checklist item does not hold. On failure, route the failure back to the specific gate or control surface it invalidates:
 

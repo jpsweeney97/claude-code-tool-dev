@@ -3,7 +3,9 @@
 ```yaml
 id: T-20260410-01
 date: 2026-04-10
-status: open
+status: closed
+closed_date: 2026-04-13
+resolution: completed
 priority: medium
 tags: [codex-collaboration, b4, shakedown, dialogue-codex, contract]
 blocked_by: []
@@ -90,6 +92,38 @@ Choose one of these contract models:
    interpretation drift
 4. Future shakedown runs do not require operator judgment to decide whether the
    first emitted turn number is correct
+
+## Resolution
+
+**Chosen model:** Model 2 — post-reply verification turn. First emitted state block
+is `turn: 2`. `turn: 1` is the opening send to Codex, which does not emit a state
+block.
+
+**Rationale:** Model 2 matches the validated B4 runtime (transcript emits turns
+2-6), both skill exemplars, and the per-turn loop entry point ("after receiving a
+Codex reply"). Model 1 would require inventing a synthetic opening emission with no
+claims to extract, adding complexity with no diagnostic value.
+
+**Changes:**
+
+| File | Change |
+|------|--------|
+| `dialogue-codex/SKILL.md` field table | `turn` rule updated from "starting at 1" to "First emitted state block is `turn: 2`" |
+| `dialogue-codex/SKILL.md` field table header | "Every turn" → "Every emitted state block" |
+| `dialogue-codex/SKILL.md` parse-failure conditions | Split into two rules: first emitted block must be `turn: 2`, subsequent must be strictly increasing |
+| `dialogue-codex/SKILL.md` exemplar commentary | Clarified that turn 2 is the first emitted turn |
+| `2026-04-09-b4-dialogue-codex-conformance-checklist.md` field table | Same `turn` rule update and header fix |
+| `2026-04-09-b4-dialogue-codex-conformance-checklist.md` parse-failure + B4 checks | Split origin and monotonicity rules; B4 checklist items now check first-emitted and subsequent separately |
+| `shakedown-b1/SKILL.md` inspection template | Added items 3-4 (first emitted turn is 2, subsequent strictly increasing); renumbered to 14 items |
+| `2026-04-07-t7-executable-slice-definition.md` | Updated pass condition from 12 to 14 checklist items |
+| `2026-04-07-t8-minimum-runnable-shakedown-packet.md` | Updated checklist references from 12-item to 14-item with corrected group ranges |
+
+**Acceptance criteria verification:**
+
+1. `dialogue-codex/SKILL.md` defines `turn` semantics without contradiction — field table, loop entry, exemplars, and parse-failure conditions all agree on model 2.
+2. Exemplars match the chosen semantics — both show `turn: 2` as first emitted, with explicit commentary.
+3. Inspection checklist can adjudicate — conformance checklist has separate checks for first-emitted value and monotonicity.
+4. Future shakedown runs require no operator judgment — the rules are mechanical: first block must be `turn: 2`, subsequent must strictly increase.
 
 ## References
 

@@ -343,7 +343,7 @@ Stabilization decision rules:
 
 ### `T7`: Formal Shakedown
 
-Inspector completes the 12-item rubric within 48 hours of run completion.
+Inspector completes the 14-item rubric within 48 hours of run completion.
 
 Outcomes:
 

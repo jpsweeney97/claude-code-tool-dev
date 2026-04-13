@@ -230,9 +230,9 @@ All prose follows the closing sentinel. No other JSON fence permitted in the tur
 
 ### State Object Required Fields
 
-| Field | Type | Every turn |
+| Field | Type | Every emitted state block |
 |-------|------|------------|
-| `turn` | int | Monotonically increasing, starting at 1 |
+| `turn` | int | Monotonically increasing. First emitted state block is `turn: 2` (first post-reply verification turn). `turn: 1` is the opening send — no state block emitted. |
 | `scouted` | bool | Yes |
 | `target_claim_id` | int \| null | Yes |
 | `target_claim` | string \| null | Yes |
@@ -266,7 +266,8 @@ Any of these is a parse failure:
 - Wrong enum or type
 - `scouted: true` without required query coverage
 - Terminal turn without `epilogue`
-- Non-monotonic `turn`
+- First emitted state block has `turn` != 2
+- Non-monotonic `turn` on subsequent emitted turns
 
 **B4 checks:**
 - [ ] Exactly one state block per turn
@@ -274,7 +275,8 @@ Any of these is a parse failure:
 - [ ] Closing sentinel is literal `</SHAKEDOWN_TURN_STATE>`
 - [ ] JSON is in a fenced `json` block between sentinels
 - [ ] No other JSON fence in the turn
-- [ ] `turn` is monotonically increasing (1, 2, 3, ...)
+- [ ] First emitted `turn` is 2
+- [ ] Subsequent `turn` values are strictly increasing
 - [ ] All 13 top-level fields present on every turn
 - [ ] `counters` has all 8 subfields
 - [ ] `effective_delta` has all 8 subfields (per-turn delta, not cumulative)

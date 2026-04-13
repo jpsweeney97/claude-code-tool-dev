@@ -249,11 +249,11 @@ All prose follows the closing sentinel. Do NOT emit any other JSON fence in the 
 
 ### State Object Fields
 
-Every turn, all 13 fields present:
+Every emitted state block, all 13 fields present:
 
 | Field | Type | Rules |
 |-------|------|-------|
-| `turn` | int | Monotonically increasing, starting at 1 |
+| `turn` | int | Monotonically increasing. First emitted state block is `turn: 2` (the first post-reply verification turn). `turn: 1` is the opening send to Codex, which does not emit a state block. |
 | `scouted` | bool | `true` if scouting occurred this turn |
 | `target_claim_id` | int or null | Claim ID scouted, null if not scouting |
 | `target_claim` | string or null | Claim text scouted, null if not scouting |
@@ -297,7 +297,8 @@ Any of these makes a turn invalid:
 - Wrong enum value or type (e.g., string where int expected, disposition outside the enum)
 - `scouted: true` without required query coverage (missing definition or falsification)
 - Terminal turn without `epilogue` (or `epilogue` non-null on a non-terminal turn)
-- Non-monotonic `turn` counter
+- First emitted state block has `turn` != 2
+- Non-monotonic `turn` counter on subsequent emitted turns
 - Any JSON fence outside the sentinel-wrapped state block
 
 A turn that satisfies the positive field table but violates any of these conditions is still invalid.
@@ -406,7 +407,7 @@ Key points:
 - Relational claim: primary entity `McpServer` determines scout focus. Definition reads the lazy initializer. Falsification `Grep "DialogueController\("` encodes the contradiction in the pattern — direct construction would bypass the factory. Zero matches confirms deferred creation.
 - `not_scoutable` claim 4 is in the ledger and counters but never selected for scouting.
 - All Grep queries include `path:` — pathless calls are denied by containment.
-- `effective_delta` equals `counters` because this is the first turn with claims.
+- `effective_delta` equals `counters` because this is the first emitted turn (turn 2, after Codex's first reply). Turn 1 is the opening send, which does not emit a state block.
 - `\(` is escaped — unescaped `(` is invalid regex under ripgrep.
 
 ## 11. Exemplar: Terminal Epilogue
