@@ -1908,6 +1908,284 @@ class TestFirstTurnFastPath:
             "Second reply should use read_thread to count completed turns"
         )
 
+    def test_empty_plus_diagnostics_remote_zero_completed(
+        self, tmp_path: Path
+    ) -> None:
+        """Corrupt JSONL + remote says 0 completed → proceed as turn 1."""
+        focus = tmp_path / "focus.py"
+        focus.write_text("print('focus')\n", encoding="utf-8")
+
+        class TrackingSession(FakeRuntimeSession):
+            def __init__(self) -> None:
+                super().__init__()
+                self.read_thread_calls: int = 0
+
+            def read_thread(self, thread_id: str) -> dict:
+                self.read_thread_calls += 1
+                return {"thread": {"id": thread_id, "turns": []}}
+
+        session = TrackingSession()
+        controller, _, _, _, _ = _build_dialogue_stack(
+            tmp_path, session=session
+        )
+        start = controller.start(tmp_path)
+
+        # Corrupt the JSONL to produce diagnostics without valid records
+        store_path = (
+            tmp_path / "plugin-data" / "turns" / "sess-1" / "turn_metadata.jsonl"
+        )
+        store_path.parent.mkdir(parents=True, exist_ok=True)
+        with store_path.open("a", encoding="utf-8") as f:
+            f.write("not valid json\n")
+
+        reply = controller.reply(
+            collaboration_id=start.collaboration_id,
+            objective="First turn",
+            explicit_paths=(Path("focus.py"),),
+        )
+        assert reply.turn_sequence == 1
+        assert session.read_thread_calls == 1, (
+            "Diagnostics should force remote validation even with empty local metadata"
+        )
+
+    def test_empty_plus_diagnostics_remote_two_completed(
+        self, tmp_path: Path
+    ) -> None:
+        """Corrupt JSONL + remote says 2 completed → integrity error, handle unknown."""
+        session = FakeRuntimeSession()
+        session.read_thread_response = {
+            "thread": {
+                "id": "thr-start",
+                "turns": [
+                    {"id": "turn-1", "status": "completed"},
+                    {"id": "turn-2", "status": "completed"},
+                ],
+            },
+        }
+        controller, _, store, _, _ = _build_dialogue_stack(tmp_path, session=session)
+        start = controller.start(tmp_path)
+
+        store_path = (
+            tmp_path / "plugin-data" / "turns" / "sess-1" / "turn_metadata.jsonl"
+        )
+        store_path.parent.mkdir(parents=True, exist_ok=True)
+        with store_path.open("a", encoding="utf-8") as f:
+            f.write("not valid json\n")
+
+        with pytest.raises(RuntimeError, match="incomplete for completed remote"):
+            controller.reply(
+                collaboration_id=start.collaboration_id,
+                objective="First turn",
+                explicit_paths=(Path(tmp_path / "focus.py"),),
+            )
+
+        handle = store.get(start.collaboration_id)
+        assert handle.status == "unknown"
+
+    def test_empty_plus_diagnostics_remote_fails(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Corrupt JSONL + read_thread raises → error mentions diagnostics."""
+        session = FakeRuntimeSession()
+        controller, _, _, _, _ = _build_dialogue_stack(tmp_path, session=session)
+        start = controller.start(tmp_path)
+
+        store_path = (
+            tmp_path / "plugin-data" / "turns" / "sess-1" / "turn_metadata.jsonl"
+        )
+        store_path.parent.mkdir(parents=True, exist_ok=True)
+        with store_path.open("a", encoding="utf-8") as f:
+            f.write("not valid json\n")
+
+        monkeypatch.setattr(
+            session, "read_thread", lambda _tid: (_ for _ in ()).throw(RuntimeError("remote boom"))
+        )
+
+        with pytest.raises(RuntimeError, match="session turn metadata file has replay diagnostics") as exc_info:
+            controller.reply(
+                collaboration_id=start.collaboration_id,
+                objective="First turn",
+                explicit_paths=(Path(tmp_path / "focus.py"),),
+            )
+        assert exc_info.value.__cause__ is not None
+
+    def test_gap_metadata_integrity_error(self, tmp_path: Path) -> None:
+        """Gap {2} with remote 2 completed → integrity error."""
+        session = FakeRuntimeSession()
+        session.read_thread_response = {
+            "thread": {
+                "id": "thr-start",
+                "turns": [
+                    {"id": "turn-1", "status": "completed"},
+                    {"id": "turn-2", "status": "completed"},
+                ],
+            },
+        }
+        controller, _, store, _, turn_store = _build_dialogue_stack(
+            tmp_path, session=session
+        )
+        start = controller.start(tmp_path)
+        turn_store.write(start.collaboration_id, turn_sequence=2, context_size=4096)
+
+        with pytest.raises(RuntimeError, match="Required.*\\[1, 2\\].*present.*\\[2\\]"):
+            controller.reply(
+                collaboration_id=start.collaboration_id,
+                objective="Next turn",
+                explicit_paths=(Path(tmp_path / "focus.py"),),
+            )
+        assert store.get(start.collaboration_id).status == "unknown"
+
+    def test_partial_tail_integrity_error(self, tmp_path: Path) -> None:
+        """Partial tail {1} with remote 2 completed → integrity error."""
+        session = FakeRuntimeSession()
+        session.read_thread_response = {
+            "thread": {
+                "id": "thr-start",
+                "turns": [
+                    {"id": "turn-1", "status": "completed"},
+                    {"id": "turn-2", "status": "completed"},
+                ],
+            },
+        }
+        controller, _, store, _, turn_store = _build_dialogue_stack(
+            tmp_path, session=session
+        )
+        start = controller.start(tmp_path)
+        turn_store.write(start.collaboration_id, turn_sequence=1, context_size=4096)
+
+        with pytest.raises(RuntimeError, match="Required.*\\[1, 2\\].*present.*\\[1\\]"):
+            controller.reply(
+                collaboration_id=start.collaboration_id,
+                objective="Next turn",
+                explicit_paths=(Path(tmp_path / "focus.py"),),
+            )
+        assert store.get(start.collaboration_id).status == "unknown"
+
+    def test_nonempty_local_remote_fails(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Non-empty local + read_thread raises → error mentions sequences."""
+        session = FakeRuntimeSession()
+        controller, _, _, _, turn_store = _build_dialogue_stack(
+            tmp_path, session=session
+        )
+        start = controller.start(tmp_path)
+        turn_store.write(start.collaboration_id, turn_sequence=1, context_size=4096)
+
+        monkeypatch.setattr(
+            session, "read_thread", lambda _tid: (_ for _ in ()).throw(RuntimeError("remote boom"))
+        )
+
+        with pytest.raises(RuntimeError, match="cannot validate local turn metadata.*sequences=\\[1\\]") as exc_info:
+            controller.reply(
+                collaboration_id=start.collaboration_id,
+                objective="Next turn",
+                explicit_paths=(Path(tmp_path / "focus.py"),),
+            )
+        assert exc_info.value.__cause__ is not None
+
+    def test_zero_turn_stale_metadata_integrity_error(
+        self, tmp_path: Path
+    ) -> None:
+        """Stale local {1} + remote 0 completed → integrity error (zero-turn tightening).
+
+        Proves the reply path applies the same zero-turn stale metadata
+        rejection as recover_startup(). Without this, a buggy implementation
+        could allow stale metadata through on the reply path while correctly
+        rejecting it on recovery.
+        """
+        session = FakeRuntimeSession()
+        session.read_thread_response = {
+            "thread": {"id": "thr-start", "turns": []},
+        }
+        controller, _, store, _, turn_store = _build_dialogue_stack(
+            tmp_path, session=session
+        )
+        start = controller.start(tmp_path)
+        turn_store.write(start.collaboration_id, turn_sequence=1, context_size=500)
+
+        with pytest.raises(RuntimeError, match="incomplete for completed remote"):
+            controller.reply(
+                collaboration_id=start.collaboration_id,
+                objective="First turn",
+                explicit_paths=(Path(tmp_path / "focus.py"),),
+            )
+        assert store.get(start.collaboration_id).status == "unknown"
+
+    def test_extra_local_keys_prefix_complete(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Extra local {1,2,3} with remote 2 completed → succeeds, warns on stderr."""
+        focus = tmp_path / "focus.py"
+        focus.write_text("print('focus')\n", encoding="utf-8")
+        session = FakeRuntimeSession()
+        session.read_thread_response = {
+            "thread": {
+                "id": "thr-start",
+                "turns": [
+                    {"id": "turn-1", "status": "completed"},
+                    {"id": "turn-2", "status": "completed"},
+                ],
+            },
+        }
+        controller, _, _, _, turn_store = _build_dialogue_stack(
+            tmp_path, session=session
+        )
+        start = controller.start(tmp_path)
+        turn_store.write(start.collaboration_id, turn_sequence=1, context_size=4096)
+        turn_store.write(start.collaboration_id, turn_sequence=2, context_size=8192)
+        turn_store.write(start.collaboration_id, turn_sequence=3, context_size=2048)
+
+        reply = controller.reply(
+            collaboration_id=start.collaboration_id,
+            objective="Next turn",
+            explicit_paths=(Path("focus.py"),),
+        )
+        assert reply.turn_sequence == 3
+        stderr = capsys.readouterr().err
+        assert "extra local turn metadata beyond completed count" in stderr
+
+    def test_unrelated_collaboration_corruption_disables_fast_path(
+        self, tmp_path: Path
+    ) -> None:
+        """Corrupt JSONL from collab-B disables fast path for collab-A (file-global)."""
+        focus = tmp_path / "focus.py"
+        focus.write_text("print('focus')\n", encoding="utf-8")
+
+        class TrackingSession(FakeRuntimeSession):
+            def __init__(self) -> None:
+                super().__init__()
+                self.read_thread_calls: int = 0
+
+            def read_thread(self, thread_id: str) -> dict:
+                self.read_thread_calls += 1
+                return {"thread": {"id": thread_id, "turns": []}}
+
+        session = TrackingSession()
+        controller, _, _, _, turn_store = _build_dialogue_stack(
+            tmp_path, session=session
+        )
+        start = controller.start(tmp_path)
+
+        # Write valid metadata for a DIFFERENT collaboration, then corrupt
+        turn_store.write("other-collab", turn_sequence=1, context_size=1000)
+        store_path = (
+            tmp_path / "plugin-data" / "turns" / "sess-1" / "turn_metadata.jsonl"
+        )
+        with store_path.open("a", encoding="utf-8") as f:
+            f.write("corrupted line from other collab\n")
+
+        reply = controller.reply(
+            collaboration_id=start.collaboration_id,
+            objective="First turn",
+            explicit_paths=(Path("focus.py"),),
+        )
+        assert reply.turn_sequence == 1
+        assert session.read_thread_calls == 1, (
+            "File-global diagnostics should force remote validation "
+            "even though this collaboration has no corrupt records"
+        )
+
 
 class TestRecoveryOutcomeEmission:
     def test_recovery_confirmed_emits_outcome_record(self, tmp_path: Path) -> None:
