@@ -190,3 +190,94 @@ class TestPublishSessionIdHook:
         )
         assert result.returncode == 0
         assert not (tmp_path / "session_id").exists()
+
+
+# ---------------------------------------------------------------------------
+# Skill metadata boundary
+# ---------------------------------------------------------------------------
+
+_skills_root = Path(__file__).resolve().parent.parent / "skills"
+
+# Tools that belong to the consult-only surface (T-20260330-02 scope).
+# Dialogue tools are shipped by the MCP server but must NOT appear in
+# skill allowed-tools — the skill layer is the user-facing boundary.
+_CONSULT_SURFACE_MCP_TOOLS = frozenset(
+    {
+        "mcp__plugin_codex-collaboration_codex-collaboration__codex.status",
+        "mcp__plugin_codex-collaboration_codex-collaboration__codex.consult",
+    }
+)
+
+_DIALOGUE_MCP_TOOLS = frozenset(
+    {
+        "mcp__plugin_codex-collaboration_codex-collaboration__codex.dialogue.start",
+        "mcp__plugin_codex-collaboration_codex-collaboration__codex.dialogue.reply",
+        "mcp__plugin_codex-collaboration_codex-collaboration__codex.dialogue.read",
+    }
+)
+
+
+def _parse_allowed_tools(skill_path: Path) -> set[str]:
+    """Extract allowed-tools from a SKILL.md YAML frontmatter block."""
+    text = skill_path.read_text(encoding="utf-8")
+    # Frontmatter is between the first two '---' lines.
+    parts = text.split("---", 2)
+    if len(parts) < 3:
+        raise ValueError(f"No YAML frontmatter in {skill_path}")
+    import yaml
+
+    meta = yaml.safe_load(parts[1])
+    raw = meta.get("allowed-tools", "")
+    return {t.strip() for t in raw.split(",") if t.strip()}
+
+
+class TestSkillMetadataBoundary:
+    """Assert that consult-surface skills only reference consult-surface tools.
+
+    The MCP server ships dialogue tools (R2), but the T-20260330-02 skill
+    layer must not expose them. These tests pin that boundary so a future
+    skill edit that adds dialogue tools to allowed-tools fails explicitly.
+    """
+
+    def test_consult_skill_only_references_consult_tools(self) -> None:
+        allowed = _parse_allowed_tools(_skills_root / "consult-codex" / "SKILL.md")
+        mcp_tools = allowed - {"Bash"}  # Bash is a host tool, not MCP
+        assert mcp_tools == _CONSULT_SURFACE_MCP_TOOLS
+        assert not mcp_tools & _DIALOGUE_MCP_TOOLS
+
+    def test_status_skill_only_references_status_tool(self) -> None:
+        allowed = _parse_allowed_tools(_skills_root / "codex-status" / "SKILL.md")
+        mcp_tools = allowed - {"Bash"}
+        assert mcp_tools == {
+            "mcp__plugin_codex-collaboration_codex-collaboration__codex.status"
+        }
+        assert not mcp_tools & _DIALOGUE_MCP_TOOLS
+
+    def test_no_user_invocable_dialogue_skill_exists(self) -> None:
+        """No user-invocable dialogue skill should exist in the T-20260330-02 surface.
+
+        Agent-internal skills (user-invocable: false or absent) may reference
+        dialogue tools — they are subagent behavioral contracts, not user-facing
+        commands. Only user-invocable skills define the plugin's user surface.
+        """
+        for skill_dir in _skills_root.iterdir():
+            if not skill_dir.is_dir():
+                continue
+            skill_file = skill_dir / "SKILL.md"
+            if not skill_file.exists():
+                continue
+            text = skill_file.read_text(encoding="utf-8")
+            parts = text.split("---", 2)
+            if len(parts) < 3:
+                continue
+            import yaml
+
+            meta = yaml.safe_load(parts[1])
+            if not meta.get("user-invocable", False):
+                continue
+            # This is a user-invocable skill — it must not be dialogue-scoped
+            allowed = _parse_allowed_tools(skill_file)
+            assert not allowed & _DIALOGUE_MCP_TOOLS, (
+                f"User-invocable skill {skill_dir.name!r} references dialogue tools: "
+                f"{allowed & _DIALOGUE_MCP_TOOLS}"
+            )
