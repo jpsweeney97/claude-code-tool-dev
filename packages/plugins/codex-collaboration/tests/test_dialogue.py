@@ -2280,6 +2280,76 @@ class TestRecoverStartupMetadataCompleteness:
             "prefix {1, 2} is complete for completed_count=2"
         )
 
+    def test_unrelated_corruption_zero_completed_still_reattaches(
+        self, tmp_path: Path
+    ) -> None:
+        """Unrelated JSONL corruption does not change zero-turn recovery behavior.
+
+        recover_startup() intentionally ignores replay diagnostics and decides
+        eligibility from recovered metadata plus remote completed turns. This
+        pins the asymmetry with _next_turn_sequence(), which must distrust an
+        empty store when the session-wide JSONL has diagnostics.
+        """
+        session = FakeRuntimeSession()
+        session.read_thread_response = {
+            "thread": {"id": "thr-start", "turns": []},
+        }
+        controller, _, store, _, turn_store = _build_dialogue_stack(
+            tmp_path, session=session
+        )
+        start = controller.start(tmp_path)
+
+        turn_store.write("other-collab", turn_sequence=1, context_size=1000)
+        store_path = (
+            tmp_path / "plugin-data" / "turns" / "sess-1" / "turn_metadata.jsonl"
+        )
+        with store_path.open("a", encoding="utf-8") as f:
+            f.write("corrupted line from other collab\n")
+
+        controller.recover_startup()
+
+        handle = store.get(start.collaboration_id)
+        assert handle.status == "active"
+        assert session.resumed_threads == ["thr-start"]
+
+    def test_same_collaboration_corruption_prefix_complete_still_reattaches(
+        self, tmp_path: Path
+    ) -> None:
+        """Same-collaboration corruption does not quarantine prefix-complete metadata.
+
+        replay_jsonl() still returns valid records around a corrupt line, and
+        recover_startup() intentionally uses get_all() rather than
+        get_all_checked(). This test pins that recovery behavior explicitly.
+        """
+        session = FakeRuntimeSession()
+        session.read_thread_response = {
+            "thread": {
+                "id": "thr-start",
+                "turns": [
+                    {"id": "turn-1", "status": "completed"},
+                    {"id": "turn-2", "status": "completed"},
+                ],
+            },
+        }
+        controller, _, store, _, turn_store = _build_dialogue_stack(
+            tmp_path, session=session
+        )
+        start = controller.start(tmp_path)
+
+        turn_store.write(start.collaboration_id, turn_sequence=1, context_size=4096)
+        store_path = (
+            tmp_path / "plugin-data" / "turns" / "sess-1" / "turn_metadata.jsonl"
+        )
+        with store_path.open("a", encoding="utf-8") as f:
+            f.write("not valid json\n")
+        turn_store.write(start.collaboration_id, turn_sequence=2, context_size=8192)
+
+        controller.recover_startup()
+
+        handle = store.get(start.collaboration_id)
+        assert handle.status == "active"
+        assert session.resumed_threads == ["thr-start"]
+
 
 class TestRecoveryOutcomeEmission:
     def test_recovery_confirmed_emits_outcome_record(self, tmp_path: Path) -> None:
