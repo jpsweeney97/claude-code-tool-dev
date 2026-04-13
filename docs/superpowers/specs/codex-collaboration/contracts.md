@@ -153,10 +153,9 @@ When an advisory runtime crashes ([recovery-and-journal.md §Advisory Runtime Cr
 
 1. The control plane restarts the advisory runtime.
 2. The control plane reads all handles with `status: active` and all eligible handles with `status: unknown` from the lineage store for the current session and repo root.
-3. Eligibility for an `unknown` handle is:
-   - zero completed turns, OR
-   - complete TurnStore metadata for every completed turn,
-   and in either case successful `thread/read` followed by `thread/resume`.
+3. Eligibility for an `unknown` handle requires successful `thread/read` followed by `thread/resume`, and the local TurnStore must satisfy:
+   - if `completed_count == 0`: the TurnStore must have no metadata for this collaboration (stale local metadata with zero remote completed turns is ineligible),
+   - if `completed_count > 0`: metadata keys `{1, 2, ..., completed_count}` must all be present (prefix-completeness; extra keys beyond `completed_count` do not disqualify).
 4. For each enumerated handle, the control plane uses Codex `thread/read` on the handle's `codex_thread_id` to recover the latest completed state, then `thread/resume` to reattach the thread in the replacement runtime.
 5. The control plane calls `update_runtime` on each recovered handle to point to the new runtime instance. If `thread/resume` yields a new thread identity, the handle's `codex_thread_id` must also be updated.
 6. Pending server requests associated with crashed handles are marked canceled.

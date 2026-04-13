@@ -67,6 +67,26 @@ def _log_recovery_failure(operation: str, reason: Exception, got: object) -> Non
     )
 
 
+def _local_metadata_complete_for_completed_turns(
+    local_turns: dict[int, int], completed_count: int
+) -> bool:
+    """True iff local metadata covers every completed remote turn.
+
+    Checks that keys {1, 2, ..., completed_count} are all present.
+    Extra local keys beyond completed_count are not rejected — they are
+    anomalous but do not affect turn-sequence derivation. This matches
+    the prefix-completeness rule enforced by read() (dialogue.py:853)
+    and the crash-recovery contract (contracts.md:156-158).
+
+    For completed_count == 0: returns True only if local_turns is empty.
+    This is a deliberate tightening beyond read()'s enforcement — stale
+    local metadata with zero completed remote turns is anomalous state.
+    """
+    if completed_count == 0:
+        return not local_turns
+    return set(range(1, completed_count + 1)).issubset(local_turns.keys())
+
+
 class DialogueController:
     """Implements codex.dialogue.start, .reply, .read, and crash recovery."""
 
@@ -489,9 +509,12 @@ class DialogueController:
 
         Per contracts.md:141-151 (crash recovery contract).
 
-        Unknown handles are eligible for reattach if:
-        - they have no completed turns (vacuous metadata check), OR
-        - all completed turns have corresponding TurnStore metadata
+        Unknown handles are eligible for reattach if their local TurnStore
+        metadata passes prefix-completeness:
+        - if completed_count == 0: the TurnStore must have no metadata
+          for this collaboration (deliberate tightening — see contracts.md)
+        - if completed_count > 0: metadata keys {1..completed_count}
+          must all be present (extra keys beyond completed_count tolerated)
 
         Rollout boundary: pre-fix dialogues (turns dispatched before TurnStore)
         cannot continue after deployment. The journal is session-bounded, so
@@ -509,9 +532,11 @@ class DialogueController:
 
         # Phase 2: enumerate active and unknown handles for reattach.
         # Skip handles already resumed by phase 1 to avoid double-resume.
-        # Quarantine any handle with incomplete TurnStore metadata.
-        # Unknown handles are eligible for reattach if metadata is complete
-        # (or if they have no completed turns to check).
+        # Quarantine any handle that fails prefix-completeness:
+        # - completed_count == 0: no stale local metadata allowed
+        # - completed_count > 0: keys {1..completed_count} all present
+        # Uses the same _local_metadata_complete_for_completed_turns()
+        # helper as _next_turn_sequence() for reply/recovery symmetry.
         active_handles = self._lineage_store.list(status="active")
         unknown_handles = self._lineage_store.list(status="unknown")
         for handle in active_handles + unknown_handles:
@@ -530,13 +555,14 @@ class DialogueController:
                     for t in raw_turns
                     if isinstance(t, dict) and t.get("status") == "completed"
                 )
-                if completed_count > 0:
-                    metadata = self._turn_store.get_all(handle.collaboration_id)
-                    if len(metadata) < completed_count:
-                        self._lineage_store.update_status(
-                            handle.collaboration_id, "unknown"
-                        )
-                        continue
+                metadata = self._turn_store.get_all(handle.collaboration_id)
+                if not _local_metadata_complete_for_completed_turns(
+                    metadata, completed_count
+                ):
+                    self._lineage_store.update_status(
+                        handle.collaboration_id, "unknown"
+                    )
+                    continue
 
                 resumed_thread_id = runtime.session.resume_thread(
                     handle.codex_thread_id
@@ -731,25 +757,72 @@ class DialogueController:
 
         dialogue.start does not consume a slot (contracts.md:266).
 
-        First-turn fast path: if TurnStore has no local metadata for this
-        collaboration, no turns have ever completed — return 1 without calling
-        read_thread(). This avoids racing thread materialization on the App
-        Server (thread/start returns before thread/read is ready).
-
-        Subsequent turns: fall back to read_thread() and count completed turns,
-        preserving remote-authoritative validation.
+        Three-phase trust policy:
+        1. Fast path: empty TurnStore + no replay diagnostics → return 1
+        2. Remote read: all other states require read_thread()
+        3. Consistency: validate local metadata against remote completed count
         """
-        local_turns = self._turn_store.get_all(handle.collaboration_id)
-        if not local_turns:
+        collaboration_id = handle.collaboration_id
+        local_turns, diagnostics = self._turn_store.get_all_checked(collaboration_id)
+
+        # Phase 1: local-only fast path
+        if not local_turns and not diagnostics.diagnostics:
             return 1
 
-        thread_data = runtime.session.read_thread(handle.codex_thread_id)
+        # Phase 2: remote read (all non-fast-path states)
+        try:
+            thread_data = runtime.session.read_thread(handle.codex_thread_id)
+        except Exception as exc:
+            if not local_turns:
+                diag_labels = ", ".join(
+                    sorted({d.label for d in diagnostics.diagnostics})
+                )
+                raise RuntimeError(
+                    f"Turn sequence derivation failed: session turn metadata "
+                    f"file has replay diagnostics "
+                    f"(diagnostics={diag_labels}), and remote thread read "
+                    f"failed. Got: collaboration_id={collaboration_id!r:.100}"
+                ) from exc
+            raise RuntimeError(
+                f"Turn sequence derivation failed: cannot validate local "
+                f"turn metadata (sequences={sorted(local_turns.keys())}) "
+                f"against remote, remote thread read failed. "
+                f"Got: collaboration_id={collaboration_id!r:.100}"
+            ) from exc
+
         raw_turns = thread_data.get("thread", {}).get("turns", [])
         completed_count = sum(
             1
             for t in raw_turns
             if isinstance(t, dict) and t.get("status") == "completed"
         )
+
+        # Phase 3: remote/local consistency
+        if not _local_metadata_complete_for_completed_turns(
+            local_turns, completed_count
+        ):
+            self._lineage_store.update_status(collaboration_id, "unknown")
+            raise RuntimeError(
+                f"Turn sequence derivation failed: local turn metadata "
+                f"incomplete for completed remote turns. "
+                f"Required sequences "
+                f"{list(range(1, completed_count + 1))}, "
+                f"present {sorted(local_turns.keys())}. "
+                f"Got: collaboration_id={collaboration_id!r:.100}, "
+                f"completed_count={completed_count}, "
+                f"actual_sequences={sorted(local_turns.keys())}"
+            )
+
+        if len(local_turns) > completed_count:
+            print(
+                f"codex-collaboration: _next_turn_sequence anomaly: extra "
+                f"local turn metadata beyond completed count. "
+                f"collaboration_id={collaboration_id!r:.100}, "
+                f"completed_count={completed_count}, "
+                f"local_sequences={sorted(local_turns.keys())}",
+                file=sys.stderr,
+            )
+
         return completed_count + 1
 
     def _best_effort_repair_turn(

@@ -70,6 +70,26 @@ class TurnStore:
             if key.startswith(prefix)
         }
 
+    def get_all_checked(
+        self, collaboration_id: str
+    ) -> tuple[dict[int, int], ReplayDiagnostics]:
+        """Return {turn_sequence: context_size} and replay diagnostics in one pass.
+
+        Diagnostics are file-global (session-wide JSONL), not collaboration-scoped.
+        A corrupt line from an unrelated collaboration appears in the diagnostics.
+        Callers should treat any diagnostic as reason to distrust an otherwise-empty
+        result for this collaboration. See the design spec for the blast-radius
+        rationale.
+        """
+        all_turns, diagnostics = replay_jsonl(self._store_path, _turn_callback)
+        prefix = f"{collaboration_id}:"
+        filtered = {
+            int(key.split(":", 1)[1]): value
+            for key, value in dict(all_turns).items()
+            if key.startswith(prefix)
+        }
+        return filtered, diagnostics
+
     def check_health(self) -> ReplayDiagnostics:
         """Replay and return diagnostics. Test and diagnostic support only."""
         _, diagnostics = replay_jsonl(self._store_path, _turn_callback)
