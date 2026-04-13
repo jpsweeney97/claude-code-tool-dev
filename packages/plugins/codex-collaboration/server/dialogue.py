@@ -67,6 +67,26 @@ def _log_recovery_failure(operation: str, reason: Exception, got: object) -> Non
     )
 
 
+def _local_metadata_complete_for_completed_turns(
+    local_turns: dict[int, int], completed_count: int
+) -> bool:
+    """True iff local metadata covers every completed remote turn.
+
+    Checks that keys {1, 2, ..., completed_count} are all present.
+    Extra local keys beyond completed_count are not rejected — they are
+    anomalous but do not affect turn-sequence derivation. This matches
+    the prefix-completeness rule enforced by read() (dialogue.py:853)
+    and the crash-recovery contract (contracts.md:156-158).
+
+    For completed_count == 0: returns True only if local_turns is empty.
+    This is a deliberate tightening beyond read()'s enforcement — stale
+    local metadata with zero completed remote turns is anomalous state.
+    """
+    if completed_count == 0:
+        return not local_turns
+    return set(range(1, completed_count + 1)).issubset(local_turns.keys())
+
+
 class DialogueController:
     """Implements codex.dialogue.start, .reply, .read, and crash recovery."""
 
