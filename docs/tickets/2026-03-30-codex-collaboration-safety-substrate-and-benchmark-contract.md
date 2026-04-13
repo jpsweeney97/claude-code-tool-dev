@@ -3,12 +3,32 @@
 ```yaml
 id: T-20260330-03
 date: 2026-03-30
-status: open
+status: closed
+closed_date: 2026-04-13
+resolution: completed
+resolution_ref: test/t-20260330-02-skill-boundary
 priority: high
 tags: [codex-collaboration, safety, profiles, learnings, benchmark, supersession]
 blocked_by: [T-20260330-02]
 blocks: [T-20260330-04, T-20260330-05]
 effort: large
+branch: test/t-20260330-02-skill-boundary
+files:
+  - packages/plugins/codex-collaboration/server/credential_scan.py
+  - packages/plugins/codex-collaboration/server/secret_taxonomy.py
+  - packages/plugins/codex-collaboration/server/consultation_safety.py
+  - packages/plugins/codex-collaboration/server/profiles.py
+  - packages/plugins/codex-collaboration/server/retrieve_learnings.py
+  - packages/plugins/codex-collaboration/server/models.py
+  - packages/plugins/codex-collaboration/server/journal.py
+  - packages/plugins/codex-collaboration/server/context_assembly.py
+  - packages/plugins/codex-collaboration/server/control_plane.py
+  - packages/plugins/codex-collaboration/server/dialogue.py
+  - packages/plugins/codex-collaboration/scripts/codex_guard.py
+  - packages/plugins/codex-collaboration/hooks/hooks.json
+  - packages/plugins/codex-collaboration/references/consultation-profiles.yaml
+  - packages/plugins/codex-collaboration/README.md
+  - docs/superpowers/specs/codex-collaboration/dialogue-supersession-benchmark.md
 ```
 
 ## Context
@@ -121,3 +141,50 @@ stable, `T-20260330-04` and `T-20260330-05` can proceed in parallel.
 | Cross-model learnings retrieval | `packages/plugins/cross-model/scripts/retrieve_learnings.py` | Semantic source only |
 | Cross-model analytics emission | `packages/plugins/cross-model/scripts/emit_analytics.py` | Semantic source only |
 | Benchmark contract target | `docs/superpowers/specs/codex-collaboration/dialogue-supersession-benchmark.md` | New verification contract |
+
+## Resolution
+
+All 8 acceptance criteria met. Subsystems were implemented incrementally as
+greenfield rewrites (per `decisions.md` greenfield rules) prior to this ticket
+formally opening. This session verified each criterion against implementation
+evidence and fixed stale README documentation.
+
+### Acceptance criteria mapping
+
+| # | Criterion | Evidence | Status |
+|---|-----------|----------|--------|
+| 1 | Credential scanning fails closed | `codex_guard.py` exits 2 on parse/input/internal errors. `hooks.json` wires PreToolUse for `codex.consult`, `codex.dialogue.start`, `codex.dialogue.reply` | Verified |
+| 2 | Secret taxonomy used by scanner | `credential_scan.py:14` imports `FAMILIES`, `check_placeholder_bypass` from `secret_taxonomy`. 230-line taxonomy, strict/contextual/broad tiers | Verified |
+| 3 | Tool-input safety policy | `consultation_safety.py:33-54` defines per-tool policies: `CONSULT_POLICY`, `DIALOGUE_START_POLICY`, `DIALOGUE_REPLY_POLICY` | Verified |
+| 4 | Profile resolution | `profiles.py:78` `resolve_profile()` returns posture, turn_budget, reasoning_effort, sandbox, approval_policy. 9 named profiles. Phased profiles rejected pending support | Verified |
+| 5 | Learning retrieval into briefings | `context_assembly.py:155-164` calls `retrieve_learnings()`, injects into `supplementary_context` with redaction | Verified |
+| 6 | Analytics emission | `OutcomeRecord` in `models.py:160`. Consult emits at `control_plane.py:228`, dialogue at `dialogue.py:256`. Dedup via `append_dialogue_outcome_once()`. Shape consistency tested | Verified |
+| 7 | Benchmark contract | `dialogue-supersession-benchmark.md` (297 lines): Fixed Corpus (8 tasks), Adjudication Rules, Metrics (6), Pass Rule (4 conditions), Decision Consequences, Change Control | Verified |
+| 8 | Spec docs point to benchmark | Listed as reading order #7 in spec `README.md:51`, authority `delivery`. Referenced from `delivery.md:264` and `decisions.md:35` | Verified |
+
+### Documentation fix
+
+Removed stale limitation entries ("No credential scanning" and "No profiles or
+learning retrieval") from `packages/plugins/codex-collaboration/README.md`.
+Added Safety Substrate section documenting the implemented subsystems. Updated
+Limitations to reflect actual current state (concurrent sessions, phased profiles).
+
+### Design note
+
+Cross-model semantic sources were predecessors, not code to port. All 6
+subsystems are independent rewrites under codex-collaboration's audit model, as
+prescribed by `decisions.md` greenfield rules. The naming divergence (cross-model
+`emit_analytics.py` → codex-collaboration `OutcomeRecord` + `journal.append_outcome()`)
+is intentional: the semantics were ported under new vocabulary.
+
+### Test counts
+
+| Scope | Count |
+|-------|-------|
+| Full package (`tests/`) | 566 |
+| Credential scanning | 90 lines |
+| Consultation safety | 180 lines |
+| Secret taxonomy | 134 lines |
+| Profiles | 236 + 202 lines |
+| Learning retrieval | 117 lines |
+| Outcome shape consistency | 28+ lines |

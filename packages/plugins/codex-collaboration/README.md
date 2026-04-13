@@ -62,11 +62,21 @@ The plugin runs a stdio MCP server (`scripts/codex_runtime_bootstrap.py`) that e
 
 Dialogue state (lineage, journal, turn metadata) is session-scoped. The session identity is published by a `SessionStart` hook and read lazily on the first dialogue tool call.
 
+## Safety Substrate
+
+The plugin enforces a fail-closed credential scanning chain on all content-bearing advisory tool calls (`codex.consult`, `codex.dialogue.start`, `codex.dialogue.reply`):
+
+- **Hook guard** (`scripts/codex_guard.py`): `PreToolUse` hook validates raw tool input before the MCP server processes it. Exits 2 (block) on parse failure, malformed input, or internal error.
+- **Tool-input safety policy** (`server/consultation_safety.py`): Per-tool scan policies with field-aware traversal and tiered credential scanning.
+- **Secret taxonomy** (`server/secret_taxonomy.py`): Tiered pattern definitions — strict (hard-block), contextual (block unless placeholder bypass), broad (shadow/telemetry).
+- **Consultation profiles** (`server/profiles.py`): Named profiles resolving posture, turn budget, reasoning effort, sandbox, and approval policy.
+- **Learning retrieval** (`server/retrieve_learnings.py`): Tag/keyword-matched learnings injected into advisory briefings via the context assembly pipeline.
+- **Analytics emission**: `OutcomeRecord` persisted to `analytics/outcomes.jsonl` for consult and dialogue outcomes.
+
 ## Limitations
 
 - **Concurrent sessions unsupported:** Two simultaneous Claude sessions sharing this plugin will race on the session identity file. Single-session use only for the current rollout target.
-- **No credential scanning:** The safety substrate (hook guard, secret taxonomy) is deferred to T-20260330-03.
-- **No profiles or learning retrieval:** Production consult UX hardening is deferred to T-20260330-03.
+- **No phased profiles:** Profiles with `phases` (e.g., `debugging`) are rejected until phase-progression support is implemented.
 
 ## Tests
 
