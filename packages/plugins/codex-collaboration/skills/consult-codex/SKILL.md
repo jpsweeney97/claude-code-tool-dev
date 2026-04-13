@@ -12,11 +12,11 @@ One-shot advisory consultation via the codex-collaboration runtime.
 
 ## Scope
 
-This is the minimal consult skill for the packaged plugin surface. It proves that an installed plugin can route user input through `codex.status` and `codex.consult`. Production UX hardening (profiles, learnings, analytics, credential scanning) belongs to T-20260330-03.
+This is the thin consult skill for the packaged plugin surface. It routes user input through `codex.status` and `codex.consult`. The safety substrate (credential scanning, profiles, learnings, analytics) is implemented in the server and hook layers — this skill does not duplicate that logic.
 
 **In scope:** Status preflight, consultation dispatch, result relay.
 
-**Out of scope:** Briefing enrichment, credential scanning, profiles, analytics emission, learning retrieval. Do NOT port cross-model consultation features into this skill.
+**Out of scope:** Briefing enrichment is handled by the server's context assembly pipeline, not this skill. Do NOT port cross-model consultation features into this skill.
 
 ## Procedure
 
