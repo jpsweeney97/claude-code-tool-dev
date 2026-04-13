@@ -158,3 +158,37 @@ class TestReplayHardening:
         diags = store.check_health()
         assert diags.diagnostics == ()
         assert diags.has_warnings is False
+
+
+class TestGetAllChecked:
+    def test_clean_store_returns_metadata_and_empty_diagnostics(
+        self, tmp_path: Path
+    ) -> None:
+        store = TurnStore(tmp_path, "sess-1")
+        store.write("collab-1", turn_sequence=1, context_size=4096)
+        store.write("collab-1", turn_sequence=2, context_size=8192)
+        metadata, diagnostics = store.get_all_checked("collab-1")
+        assert metadata == {1: 4096, 2: 8192}
+        assert diagnostics.diagnostics == ()
+
+    def test_corrupt_jsonl_returns_partial_results_and_diagnostics(
+        self, tmp_path: Path
+    ) -> None:
+        store = TurnStore(tmp_path, "sess-1")
+        store.write("collab-1", turn_sequence=1, context_size=4096)
+        store_path = tmp_path / "turns" / "sess-1" / "turn_metadata.jsonl"
+        with store_path.open("a", encoding="utf-8") as f:
+            f.write("not valid json\n")
+        store.write("collab-1", turn_sequence=2, context_size=8192)
+        metadata, diagnostics = store.get_all_checked("collab-1")
+        assert metadata == {1: 4096, 2: 8192}
+        assert len(diagnostics.diagnostics) == 1
+        assert diagnostics.diagnostics[0].label == "mid_file_corruption"
+
+    def test_empty_store_returns_empty_metadata_and_empty_diagnostics(
+        self, tmp_path: Path
+    ) -> None:
+        store = TurnStore(tmp_path, "sess-1")
+        metadata, diagnostics = store.get_all_checked("collab-1")
+        assert metadata == {}
+        assert diagnostics.diagnostics == ()
