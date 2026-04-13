@@ -3,16 +3,21 @@
 ```yaml
 id: T-20260410-02
 date: '2026-04-10'
-status: deferred
+status: closed
+closed_date: '2026-04-13'
+resolution: completed
+resolution_ref: 'PR #105'
 summary: Harden dialogue first-turn fast path and test coverage
 priority: high
 source_type: pr-review
 source_ref: 'PR #101'
 effort: M
-branch: feature/b4-agent-skill-harness-assembly
+branch: fix/t02-dialogue-first-turn-hardening
 files:
 - packages/plugins/codex-collaboration/server/dialogue.py
+- packages/plugins/codex-collaboration/server/turn_store.py
 - packages/plugins/codex-collaboration/tests/test_dialogue.py
+- packages/plugins/codex-collaboration/tests/test_turn_store.py
 ```
 
 ## Problem
@@ -34,5 +39,19 @@ Revisit the first-turn fast-path predicate so it distinguishes 'no local metadat
 ## Evidence
 
 > Fast path trusts TurnStore.get_all() returning empty as proof of 'no turns completed' ... concern is 'what happens under corruption or concurrent writers?' — which is a hardening question, not a runtime-correctness question.
+
+## Resolution
+
+Merged PR #105 (`fix/t02-dialogue-first-turn-hardening`, 8 commits, `9cbcb8a3`).
+
+**What shipped:**
+- `_local_metadata_complete_for_completed_turns()` shared prefix-completeness helper replacing the old `len(metadata) < completed_count` cardinality check
+- `_next_turn_sequence()` rewritten with three-phase trust policy (empty+clean → fast path; empty+diagnostics or non-empty → remote validation; prefix-completeness gate)
+- `recover_startup()` restructured to use the shared helper unconditionally
+- `TurnStore.get_all_checked()` for single-pass metadata + diagnostics
+- 17 new tests: 3 turn_store, 9 fast-path hardening, 3 recovery completeness, 2 recovery-diagnostics pinning
+- Spec and contract docs updated
+
+All 5 acceptance criteria met. 563 tests passing.
 
 <!-- defer-meta {"created_by":"defer-skill","source_ref":"PR #101","source_session":"","source_type":"pr-review","v":1} -->
