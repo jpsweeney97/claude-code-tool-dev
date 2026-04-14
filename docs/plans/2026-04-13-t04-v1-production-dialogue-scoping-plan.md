@@ -533,6 +533,11 @@ not confused.
 Do not block plan approval; authoring-time decisions for the
 implementation session that follows.
 
+**Resolutions recorded in
+`docs/plans/2026-04-14-t04-v1-authoring-decisions.md`** (companion
+addendum). Items remain listed here as the contract that companion
+closes against.
+
 1. Exact inline-scouting tool budget for §6.2 (initial target: N=3).
 2. Exact `/dialogue` flag vocabulary — profile selection, initial
    explicit paths, budget override.
