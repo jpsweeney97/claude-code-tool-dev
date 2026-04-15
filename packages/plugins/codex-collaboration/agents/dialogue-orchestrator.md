@@ -42,6 +42,14 @@ Execute phases in order.
 
 Before the Codex dialogue, perform a bounded scouting pass against the user's objective.
 
+**Briefing detection.** Check whether your prompt contains the `<!-- dialogue-orchestrated-briefing -->` sentinel. If present, parse the `<!-- briefing-meta: {...} -->` JSON to read `total_citations`, `unique_files`, `provenance_unknown`, and `warnings`. The briefing content (tagged findings grouped under Context and Material) is seed evidence from pre-dialogue gatherer agents.
+
+**Briefing is seed, not ledger.** The briefing is NOT verified ledger state. Do NOT register briefing findings as Codex claims, do NOT count them toward `final_claims`, and do NOT inflate ledger counters. Use the briefing to reprioritize Phase 1 targets — focus on gaps the gatherers flagged as OPEN, or on objective-critical surfaces the gatherers did not reach. A gatherer CLAIM about a file does NOT exempt that file from Phase 1 sampling. If the briefing has warnings (`thin_citations`, `few_files`), lean harder on Phase 1 inline scouting.
+
+If the sentinel is absent, proceed with Phase 1 as normal (v1 behavior).
+
+**Objective extraction.** Your prompt may contain a briefing block followed by the raw objective followed by `Repository root:` metadata. The canonical objective is the text that appears **after** the briefing block (after the last briefing section) and **before** the `Repository root:` line. Strip leading/trailing whitespace. This is the value you send to `codex.dialogue.reply` in Phase 2. If no briefing is present, the objective is the entire prompt text before `Repository root:` (v1 behavior).
+
 **Budget.** At most `INLINE_SCOUTING_BUDGET` (5) combined Read+Grep+Glob calls. Hard cap — do NOT exceed.
 
 | Call type | Counted? |
@@ -52,8 +60,9 @@ Before the Codex dialogue, perform a bounded scouting pass against the user's ob
 
 **Procedure:**
 1. Parse the objective for searchable entities (file names, function names, module names, patterns).
-2. Use Read/Grep/Glob to locate and inspect relevant code surfaces. Target the most salient entities first.
-3. Produce a short prose context block (2–5 sentences) summarizing what you found.
+2. If a briefing is present, review its findings to identify: (a) gaps worth filling (OPEN items, low-coverage areas), (b) entities already explored (avoid redundant reads where possible, but do NOT suppress reads — the budget is small enough that efficiency is secondary to verification).
+3. Use Read/Grep/Glob to locate and inspect relevant code surfaces. Target the most salient entities first.
+4. Produce a short prose context block (2–5 sentences) summarizing what you found.
 
 **Constraints:**
 - Do NOT produce a separate briefing artifact or structured data. Output is prose only.
@@ -299,10 +308,18 @@ The artifact contains these fields:
 | `converged` | bool | Projection of `termination_code` |
 | `turn_count` | int | Actual dialogue turns consumed |
 | `turn_budget` | int | `DIALOGUE_TURN_BUDGET` (10) |
-| `final_claims` | list | `{text, final_status, representative_citation}` per non-fallback claim |
-| `synthesis_citations` | list | `{path, line_range, snippet}` — key evidence the user can verify |
+| `final_claims` | list | `{text, final_status, representative_citation}` per non-fallback claim. `representative_citation` must be dialogue-tier only — if the only evidence for a claim came from seed exploration, set to `null` rather than a seed citation. |
+| `synthesis_citations` | list | `{path, line_range, snippet, citation_tier}` — key evidence the user can verify. `citation_tier` is `"seed"` for citations derived from pre-dialogue gatherer evidence or `"dialogue"` for citations derived from per-turn verification scouting. If no briefing was present, all citations are `"dialogue"`. |
 | `final_synthesis` | string | Narrative answer to the objective |
 | `ledger_summary` | string | From epilogue |
+
+**`citation_tier` assignment.** For each entry in `synthesis_citations[]`, set `citation_tier` based on where the evidence originated:
+- `"dialogue"` — evidence found during per-turn verification scouting (Phase 3 queries). This is the default.
+- `"seed"` — evidence referenced from the pre-dialogue briefing that was not independently verified during the dialogue. Only applicable when a briefing was present.
+
+If no briefing was present (sentinel absent), all citations are `"dialogue"`.
+
+**`representative_citation` constraint.** In `final_claims[]`, `representative_citation` must come from dialogue-tier evidence only. Do NOT use a seed-sourced citation as `representative_citation`. If the only evidence for a claim came from seed exploration, set `representative_citation` to `null`. This prevents unverified seed evidence from appearing as support for a claim in the user-facing claims table.
 
 **Exclusions.** The artifact contains NO verification telemetry, per-turn `effective_delta`, raw per-scout evidence, `minimum_fallback` accounting, or scope-breach counts.
 
