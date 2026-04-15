@@ -12,7 +12,7 @@
     ],
     "SubagentStart": [
       {
-        "matcher": "shakedown-dialogue",
+        "matcher": "shakedown-dialogue|dialogue-orchestrator",
         "hooks": [
           {
             "type": "command",
@@ -23,7 +23,7 @@
     ],
     "SubagentStop": [
       {
-        "matcher": "shakedown-dialogue",
+        "matcher": "shakedown-dialogue|dialogue-orchestrator",
         "hooks": [
           {
             "type": "command",
