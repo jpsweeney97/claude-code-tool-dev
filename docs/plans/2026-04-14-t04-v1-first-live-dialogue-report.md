@@ -199,15 +199,15 @@ No Bash, Write, Edit, or Agent tool calls — containment items 12–13 pass.
 
 **Mitigation.** None required for v1. The agent return path is the authoritative consumption path for both the terminal state and the production synthesis. The transcript JSONL serves as a verification/audit artifact for non-terminal turns. Future tooling that inspects transcripts should be aware of this gap.
 
-### Finding 2: Non-terminal blocks include `epilogue` field as `null`
+### Finding 2: Non-terminal blocks include `epilogue: null` — consistent 13-field shape
 
 **Severity:** Informational
 
-**Observation.** All 4 non-terminal state blocks include `epilogue: null` as a 13th field. The emission contract specifies epilogue for the terminal block only — non-terminal blocks should have 12 fields.
+**Observation.** All 4 non-terminal state blocks include `epilogue: null` as a 13th field. This matches the emission contract, which specifies epilogue as one of 13 required fields with rule: "Required when `terminal: true`, null otherwise." The observed behavior is contract-compliant.
 
-**Impact.** None. The 13-field shape is consistent across all blocks (including terminal). The `null` value is semantically equivalent to field absence for inspection purposes. Counter arithmetic and delta computation are unaffected.
+**Impact.** None. The 13-field shape is consistent across all blocks (terminal and non-terminal). Counter arithmetic and delta computation are unaffected.
 
-**Mitigation.** None required. Acceptable structural variation that simplifies emission (always emit all 13 fields, with `epilogue: null` for non-terminal turns).
+**Mitigation.** None required. Behavior matches the emission contract.
 
 ### Finding 3: All scouting turns — no non-scouting turns emitted
 
