@@ -17,7 +17,7 @@ class AppServerRuntimeSession:
         *,
         repo_root: Path,
         command: list[str] | None = None,
-        request_timeout: float = 30.0,
+        request_timeout: float = 300.0,
     ) -> None:
         self._repo_root = repo_root
         self._client = JsonRpcClient(
@@ -141,7 +141,7 @@ class AppServerRuntimeSession:
         agent_message = ""
         notifications: list[dict[str, Any]] = []
         while True:
-            notification = self._client.next_notification(timeout=60.0)
+            notification = self._client.next_notification(timeout=300.0)
             if notification.get("method") is None:
                 continue
             notifications.append(notification)
