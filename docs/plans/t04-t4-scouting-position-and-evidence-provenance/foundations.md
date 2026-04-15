@@ -284,18 +284,19 @@ and containment verification
 ([containment](containment.md)) — depends on this
 interpretation. This dependency resolves in two layers:
 
-**(a) Spec sub-dependency** — normative clause and parseable transcript
-format with per-step metadata recovery, which unblocks T4 specification
-work.
+**(a) v1 scored-benchmark layer** — normative clause plus transcript
+retention sufficient for human recovery of tool inputs, outputs, and
+scope choices. This is the transcript floor required by the narrowed
+v1 benchmark gate in
+([T4-BR-07](benchmark-readiness.md#t4-br-07)).
 
-**(b) Operational readiness** — transcript parser and mechanical diff
-engine functional
-([T4-BR-07](benchmark-readiness.md#t4-br-07) prerequisite item 8), which
-unblocks scored benchmark runs.
+**(b) Future automation layer** — parseable transcript format with a
+functional parser and mechanical diff engine. This remains deferred
+future benchmark automation work.
 
-Exploratory non-scoring runs are permitted between (a) and (b);
-policy-influencing calibration runs require both layers
-([T4-BR-08](benchmark-readiness.md#t4-br-08)).
+Exploratory non-scoring runs are permitted before (a). The v1 scored
+benchmark requires (a). Future automation-heavy benchmark revisions and
+omission-proof claims require both layers.
 
 ### What T4 Requires From the Transcript
 

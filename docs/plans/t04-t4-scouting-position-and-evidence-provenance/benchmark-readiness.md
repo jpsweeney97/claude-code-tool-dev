@@ -57,7 +57,8 @@ These surfaces fulfill the transcript fidelity dependency declared in
 **Verification:** The spec sub-dependency is satisfied when the benchmark
 contract includes the normative clause and a transcript format spec
 (including per-step metadata recovery) exists. Parser and diff-engine
-implementation are separate T7 deliverables gated by prerequisite item 8
+implementation are separate T7 deliverables deferred to future
+automation-heavy benchmark revisions
 ([T4-BR-07](#t4-br-07)).
 
 ## <a id="t4-br-03"></a>T4-BR-03: Allowed-Scope Safety
@@ -108,9 +109,12 @@ consumer surfaces in [T4-BR-04](#t4-br-04) and [T4-BR-05](#t4-br-05),
 and the rev17 audit findings below were resolved as post-closure
 contract amendments. T7 consumer work MAY proceed as exploratory
 shakedowns ([T4-BR-08(a)](#t4-br-08)) against the current contract.
-Policy-influencing calibration ([T4-BR-08(b)](#t4-br-08)), scored
-benchmark runs, and benchmark-stability claims MUST NOT proceed until
-all applicable exit conditions in this table are satisfied.
+Manual benchmark v1 may proceed without these consumers because its
+scoring attaches to the final synthesis plus transcript review rather
+than these wire formats. Policy-influencing calibration, automation-heavy
+scored benchmark revisions, and benchmark-stability claims that consume
+these surfaces MUST NOT proceed until all applicable exit conditions in
+this table are satisfied.
 
 Resolved-row convention: resolved findings remain in this table. The
 `Finding` cell gains `(resolved)`, and the `Exit condition` cell is
@@ -138,14 +142,15 @@ applicable exit conditions in this table are satisfied.
 
 ### <a id="f11-consumer-expectations"></a>F11 Consumer Expectations
 
-For scored-run readiness and policy-influencing calibration, any T7
+For future automation-heavy benchmark revisions or policy-influencing
+calibration that consumes these surfaces, any T7
 component that consumes `claim_provenance_index` or relies on embedded
 `ClassificationTrace` semantics MUST declare exact support for specific
 `claim_provenance_index_schema_version` values. Unsupported versions
 MUST be rejected for those uses: no silent fallback, best-effort
 coercion, or partial-compatibility claim is allowed. Support for a new
-version requires an explicit consumer update before scored runs may rely
-on artifacts carrying that version.
+version requires an explicit consumer update before those benchmark uses
+may rely on artifacts carrying that version.
 
 ## <a id="t4-br-06"></a>T4-BR-06: Narrative Factual-Claim Inventory
 
@@ -166,75 +171,54 @@ inventory problem.
 
 ## <a id="t4-br-07"></a>T4-BR-07: Benchmark-Execution Prerequisites
 
-Any benchmark run (scored comparison, calibration dry run, or schema
-shakedown) MUST have `scope_envelope` with non-empty `allowed_roots`
-present in the consultation configuration
-([containment](containment.md) — containment is inoperative
-without it). In addition, **scored benchmark runs and pass/fail
-comparisons** MUST NOT proceed until ALL of the following T7 dependencies
-are operational:
+Any scored benchmark run in v1 MUST declare benchmark-scoped
+`allowed_roots` and the per-system `max_evidence` values in
+`manifest.json`. If the runtime can carry those values through
+`scope_envelope`, it SHOULD do so. If it cannot, v1 permits procedural
+enforcement through mirrored run instructions and post-hoc transcript
+review. In addition, scored benchmark runs and pass/fail comparisons
+MUST NOT proceed until all of the following v1 prerequisites are
+operational.
 
-Scored runs that depend on `claim_provenance_index` or
-`ClassificationTrace` MUST also satisfy the blocker conditions in
-[F6/F7/F11 provenance wire-format blockers](#f6-f7-f11-blockers).
-Until all applicable blocker conditions in that subsection are
-satisfied, the affected wire formats remain provisional for
-benchmark-readiness purposes even if downstream T7 consumer work has
-started.
-
-### Eight-Item Prerequisite Gate
+### Four-Item v1 Prerequisite Gate
 
 | # | Category | Prerequisite | What it gates |
 |---|----------|-------------|---------------|
-| 1 | Artifact completeness | Narrative-claim inventory and ledger completeness checker | `supported_claim_rate` computed against complete population |
-| 2 | Artifact completeness | Methodology-finding format defined in `adjudication.json` schema (five finding kinds, `detection` field, `inventory_claim_id` key, typed `detail` object per finding kind) | `adjudication.json` structural completeness |
-| 3 | Artifact completeness | Mode-mismatch invalid-run schema defined in `runs.json` schema | `runs.json` structural completeness |
-| 4 | Artifact completeness | `methodology_finding_threshold` defined in benchmark contract and recorded in `manifest.json` | Pass-rule condition 5 evaluable |
-| 5 | Comparability and auditability | Benchmark-relevant scope configuration formalized: `scope_envelope` with non-empty `allowed_roots` as run condition, `allowed_roots` equivalence rule for compared runs, `source_classes` inclusion or explicit irrelevance, and `scope_root` selection rule for all query types including conceptual queries | Compared runs operate on equivalent search space |
-| 6 | Comparability and auditability | `max_evidence` defined in benchmark contract, recorded in `manifest.json`, and under benchmark change control | Evidence budget is a controlled parameter |
-| 7 | Comparability and auditability | Benchmark artifact contract extended for post-hoc compliance audit (run kind, resolved scope config, benchmark parameters, benchmark config version or digest, harness toolchain identity in `manifest.json`/`runs.json`; per-step `scope_root` recoverable from run transcript) | Run-condition compliance verifiable after the fact |
-| 8 | Operational readiness and proof | Transcript parser and mechanical diff engine produce the derived omission-audit proof surface for the scored transcript. Acceptance test: proof surface present, run-bound, evidence-record complete, extraction-failure-free. Absence or incompleteness invalidates scored run | T4's omission surface ([T4-PR-11](provenance-and-audit.md#t4-pr-11)) is both computable and provably computed |
+| 1 | Comparability | Same commit, working tree state, row prompt, posture, turn budget, model/reasoning settings, dialogue-timeout setting, and row-specific `allowed_roots` recorded for both baseline and candidate runs | Baseline/candidate pair is comparable |
+| 2 | Scope and evidence discipline | Per-system `max_evidence` values defined in the benchmark contract, recorded in `manifest.json`, and raw-transcript review confirms scouting stayed within recorded `allowed_roots` | Search space and evidence budget are controlled |
+| 3 | Artifact reviewability | `manifest.json`, `runs.json`, `adjudication.json`, `summary.md`, raw transcripts, and final syntheses are stored under a stable repo path with enough metadata to rerun or audit the comparison | Post-hoc review is possible |
+| 4 | Manual adjudication | `adjudication.json` records manual claim inventory, per-claim labels, safety findings, and a second-pass completeness review for each run | `supported_claim_rate` and `false_claim_count` are grounded in a reviewed claim set |
 
 ### Enforcement
 
-The benchmark runner or manifest validator MUST reject scored runs when
-any of (1)-(8) is unavailable. Items (1)-(7) are verifiable from
-artifact metadata. Item 8 is verifiable from the derived omission-audit
-proof surface: the runner produces it, the manifest records its digest,
-and a post-hoc validator confirms run binding, evidence-record
-completeness, and absence of extraction failures.
+The operator MUST reject scored runs when any of (1)-(4) is unavailable.
+Procedural scope enforcement is permitted in v1:
+mechanical runtime rejection of out-of-scope scouting is preferred but
+not required. A run with missing artifacts, missing completeness review,
+or out-of-scope scouting in the raw transcript is invalid and must be
+rerun from the same commit.
 
-For `claim_provenance_index` and `ClassificationTrace`, the benchmark
-runner or manifest validator MUST also reject scored-run readiness claims
-and policy-influencing calibration against those formats until all
-applicable rows in
-[F6/F7/F11 provenance wire-format blockers](#f6-f7-f11-blockers) are
-resolved in the cited benchmark contract version or digest.
+This v1 gate intentionally defers automation-heavy proof surfaces. The
+following do NOT block scored runs under the narrowed benchmark contract:
 
-Without (1), `supported_claim_rate`
-([benchmark.md:160](../../superpowers/specs/codex-collaboration/dialogue-supersession-benchmark.md))
-is computed against an incomplete claim population — the comparison is
-contaminated, not merely degraded. Without (2)-(4), benchmark artifacts
-are incomplete: `adjudication.json` and `runs.json` lack structures T4
-requires, and the pass rule cannot evaluate condition 5.
+- narrative-claim inventory tooling and ledger-completeness checker
+- validator-grade methodology and invalid-run schemas
+- methodology-threshold pass-rule extensions
+- transcript parser, mechanical diff engine, and omission-audit proof
 
-Items 1-4 gate **artifact completeness**: without them, `adjudication.json`,
-`runs.json`, and the pass rule lack structures T4 requires. Items 5-7
-gate **comparability and auditability**: without formalized scope, a
-defined evidence budget, and auditable artifact metadata, runs are not
-comparable and compliance is not verifiable even if artifacts are
-structurally complete. Item 8 gates **operational readiness and
-run-level proof**: without parser and diff engine producing the derived
-omission-audit artifact, T4's authoritative omission surface is specified
-but neither computable nor provably computed for a given run.
+For `claim_provenance_index` and `ClassificationTrace`, the
+[F6/F7/F11 provenance wire-format blockers](#f6-f7-f11-blockers) remain
+relevant to future automation-heavy or policy-shaping benchmark
+revisions, but they do not block the manual v1 benchmark defined in the
+current benchmark contract.
 
-This prerequisite is independent of G3 (which governs scouted provenance
-retention). Benchmark-readiness requires BOTH: G3 accepted (scouted
-provenance chain) AND all eight T7 dependencies above operational.
+This prerequisite remains independent of G3 (which governs scouted
+provenance retention). Benchmark v1 still requires both: G3 accepted
+(scouted provenance chain) and the four prerequisites above operational.
 
 ## <a id="t4-br-08"></a>T4-BR-08: Non-Scoring Run Classification
 
-Non-scoring runs are permitted before the eight prerequisites land, in
+Non-scoring runs are permitted before the v1 prerequisites land, in
 two classes:
 
 **(a) Exploratory shakedowns** (schema validation, format testing,
@@ -242,22 +226,23 @@ integration checks) — permitted before any prerequisites, results are
 non-evidentiary and MUST NOT inform benchmark policy, threshold setting,
 or corpus calibration decisions that affect scored comparisons.
 
-**(b) Policy-influencing calibration** (corpus calibration per
-[scouting-behavior: claim classification](scouting-behavior.md#t4-sb-05),
-classification criteria tuning, threshold setting) — require all eight
-prerequisites because their conclusions shape the benchmark's rules.
-
-**Exception:** the initial `methodology_finding_threshold` value is a
-benchmark contract decision (T7-owned), not a calibration output;
-calibration validates it empirically and may propose adjustment under
-benchmark change control.
+**(b) Benchmark rehearsals** (trial transcript capture, dry-run
+adjudication, operator playbook rehearsal) — may mirror the scored
+benchmark procedure, but remain non-evidentiary unless all four
+prerequisites in [T4-BR-07](#t4-br-07) are satisfied and the resulting
+artifacts are promoted into the scored comparison record.
 
 Neither class may be used for pass/fail comparisons.
 
 ## <a id="t4-br-09"></a>T4-BR-09: Benchmark-Contract Amendment Dependencies
 
-Ten amendment rows defining T7 obligations. T4 defines the contract
-floor; T7 owns schemas, implementations, and artifact naming.
+Ten amendment rows defining future automation-focused obligations. They
+are retained as design inventory, but they are not prerequisites for the
+manual benchmark v1 contract. They become load-bearing again if a future
+benchmark revision reintroduces typed methodology thresholds,
+schema-validated artifacts, automated omission proof, or validator-only
+scope enforcement. T4 defines the future contract floor; T7 owns
+schemas, implementations, and artifact naming.
 
 | # | Surface | Required Change | Owner |
 |---|---------|----------------|-------|

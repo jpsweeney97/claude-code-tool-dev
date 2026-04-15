@@ -479,10 +479,12 @@ abandoned rounds per run before the effort budget is exhausted.
 
 `max_evidence` is a benchmark-contract parameter, not a T4 constant. Its
 value MUST be governed by benchmark change control
-([benchmark.md:200-207](../../superpowers/specs/codex-collaboration/dialogue-supersession-benchmark.md))
+([benchmark.md:339-355](../../superpowers/specs/codex-collaboration/dialogue-supersession-benchmark.md))
 and recorded in `manifest.json`. T4 consumes `max_evidence` but does not
-define its value
-([T4-BR-07](benchmark-readiness.md#t4-br-07) prerequisite item 6).
+define its value; benchmark v1 defines it in the benchmark contract's
+Evidence Budget section, and future revisions may amend it under the
+same change-control rule
+([T4-BR-07](benchmark-readiness.md#t4-br-07)).
 
 ### Pipeline-Data Mapping
 

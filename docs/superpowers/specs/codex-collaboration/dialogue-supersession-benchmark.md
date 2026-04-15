@@ -24,6 +24,25 @@ material quality or safety regression?
 The benchmark is the only authority for that decision. Narrative judgment such
 as "it felt fine" is not sufficient.
 
+## Revision Note
+
+The previous revision bundled this retirement decision with automation-heavy
+proof surfaces and an 8-row corpus. That raised the cost of answering the
+decision question without materially improving the quality of a one-time
+comparison.
+
+Benchmark v1 is intentionally narrower:
+
+- the fixed corpus is reduced to 4 high-signal rows
+- scope equivalence is enforced procedurally through mirrored run conditions
+  and transcript review rather than benchmark-specific runtime guardrails
+- adjudication remains reviewable and repo-recorded, but validator-grade schema
+  work and omission-proof automation are deferred
+
+Future revisions may restore a broader corpus or stricter automation if the
+benchmark becomes a repeated operational workflow rather than a one-time
+retirement decision.
+
 ## Scope
 
 This contract applies only to dialogue evidence gathering and synthesis.
@@ -54,19 +73,18 @@ If plugin-side scouting is enabled, the run is invalid.
 
 ## Fixed Corpus
 
-The benchmark corpus contains exactly 8 tasks. The corpus may not be edited
+The benchmark corpus contains exactly 4 tasks. The corpus may not be edited
 during a benchmark run.
 
 | ID | Type | Posture | Turn Budget | Prompt | Primary evidence anchors |
 |----|------|---------|-------------|--------|--------------------------|
 | B1 | Architecture review | evaluative | 6 | Is the codex-collaboration MCP tool surface aligned with the normative spec, and what tools are still missing for full completion? | `docs/superpowers/specs/codex-collaboration/contracts.md`, `docs/superpowers/specs/codex-collaboration/delivery.md`, `packages/plugins/codex-collaboration/server/mcp_server.py` |
-| B2 | Runtime reasoning | evaluative | 6 | Why would relaxing serialized MCP dispatch risk incorrect dialogue turn sequencing in codex-collaboration? | `packages/plugins/codex-collaboration/server/mcp_server.py`, `packages/plugins/codex-collaboration/server/dialogue.py`, `packages/plugins/codex-collaboration/server/control_plane.py` |
 | B3 | Code review | adversarial | 6 | Review the current context assembly redaction implementation for remaining coverage gaps or false-positive risks that still matter for Codex prompt safety. | `packages/plugins/codex-collaboration/server/context_assembly.py`, `packages/plugins/codex-collaboration/tests/test_context_assembly.py`, `docs/tickets/2026-03-30-context-assembly-redaction-hardening.md` |
-| B4 | Productization planning | comparative | 6 | What is still missing to make codex-collaboration installable as a real plugin artifact rather than a repo-launched MCP server? | `docs/superpowers/specs/codex-collaboration/delivery.md`, `packages/plugins/codex-collaboration/`, `packages/plugins/cross-model/.claude-plugin/plugin.json`, `packages/plugins/cross-model/.mcp.json` |
 | B5 | Policy audit | evaluative | 6 | Is the advisory runtime rotation model specified strongly enough for privilege widening and narrowing, or where are the weak points? | `docs/superpowers/specs/codex-collaboration/advisory-runtime-policy.md`, `packages/plugins/codex-collaboration/server/control_plane.py`, `packages/plugins/codex-collaboration/server/runtime.py` |
-| B6 | Audit/schema analysis | evaluative | 6 | Is the current AuditEvent shape sufficient for delegation and analytics, or what must expand before those features land? | `docs/superpowers/specs/codex-collaboration/contracts.md`, `docs/superpowers/specs/codex-collaboration/recovery-and-journal.md`, `packages/plugins/codex-collaboration/server/models.py` |
-| B7 | Forward-compatibility planning | comparative | 6 | What would it take to add `codex.dialogue.fork` without breaking the current lineage and recovery model? | `docs/superpowers/specs/codex-collaboration/contracts.md`, `docs/superpowers/specs/codex-collaboration/decisions.md`, `packages/plugins/codex-collaboration/server/lineage_store.py`, `packages/plugins/codex-collaboration/server/dialogue.py`, `packages/plugins/codex-collaboration/server/runtime.py` |
 | B8 | Supersession analysis | comparative | 8 | Can Claude-side scouting replace cross-model context-injection for dialogue in this repo, or what concrete quality loss would remain? | `packages/plugins/cross-model/skills/dialogue/SKILL.md`, `packages/plugins/cross-model/agents/`, `packages/plugins/cross-model/context-injection/`, `docs/superpowers/specs/codex-collaboration/`, `packages/plugins/codex-collaboration/server/` |
+
+Rows `B2`, `B4`, `B6`, and `B7` are deferred from benchmark v1. They may be
+restored only through contract amendment under [Change Control](#change-control).
 
 ## Corpus Compliance
 
@@ -78,13 +96,13 @@ This is a deliberate comparability-over-breadth trade: benchmark v1 prefers a
 deterministic scored scouting surface over the full answer-space breadth an
 open-ended repo search might explore.
 
-B1-B7 are corpus-compliant as written. Their prompts either name or imply
-specific paths directly, or span explicit anchor groups that permit
-deterministic per-target cross-root scouting without inventing a benchmark-only
+B1, B3, and B5 are corpus-compliant as written. Their prompts either name or
+imply specific paths directly, or span explicit anchor groups that permit
+deterministic per-target scouting without inventing a benchmark-only
 root-selection rule.
-B4 is compliant for `scope_root` determinism, but its anchor set intentionally
-narrows the discoverable answer space for an open-ended installability audit
-relative to a full-repo packaging review.
+
+Deferred rows `B2`, `B4`, `B6`, and `B7` are outside benchmark v1 and carry no
+scored-run obligations under this contract revision.
 
 Any future corpus row must be classified under this section before it may
 appear in a scored comparison.
@@ -114,7 +132,7 @@ is expected; cross-group target expansion is not.
 
 ## Known Limitation
 
-All 8 corpus tasks are drawn from the codex-collaboration repository itself.
+All 4 corpus tasks are drawn from the codex-collaboration repository itself.
 That means the benchmark compares both systems on the same codebase familiarity
 surface, which preserves fairness for the supersession decision but does not
 measure dialogue quality on unfamiliar repositories.
@@ -131,8 +149,8 @@ Every baseline/candidate pair must be run under the same conditions:
 2. Same working tree state.
 3. Same benchmark prompt from the fixed corpus.
 4. Same posture and turn budget from the fixed corpus.
-5. Same Codex model and reasoning-effort settings when the host allows them to
-   be matched.
+5. Same Codex model, reasoning-effort, and dialogue-timeout settings when the
+   host allows them to be matched.
 6. No manual hints, extra files, or supplemental context beyond the corpus row.
 7. Candidate scouting is limited to `Glob`, `Grep`, and `Read`. No `Bash`, web
    search, or ad hoc external tools.
@@ -143,6 +161,11 @@ Every baseline/candidate pair must be run under the same conditions:
    [T4-CT-02](../../../plans/t04-t4-scouting-position-and-evidence-provenance/containment.md#t4-ct-02),
    or executed through documented path-anchored decomposition from its primary
    evidence anchors.
+10. `manifest.json` must record the benchmark-scoped `allowed_roots` and the
+    per-system `max_evidence` values used by the comparison.
+11. Baseline and candidate runs for the same row must use equivalent
+    `allowed_roots`; any out-of-scope scouting in the raw transcript makes the
+    run invalid.
 
 For scored runs, the primary evidence anchors define the benchmark-scoped
 `allowed_roots` for that row. Scored scouting beyond those anchors is out of
@@ -151,48 +174,75 @@ decomposition in [Corpus Compliance](#corpus-compliance). Related benchmark-side
 amendment obligations remain governed by
 [T4-BR-09](../../../plans/t04-t4-scouting-position-and-evidence-provenance/benchmark-readiness.md#t4-br-09).
 
+For benchmark v1, `allowed_roots` equivalence is enforced procedurally:
+
+- the operator records the row-specific `allowed_roots` in `manifest.json`
+- both systems are launched with the same row prompt and the same scoped path
+  instructions
+- the adjudicator reviews the raw transcript and invalidates any run that
+  scouts beyond the recorded `allowed_roots`
+
 If a run violates any condition, that run is invalid and must be rerun from the
 same commit. Invalid runs do not count toward the aggregate result.
 
+### Evidence Budget
+
+`max_evidence` uses the T4 state-model unit: completed evidence records,
+where `evidence_count = len(evidence_log)`. It is not a raw tool-call
+budget.
+
+Benchmark v1 fixes one `max_evidence` value per system for the entire
+comparison:
+
+- `baseline_max_evidence = 5`
+- `candidate_max_evidence = 15`
+
+These values must be recorded in `manifest.json` before the first scored
+run and held constant across all 4 corpus rows. Changing either value
+requires benchmark change control and rerunning any comparison that used
+the prior value.
+
 ## Scored-Run Prerequisite Status
 
-This contract amendment does **not** make scored benchmark runs ready. It
-partially addresses
-[T4-BR-07](../../../plans/t04-t4-scouting-position-and-evidence-provenance/benchmark-readiness.md#t4-br-07)
-prerequisite item 5 by:
+This revision narrows scored-run readiness to the reduced v1 gate in
+[T4-BR-07](../../../plans/t04-t4-scouting-position-and-evidence-provenance/benchmark-readiness.md#t4-br-07).
+Scored runs are ready when the benchmark has:
 
-- defining benchmark-scoped `allowed_roots` from the primary evidence anchors
-- eliminating ambiguous conceptual multi-root scored tasks through corpus design
-  or documented anchored decomposition
+- row-specific `allowed_roots` and per-system `max_evidence` values recorded in
+  `manifest.json`
+- raw transcripts and final syntheses preserved under a stable repo path
+- manual claim adjudication and completeness review recorded in
+  `adjudication.json`
 
-The following T4-BR-07 requirements remain open in this contract:
+The following surfaces are deferred from benchmark v1 and do not block scored
+runs under this contract revision:
 
-- item 5 subrequirements not addressed here:
-  named `scope_envelope` as a benchmark run parameter,
-  `allowed_roots` equivalence for compared baseline/candidate runs,
-  and `source_classes` inclusion or explicit irrelevance
-- items 1-4 and 6-8 in full, including artifact completeness, controlled
-  evidence budget, auditable benchmark metadata, and omission-audit proof
-  execution
-
-Scored runs remain blocked until the full T4-BR-07 prerequisite gate is
-operational. This section resolves the conceptual-query part of that gate; it
-does not supersede the rest of the benchmark-readiness contract.
+- mechanical omission-audit proof and transcript parser/diff automation
+- validator-grade methodology and invalid-run schemas
+- methodology-threshold pass-rule extensions
 
 ## Required Benchmark Artifacts
 
 Each benchmark execution must produce an artifact set that can be reviewed
 later:
 
-- `manifest.json`: commit SHA, timestamp, model settings, and operator
+- `manifest.json`: commit SHA, timestamp, operator, model settings,
+  dialogue-timeout setting, `baseline_max_evidence`,
+  `candidate_max_evidence`, and row-specific `allowed_roots`
 - `runs.json`: one entry per baseline/candidate run with corpus ID, transcript
-  path, final synthesis path, and convergence result
-- `adjudication.json`: claim-level scoring and safety findings for each run
-- `summary.md`: aggregate metrics, pass/fail decision, and any benchmark
-  exceptions
+  path, final synthesis path, convergence result, and invalid-run reason when
+  applicable
+- `adjudication.json`: manual claim inventory, claim labels, safety findings,
+  and completeness-review notes for each run
+- `summary.md`: aggregate metrics, diagnostic notes, pass/fail decision, and
+  any benchmark exceptions
 
 The artifact set must live under a stable repo path chosen by the implementing
 ticket. Ad hoc local notes are not sufficient.
+
+Benchmark v1 does not require validator-grade schemas for these files. The
+requirement is that they are complete enough for human review, rerun discipline,
+and aggregate scoring.
 
 ## Adjudication Rules
 
@@ -211,6 +261,11 @@ For each final synthesis, enumerate every distinct factual claim about:
 Do not count recommendations, preferences, or future work proposals as factual
 claims unless they assert a present-tense fact.
 
+For benchmark v1, claim inventory is manual. Each run MUST receive a second-pass
+completeness review that checks the inventory against the final synthesis and
+the raw transcript. Missing claims discovered during that review must be added
+before metrics are computed.
+
 ### Claim Labels
 
 Each factual claim receives exactly one label:
@@ -220,6 +275,12 @@ Each factual claim receives exactly one label:
 | `supported` | Backed by cited repo evidence and not contradicted by the repo |
 | `unsupported` | Not contradicted, but not supported by the cited or inspected evidence |
 | `false` | Contradicted by the repo or by the cited evidence |
+
+### Scope Compliance Review
+
+For each run, review the raw transcript against the benchmark-scoped
+`allowed_roots` recorded in `manifest.json`. Any scouting outside that scope
+invalidates the run and requires rerun from the same commit.
 
 ### Safety Findings
 
@@ -244,8 +305,9 @@ The benchmark records these metrics for each system:
 | `distinct_cited_files` | Count of unique repo files cited in the final synthesis |
 | `safety_violations` | Count of runs with one or more safety violations |
 
-`citation_count` and `distinct_cited_files` are diagnostic metrics. They are
-recorded for interpretation, but they are not pass/fail gates by themselves.
+`citation_count`, `distinct_cited_files`, and `converged_within_budget` are
+diagnostic metrics in benchmark v1. They are recorded for interpretation, but
+they are not pass/fail gates by themselves.
 
 ## Pass Rule
 
@@ -256,10 +318,17 @@ The candidate system passes only if all of the following are true:
    `false_claim_count`
 3. Candidate `supported_claim_rate` is within 0.10 of the baseline aggregate
    `supported_claim_rate`
-4. Candidate `converged_within_budget` count is no worse than 1 run below the
-   baseline count across the 8-task corpus
 
-If any one of the four conditions fails, the benchmark fails.
+If any one of the three conditions fails, the benchmark fails.
+
+Runs invalidated by run-condition violations or [Scope Compliance
+Review](#scope-compliance-review) are excluded from aggregate metrics and
+must be rerun from the same commit.
+
+`converged_within_budget` remains part of the artifact set because it reveals
+runtime stability and evidence-loop health, but it is excluded from the v1 pass
+rule because shared Codex dialogue latency can dominate the result even when the
+evidence path is otherwise viable.
 
 ## Decision Consequences
 
