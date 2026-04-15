@@ -1,0 +1,29 @@
+{
+  "_schema_note": "One entry per run attempt. Valid runs for the 4x2 matrix plus any invalidated runs that were rerun. Invalid entries are retained for auditability; only valid entries contribute to aggregate metrics.",
+  "_entry_schema": {
+    "id": "string — unique run identifier, e.g. 'B1-baseline' or 'B1-baseline-rerun-1'",
+    "corpus_id": "string — B1, B3, B5, or B8",
+    "system": "string — 'baseline' or 'candidate'",
+    "transcript_path": "string — repo-relative path to raw run transcript",
+    "synthesis_path": "string — repo-relative path to final synthesis artifact",
+    "converged_within_budget": "boolean|null — dialogue convergence result (diagnostic, not pass/fail); null if not yet recorded",
+    "evidence_count": "integer|null — completed evidence records; null if not yet recorded",
+    "max_evidence": "integer — budget for this system (5 for baseline, 15 for candidate)",
+    "effective_posture": "string|null — actual posture used (may differ from corpus row for candidate system)",
+    "effective_turn_budget": "integer|null — actual turn budget used",
+    "actual_turns": "integer|null — turns actually completed before termination",
+    "scope_compliant": "boolean|null — null until transcript review; true/false after review",
+    "valid": "boolean — true if run satisfies all run conditions; false if invalidated",
+    "invalid_reason": "string|null — which run condition was violated, if invalid",
+    "superseded_by": "string|null — id of replacement run if this run was invalidated and rerun",
+    "rehearsal": "boolean — true if this run was executed under rehearsal mode (non-evidentiary per T4-BR-08(b)); false for scored runs",
+    "session_id": "string|null — canonical host session ID for scored runs; manual label acceptable for rehearsals; null if not recorded",
+    "session_id_canonical": "boolean — true if session_id is a host-provided canonical ID; false if operator-assigned label",
+    "timestamp": "string — ISO 8601 timestamp of run completion",
+    "diagnostic_metrics": {
+      "citation_count": "integer|null — explicit citations in the final synthesis",
+      "distinct_cited_files": "integer|null — unique repo files cited in the final synthesis"
+    }
+  },
+  "runs": []
+}

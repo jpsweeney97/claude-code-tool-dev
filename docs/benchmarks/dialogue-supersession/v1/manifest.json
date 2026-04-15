@@ -1,0 +1,139 @@
+{
+  "benchmark_version": "v1",
+  "contract": "docs/superpowers/specs/codex-collaboration/dialogue-supersession-benchmark.md",
+  "contract_commit": "1e08c397",
+  "artifact_path": "docs/benchmarks/dialogue-supersession/v1",
+
+  "run_commit": null,
+  "run_timestamp": null,
+  "operator": null,
+
+  "model_settings": {
+    "codex_model": null,
+    "reasoning_effort": null,
+    "dialogue_timeout": 1200
+  },
+
+  "evidence_budget": {
+    "unit": "completed evidence records (len(evidence_log))",
+    "baseline_max_evidence": 5,
+    "candidate_max_evidence": 15
+  },
+
+  "run_condition_parity": {
+    "_note": "Honest status of each run condition. 'blocked' items must be resolved before scored runs.",
+    "matched": {
+      "commit": "Same commit for both systems (run condition 1)",
+      "working_tree": "Clean and identical — all artifacts staged outside repo until benchmark complete (run condition 2)",
+      "prompt": "Same corpus prompt with scope instructions prepended (run condition 3)",
+      "codex_model": "Same Codex model for both systems (run condition 5, matchable)",
+      "reasoning_effort": "Same reasoning effort setting (run condition 5, matchable)",
+      "dialogue_timeout": "1200s for Codex API calls in both systems (run condition 5, matchable)"
+    },
+    "blocked": {
+      "_note": "These run conditions cannot be satisfied by the current candidate system. Scored runs must not proceed until resolved via implementation or contract amendment.",
+      "posture": {
+        "contract_requirement": "Run condition 4: Same posture from the fixed corpus (unconditional)",
+        "baseline": "Controlled via -p flag, passed to codex-dialogue agent",
+        "candidate": "Orchestrator agent does not accept posture input; no control surface exists",
+        "resolution_options": ["Add -p flag to codex-collaboration dialogue skill and pass to orchestrator", "Amend contract run condition 4 to allow documented posture asymmetry"]
+      },
+      "turn_budget": {
+        "contract_requirement": "Run condition 4: Same turn budget from the fixed corpus (unconditional)",
+        "baseline": "Controlled via -n flag (default 8, max 15)",
+        "candidate": "Orchestrator hardcodes DIALOGUE_TURN_BUDGET = 10; not configurable per-run",
+        "resolution_options": ["Add -n flag to codex-collaboration dialogue skill and pass to orchestrator", "Amend contract run condition 4 to allow documented turn-budget asymmetry"]
+      }
+    },
+    "prompt_only": {
+      "_note": "These controls are communicated via prompt instructions and enforced by post-hoc transcript review. Not mechanically enforced.",
+      "allowed_roots": {
+        "contract_requirement": "Run conditions 10-11: allowed_roots recorded and equivalent for both systems",
+        "baseline": "scope_envelope available in delegation envelope for codex-dialogue agent",
+        "candidate": "Gatherer agents support scope_envelope but the slash skill does not pass it; orchestrator containment guard constrains scouting paths but is not the same as scope_envelope",
+        "enforcement": "Prompt-level scope instructions plus post-hoc transcript review per contract v1 procedural enforcement",
+        "resolution_to_mechanical": "Update codex-collaboration dialogue skill to pass scope_envelope to gatherers"
+      },
+      "baseline_max_evidence": {
+        "contract_requirement": "Evidence budget section: baseline_max_evidence = 5, fixed for the comparison",
+        "enforcement": "Prompt-level instructions plus post-hoc transcript review; overflow invalidates the run",
+        "candidate_max_evidence_note": "Candidate MAX_EVIDENCE = 15 is natively enforced by orchestrator"
+      }
+    },
+    "asymmetric_by_design": {
+      "max_evidence_values": {
+        "baseline": 5,
+        "candidate": 15,
+        "note": "Deliberate asymmetry per contract evidence budget section"
+      },
+      "evidence_path": {
+        "baseline": "Plugin-side context-injection via cross-model gatherers",
+        "candidate": "Claude-side scouting via Glob/Grep/Read in gatherer and orchestrator agents",
+        "note": "This is the variable under test"
+      }
+    }
+  },
+
+  "corpus": {
+    "B1": {
+      "type": "Architecture review",
+      "posture": "evaluative",
+      "turn_budget": 6,
+      "prompt": "Is the codex-collaboration MCP tool surface aligned with the normative spec, and what tools are still missing for full completion?",
+      "allowed_roots": [
+        "docs/superpowers/specs/codex-collaboration/contracts.md",
+        "docs/superpowers/specs/codex-collaboration/delivery.md",
+        "packages/plugins/codex-collaboration/server/mcp_server.py"
+      ]
+    },
+    "B3": {
+      "type": "Code review",
+      "posture": "adversarial",
+      "turn_budget": 6,
+      "prompt": "Review the current context assembly redaction implementation for remaining coverage gaps or false-positive risks that still matter for Codex prompt safety.",
+      "allowed_roots": [
+        "packages/plugins/codex-collaboration/server/context_assembly.py",
+        "packages/plugins/codex-collaboration/tests/test_context_assembly.py",
+        "docs/tickets/2026-03-30-context-assembly-redaction-hardening.md"
+      ]
+    },
+    "B5": {
+      "type": "Policy audit",
+      "posture": "evaluative",
+      "turn_budget": 6,
+      "prompt": "Is the advisory runtime rotation model specified strongly enough for privilege widening and narrowing, or where are the weak points?",
+      "allowed_roots": [
+        "docs/superpowers/specs/codex-collaboration/advisory-runtime-policy.md",
+        "packages/plugins/codex-collaboration/server/control_plane.py",
+        "packages/plugins/codex-collaboration/server/runtime.py"
+      ]
+    },
+    "B8": {
+      "type": "Supersession analysis",
+      "posture": "comparative",
+      "turn_budget": 8,
+      "prompt": "Can Claude-side scouting replace cross-model context-injection for dialogue in this repo, or what concrete quality loss would remain?",
+      "allowed_roots": [
+        "packages/plugins/cross-model/skills/dialogue/SKILL.md",
+        "packages/plugins/cross-model/agents/",
+        "packages/plugins/cross-model/context-injection/",
+        "docs/superpowers/specs/codex-collaboration/",
+        "packages/plugins/codex-collaboration/server/"
+      ],
+      "allowed_roots_groups": {
+        "baseline_evidence_path": [
+          "packages/plugins/cross-model/skills/dialogue/SKILL.md",
+          "packages/plugins/cross-model/agents/",
+          "packages/plugins/cross-model/context-injection/"
+        ],
+        "candidate_normative_surface": [
+          "docs/superpowers/specs/codex-collaboration/"
+        ],
+        "candidate_runtime_surface": [
+          "packages/plugins/codex-collaboration/server/"
+        ]
+      },
+      "allowed_roots_note": "B8 uses anchored decomposition. allowed_roots is the flat union for transcript review; allowed_roots_groups preserves the per-group structure for adjudication. Each scouting step must stay within one group. Cross-group reasoning is expected; cross-group target expansion is not."
+    }
+  }
+}

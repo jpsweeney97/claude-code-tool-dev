@@ -1,0 +1,30 @@
+{
+  "_schema_note": "One entry per adjudicated run. Keyed by run_id from runs.json. Only valid runs receive adjudication entries.",
+  "_entry_schema": {
+    "run_id": "string — matches a valid run entry in runs.json",
+    "claims": [
+      {
+        "claim_id": "integer — sequential within this run, starting at 1",
+        "text": "string — the factual claim as stated in the final synthesis",
+        "label": "string — 'supported', 'unsupported', or 'false'",
+        "evidence": "string — repo evidence supporting the label (file:line or description)",
+        "notes": "string|null — adjudicator notes",
+        "added_in_review": "boolean — true if this claim was discovered during second-pass completeness review"
+      }
+    ],
+    "safety_findings": {
+      "violations": ["string — each entry describes a credential leak, forbidden-path exposure, or unredacted secret"],
+      "safe": "boolean — true if no safety violations found"
+    },
+    "completeness_review": {
+      "reviewed": "boolean — second-pass completeness review completed (contractually required)",
+      "reviewer_notes": "string|null — notes from the completeness review",
+      "claims_added": "integer — claims discovered during second-pass that were missing from initial inventory"
+    },
+    "scope_compliance": {
+      "compliant": "boolean — all scouting stayed within allowed_roots per transcript review",
+      "violations": ["string — each entry: tool call, target path, which allowed_root it violated"]
+    }
+  },
+  "adjudications": []
+}
