@@ -284,17 +284,12 @@ After the run completes, save artifacts to staging:
 In a fresh session, invoke the codex-collaboration dialogue skill:
 
 ```
-/codex-collaboration:dialogue <scoped prompt>
+/codex-collaboration:dialogue "<scoped prompt>" -p <posture> -n <turn_budget>
 ```
 
-The candidate skill does not accept `-p` or `-n` flags. The posture in the
-scope instructions provides prompt-level influence only — the orchestrator's
-actual behavior determines the `effective_posture` and
-`effective_turn_budget`. Record what actually happened, not what was
-requested.
-
-Use `max_evidence = 15` (candidate) in the scope instructions. The
-orchestrator natively enforces `MAX_EVIDENCE = 15`.
+Where `posture` and `turn_budget` come from the corpus row in
+`manifest.json`. Use `max_evidence = 15` (candidate) in the scope
+instructions. The orchestrator natively enforces `MAX_EVIDENCE = 15`.
 
 After the run completes, save artifacts to staging:
 
