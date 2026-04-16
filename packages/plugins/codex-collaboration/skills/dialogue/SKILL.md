@@ -1,6 +1,7 @@
 ---
 name: dialogue
-description: Run a production Codex dialogue against the codebase. Spawns pre-dialogue gatherer agents, assembles a briefing, then spawns the dialogue-orchestrator agent and surfaces the production synthesis artifact. Use when the user invokes /dialogue or asks to start a Codex dialogue about code.
+description: Run a production Codex dialogue against the codebase. Spawns pre-dialogue gatherer agents, assembles a briefing, then spawns the dialogue-orchestrator agent and surfaces the production synthesis artifact. Use when the user invokes /dialogue or asks to start a Codex dialogue about code. Accepts -p (posture) and -n (turn budget) flags.
+argument-hint: '"question" [-p posture] [-n turns]'
 user-invocable: true
 allowed-tools: Bash, Read, Write, Agent
 ---
@@ -9,15 +10,36 @@ allowed-tools: Bash, Read, Write, Agent
 
 Production dialogue harness. Dispatches pre-dialogue gatherer agents, assembles a deterministic briefing, writes containment seed, spawns the dialogue-orchestrator agent, and surfaces the production synthesis artifact.
 
-**Invocation:** `/dialogue <objective>` — the entire argument string after `/dialogue` is the objective. No flags, no optional positional arguments.
+**Invocation:** `/dialogue [-p posture] [-n turns] <objective>`
+
+## Arguments
+
+Parse flags from the argument string:
+
+| Flag | Short | Values | Default |
+|------|-------|--------|---------|
+| `--posture` | `-p` | `collaborative`, `adversarial`, `exploratory`, `evaluative`, `comparative` | `collaborative` |
+| `--turns` | `-n` | 1-15 | 6 |
+
+Everything after flags is the **objective** (required).
+
+**Validation:**
+1. Reject unknown flags.
+2. Reject invalid enum values for `--posture`.
+3. Reject `--turns` outside 1-15.
+4. If the objective is empty after flag extraction, ask the user: "What would you like to discuss with Codex?" and stop.
+
+The defaults match the profile resolver defaults in `server/profiles.py`. The skill always dispatches explicit values — even when no flags are provided, it resolves defaults and dispatches them.
 
 ## Procedure
 
-### 1. Capture objective
+### 1. Parse arguments and resolve defaults
 
-The full argument string after `/dialogue` is the objective. No flag tokenization — capture verbatim.
+Parse `-p`/`--posture` and `-n`/`--turns` flags from the argument string per the Arguments section above. Everything remaining after flag extraction is the objective.
 
-If the objective is empty or whitespace-only, ask the user: "What would you like to discuss with Codex?" and stop.
+If no `-p` flag: use `collaborative`. If no `-n` flag: use `6`. The skill always resolves explicit values for both posture and turn budget — no implicit defaults propagate downstream.
+
+If the objective is empty or whitespace-only after flag extraction, ask the user: "What would you like to discuss with Codex?" and stop.
 
 ### 2. Determine repo root
 
@@ -217,7 +239,7 @@ The active-run pointer already exists (from step 5-lock). The seed is written ju
 
 ### 7. Dispatch orchestrator (modified)
 
-Prepend the assembled briefing to the original dispatch prompt. The original v1 dispatch prompt (objective, repo root, scope) is preserved unchanged after the briefing:
+Prepend the assembled briefing to the original dispatch prompt. Pass the resolved posture and turn budget in the metadata block after `Repository root:` and `Scope directories:`:
 
 ```
 Agent(
@@ -227,7 +249,9 @@ Agent(
 {objective}
 
 Repository root: <repo_root>
-Scope directories: ["<repo_root>"]"""
+Scope directories: ["<repo_root>"]
+Posture: <resolved_posture>
+Turn budget: <resolved_turn_budget>"""
 )
 ```
 
