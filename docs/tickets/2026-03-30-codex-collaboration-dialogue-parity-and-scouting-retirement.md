@@ -111,3 +111,35 @@ substrate is stable.
 | Cross-model dialogue skill | `packages/plugins/cross-model/skills/dialogue/SKILL.md` | Semantic source only |
 | Cross-model gatherer agents | `packages/plugins/cross-model/agents/` | Semantic source only |
 | Benchmark authority | `docs/superpowers/specs/codex-collaboration/dialogue-supersession-benchmark.md` | Fixed evaluation contract |
+
+## Execution Addendum (2026-04-16)
+
+### Open Governance Decision: Scope-enforcement scope
+
+**Status:** Open. Blocks aggregate scoring (AC-6) and the retirement decision (AC-7) until resolved explicitly in this ticket. Candidate runs may continue for evidence collection, but current baseline artifacts must not be used for aggregate scoring unless this ticket ratifies or replaces them.
+
+**Controlling contract citations** (`docs/superpowers/specs/codex-collaboration/dialogue-supersession-benchmark.md`):
+
+- `:167-168` — "any out-of-scope scouting in the raw transcript makes the run invalid"
+- `:182-183` — adjudicator reviews the raw transcript and invalidates any run that scouts beyond recorded `allowed_roots`
+- `:282-283` — "Any scouting outside that scope invalidates the run and requires rerun from the same commit"
+
+The contract text does not distinguish agent-side scouting from Codex-side `exec_command` reads. "Scouting in the raw transcript" is the operative phrase.
+
+**Retroactive impact:**
+
+All three current baseline runs recorded `valid: true` in their staging metadata under a lenient interpretation that treated Codex-side out-of-scope reads as edge-case observations rather than invalidation. That interpretation is not contract-authorized.
+
+- B1 baseline: 0 agent scouts; 8+ out-of-scope Codex reads in transcript
+- B3 baseline: 0 agent scouts; 4 out-of-scope Codex reads (self-flagged at `B3-baseline-synthesis.md:111`)
+- B5 baseline: 0 agent scouts; multiple out-of-scope Codex reads — `foundations.md` (2 reads), `models.py`, `recovery-and-journal.md`, plus cross-references to additional spec and server files surfaced in the final synthesis
+
+Staging metadata for all three is preserved as captured, but not yet ratified for aggregate use.
+
+**Options:**
+
+- **A. Strict reading.** Enforce the contract text as written. All three baseline runs invalid. Rerun with stricter scope-enforcement prompting. Risk: baseline's Codex-side autonomy means prompt-only scope control may not hold under breadth-inviting topics, making the baseline structurally unscorable.
+- **B. Contract amendment.** Formally narrow scope-invalidation to agent-side scouting. Acknowledges the architectural split (baseline's Codex delegation vs candidate's agent-side scouting) and re-establishes scorability of current baseline artifacts. Requires an explicit amendment to `dialogue-supersession-benchmark.md`.
+- **C. Methodology revision.** Redesign the benchmark to measure scope discipline as a separate comparative dimension rather than a run-level invalidator. Broader scope than A or B.
+
+**Decision owner:** this ticket (`T-20260330-04`). Resolve here as an explicit benchmark-governance decision before AC-6 can be closed or AC-7 can be updated from provisional to explicit.
