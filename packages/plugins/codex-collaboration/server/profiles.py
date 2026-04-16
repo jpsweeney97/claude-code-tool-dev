@@ -139,9 +139,9 @@ def resolve_profile(
         raise ProfileValidationError(
             f"Profile resolution failed: unknown effort. Got: effort={effort!r:.100}"
         )
-    if not (type(turn_budget) is int and turn_budget > 0):
+    if not (type(turn_budget) is int and 1 <= turn_budget <= 15):
         raise ProfileValidationError(
-            f"Profile resolution failed: turn_budget must be a positive integer. "
+            f"Profile resolution failed: turn_budget must be an integer between 1 and 15. "
             f"Got: turn_budget={turn_budget!r:.100}"
         )
 

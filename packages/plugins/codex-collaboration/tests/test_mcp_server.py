@@ -49,13 +49,24 @@ class FakeControlPlane:
 class FakeDialogueController:
     def __init__(self) -> None:
         self.startup_called = False
+        self.last_explicit_posture: str | None = None
+        self.last_explicit_turn_budget: int | None = None
 
     def recover_startup(self) -> None:
         self.startup_called = True
 
-    def start(self, repo_root: Path, *, profile_name: str | None = None) -> object:
+    def start(
+        self,
+        repo_root: Path,
+        *,
+        profile_name: str | None = None,
+        explicit_posture: str | None = None,
+        explicit_turn_budget: int | None = None,
+    ) -> object:
         from server.models import DialogueStartResult
 
+        self.last_explicit_posture = explicit_posture
+        self.last_explicit_turn_budget = explicit_turn_budget
         return DialogueStartResult(
             collaboration_id="c1",
             runtime_id="r1",
@@ -98,9 +109,18 @@ class FakeDialogueControllerWithParseError:
     def recover_startup(self) -> None:
         self.startup_called = True
 
-    def start(self, repo_root: Path, *, profile_name: str | None = None) -> object:
+    def start(
+        self,
+        repo_root: Path,
+        *,
+        profile_name: str | None = None,
+        explicit_posture: str | None = None,
+        explicit_turn_budget: int | None = None,
+    ) -> object:
         from server.models import DialogueStartResult
 
+        self.last_explicit_posture = explicit_posture
+        self.last_explicit_turn_budget = explicit_turn_budget
         return DialogueStartResult(
             collaboration_id="c1",
             runtime_id="r1",
@@ -137,9 +157,18 @@ class FakeDialogueControllerWithFinalizationError:
     def recover_startup(self) -> None:
         self.startup_called = True
 
-    def start(self, repo_root: Path, *, profile_name: str | None = None) -> object:
+    def start(
+        self,
+        repo_root: Path,
+        *,
+        profile_name: str | None = None,
+        explicit_posture: str | None = None,
+        explicit_turn_budget: int | None = None,
+    ) -> object:
         from server.models import DialogueStartResult
 
+        self.last_explicit_posture = explicit_posture
+        self.last_explicit_turn_budget = explicit_turn_budget
         return DialogueStartResult(
             collaboration_id="c1",
             runtime_id="r1",
@@ -246,6 +275,83 @@ class TestMcpServer:
         assert content[0]["type"] == "text"
         result_data = json.loads(content[0]["text"])
         assert result_data["collaboration_id"] == "c1"
+
+    def test_dialogue_start_forwards_explicit_posture(self) -> None:
+        controller = FakeDialogueController()
+        server = McpServer(
+            control_plane=FakeControlPlane(),
+            dialogue_controller=controller,
+        )
+        server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 0,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "clientInfo": {"name": "test"},
+                },
+            }
+        )
+        server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "codex.dialogue.start",
+                    "arguments": {
+                        "repo_root": "/tmp/test-repo",
+                        "posture": "adversarial",
+                        "turn_budget": 6,
+                    },
+                },
+            }
+        )
+        assert controller.last_explicit_posture == "adversarial"
+        assert controller.last_explicit_turn_budget == 6
+
+    def test_dialogue_start_omitted_overrides_forward_none(self) -> None:
+        controller = FakeDialogueController()
+        server = McpServer(
+            control_plane=FakeControlPlane(),
+            dialogue_controller=controller,
+        )
+        server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 0,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "clientInfo": {"name": "test"},
+                },
+            }
+        )
+        server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "codex.dialogue.start",
+                    "arguments": {"repo_root": "/tmp/test-repo"},
+                },
+            }
+        )
+        assert controller.last_explicit_posture is None
+        assert controller.last_explicit_turn_budget is None
+
+    def test_dialogue_start_schema_has_posture_and_turn_budget(self) -> None:
+        start_tool = next(
+            t for t in TOOL_DEFINITIONS if t["name"] == "codex.dialogue.start"
+        )
+        props = start_tool["inputSchema"]["properties"]
+        assert "posture" in props
+        assert props["posture"]["type"] == "string"
+        assert "enum" in props["posture"]
+        assert "turn_budget" in props
+        assert props["turn_budget"]["type"] == "integer"
 
     def test_handle_unknown_tool_returns_error(self) -> None:
         server = self._make_server()
@@ -412,7 +518,12 @@ class TestDeferredDialogueInit:
                 self.startup_called = True
 
             def start(
-                self, repo_root: Path, *, profile_name: str | None = None
+                self,
+                repo_root: Path,
+                *,
+                profile_name: str | None = None,
+                explicit_posture: str | None = None,
+                explicit_turn_budget: int | None = None,
             ) -> object:
                 from server.models import DialogueStartResult
 

@@ -36,7 +36,7 @@ CONSULT_POLICY = ToolScanPolicy(
 )
 
 DIALOGUE_START_POLICY = ToolScanPolicy(
-    expected_fields=frozenset({"repo_root"}),
+    expected_fields=frozenset({"repo_root", "posture", "turn_budget"}),
     content_fields=frozenset({"profile"}),
 )
 

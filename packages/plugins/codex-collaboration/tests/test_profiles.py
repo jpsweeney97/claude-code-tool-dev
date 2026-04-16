@@ -91,6 +91,55 @@ class TestResolveProfile:
             assert resolved.posture, f"profile {name} has no posture"
 
 
+class TestExplicitOverridesWithoutProfile:
+    """Explicit posture and turn_budget without a named profile."""
+
+    def test_explicit_posture_only(self) -> None:
+        resolved = resolve_profile(explicit_posture="adversarial")
+        assert resolved.posture == "adversarial"
+        assert resolved.turn_budget == 6  # default
+        assert resolved.effort is None
+
+    def test_explicit_turn_budget_only(self) -> None:
+        resolved = resolve_profile(explicit_turn_budget=8)
+        assert resolved.posture == "collaborative"  # default
+        assert resolved.turn_budget == 8
+
+    def test_explicit_posture_and_turn_budget(self) -> None:
+        resolved = resolve_profile(
+            explicit_posture="evaluative", explicit_turn_budget=6
+        )
+        assert resolved.posture == "evaluative"
+        assert resolved.turn_budget == 6
+        assert resolved.effort is None
+
+    def test_explicit_overrides_beat_profile(self) -> None:
+        resolved = resolve_profile(
+            profile_name="deep-review",
+            explicit_posture="adversarial",
+            explicit_turn_budget=4,
+        )
+        assert resolved.posture == "adversarial"
+        assert resolved.turn_budget == 4
+        # effort still comes from profile
+        assert resolved.effort == "xhigh"
+
+    def test_all_corpus_posture_budget_combinations(self) -> None:
+        """The four benchmark corpus rows must all resolve."""
+        corpus = [
+            ("evaluative", 6),   # B1
+            ("adversarial", 6),  # B3
+            ("evaluative", 6),   # B5
+            ("comparative", 8),  # B8
+        ]
+        for posture, budget in corpus:
+            resolved = resolve_profile(
+                explicit_posture=posture, explicit_turn_budget=budget
+            )
+            assert resolved.posture == posture
+            assert resolved.turn_budget == budget
+
+
 class TestTypeNarrowing:
     """F4: Literal types catch invalid posture, effort, and turn_budget values."""
 
@@ -147,6 +196,18 @@ class TestTypeNarrowing:
     def test_positive_turn_budget_accepted(self) -> None:
         resolved = resolve_profile(explicit_turn_budget=1)
         assert resolved.turn_budget == 1
+
+    def test_max_turn_budget_accepted(self) -> None:
+        resolved = resolve_profile(explicit_turn_budget=15)
+        assert resolved.turn_budget == 15
+
+    def test_turn_budget_above_15_rejected(self) -> None:
+        with pytest.raises(ProfileValidationError, match="turn_budget"):
+            resolve_profile(explicit_turn_budget=16)
+
+    def test_turn_budget_at_100_rejected(self) -> None:
+        with pytest.raises(ProfileValidationError, match="turn_budget"):
+            resolve_profile(explicit_turn_budget=100)
 
     def test_default_turn_budget_accepted(self) -> None:
         """Default turn_budget=6 must pass the new validation."""

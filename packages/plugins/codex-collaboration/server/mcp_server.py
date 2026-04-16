@@ -52,6 +52,23 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "type": "string",
                     "description": "Named consultation profile — resolved once at start, persisted for all subsequent replies",
                 },
+                "posture": {
+                    "type": "string",
+                    "enum": [
+                        "collaborative",
+                        "adversarial",
+                        "exploratory",
+                        "evaluative",
+                        "comparative",
+                    ],
+                    "description": "Explicit posture override — takes precedence over profile posture",
+                },
+                "turn_budget": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 15,
+                    "description": "Explicit turn budget override — takes precedence over profile turn_budget",
+                },
             },
             "required": ["repo_root"],
         },
@@ -237,7 +254,10 @@ class McpServer:
         if name == "codex.dialogue.start":
             controller = self._ensure_dialogue_controller()
             result = controller.start(
-                Path(arguments["repo_root"]), profile_name=arguments.get("profile")
+                Path(arguments["repo_root"]),
+                profile_name=arguments.get("profile"),
+                explicit_posture=arguments.get("posture"),
+                explicit_turn_budget=arguments.get("turn_budget"),
             )
             return asdict(result)
         if name == "codex.dialogue.reply":

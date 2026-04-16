@@ -58,6 +58,68 @@ class TestDialogueStartProfilePersistence:
         assert handle.resolved_turn_budget == 1
 
 
+class TestDialogueStartExplicitOverrides:
+    """start() with explicit posture and turn_budget, no profile name."""
+
+    def test_start_with_explicit_posture_stores_on_handle(
+        self, tmp_path: Path
+    ) -> None:
+        controller, _, store, _, _ = _build_dialogue_stack(tmp_path)
+        result = controller.start(tmp_path, explicit_posture="adversarial")
+        handle = store.get(result.collaboration_id)
+        assert handle is not None
+        assert handle.resolved_posture == "adversarial"
+        assert handle.resolved_turn_budget == 6  # resolver default
+
+    def test_start_with_explicit_turn_budget_stores_on_handle(
+        self, tmp_path: Path
+    ) -> None:
+        controller, _, store, _, _ = _build_dialogue_stack(tmp_path)
+        result = controller.start(tmp_path, explicit_turn_budget=8)
+        handle = store.get(result.collaboration_id)
+        assert handle is not None
+        assert handle.resolved_posture == "collaborative"  # resolver default
+        assert handle.resolved_turn_budget == 8
+
+    def test_start_with_both_explicit_overrides(self, tmp_path: Path) -> None:
+        controller, _, store, _, _ = _build_dialogue_stack(tmp_path)
+        result = controller.start(
+            tmp_path, explicit_posture="evaluative", explicit_turn_budget=6
+        )
+        handle = store.get(result.collaboration_id)
+        assert handle is not None
+        assert handle.resolved_posture == "evaluative"
+        assert handle.resolved_turn_budget == 6
+
+    def test_explicit_overrides_beat_profile(self, tmp_path: Path) -> None:
+        controller, _, store, _, _ = _build_dialogue_stack(tmp_path)
+        result = controller.start(
+            tmp_path,
+            profile_name="deep-review",
+            explicit_posture="adversarial",
+            explicit_turn_budget=4,
+        )
+        handle = store.get(result.collaboration_id)
+        assert handle is not None
+        assert handle.resolved_posture == "adversarial"
+        assert handle.resolved_turn_budget == 4
+        assert handle.resolved_effort == "xhigh"  # from profile
+
+    def test_start_with_invalid_posture_raises(self, tmp_path: Path) -> None:
+        from server.profiles import ProfileValidationError
+
+        controller, _, _, _, _ = _build_dialogue_stack(tmp_path)
+        with pytest.raises(ProfileValidationError, match="unknown posture"):
+            controller.start(tmp_path, explicit_posture="aggressive")
+
+    def test_start_with_budget_above_15_raises(self, tmp_path: Path) -> None:
+        from server.profiles import ProfileValidationError
+
+        controller, _, _, _, _ = _build_dialogue_stack(tmp_path)
+        with pytest.raises(ProfileValidationError, match="turn_budget"):
+            controller.start(tmp_path, explicit_turn_budget=16)
+
+
 class TestDialogueReplyUsesStoredProfile:
     def test_reply_passes_stored_effort_to_runtime(self, tmp_path: Path) -> None:
         """reply() passes handle.resolved_effort to runtime.session.run_turn()."""

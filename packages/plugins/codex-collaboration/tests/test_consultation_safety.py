@@ -178,3 +178,35 @@ class TestCheckToolInput:
             DIALOGUE_START_POLICY,
         )
         assert verdict.action == "block"
+
+    def test_dialogue_start_posture_is_expected_not_scanned(self) -> None:
+        """posture is an expected field — not scanned for credentials, no unexpected warning."""
+        verdict = check_tool_input(
+            {"repo_root": "/tmp", "posture": "adversarial"},
+            DIALOGUE_START_POLICY,
+        )
+        assert verdict.action == "allow"
+        assert verdict.unexpected_fields == ()
+
+    def test_dialogue_start_turn_budget_is_expected_not_scanned(self) -> None:
+        """turn_budget is an expected field — not flagged as unexpected."""
+        verdict = check_tool_input(
+            {"repo_root": "/tmp", "turn_budget": 6},
+            DIALOGUE_START_POLICY,
+        )
+        assert verdict.action == "allow"
+        assert verdict.unexpected_fields == ()
+
+    def test_dialogue_start_all_new_fields_together(self) -> None:
+        """All fields together: repo_root + profile + posture + turn_budget."""
+        verdict = check_tool_input(
+            {
+                "repo_root": "/tmp",
+                "profile": "deep-review",
+                "posture": "evaluative",
+                "turn_budget": 6,
+            },
+            DIALOGUE_START_POLICY,
+        )
+        assert verdict.action == "allow"
+        assert verdict.unexpected_fields == ()

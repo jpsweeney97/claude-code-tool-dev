@@ -110,7 +110,12 @@ class DialogueController:
         self._uuid_factory = uuid_factory or (lambda: str(uuid.uuid4()))
 
     def start(
-        self, repo_root: Path, *, profile_name: str | None = None
+        self,
+        repo_root: Path,
+        *,
+        profile_name: str | None = None,
+        explicit_posture: str | None = None,
+        explicit_turn_budget: int | None = None,
     ) -> DialogueStartResult:
         """Create a durable dialogue thread and persist handle.
 
@@ -121,13 +126,27 @@ class DialogueController:
         resolved_root = repo_root.resolve()
         runtime = self._control_plane.get_advisory_runtime(resolved_root)
 
+        # Resolution gate: only enter profile resolution when the caller
+        # explicitly provides at least one execution control. Bare callers
+        # (e.g., shakedown-b1) that pass only repo_root get None fields —
+        # no posture injection, no budget metadata. This is intentional:
+        # each caller owns its own defaults. The /dialogue skill always
+        # dispatches explicit values.
         resolved_posture: str | None = None
         resolved_effort: str | None = None
         resolved_turn_budget: int | None = None
-        if profile_name is not None:
+        if (
+            profile_name is not None
+            or explicit_posture is not None
+            or explicit_turn_budget is not None
+        ):
             from .profiles import resolve_profile
 
-            resolved = resolve_profile(profile_name=profile_name)
+            resolved = resolve_profile(
+                profile_name=profile_name,
+                explicit_posture=explicit_posture,
+                explicit_turn_budget=explicit_turn_budget,
+            )
             resolved_posture = resolved.posture
             resolved_effort = resolved.effort
             resolved_turn_budget = resolved.turn_budget
