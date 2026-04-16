@@ -182,8 +182,10 @@ conversation-history carryover, which would constitute supplemental context
 1. Start a new Claude Code session (`claude` or new terminal tab)
 2. Record the session identifier:
    - **For scored runs (required):** obtain the canonical host session ID
-     (visible in the Claude Code status bar, or via
-     `! cat ~/.claude/session_id`). If a canonical ID cannot be obtained,
+     (published by the codex-collaboration SessionStart hook at
+     `~/.claude/plugins/data/codex-collaboration-inline/session_id`; read
+     via `! cat ~/.claude/plugins/data/codex-collaboration-inline/session_id`).
+     If a canonical ID cannot be obtained,
      the run MUST be classified as rehearsal — a scored run without a
      verifiable session ID does not satisfy RC6.
    - **For rehearsals:** a manually assigned label (e.g.,
