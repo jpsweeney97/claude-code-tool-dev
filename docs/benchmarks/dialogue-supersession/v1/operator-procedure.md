@@ -330,6 +330,11 @@ Set `rehearsal` from the execution mode gate. Set `session_id_canonical` to
 `false` and the execution mode gate said SCORED, reclassify this run as
 `"rehearsal": true`.
 
+**`evidence_count` counts only the synthesis's `<!-- pipeline-data -->` `scout_count`**
+(equivalently `len(evidence_log)` per benchmark contract §188). Do NOT include
+pre-dialogue gatherer emissions, Codex autonomous exec calls, or CLAIM entries —
+those are separate surfaces with their own conventions.
+
 Repeat for the candidate run. These metadata files are consumed during
 adjudication and for benchmark-wide mode determination before Phase 4.
 
