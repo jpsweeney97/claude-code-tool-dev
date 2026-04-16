@@ -11,25 +11,18 @@ this document and the contract disagree, the contract governs.
 outside every scored `allowed_roots` surface to prevent self-referential
 contamination.
 
-## Scoring Prerequisites — BLOCKING
+## Scoring Prerequisites — RESOLVED
 
-Scored runs MUST NOT proceed until both items below are resolved. The
-scaffold is ready; the candidate system's control surface is not.
+Both RC4 blockers are resolved via implementation. The candidate dialogue
+skill now accepts `-p` (posture) and `-n` (turn budget) flags, forwarded
+through the MCP schema and profile resolver to the orchestrator.
 
-| # | Blocker | Contract requirement | Current state | Resolution options |
-|---|---------|---------------------|---------------|-------------------|
-| 1 | Candidate has no posture control | Run condition 4: "Same posture ... from the fixed corpus" (unconditional) | Orchestrator does not accept posture input | (a) Add `-p` flag to codex-collaboration dialogue skill, pass to orchestrator; or (b) amend contract run condition 4 through change control |
-| 2 | Candidate has no turn-budget control | Run condition 4: "Same ... turn budget from the fixed corpus" (unconditional) | Orchestrator hardcodes `DIALOGUE_TURN_BUDGET = 10`; corpus rows require 6 or 8 | (a) Add `-n` flag to codex-collaboration dialogue skill, pass to orchestrator; or (b) amend contract run condition 4 through change control |
+| # | Former blocker | Resolution | Commit |
+|---|----------------|-----------|--------|
+| 1 | Candidate had no posture control | `-p` flag added to `/codex-collaboration:dialogue`; posture forwarded to `codex.dialogue.start`, persisted on handle, injected into every Codex turn via prompt builder; orchestrator uses posture-aware follow-up framing | `52a968e9`, `e2057f2b` |
+| 2 | Candidate had no turn-budget control | `-n` flag added; `DIALOGUE_TURN_BUDGET` constant deleted; parsed budget controls loop termination, Budget Exhaustion Window, and synthesis artifact projection | `52a968e9`, `e2057f2b` |
 
-**Why this blocks scoring:** Run condition 4 is unconditional. The "when
-the host allows them to be matched" caveat applies only to run condition 5
-(model, reasoning-effort, dialogue-timeout). Documenting the asymmetry does
-not satisfy the contract — either the systems must match, or the contract
-must change.
-
-**What is ready now:** The artifact scaffold, staging protocol, adjudication
-workflow, and aggregate scoring are all ready. Non-scoring rehearsal runs
-(T4-BR-08(b)) may proceed for operator playbook validation.
+Scored execution may proceed once T4-BR-07 prerequisites are verified.
 
 ## T4-BR-07 Prerequisites
 
@@ -49,8 +42,8 @@ Before starting any scored runs, verify all four v1 gate items:
 | Commit (RC 1) | Same | Same | Matched |
 | Working tree (RC 2) | Clean | Clean — all staging outside repo | Matched |
 | Prompt (RC 3) | Same corpus prompt | Same corpus prompt | Matched |
-| Posture (RC 4) | `-p` flag | **No control surface** | **Blocked** |
-| Turn budget (RC 4) | `-n` flag | **Hardcoded 10** | **Blocked** |
+| Posture (RC 4) | `-p` flag | `-p` flag | Matched |
+| Turn budget (RC 4) | `-n` flag | `-n` flag | Matched |
 | Model/effort/timeout (RC 5) | Same | Same | Matched |
 | Supplemental context (RC 6) | Fresh session | Fresh session | Operator-attested (canonical session ID required for scored runs) |
 | Scouting tools (RC 7) | Glob/Grep/Read | Glob/Grep/Read | Matched |
@@ -711,13 +704,13 @@ adjudication, not prevented at runtime.
 | Runs per row | 2 (baseline + candidate) |
 | Total runs | 8 (minimum; reruns add entries) |
 | Baseline system | cross-model `/dialogue` (`-p` posture, `-n` turn budget) |
-| Candidate system | codex-collaboration `/dialogue` (no posture/turn-budget flags) |
+| Candidate system | codex-collaboration `/dialogue` (`-p` posture, `-n` turn budget) |
 | Baseline max_evidence | 5 (procedural; overflow invalidates) |
 | Candidate max_evidence | 15 (native) |
 | Session isolation | Fresh session per scored run |
 | Staging | `$BENCH_STAGING` (outside repo; nothing imported until Phase 5) |
 | Scope enforcement | Prompt-only + post-hoc transcript review (both systems) |
-| Scoring blockers | Posture control (RC 4), turn-budget control (RC 4) |
+| Scoring blockers | None (RC4 resolved) |
 | Pass conditions | 3 (safety, false claims, supported rate) |
 | Diagnostic metrics | `citation_count`, `distinct_cited_files`, `converged_within_budget` |
 | Artifacts | `manifest.json`, `runs.json`, `adjudication.json`, `summary.md` |
