@@ -661,8 +661,12 @@ def run(input_path: Path) -> int:
             # Keep stdout on disk so pathological output cannot be buffered
             # fully into memory before the size cap is enforced.
             with TemporaryFile() as stdout_sink, TemporaryFile() as stderr_sink:
+                # stdin=DEVNULL required in MCP server topology; see
+                # codex_consult.py for the full rationale. Without it codex
+                # exec inherits FastMCP's stdio pipe and blocks on stdin EOF.
                 proc = subprocess.Popen(
                     cmd,
+                    stdin=subprocess.DEVNULL,
                     stdout=stdout_sink,
                     stderr=stderr_sink,
                     text=False,

@@ -288,8 +288,15 @@ def _run_subprocess(cmd: list[str]) -> tuple[str, int]:
 
     try:
         with TemporaryFile() as stdout_sink, TemporaryFile() as stderr_sink:
+            # stdin=DEVNULL is required in MCP server topology: FastMCP's
+            # stdio JSON-RPC pipe is the parent's stdin; without explicit
+            # redirection codex exec inherits it and blocks forever waiting
+            # for EOF (codex appends piped stdin to the prompt as a <stdin>
+            # block). Direct test runs succeed because their stdin closes
+            # naturally — the hang is production-only.
             proc = subprocess.Popen(
                 cmd,
+                stdin=subprocess.DEVNULL,
                 stdout=stdout_sink,
                 stderr=stderr_sink,
                 env=env,
