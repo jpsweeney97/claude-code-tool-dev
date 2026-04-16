@@ -58,7 +58,7 @@ Parse optional flags from `$ARGUMENTS` — the raw text following `/codex` in th
 | `-m <model>` | `model` | Codex's default model |
 | `-s {read-only\|workspace-write\|danger-full-access}` | `sandbox` | `read-only` |
 | `-a {untrusted\|on-failure\|on-request\|never}` | `approval-policy` | `never` if read-only, `on-request` if workspace-write or danger-full-access |
-| `-t {minimal\|low\|medium\|high\|xhigh}` | `config` → `{"model_reasoning_effort": "<value>"}` | `xhigh` |
+| `-t {minimal\|low\|medium\|high\|xhigh}` | `config` → `{"model_reasoning_effort": "<value>"}` | `high` |
 
 Flag values are case-insensitive: `high`, `HIGH`, and `High` are all accepted for `-t` and other enum flags.
 

@@ -96,7 +96,7 @@ Call `mcp__plugin_cross-model_codex__codex` with:
 | `prompt` | Assembled briefing from Step 2 |
 | `sandbox` | `read-only` |
 | `approval-policy` | `never` |
-| `config` | `{"model_reasoning_effort": "xhigh"}` |
+| `config` | `{"model_reasoning_effort": "high"}` |
 
 Do NOT set the `model` parameter — omit it entirely so the Codex server uses its default. Setting model names from training knowledge causes API failures. See consultation contract §9.
 

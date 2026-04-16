@@ -56,7 +56,7 @@ profiles:
       covers both structural analysis and correctness verification.
     sandbox: read-only
     approval_policy: never
-    reasoning_effort: xhigh
+    reasoning_effort: high
     posture: evaluative
     turn_budget: 8
 
@@ -78,7 +78,7 @@ profiles:
       surface failure modes.
     sandbox: read-only
     approval_policy: never
-    reasoning_effort: xhigh
+    reasoning_effort: high
     posture: adversarial
     turn_budget: 6
 
@@ -90,7 +90,7 @@ profiles:
       decomposition.
     sandbox: read-only
     approval_policy: never
-    reasoning_effort: xhigh
+    reasoning_effort: high
     posture: comparative
     turn_budget: 8
 
@@ -101,7 +101,7 @@ profiles:
       evaluation criteria in the briefing material.
     sandbox: read-only
     approval_policy: never
-    reasoning_effort: xhigh
+    reasoning_effort: high
     posture: comparative
     turn_budget: 6
 

@@ -42,7 +42,7 @@ The prompt from the caller contains:
 | Phases | No | Ordered list of phase objects (`{posture, target_turns, description}`). Mutually exclusive with `Posture`. When present, the agent drives phase transitions per the "Phase tracking" section. |
 | Turn budget | No | Maximum Codex turns. Default: **8** |
 | `seed_confidence` | No | Quality signal from pre-dialogue context gathering. Values: `normal` (default), `low`. Read from delegation envelope. |
-| `reasoning_effort` | No | Resolved reasoning effort for Codex calls. Values: `minimal`, `low`, `medium`, `high`, `xhigh`. When omitted, use consultation contract §8 default (`xhigh`). Passed from delegation envelope. |
+| `reasoning_effort` | No | Resolved reasoning effort for Codex calls. Values: `minimal`, `low`, `medium`, `high`, `xhigh`. When omitted, use consultation contract §8 default (`high`). Passed from delegation envelope. |
 | `scope_envelope` | No | Immutable scope set from §3 preflight. Contains `allowed_roots` (list of path prefixes) and `source_classes` (list of allowed source types). When present, the agent must not read files outside allowed roots during scouting. When absent, treated as unrestricted (backwards compatibility). |
 
 If the prompt references files without inlining them, read those files before assembling the briefing.
@@ -114,7 +114,7 @@ Call `mcp__plugin_cross-model_codex__codex` **EXACTLY ONCE** to start the conver
 
 Use parameters from [contract-agent-extract.md](../references/contract-agent-extract.md) §9. Do **not** set the `model` parameter — omit it entirely so the Codex server uses its default. Setting model names from training knowledge (e.g., "o4 mini", "o3") causes the tool call to fail. If `model_reasoning_effort` is rejected by the API, omit it and proceed.
 
-If the delegation envelope includes `reasoning_effort`, use it as `config.model_reasoning_effort`. Otherwise, use the consultation contract §8 default (`xhigh`). Do not re-resolve profile files — the delegating skill has already resolved precedence.
+If the delegation envelope includes `reasoning_effort`, use it as `config.model_reasoning_effort`. Otherwise, use the consultation contract §8 default (`high`). Do not re-resolve profile files — the delegating skill has already resolved precedence.
 
 Persist `threadId` per § Continuity State Contract (§10): prefer `structuredContent.threadId`, fall back to top-level `threadId`. If neither is present, report error and stop — the conversation cannot continue without a thread identifier.
 

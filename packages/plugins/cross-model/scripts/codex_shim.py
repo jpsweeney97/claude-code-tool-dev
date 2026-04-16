@@ -38,7 +38,7 @@ def _extract_reasoning_effort(config: dict[str, Any] | None) -> str:
     """Extract model_reasoning_effort from MCP config object."""
     if config and isinstance(config.get("model_reasoning_effort"), str):
         return config["model_reasoning_effort"]
-    return "xhigh"
+    return "high"
 
 
 def _build_response(result: dict) -> CallToolResult:

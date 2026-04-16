@@ -112,7 +112,7 @@ def _parse_input(input_path: Path) -> dict:
     if not isinstance(prompt, str):
         raise ConsultationError("prompt must be string")
 
-    reasoning_effort = data.get("reasoning_effort", "xhigh")
+    reasoning_effort = data.get("reasoning_effort", "high")
     if reasoning_effort not in _VALID_EFFORTS:
         raise ConsultationError(
             f"invalid reasoning_effort: must be one of {sorted(_VALID_EFFORTS)}"
@@ -344,7 +344,7 @@ def consult(
     prompt: str,
     thread_id: str | None = None,
     model: str | None = None,
-    reasoning_effort: str = "xhigh",
+    reasoning_effort: str = "high",
 ) -> dict:
     """Run the consultation pipeline programmatically.
 

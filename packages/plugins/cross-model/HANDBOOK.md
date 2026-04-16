@@ -281,7 +281,7 @@ Supported flags:
 | `-m <model>` | explicit Codex model | omitted |
 | `-s <sandbox>` | sandbox | `read-only` |
 | `-a <approval-policy>` | approval policy | coupled to sandbox |
-| `-t <reasoning-effort>` | reasoning effort | `xhigh` |
+| `-t <reasoning-effort>` | reasoning effort | `high` |
 
 Operational notes:
 

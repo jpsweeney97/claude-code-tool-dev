@@ -10,17 +10,17 @@ class TestExtractReasoningEffort:
         from scripts.codex_shim import _extract_reasoning_effort
         assert _extract_reasoning_effort({"model_reasoning_effort": "high"}) == "high"
 
-    def test_defaults_to_xhigh(self) -> None:
+    def test_defaults_to_high(self) -> None:
         from scripts.codex_shim import _extract_reasoning_effort
-        assert _extract_reasoning_effort(None) == "xhigh"
+        assert _extract_reasoning_effort(None) == "high"
 
     def test_defaults_on_missing_key(self) -> None:
         from scripts.codex_shim import _extract_reasoning_effort
-        assert _extract_reasoning_effort({"other_key": "value"}) == "xhigh"
+        assert _extract_reasoning_effort({"other_key": "value"}) == "high"
 
     def test_defaults_on_non_string_value(self) -> None:
         from scripts.codex_shim import _extract_reasoning_effort
-        assert _extract_reasoning_effort({"model_reasoning_effort": 42}) == "xhigh"
+        assert _extract_reasoning_effort({"model_reasoning_effort": 42}) == "high"
 
 
 from mcp.types import CallToolResult

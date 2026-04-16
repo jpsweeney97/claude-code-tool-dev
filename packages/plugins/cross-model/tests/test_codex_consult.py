@@ -36,7 +36,7 @@ class TestParseInput:
         f.write_text(json.dumps({"prompt": "test"}))
         result = _parse_input(f)
         assert result["sandbox"] == "read-only"
-        assert result["reasoning_effort"] == "xhigh"
+        assert result["reasoning_effort"] == "high"
         assert result["model"] is None
 
     def test_invalid_json_errors(self, tmp_path: Path) -> None:
@@ -81,7 +81,7 @@ class TestBuildCommand:
 
     def test_new_conversation(self) -> None:
         from scripts.codex_consult import _build_command
-        cmd = _build_command(prompt="explain this", thread_id=None, sandbox="read-only", model=None, reasoning_effort="xhigh")
+        cmd = _build_command(prompt="explain this", thread_id=None, sandbox="read-only", model=None, reasoning_effort="high")
         assert cmd[:3] == ["codex", "exec", "--json"]
         assert "-s" in cmd
         idx = cmd.index("-s")
@@ -91,21 +91,21 @@ class TestBuildCommand:
 
     def test_resume_conversation(self) -> None:
         from scripts.codex_consult import _build_command
-        cmd = _build_command(prompt="follow up", thread_id="thr_abc", sandbox="read-only", model=None, reasoning_effort="xhigh")
+        cmd = _build_command(prompt="follow up", thread_id="thr_abc", sandbox="read-only", model=None, reasoning_effort="high")
         assert cmd[:4] == ["codex", "exec", "resume", "thr_abc"]
         assert "--json" in cmd
         assert cmd[-1] == "follow up"
 
     def test_includes_model_when_set(self) -> None:
         from scripts.codex_consult import _build_command
-        cmd = _build_command(prompt="test", thread_id=None, sandbox="read-only", model="o3", reasoning_effort="xhigh")
+        cmd = _build_command(prompt="test", thread_id=None, sandbox="read-only", model="o3", reasoning_effort="high")
         assert "-m" in cmd
         idx = cmd.index("-m")
         assert cmd[idx + 1] == "o3"
 
     def test_omits_model_when_none(self) -> None:
         from scripts.codex_consult import _build_command
-        cmd = _build_command(prompt="test", thread_id=None, sandbox="read-only", model=None, reasoning_effort="xhigh")
+        cmd = _build_command(prompt="test", thread_id=None, sandbox="read-only", model=None, reasoning_effort="high")
         assert "-m" not in cmd
 
     def test_includes_reasoning_effort(self) -> None:
@@ -117,32 +117,32 @@ class TestBuildCommand:
 
     def test_dash_prompt_protected(self) -> None:
         from scripts.codex_consult import _build_command
-        cmd = _build_command(prompt="--dangerous-looking", thread_id=None, sandbox="read-only", model=None, reasoning_effort="xhigh")
+        cmd = _build_command(prompt="--dangerous-looking", thread_id=None, sandbox="read-only", model=None, reasoning_effort="high")
         dd_idx = cmd.index("--")
         assert cmd[dd_idx + 1] == "--dangerous-looking"
 
     def test_includes_skip_git_repo_check(self) -> None:
         """Shim runs from plugin cache (non-git dir); codex exec requires this flag."""
         from scripts.codex_consult import _build_command
-        cmd = _build_command(prompt="test", thread_id=None, sandbox="read-only", model=None, reasoning_effort="xhigh")
+        cmd = _build_command(prompt="test", thread_id=None, sandbox="read-only", model=None, reasoning_effort="high")
         assert "--skip-git-repo-check" in cmd
 
     def test_resume_includes_skip_git_repo_check(self) -> None:
         """Resume path also runs from non-git dir."""
         from scripts.codex_consult import _build_command
-        cmd = _build_command(prompt="test", thread_id="thr_abc", sandbox="read-only", model=None, reasoning_effort="xhigh")
+        cmd = _build_command(prompt="test", thread_id="thr_abc", sandbox="read-only", model=None, reasoning_effort="high")
         assert "--skip-git-repo-check" in cmd
 
     def test_resume_omits_sandbox_flag(self) -> None:
         """codex exec resume does not accept -s/--sandbox; sandbox is inherited from original session."""
         from scripts.codex_consult import _build_command
-        cmd = _build_command(prompt="test", thread_id="thr_abc", sandbox="read-only", model=None, reasoning_effort="xhigh")
+        cmd = _build_command(prompt="test", thread_id="thr_abc", sandbox="read-only", model=None, reasoning_effort="high")
         assert "-s" not in cmd, f"resume command should not contain -s flag, got: {cmd}"
 
     def test_new_conversation_includes_sandbox_flag(self) -> None:
         """New conversations must specify sandbox via -s flag."""
         from scripts.codex_consult import _build_command
-        cmd = _build_command(prompt="test", thread_id=None, sandbox="read-only", model=None, reasoning_effort="xhigh")
+        cmd = _build_command(prompt="test", thread_id=None, sandbox="read-only", model=None, reasoning_effort="high")
         assert "-s" in cmd
         idx = cmd.index("-s")
         assert cmd[idx + 1] == "read-only"

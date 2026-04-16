@@ -352,7 +352,7 @@ Task(
 )
 ```
 
-**`reasoning_effort` resolution:** profile value > consultation contract §8 default (`xhigh`). When `--plan` is used without `--profile`, reasoning_effort falls through to the contract default (`xhigh`). Pass the resolved value in the envelope — the `codex-dialogue` agent uses it directly without re-resolving profiles. (A `-t` flag for explicit override is deferred — profile propagation covers the immediate need.)
+**`reasoning_effort` resolution:** profile value > consultation contract §8 default (`high`). When `--plan` is used without `--profile`, reasoning_effort falls through to the contract default (`high`). Pass the resolved value in the envelope — the `codex-dialogue` agent uses it directly without re-resolving profiles. (A `-t` flag for explicit override is deferred — profile propagation covers the immediate need.)
 
 **Phase delegation:** When the resolved profile contains `phases` (multi-phase profile), pass the `phases` array in the delegation envelope and omit `Posture`. The `codex-dialogue` agent reads `phases` to drive phase progression. When the profile has a single `posture` (no `phases` key), pass `Posture` and omit `Phases`. The agent detects which field is present and behaves accordingly.
 

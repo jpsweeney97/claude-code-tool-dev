@@ -80,7 +80,7 @@ Each capability has its own trust model:
 | `-m` | model name | Codex default | Model override |
 | `-s` | `read-only`, `workspace-write`, `danger-full-access` | `read-only` | Sandbox mode |
 | `-a` | `untrusted`, `on-failure`, `on-request`, `never` | Coupled to sandbox | Approval policy |
-| `-t` | `minimal`, `low`, `medium`, `high`, `xhigh` | `xhigh` | Reasoning effort |
+| `-t` | `minimal`, `low`, `medium`, `high`, `xhigh` | `high` | Reasoning effort |
 
 Single-turn: sends a briefing to Codex, relays the response as a three-part structure (Codex Position, Claude Assessment, Decision).
 
@@ -207,11 +207,11 @@ Named presets in `references/consultation-profiles.yaml` configure posture, turn
 | `quick-check` | 1 | collaborative | medium | Fast sanity check |
 | `collaborative-ideation` | 6 | collaborative | high | Brainstorming |
 | `exploratory` | 6 | exploratory | high | Open-ended research |
-| `deep-review` | 8 | evaluative | xhigh | Thorough multi-turn review |
+| `deep-review` | 8 | evaluative | high | Thorough multi-turn review |
 | `code-review` | 4 | evaluative | high | Focused code/document review |
-| `adversarial-challenge` | 6 | adversarial | xhigh | Stress-test assumptions |
-| `planning` | 8 | comparative | xhigh | Architectural design review |
-| `decision-making` | 6 | comparative | xhigh | Choose between N options |
+| `adversarial-challenge` | 6 | adversarial | high | Stress-test assumptions |
+| `planning` | 8 | comparative | high | Architectural design review |
+| `decision-making` | 6 | comparative | high | Choose between N options |
 | `debugging` | 7 | exploratory/evaluative/collaborative | high | Multi-phase debugging (profile-only) |
 
 **Resolution order:** explicit CLI flags > named profile > contract defaults.
