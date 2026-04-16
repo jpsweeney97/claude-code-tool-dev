@@ -12,8 +12,8 @@
 | Commit (RC 1) | Matched | |
 | Working tree (RC 2) | Matched | All staging outside repo; batch import in Phase 5 |
 | Prompt (RC 3) | Matched | Same corpus prompt with scope instructions |
-| Posture (RC 4) | **Blocked** | Candidate has no posture control surface |
-| Turn budget (RC 4) | **Blocked** | Candidate hardcodes DIALOGUE_TURN_BUDGET = 10 |
+| Posture (RC 4) | Matched | Both systems accept `-p` flag |
+| Turn budget (RC 4) | Matched | Both systems accept `-n` flag |
 | Model/effort/timeout (RC 5) | Matched | |
 | Supplemental context (RC 6) | _(fill: Verified / Operator-attested)_ | Fresh session per run. Fill "Verified" if all runs have `session_id_canonical: true`; "Operator-attested" otherwise. |
 | Scouting tools (RC 7) | Matched | Glob/Grep/Read for both |
@@ -21,9 +21,7 @@
 | `allowed_roots` (RC 10-11) | Prompt-only | Neither system uses mechanical scope_envelope enforcement |
 | `max_evidence` | Asymmetric (deliberate) | Baseline: 5 (procedural; overflow invalidates). Candidate: 15 (native) |
 
-**Scoring blockers:** Posture and turn-budget controls (RC 4) must be
-resolved before results in this table are scored. See operator procedure
-§Scoring Prerequisites.
+**Scoring blockers:** None. RC4 resolved at `52a968e9`/`e2057f2b`.
 
 ## Aggregate Metrics
 

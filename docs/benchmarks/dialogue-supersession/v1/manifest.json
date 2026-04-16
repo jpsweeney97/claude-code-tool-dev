@@ -21,29 +21,16 @@
   },
 
   "run_condition_parity": {
-    "_note": "Honest status of each run condition. 'blocked' items must be resolved before scored runs.",
+    "_note": "Honest status of each run condition.",
     "matched": {
       "commit": "Same commit for both systems (run condition 1)",
       "working_tree": "Clean and identical — all artifacts staged outside repo until benchmark complete (run condition 2)",
       "prompt": "Same corpus prompt with scope instructions prepended (run condition 3)",
+      "posture": "Both systems accept -p flag for corpus posture (run condition 4, resolved at 52a968e9/e2057f2b)",
+      "turn_budget": "Both systems accept -n flag for corpus turn budget (run condition 4, resolved at 52a968e9/e2057f2b)",
       "codex_model": "Same Codex model for both systems (run condition 5, matchable)",
       "reasoning_effort": "Same reasoning effort setting (run condition 5, matchable)",
       "dialogue_timeout": "1200s for Codex API calls in both systems (run condition 5, matchable)"
-    },
-    "blocked": {
-      "_note": "These run conditions cannot be satisfied by the current candidate system. Scored runs must not proceed until resolved via implementation or contract amendment.",
-      "posture": {
-        "contract_requirement": "Run condition 4: Same posture from the fixed corpus (unconditional)",
-        "baseline": "Controlled via -p flag, passed to codex-dialogue agent",
-        "candidate": "Orchestrator agent does not accept posture input; no control surface exists",
-        "resolution_options": ["Add -p flag to codex-collaboration dialogue skill and pass to orchestrator", "Amend contract run condition 4 to allow documented posture asymmetry"]
-      },
-      "turn_budget": {
-        "contract_requirement": "Run condition 4: Same turn budget from the fixed corpus (unconditional)",
-        "baseline": "Controlled via -n flag (default 8, max 15)",
-        "candidate": "Orchestrator hardcodes DIALOGUE_TURN_BUDGET = 10; not configurable per-run",
-        "resolution_options": ["Add -n flag to codex-collaboration dialogue skill and pass to orchestrator", "Amend contract run condition 4 to allow documented turn-budget asymmetry"]
-      }
     },
     "prompt_only": {
       "_note": "These controls are communicated via prompt instructions and enforced by post-hoc transcript review. Not mechanically enforced.",
