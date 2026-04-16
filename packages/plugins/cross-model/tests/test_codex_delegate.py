@@ -515,7 +515,7 @@ class TestRunOrchestrator:
         mock_sub.TimeoutExpired = subprocess.TimeoutExpired
         mock_proc = MagicMock()
         mock_proc.wait.side_effect = [
-            subprocess.TimeoutExpired(cmd=["codex"], timeout=600),
+            subprocess.TimeoutExpired(cmd=["codex"], timeout=900),
             0,
         ]
         mock_sub.Popen.return_value = mock_proc
@@ -720,7 +720,7 @@ class TestStep10ErrorShapes:
         mock_sub.TimeoutExpired = subprocess.TimeoutExpired
         mock_proc = MagicMock()
         mock_proc.wait.side_effect = [
-            subprocess.TimeoutExpired(cmd=["codex"], timeout=600),
+            subprocess.TimeoutExpired(cmd=["codex"], timeout=900),
             0,
         ]
         mock_sub.Popen.return_value = mock_proc

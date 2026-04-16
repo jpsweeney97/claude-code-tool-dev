@@ -3,19 +3,19 @@ import { describe, it, expect } from 'vitest';
 import { KNOWN_CATEGORIES, SECTION_TO_CATEGORY, CATEGORY_ALIASES } from '../src/categories.js';
 
 describe('KNOWN_CATEGORIES', () => {
-  it('contains all 26 canonical categories', () => {
+  it('contains all 27 canonical categories', () => {
     const expected = [
       // Extension categories (10)
       'hooks', 'skills', 'commands', 'agents', 'plugins',
       'plugin-marketplaces', 'mcp', 'channels', 'settings', 'memory',
-      // General categories (16)
+      // General categories (17)
       'overview', 'getting-started', 'cli', 'best-practices',
       'interactive', 'security', 'providers', 'ide', 'ci-cd',
-      'automation', 'desktop', 'integrations', 'config', 'operations',
-      'troubleshooting', 'changelog',
+      'automation', 'agent-sdk', 'desktop', 'integrations', 'config',
+      'operations', 'troubleshooting', 'changelog',
     ];
 
-    expect(KNOWN_CATEGORIES.size).toBe(26);
+    expect(KNOWN_CATEGORIES.size).toBe(27);
     for (const cat of expected) {
       expect(KNOWN_CATEGORIES.has(cat)).toBe(true);
     }
@@ -72,15 +72,29 @@ describe('SECTION_TO_CATEGORY', () => {
     expect(SECTION_TO_CATEGORY['headless']).toBe('automation');
     expect(SECTION_TO_CATEGORY['scheduled-tasks']).toBe('automation');
     expect(SECTION_TO_CATEGORY['web-scheduled-tasks']).toBe('automation');
+    expect(SECTION_TO_CATEGORY['desktop-scheduled-tasks']).toBe('automation');
+    expect(SECTION_TO_CATEGORY['computer-use']).toBe('automation');
+    expect(SECTION_TO_CATEGORY['routines']).toBe('automation');
+  });
+
+  it('maps agent-sdk segment to agent-sdk category', () => {
+    expect(SECTION_TO_CATEGORY['agent-sdk']).toBe('agent-sdk');
   });
 
   it('maps remaining unmapped segments to correct categories', () => {
     expect(SECTION_TO_CATEGORY['code-review']).toBe('ci-cd');
+    expect(SECTION_TO_CATEGORY['github-enterprise-server']).toBe('ci-cd');
     expect(SECTION_TO_CATEGORY['env-vars']).toBe('config');
     expect(SECTION_TO_CATEGORY['permission-modes']).toBe('security');
     expect(SECTION_TO_CATEGORY['platforms']).toBe('overview');
+    expect(SECTION_TO_CATEGORY['context-window']).toBe('overview');
     expect(SECTION_TO_CATEGORY['tools-reference']).toBe('cli');
     expect(SECTION_TO_CATEGORY['voice-dictation']).toBe('interactive');
+    expect(SECTION_TO_CATEGORY['ultraplan']).toBe('interactive');
+    expect(SECTION_TO_CATEGORY['fullscreen']).toBe('desktop');
+    expect(SECTION_TO_CATEGORY['web-quickstart']).toBe('getting-started');
+    expect(SECTION_TO_CATEGORY['whats-new']).toBe('changelog');
+    expect(SECTION_TO_CATEGORY['claude-directory']).toBe('plugins');
   });
 
   it('all values target a known category', () => {

@@ -668,7 +668,7 @@ def run(input_path: Path) -> int:
                     text=False,
                 )
                 try:
-                    proc.wait(timeout=600)
+                    proc.wait(timeout=900)
                 except subprocess.TimeoutExpired:
                     proc.kill()
                     proc.wait()

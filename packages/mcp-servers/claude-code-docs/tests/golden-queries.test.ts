@@ -332,6 +332,19 @@ Add the -p flag to any claude command to run it non-interactively. All CLI optio
 
 Add --bare to reduce startup time by skipping auto-discovery. Useful for CI scripts and automated pipelines.
 ---
+# Agent SDK overview
+Source: https://code.claude.com/docs/en/agent-sdk/agent-loop
+
+The Agent SDK lets you embed Claude Code's autonomous agent loop in your own applications. The SDK is a standalone package that gives you programmatic control over tools, permissions, cost limits, and output from Python or TypeScript.
+
+## The loop at a glance
+
+Every agent session follows the same cycle: receive prompt, evaluate and respond, execute tools, repeat. Claude continues calling tools and processing results until it produces a response with no tool calls.
+
+## Turns and messages
+
+A turn is one round trip inside the loop: Claude produces output that includes tool calls, the SDK executes those tools, and the results feed back to Claude automatically.
+---
 # Run prompts on a schedule
 Source: https://code.claude.com/docs/en/scheduled-tasks
 
@@ -533,10 +546,10 @@ describe('golden queries (URL-based)', () => {
     { query: 'vim mode interactive editing', expectedTopCategory: 'interactive' },
     { query: 'desktop application native install', expectedTopCategory: 'desktop' },
     { query: 'overview agentic terminal tool', expectedTopCategory: 'overview' },
-    // New categories (channels, automation)
+    // New categories (channels, automation, agent-sdk)
     { query: 'channel push events Telegram Discord', expectedTopCategory: 'channels' },
     { query: 'sender allowlist channel security', expectedTopCategory: 'channels' },
-    { query: 'Agent SDK programmatic CLI automation', expectedTopCategory: 'automation' },
+    { query: 'Agent SDK agent loop turns messages', expectedTopCategory: 'agent-sdk' },
     { query: 'scheduled tasks loop recurring prompt', expectedTopCategory: 'automation' },
     // Remaining categories (full coverage)
     { query: 'plugin marketplace browse install community', expectedTopCategory: 'plugin-marketplaces' },

@@ -79,7 +79,7 @@ class DispatchState(Enum):
 _VALID_EFFORTS = {"minimal", "low", "medium", "high", "xhigh"}
 _MIN_VERSION = (0, 111, 0)
 _STDOUT_MAX_BYTES = 50 * 1024 * 1024
-_SUBPROCESS_TIMEOUT = 300
+_SUBPROCESS_TIMEOUT = 900
 _KNOWN_FIELDS = {"prompt", "thread_id", "model", "reasoning_effort"}
 
 

@@ -282,7 +282,7 @@ class TestRunSubprocess:
     def test_timeout_returns_partial_stdout(self, mock_sub: MagicMock) -> None:
         from scripts.codex_consult import _run_subprocess, SubprocessTimeout
         mock_proc = MagicMock()
-        mock_proc.wait.side_effect = _subprocess.TimeoutExpired(cmd=["codex"], timeout=300)
+        mock_proc.wait.side_effect = _subprocess.TimeoutExpired(cmd=["codex"], timeout=900)
         mock_proc.kill = MagicMock()
         mock_sub.Popen.return_value = mock_proc
         mock_sub.TimeoutExpired = _subprocess.TimeoutExpired

@@ -2,7 +2,7 @@
 
 /**
  * Canonical list of all documentation categories.
- * These are the 26 categories used for categorizing all Claude Code docs.
+ * These are the 27 categories used for categorizing all Claude Code docs.
  */
 export const KNOWN_CATEGORIES = new Set([
   // Extension categories (10)
@@ -16,7 +16,7 @@ export const KNOWN_CATEGORIES = new Set([
   'channels',
   'settings',
   'memory',
-  // General categories (16)
+  // General categories (17)
   'overview',
   'getting-started',
   'cli',
@@ -27,6 +27,7 @@ export const KNOWN_CATEGORIES = new Set([
   'ide',
   'ci-cd',
   'automation',
+  'agent-sdk',
   'desktop',
   'integrations',
   'config',
@@ -63,8 +64,10 @@ export const SECTION_TO_CATEGORY: Record<string, string> = {
   'overview': 'overview',
   'features-overview': 'overview',
   'how-claude-code-works': 'overview',
+  'context-window': 'overview',
   'platforms': 'overview',
   'quickstart': 'getting-started',
+  'web-quickstart': 'getting-started',
   'setup': 'getting-started',
   'cli-reference': 'cli',
   'tools-reference': 'cli',
@@ -92,18 +95,26 @@ export const SECTION_TO_CATEGORY: Record<string, string> = {
   'jetbrains': 'ide',
   'devcontainer': 'ide',
   'github-actions': 'ci-cd',
+  'github-enterprise-server': 'ci-cd',
   'gitlab-ci-cd': 'ci-cd',
   'code-review': 'ci-cd',
   'headless': 'automation',
   'scheduled-tasks': 'automation',
   'web-scheduled-tasks': 'automation',
+  'desktop-scheduled-tasks': 'automation',
+  'computer-use': 'automation',
+  'routines': 'automation',
+  'agent-sdk': 'agent-sdk',
   'remote-control': 'interactive',
+  'ultraplan': 'interactive',
   'desktop': 'desktop',
   'desktop-quickstart': 'desktop',
+  'fullscreen': 'desktop',
   'chrome': 'desktop',
   'claude-code-on-the-web': 'desktop',
   'slack': 'integrations',
   'third-party-integrations': 'integrations',
+  'claude-directory': 'plugins',
   'configuration': 'config',
   'model-config': 'config',
   'network-config': 'config',
@@ -116,6 +127,7 @@ export const SECTION_TO_CATEGORY: Record<string, string> = {
   'monitoring-usage': 'operations',
   'troubleshooting': 'troubleshooting',
   'changelog': 'changelog',
+  'whats-new': 'changelog',
 };
 
 /**
