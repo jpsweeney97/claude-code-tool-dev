@@ -178,6 +178,8 @@ def test_build_workspace_write_sandbox_policy_restricts_reads_and_writes(
             "includePlatformDefaults": False,
         },
         "networkAccess": False,
+        "excludeSlashTmp": True,
+        "excludeTmpdirEnvVar": True,
     }
 
 
