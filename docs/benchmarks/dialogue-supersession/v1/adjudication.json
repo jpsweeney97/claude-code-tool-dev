@@ -1,5 +1,8 @@
 {
   "_schema_note": "One entry per adjudicated run. Keyed by run_id from runs.json. Only valid runs receive adjudication entries.",
+  "_closeout_note": "Formal claim-level adjudication entries were not assembled for this closeout. The parent ticket resolved AC-7 directly on the imported capture set, so aggregate scoring was not rendered.",
+  "execution_mode": "demonstrated_not_scored",
+  "decision_source": "docs/tickets/2026-03-30-codex-collaboration-dialogue-parity-and-scouting-retirement.md",
   "_entry_schema": {
     "run_id": "string — matches a valid run entry in runs.json",
     "claims": [
