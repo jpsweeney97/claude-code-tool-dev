@@ -189,7 +189,7 @@ class ControlPlane:
                 else runtime.session.start_thread()
             )
             runtime.thread_count += 1
-            turn_result = runtime.session.run_turn(
+            turn_result = runtime.session.run_advisory_turn(
                 thread_id=thread_id,
                 prompt_text=build_consult_turn_text(packet.payload, posture=posture),
                 output_schema=CONSULT_OUTPUT_SCHEMA,

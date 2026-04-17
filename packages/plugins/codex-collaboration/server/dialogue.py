@@ -362,11 +362,11 @@ class DialogueController:
         journal is marked completed.
 
         Failure semantics:
-        - run_turn() raises: inspect via _best_effort_repair_turn(). If the turn
+        - run_advisory_turn() raises: inspect via _best_effort_repair_turn(). If the turn
           is still unconfirmed, re-raise the original dispatch exception after
           quarantining the handle. If the turn is confirmed, surface a
           CommittedTurnFinalizationError instead of a raw dispatch failure.
-        - local finalization raises after run_turn() succeeds: leave the
+        - local finalization raises after run_advisory_turn() succeeds: leave the
           journal at dispatched, quarantine the handle, and raise
           CommittedTurnFinalizationError.
         - parse_consult_response() raises after completed: raise
@@ -432,7 +432,7 @@ class DialogueController:
         self._journal.write_phase(intent_entry, session_id=self._session_id)
 
         try:
-            turn_result = runtime.session.run_turn(
+            turn_result = runtime.session.run_advisory_turn(
                 thread_id=handle.codex_thread_id,
                 prompt_text=build_consult_turn_text(packet.payload, posture=posture),
                 output_schema=CONSULT_OUTPUT_SCHEMA,
@@ -704,7 +704,7 @@ class DialogueController:
           unchanged for later recovery.
 
         Does NOT silently treat intent as no-op. Absence of evidence is not
-        evidence of absence: a crash between run_turn() call and journal write
+        evidence of absence: a crash between run_advisory_turn() call and journal write
         leaves an intent record even though dispatch occurred.
         """
         handle = self._lineage_store.get(entry.collaboration_id)
@@ -847,7 +847,7 @@ class DialogueController:
     def _best_effort_repair_turn(
         self, intent_entry: OperationJournalEntry
     ) -> RepairTurnResult:
-        """Best-effort inspect and repair a turn after run_turn() failure.
+        """Best-effort inspect and repair a turn after run_advisory_turn() failure.
 
         Called only from reply() exception path.
         Returns a repair result describing whether the turn could be confirmed

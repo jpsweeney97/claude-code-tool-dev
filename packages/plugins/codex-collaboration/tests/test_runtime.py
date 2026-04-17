@@ -4,7 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from server.runtime import AppServerRuntimeSession
+from server.runtime import (
+    AppServerRuntimeSession,
+    build_workspace_write_sandbox_policy,
+)
 
 
 class _StubClient:
@@ -139,7 +142,7 @@ class TestRunTurnEffort:
         session = AppServerRuntimeSession(repo_root=tmp_path)
         stub = _StubClientForTurnStart()
         session._client = stub  # type: ignore[assignment]
-        session.run_turn(
+        session.run_advisory_turn(
             thread_id="thr-1",
             prompt_text="test",
             output_schema={},
@@ -152,10 +155,60 @@ class TestRunTurnEffort:
         session = AppServerRuntimeSession(repo_root=tmp_path)
         stub = _StubClientForTurnStart()
         session._client = stub  # type: ignore[assignment]
-        session.run_turn(
+        session.run_advisory_turn(
             thread_id="thr-1",
             prompt_text="test",
             output_schema={},
         )
         assert stub.last_params is not None
         assert "effort" not in stub.last_params
+
+
+def test_build_workspace_write_sandbox_policy_restricts_reads_and_writes(
+    tmp_path: Path,
+) -> None:
+    worktree_path = tmp_path / "worktree"
+    policy = build_workspace_write_sandbox_policy(worktree_path)
+    assert policy == {
+        "type": "workspaceWrite",
+        "writableRoots": [str(worktree_path.resolve())],
+        "readOnlyAccess": {
+            "type": "restricted",
+            "readableRoots": [str(worktree_path.resolve())],
+            "includePlatformDefaults": False,
+        },
+        "networkAccess": False,
+    }
+
+
+def test_run_turn_uses_custom_sandbox_policy_when_provided(tmp_path: Path) -> None:
+    session = AppServerRuntimeSession(repo_root=tmp_path)
+    stub = _StubClientForTurnStart()
+    session._client = stub  # type: ignore[assignment]
+
+    worktree_path = tmp_path / "worktree"
+    sandbox_policy = build_workspace_write_sandbox_policy(worktree_path)
+    session.run_execution_turn(
+        thread_id="thr-1",
+        prompt_text="test",
+        output_schema={},
+        sandbox_policy=sandbox_policy,
+    )
+
+    assert stub.last_params is not None
+    assert stub.last_params["sandboxPolicy"] == sandbox_policy
+
+
+def test_run_advisory_turn_uses_read_only_policy(tmp_path: Path) -> None:
+    session = AppServerRuntimeSession(repo_root=tmp_path)
+    stub = _StubClientForTurnStart()
+    session._client = stub  # type: ignore[assignment]
+
+    session.run_advisory_turn(
+        thread_id="thr-1",
+        prompt_text="test",
+        output_schema={},
+    )
+
+    assert stub.last_params is not None
+    assert stub.last_params["sandboxPolicy"] == {"type": "readOnly"}

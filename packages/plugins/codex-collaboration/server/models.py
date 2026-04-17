@@ -13,6 +13,10 @@ if TYPE_CHECKING:
 CapabilityProfile = Literal["advisory", "execution"]
 AuthStatus = Literal["authenticated", "expired", "missing"]
 HandleStatus = Literal["active", "completed", "crashed", "unknown"]
+PendingRequestKind = Literal[
+    "command_approval", "file_change", "request_user_input", "unknown"
+]
+PendingRequestStatus = Literal["pending", "resolved", "canceled"]
 
 
 @dataclass(frozen=True)
@@ -198,6 +202,27 @@ class CollaborationHandle:
     resolved_posture: str | None = None
     resolved_effort: str | None = None
     resolved_turn_budget: int | None = None
+
+
+@dataclass(frozen=True)
+class PendingServerRequest:
+    """Plugin-owned record for an execution or advisory server request.
+
+    The execution approval-routing layer preserves request-relevant payloads
+    opaquely in ``requested_scope``. Normalized request-scope comparison is a
+    later T-05 concern and is intentionally not implemented here.
+    """
+
+    request_id: str
+    runtime_id: str
+    collaboration_id: str
+    codex_thread_id: str
+    codex_turn_id: str
+    item_id: str
+    kind: PendingRequestKind
+    requested_scope: dict[str, Any]
+    available_decisions: tuple[str, ...] = ()
+    status: PendingRequestStatus = "pending"
 
 
 @dataclass(frozen=True)
