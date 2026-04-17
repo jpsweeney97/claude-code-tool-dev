@@ -245,17 +245,76 @@ Narrow Q2/Q4 check to confirm before building the worktree + runtime plumbing:
 AC-locking is unblocked by this decision. The ACs below incorporate the
 modifications implied by Q0a=D.
 
+## Amendment: Q2 `/tmp` / `$TMPDIR` exclusion (2026-04-17 follow-up)
+
+Post-design-pass tightening identified during T-05 implementation review.
+The Q2 resolution above enumerates four top-level `SandboxPolicy` fields
+(`type`, `writableRoots`, `readOnlyAccess`, `networkAccess`). That
+formulation was **incomplete for true worktree-only writes** because the
+`WorkspaceWriteSandboxPolicy` schema defines two further fields whose
+defaults widen the writable set beyond `worktree_path`:
+
+- `excludeSlashTmp` — schema default is `false` at
+  `codex_app_server_protocol.v2.schemas.json:8022`; when unset, `/tmp`
+  remains writable
+- `excludeTmpdirEnvVar` — schema default is `false` at
+  `codex_app_server_protocol.v2.schemas.json:8026`; when unset, the path
+  pointed to by `$TMPDIR` remains writable
+
+Without overriding both, a delegation job's effective writable set is
+`{worktree_path, /tmp, $TMPDIR}` rather than the `worktree_path` the Q2
+resolution claimed. The amendment applies the same pattern as the
+`includePlatformDefaults: false` override on the read side: App Server
+sandbox defaults are permissive, and the worktree-only claim requires
+explicit closure of every field whose default widens scope.
+
+**Amended v1 execution-domain sandbox shape:**
+
+```
+{
+  type: "workspaceWrite",
+  writableRoots: [worktree_path],
+  readOnlyAccess: {
+    type: "restricted",
+    readableRoots: [worktree_path],
+    includePlatformDefaults: false
+  },
+  networkAccess: false,
+  excludeSlashTmp: true,
+  excludeTmpdirEnvVar: true
+}
+```
+
+Q2's original four-field list stands as a historical record of the
+design-pass output; this amendment updates the contract to require the
+two exclusions in the execution sandbox. The sandbox-construction AC
+below is amended accordingly. Branch protection sequences this doc
+merge before the code restore, so the substrate will not match the
+amended AC until the follow-up implementation branch lands — that
+restore is what closes the gap.
+
+**Reachability gate.** The tightening is a pre-execution-wiring
+requirement. The execution-sandbox construction path is not wired into
+any live flow today, so the debt is currently abstract. Any slice that
+makes the execution sandbox reachable MUST restore both exclusions in
+the execution sandbox construction path and its tests before any
+execution-wiring slice lands.
+
 ## Acceptance Criteria
 
 - [ ] The codex-collaboration server can start an isolated execution runtime for
       a delegation job
 - [ ] The execution runtime starts with `SandboxPolicy` of type
       `workspaceWrite` restricted to the job's `worktree_path` for both writes
-      and reads (`writableRoots: [worktree_path]`, `readOnlyAccess: {type:
+      and reads: `writableRoots: [worktree_path]`, `readOnlyAccess: {type:
       "restricted", readableRoots: [worktree_path], includePlatformDefaults:
-      false}`, `networkAccess: false`), explicitly overriding both the App
-      Server schema's `readOnlyAccess: fullAccess` default and the
-      `includePlatformDefaults: true` default
+      false}`, `networkAccess: false`, `excludeSlashTmp: true`,
+      `excludeTmpdirEnvVar: true`. Explicitly overrides four App Server
+      schema defaults that would otherwise widen the sandbox: the
+      `readOnlyAccess: fullAccess` default, the `includePlatformDefaults:
+      true` default, and both `excludeSlashTmp: false` and
+      `excludeTmpdirEnvVar: false` defaults (which would otherwise leave
+      `/tmp` and `$TMPDIR` writable)
 - [ ] Each delegation job owns exactly one worktree and one execution runtime
 - [ ] Job state is persisted strongly enough for the later promotion flow to
       inspect it
