@@ -5,8 +5,22 @@
   "artifact_path": "docs/benchmarks/dialogue-supersession/v1",
 
   "run_commit": "693551cc",
-  "run_timestamp": null,
-  "operator": null,
+  "run_timestamp": "2026-04-17T04:58:21Z",
+  "operator": "jp",
+  "closeout": {
+    "mode": "demonstrated_not_scored",
+    "decision_source": "docs/tickets/2026-03-30-codex-collaboration-dialogue-parity-and-scouting-retirement.md",
+    "decision_date": "2026-04-17",
+    "aggregate_scoring": "not_rendered",
+    "run_commit_status": "historical_anchor_only",
+    "import_metadata_note": "Top-level run_timestamp and operator record the 2026-04-17 Phase 5 import / closeout action. Original per-run capture timestamps and canonical session ids are preserved in runs.json.",
+    "captured_commits": [
+      "693551cc",
+      "fa75111b",
+      "4c0e2a46"
+    ],
+    "note": "The capture set spans documentation-only benchmark-history commits. Aggregate scoring was not pursued; see the parent ticket for the AC-7 retirement resolution and caveats."
+  },
 
   "model_settings": {
     "codex_model": "gpt-5.4",
