@@ -66,9 +66,10 @@ plan (`docs/plans/2026-04-13-t04-v1-production-dialogue-scoping-plan.md:80-107`,
 specifically item §2.2.3 "Multi-agent scope-transport design"). The dialogue
 path resolved its instance of the question by an architecture choice — keeping
 gatherers OUTSIDE containment because they are read-only scouts (see
-`packages/plugins/codex-collaboration/hooks/hooks.json` matcher and the
-"gatherers are not containment subjects" pattern documented in the
-2026-04-14 PR-107 merge handoff).
+`packages/plugins/codex-collaboration/hooks/hooks.json:14-22`: the
+`SubagentStart` lifecycle matcher is `shakedown-dialogue|dialogue-orchestrator`,
+which excludes gatherers, so the containment seed is never materialized for
+them).
 
 That escape hatch does not generalize to delegation. A delegation job is a
 contained execution subject by definition — its own worktree, its own runtime,
@@ -88,9 +89,16 @@ creation, not a coexistence problem among co-resident agents.
   promotion-state contracts that interact with scope mutation post-creation.
 - `docs/superpowers/specs/codex-collaboration/recovery-and-journal.md` —
   pending-request semantics and concurrency model.
-- `docs/benchmarks/dialogue-supersession/v1/manifest.json:36-43` — the
-  dialogue-side `scope_envelope` shape, as a reference point for whether
-  delegation should adopt, adapt, or reject it.
+- `packages/plugins/codex-collaboration/agents/context-gatherer-code.md:23`
+  and `context-gatherer-falsifier.md:23` — the candidate-side `scope_envelope`
+  schema as actually documented: `optional {allowed_roots: string[]}`. This is
+  the current concrete shape, used by the dialogue gatherers as benchmark-only
+  enforcement.
+- `docs/benchmarks/dialogue-supersession/v1/manifest.json:53-56` — operational
+  status of `scope_envelope` across baseline and candidate (baseline carries
+  it in the delegation envelope; candidate gatherers support it but the slash
+  skill does not pass it). Reads as evidence that the envelope concept exists
+  but is not consistently wired.
 
 ### Five questions to answer before locking ACs
 
