@@ -119,6 +119,21 @@ class FakeRuntimeSession:
             agent_message=self.agent_message.replace("thr-start", thread_id),
         )
 
+    def run_advisory_turn(
+        self,
+        *,
+        thread_id: str,
+        prompt_text: str,
+        output_schema: dict[str, object],
+        effort: str | None = None,
+    ) -> TurnExecutionResult:
+        return self.run_turn(
+            thread_id=thread_id,
+            prompt_text=prompt_text,
+            output_schema=output_schema,
+            effort=effort,
+        )
+
     def close(self) -> None:
         self.closed = True
 

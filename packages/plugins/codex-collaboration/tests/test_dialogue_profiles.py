@@ -122,7 +122,7 @@ class TestDialogueStartExplicitOverrides:
 
 class TestDialogueReplyUsesStoredProfile:
     def test_reply_passes_stored_effort_to_runtime(self, tmp_path: Path) -> None:
-        """reply() passes handle.resolved_effort to runtime.session.run_turn()."""
+        """reply() passes handle.resolved_effort to runtime.session.run_advisory_turn()."""
         focus = tmp_path / "focus.py"
         focus.write_text("print('focus')\n", encoding="utf-8")
         session = FakeRuntimeSession()
@@ -228,7 +228,7 @@ class TestDialogueReplyUsesStoredProfile:
             session_id=session_id,
             repo_identity_loader=_repo_identity,
             uuid_factory=iter(
-                (f"collab-crash", *(f"id-{i}" for i in range(100)))
+                ("collab-crash", *(f"id-{i}" for i in range(100)))
             ).__next__,
             turn_store=turn_store,
         )

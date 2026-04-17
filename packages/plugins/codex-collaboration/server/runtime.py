@@ -1,4 +1,9 @@
-"""Live App Server runtime session for advisory work."""
+"""Live App Server runtime session.
+
+Advisory and execution callers share the same JSON-RPC transport wrapper, but
+capability-specific turn entrypoints remain separate so the public API does not
+silently blur the runtime boundary.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +12,28 @@ from typing import Any
 
 from .jsonrpc_client import JsonRpcClient
 from .models import AccountState, RuntimeHandshake, TurnExecutionResult
+
+
+def _build_read_only_sandbox_policy() -> dict[str, Any]:
+    """Return the advisory runtime sandbox policy."""
+
+    return {"type": "readOnly"}
+
+
+def build_workspace_write_sandbox_policy(worktree_path: Path) -> dict[str, Any]:
+    """Return the v1 execution sandbox policy for an isolated worktree."""
+
+    resolved = worktree_path.resolve()
+    return {
+        "type": "workspaceWrite",
+        "writableRoots": [str(resolved)],
+        "readOnlyAccess": {
+            "type": "restricted",
+            "readableRoots": [str(resolved)],
+            "includePlatformDefaults": False,
+        },
+        "networkAccess": False,
+    }
 
 
 class AppServerRuntimeSession:
@@ -108,13 +135,51 @@ class AppServerRuntimeSession:
             )
         return str(thread["id"])
 
-    def run_turn(
+    def run_advisory_turn(
         self,
         *,
         thread_id: str,
         prompt_text: str,
         output_schema: dict[str, Any],
         effort: str | None = None,
+    ) -> TurnExecutionResult:
+        """Start an advisory turn in the read-only runtime."""
+
+        return self._run_turn(
+            thread_id=thread_id,
+            prompt_text=prompt_text,
+            output_schema=output_schema,
+            effort=effort,
+            sandbox_policy=_build_read_only_sandbox_policy(),
+        )
+
+    def run_execution_turn(
+        self,
+        *,
+        thread_id: str,
+        prompt_text: str,
+        output_schema: dict[str, Any],
+        sandbox_policy: dict[str, Any],
+        effort: str | None = None,
+    ) -> TurnExecutionResult:
+        """Start an execution turn with an explicit execution sandbox."""
+
+        return self._run_turn(
+            thread_id=thread_id,
+            prompt_text=prompt_text,
+            output_schema=output_schema,
+            effort=effort,
+            sandbox_policy=sandbox_policy,
+        )
+
+    def _run_turn(
+        self,
+        *,
+        thread_id: str,
+        prompt_text: str,
+        output_schema: dict[str, Any],
+        effort: str | None,
+        sandbox_policy: dict[str, Any],
     ) -> TurnExecutionResult:
         """Start a turn and collect notifications until completion."""
 
@@ -123,7 +188,7 @@ class AppServerRuntimeSession:
             "input": [{"type": "text", "text": prompt_text}],
             "cwd": str(self._repo_root),
             "approvalPolicy": "never",
-            "sandboxPolicy": {"type": "readOnly"},
+            "sandboxPolicy": sandbox_policy,
             "summary": "concise",
             "personality": "pragmatic",
             "outputSchema": output_schema,
