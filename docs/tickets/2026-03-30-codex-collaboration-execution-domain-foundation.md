@@ -168,19 +168,106 @@ are answered, the existing ACs may need:
 
 Do not lock ACs until the design pass closes the five questions above.
 
+## Design Decision: Scope-Transport Resolved (v1)
+
+Resolved 2026-04-17 via design pass on the five pre-design questions above.
+
+### Q0a (descriptor type): Implicit scope from infrastructure
+
+No new `contracts.md` type. Scope for v1 is expressed by
+`DelegationJob.worktree_path` plus the execution-domain sandbox defaults already
+documented at `foundations.md:99-116, :228-241`. The App Server sandbox shape
+(`workspaceWrite.writableRoots` plus restricted `readOnlyAccess.readableRoots`
+with `includePlatformDefaults: false`) provides the verified mechanical-enforcement
+substrate at `codex_app_server_protocol.v2.schemas.json:6863, :6867, :8033`.
+
+**This is a v1 decision, not a permanent rejection of a future typed
+descriptor.** If post-v1 work surfaces a need for sub-worktree path
+restriction or cross-job scope policies, adding a `DelegationScope` type to
+`contracts.md` is a clean additive change at that point — it is not precluded
+by this decision.
+
+**v1 approval routing does NOT compare a normalized request scope against
+job scope.** The control plane preserves the request-relevant approval payload
+opaquely through `PendingServerRequest.requested_scope` (`contracts.md:75-91`)
+and relies on sandbox enforcement plus escalation via `codex.delegate.decide`.
+Normalized request-scope comparison is deferred beyond v1.
+
+### Resolved answers to Q1-Q4
+
+- **Q1 (scope authority):** `DelegationJob.worktree_path` plus execution-domain
+  defaults from `foundations.md`. No `contracts.md` change in T-05 scope.
+- **Q2 (materialization):** At runtime start, the control plane constructs a
+  `SandboxPolicy`:
+
+  ```
+  {
+    type: "workspaceWrite",
+    writableRoots: [worktree_path],
+    readOnlyAccess: {
+      type: "restricted",
+      readableRoots: [worktree_path],
+      includePlatformDefaults: false
+    },
+    networkAccess: false
+  }
+  ```
+
+  Explicitly overrides the App Server schema's `readOnlyAccess` defaults —
+  both the `fullAccess` default at
+  `codex_app_server_protocol.v2.schemas.json:8039-8041` and the
+  `includePlatformDefaults: true` default at `:6867-6870`. App Server enforces.
+- **Q3 (mutation):** v1 scope is immutable as a prose rule (no typed field).
+  The split-runtime architecture at `foundations.md:73, :116` prevents
+  session-scoped approval state from leaking between jobs, and the
+  execution-domain defaults at `foundations.md:112` disable approvals outright.
+  Together these close the session-widening surface. Per-request approvals
+  remain the only mutation surface.
+- **Q4 (enforcement):** App Server sandbox at runtime start (primary).
+  Out-of-sandbox operations produce raw server-request payloads which the
+  control plane surfaces via `needs_escalation` → Claude resolves via
+  `codex.delegate.decide`. No reuse of `containment_guard.py` (dialogue-specific).
+
+### Implementation-time verification (first task under T-05 execution)
+
+Narrow Q2/Q4 check to confirm before building the worktree + runtime plumbing:
+
+- The execution runtime wrapper can instantiate `workspaceWrite` with
+  restricted `readOnlyAccess` (including `includePlatformDefaults: false`)
+  per the App Server schema. Today, `runtime.py:121-134` only constructs
+  `{"type": "readOnly"}` for advisory; the execution path needs the richer
+  shape.
+- The approval path preserves the request-relevant payload opaquely through
+  `PendingServerRequest.requested_scope: object` without shape-coercion.
+
+### Gate released
+
+AC-locking is unblocked by this decision. The ACs below incorporate the
+modifications implied by Q0a=D.
+
 ## Acceptance Criteria
 
 - [ ] The codex-collaboration server can start an isolated execution runtime for
       a delegation job
+- [ ] The execution runtime starts with `SandboxPolicy` of type
+      `workspaceWrite` restricted to the job's `worktree_path` for both writes
+      and reads (`writableRoots: [worktree_path]`, `readOnlyAccess: {type:
+      "restricted", readableRoots: [worktree_path], includePlatformDefaults:
+      false}`, `networkAccess: false`), explicitly overriding both the App
+      Server schema's `readOnlyAccess: fullAccess` default and the
+      `includePlatformDefaults: true` default
 - [ ] Each delegation job owns exactly one worktree and one execution runtime
 - [ ] Job state is persisted strongly enough for the later promotion flow to
       inspect it
 - [ ] The control plane rejects a second concurrent delegation with the typed
       `Job Busy` response
 - [ ] Execution-domain server requests are surfaced through an approval-routing
-      layer rather than being silently auto-approved
-- [ ] Tests cover worktree creation, busy rejection, and execution runtime
-      lifecycle boundaries
+      layer rather than being silently auto-approved — in v1, the
+      request-relevant approval payload is preserved opaquely through
+      `PendingServerRequest.requested_scope`; no normalized request-scope
+      comparison against job scope is performed
+- [ ] Tests cover worktree creation, busy rejection, execution runtime
+      lifecycle boundaries, and sandbox-policy construction
 
 ## Verification
 
