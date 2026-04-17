@@ -33,6 +33,8 @@ def build_workspace_write_sandbox_policy(worktree_path: Path) -> dict[str, Any]:
             "includePlatformDefaults": False,
         },
         "networkAccess": False,
+        "excludeSlashTmp": True,
+        "excludeTmpdirEnvVar": True,
     }
 
 
