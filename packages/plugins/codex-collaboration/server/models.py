@@ -17,6 +17,19 @@ PendingRequestKind = Literal[
     "command_approval", "file_change", "request_user_input", "unknown"
 ]
 PendingRequestStatus = Literal["pending", "resolved", "canceled"]
+JobStatus = Literal[
+    "queued", "running", "needs_escalation", "completed", "failed", "unknown"
+]
+PromotionState = Literal[
+    "pending",
+    "prechecks_passed",
+    "applied",
+    "verified",
+    "prechecks_failed",
+    "rollback_needed",
+    "rolled_back",
+    "discarded",
+]
 
 
 @dataclass(frozen=True)
@@ -144,7 +157,7 @@ class StaleAdvisoryContextMarker:
 
 @dataclass(frozen=True)
 class AuditEvent:
-    """Minimal audit event persisted for R1 flows."""
+    """Audit event record. See contracts.md §AuditEvent."""
 
     event_id: str
     timestamp: str
@@ -155,9 +168,7 @@ class AuditEvent:
     context_size: int | None = None
     policy_fingerprint: str | None = None
     turn_id: str | None = None
-    # R1 only emits consult events. The spec's delegation-oriented audit fields
-    # such as job_id, request_id, artifact_hash, decision, and causal_parent
-    # are deferred until those flows exist in code.
+    job_id: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -280,15 +291,47 @@ class OperationJournalEntry:
     """
 
     idempotency_key: str
-    operation: Literal["thread_creation", "turn_dispatch"]
+    operation: Literal["thread_creation", "turn_dispatch", "job_creation"]
     phase: Literal["intent", "dispatched", "completed"]
     collaboration_id: str
     created_at: str
     repo_root: str
     # Outcome correlation — set when logically knowable
-    codex_thread_id: str | None = (
-        None  # thread_creation: set at dispatched; turn_dispatch: set at intent
-    )
+    codex_thread_id: str | None = None
     turn_sequence: int | None = None  # turn_dispatch only
-    runtime_id: str | None = None  # turn_dispatch only
-    context_size: int | None = None  # turn_dispatch only, set at intent (pre-dispatch)
+    runtime_id: str | None = None
+    context_size: int | None = None  # turn_dispatch only, set at intent
+    job_id: str | None = None  # job_creation only
+
+
+@dataclass(frozen=True)
+class DelegationJob:
+    """Persisted delegation job record. See contracts.md §DelegationJob.
+
+    This slice writes ``status`` and ``promotion_state`` at creation time only.
+    Lifecycle transitions (running → completed, etc.) land in later slices
+    alongside poll/decide/promote wiring.
+    """
+
+    job_id: str
+    runtime_id: str
+    collaboration_id: str
+    base_commit: str
+    worktree_path: str
+    promotion_state: PromotionState
+    status: JobStatus
+    artifact_paths: tuple[str, ...] = ()
+    artifact_hash: str | None = None
+
+
+@dataclass(frozen=True)
+class JobBusyResponse:
+    """Typed rejection returned by codex.delegate.start when a job is active.
+
+    See contracts.md §Job Busy.
+    """
+
+    busy: bool
+    active_job_id: str
+    active_job_status: JobStatus
+    detail: str

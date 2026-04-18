@@ -52,6 +52,11 @@ class ReplayDiagnostics:
         """True if any non-trailing diagnostics exist."""
         return any(d.label != "trailing_truncation" for d in self.diagnostics)
 
+    @property
+    def schema_violations(self) -> tuple[ReplayDiagnostic, ...]:
+        """Return only diagnostics labelled schema_violation."""
+        return tuple(d for d in self.diagnostics if d.label == "schema_violation")
+
 
 def replay_jsonl(
     path: Path,
