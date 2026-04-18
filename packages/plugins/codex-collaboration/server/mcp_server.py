@@ -113,20 +113,24 @@ class McpServer:
         self._control_plane = control_plane
         self._dialogue_controller = dialogue_controller
         self._dialogue_factory = dialogue_factory
+        self._delegation_controller = None
+        self._delegation_factory = None
         self._initialized = False
         self._recovery_completed = False
 
     def startup(self) -> None:
         """One-shot startup recovery. Idempotent — second call is a no-op.
 
-        If dialogue_controller was provided directly, runs recovery immediately.
-        If dialogue is deferred via dialogue_factory, recovery runs on first
-        dialogue tool call instead (via _ensure_dialogue_controller).
+        If a controller was provided directly at construction, runs recovery
+        immediately. If a controller is deferred via factory, recovery runs
+        on first tool call instead (via _ensure_*_controller).
         """
         if self._recovery_completed:
             return
         if self._dialogue_controller is not None:
             self._dialogue_controller.recover_startup()
+        if self._delegation_controller is not None:
+            self._delegation_controller.recover_startup()
         self._recovery_completed = True
 
     def _ensure_dialogue_controller(self) -> Any:

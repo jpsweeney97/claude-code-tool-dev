@@ -666,3 +666,232 @@ def test_start_returns_busy_when_unresolved_journal_entry_present(
     # The rejected call must NOT have triggered side effects.
     assert _wm.calls == []
     assert _cp.calls == []
+
+
+# -----------------------------------------------------------------------------
+# Startup reconciliation — DelegationController.recover_startup() consumes
+# unresolved job_creation journal entries and closes them into durable state.
+# -----------------------------------------------------------------------------
+
+
+def _write_unresolved_intent(
+    journal: OperationJournal,
+    session_id: str,
+    *,
+    idempotency_key: str,
+    collaboration_id: str,
+    job_id: str,
+    repo_root: Path,
+) -> None:
+    """Seed the journal with an intent-only job_creation entry (simulates a crash
+    after intent but before dispatch side effects)."""
+    journal.write_phase(
+        OperationJournalEntry(
+            idempotency_key=idempotency_key,
+            operation="job_creation",
+            phase="intent",
+            collaboration_id=collaboration_id,
+            created_at=journal.timestamp(),
+            repo_root=str(repo_root),
+            job_id=job_id,
+        ),
+        session_id=session_id,
+    )
+
+
+def _write_unresolved_dispatched(
+    journal: OperationJournal,
+    session_id: str,
+    *,
+    idempotency_key: str,
+    collaboration_id: str,
+    job_id: str,
+    runtime_id: str,
+    thread_id: str,
+    repo_root: Path,
+) -> None:
+    """Seed the journal with intent + dispatched (simulates a crash during
+    committed-start finalization)."""
+    created_at = journal.timestamp()
+    journal.write_phase(
+        OperationJournalEntry(
+            idempotency_key=idempotency_key,
+            operation="job_creation",
+            phase="intent",
+            collaboration_id=collaboration_id,
+            created_at=created_at,
+            repo_root=str(repo_root),
+            job_id=job_id,
+        ),
+        session_id=session_id,
+    )
+    journal.write_phase(
+        OperationJournalEntry(
+            idempotency_key=idempotency_key,
+            operation="job_creation",
+            phase="dispatched",
+            collaboration_id=collaboration_id,
+            created_at=created_at,
+            repo_root=str(repo_root),
+            job_id=job_id,
+            runtime_id=runtime_id,
+            codex_thread_id=thread_id,
+        ),
+        session_id=session_id,
+    )
+
+
+def test_recover_startup_noop_on_fresh_session(tmp_path: Path) -> None:
+    """No unresolved entries → no durable changes, no journal writes."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, _cp, _wm, _js, _ls, journal, _r = _build_controller(tmp_path)
+
+    before = journal.list_unresolved(session_id="sess-1")
+    assert before == []
+
+    controller.recover_startup()
+
+    after = journal.list_unresolved(session_id="sess-1")
+    assert after == []
+
+
+def test_recover_startup_closes_intent_only_as_noop(tmp_path: Path) -> None:
+    """intent-only → write completed, no durable changes."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, _cp, _wm, job_store, lineage_store, journal, _r = _build_controller(
+        tmp_path
+    )
+
+    _write_unresolved_intent(
+        journal,
+        "sess-1",
+        idempotency_key="sess-1:hash-abc",
+        collaboration_id="collab-1",
+        job_id="job-1",
+        repo_root=repo_root,
+    )
+
+    # No handle / job persisted (crash before dispatch side effects).
+    assert lineage_store.get("collab-1") is None
+    assert job_store.get("job-1") is None
+
+    controller.recover_startup()
+
+    # Journal advanced to completed; unresolved list empty after reconciliation.
+    assert journal.list_unresolved(session_id="sess-1") == []
+    # Still no durable handle / job (nothing was there to reconcile).
+    assert lineage_store.get("collab-1") is None
+    assert job_store.get("job-1") is None
+
+
+def test_recover_startup_marks_dispatched_handle_and_job_unknown(tmp_path: Path) -> None:
+    """intent + dispatched with persisted handle + job → mark both unknown, close journal."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, _cp, _wm, job_store, lineage_store, journal, _r = _build_controller(
+        tmp_path
+    )
+
+    # Seed: intent + dispatched journal + persisted active handle + persisted queued job.
+    _write_unresolved_dispatched(
+        journal,
+        "sess-1",
+        idempotency_key="sess-1:hash-abc",
+        collaboration_id="collab-1",
+        job_id="job-1",
+        runtime_id="rt-1",
+        thread_id="thr-1",
+        repo_root=repo_root,
+    )
+    lineage_store.create(
+        CollaborationHandle(
+            collaboration_id="collab-1",
+            capability_class="execution",
+            runtime_id="rt-1",
+            codex_thread_id="thr-1",
+            claude_session_id="sess-1",
+            repo_root=str(repo_root),
+            created_at=journal.timestamp(),
+            status="active",
+        )
+    )
+    job_store.create(
+        DelegationJob(
+            job_id="job-1",
+            runtime_id="rt-1",
+            collaboration_id="collab-1",
+            base_commit="head-abc",
+            worktree_path=str(tmp_path / "wk"),
+            promotion_state="pending",
+            status="queued",
+        )
+    )
+
+    controller.recover_startup()
+
+    # Both stores advanced to unknown.
+    handle = lineage_store.get("collab-1")
+    assert handle is not None and handle.status == "unknown"
+    job = job_store.get("job-1")
+    assert job is not None and job.status == "unknown"
+    # Journal record closed.
+    assert journal.list_unresolved(session_id="sess-1") == []
+
+
+def test_recover_startup_closes_dispatched_without_persisted_state(tmp_path: Path) -> None:
+    """intent + dispatched but no handle/job persisted → write completed, no mark needed."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, _cp, _wm, job_store, lineage_store, journal, _r = _build_controller(
+        tmp_path
+    )
+
+    _write_unresolved_dispatched(
+        journal,
+        "sess-1",
+        idempotency_key="sess-1:hash-abc",
+        collaboration_id="collab-1",
+        job_id="job-1",
+        runtime_id="rt-1",
+        thread_id="thr-1",
+        repo_root=repo_root,
+    )
+    # Intentionally NO lineage_store.create / job_store.create — simulates crash
+    # between journal.write_phase(dispatched) and lineage_store.create.
+
+    controller.recover_startup()
+
+    # No durable records to advance, but journal is closed.
+    assert journal.list_unresolved(session_id="sess-1") == []
+    assert lineage_store.get("collab-1") is None
+    assert job_store.get("job-1") is None
+
+
+def test_recover_startup_idempotent_second_call_is_noop(tmp_path: Path) -> None:
+    """Second recover_startup after the first has reconciled finds nothing to do."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, _cp, _wm, _js, _ls, journal, _r = _build_controller(tmp_path)
+
+    _write_unresolved_intent(
+        journal,
+        "sess-1",
+        idempotency_key="sess-1:hash-abc",
+        collaboration_id="collab-1",
+        job_id="job-1",
+        repo_root=repo_root,
+    )
+
+    controller.recover_startup()
+    assert journal.list_unresolved(session_id="sess-1") == []
+
+    # Second call should be a clean no-op.
+    controller.recover_startup()
+    assert journal.list_unresolved(session_id="sess-1") == []

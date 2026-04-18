@@ -480,3 +480,79 @@ class DelegationController:
                 f"terminal, which is exactly the phase that was NOT written."
             ) from exc
         return job
+
+    def recover_startup(self) -> None:
+        """Consume unresolved job_creation journal records into durable terminal state.
+
+        Mirrors dialogue.py:522 recover_startup — but reconcile-only. Unlike
+        dialogue (which can reattach persistent codex_thread_ids to new runtime
+        sessions), delegation runtimes are subprocess-anchored to a worktree and
+        cannot be rejoined across restart. The only recovery this does is close
+        unresolved journal records and mark any partially-persisted handle / job
+        as ``unknown`` so poll/discard/promote slices can operate on terminal
+        durable state.
+
+        Reconciliation contract (by journal phase):
+
+        - ``intent`` only: no side effects committed yet; advance to ``completed``.
+        - ``dispatched`` + no persisted handle/job: runtime subprocess is dead;
+          advance journal to ``completed``.
+        - ``dispatched`` + persisted handle and/or job: mark each persisted record
+          ``unknown`` (if not already); advance journal to ``completed``.
+
+        Idempotent: a second call after the first has reconciled finds no
+        unresolved entries and is a clean no-op.
+
+        Called from mcp_server.py's session init path, mirroring the
+        ``self._dialogue_controller.recover_startup()`` call.
+        """
+        unresolved = self._journal.list_unresolved(session_id=self._session_id)
+        job_creation_entries = [
+            e for e in unresolved if e.operation == "job_creation"
+        ]
+        # Group by idempotency_key and pick the latest phase per key.
+        by_key: dict[str, OperationJournalEntry] = {}
+        for entry in job_creation_entries:
+            existing = by_key.get(entry.idempotency_key)
+            if existing is None or _phase_rank(entry.phase) > _phase_rank(
+                existing.phase
+            ):
+                by_key[entry.idempotency_key] = entry
+
+        for entry in by_key.values():
+            # Mark durable records unknown if they exist AND are not already
+            # in a terminal state.
+            if entry.collaboration_id is not None:
+                handle = self._lineage_store.get(entry.collaboration_id)
+                if handle is not None and handle.status == "active":
+                    self._lineage_store.update_status(
+                        entry.collaboration_id, "unknown"
+                    )
+            if entry.job_id is not None:
+                job = self._job_store.get(entry.job_id)
+                if job is not None and job.status in ("queued", "running"):
+                    self._job_store.update_status(entry.job_id, "unknown")
+
+            # Advance the journal to completed — this is the terminal phase
+            # per recovery-and-journal.md, and it causes list_unresolved to
+            # stop returning this key. Physical compaction via
+            # OperationJournal.compact() is a separate operation not invoked
+            # in this slice (recovery-and-journal.md:59 describes the
+            # "near-empty" steady state but does not require eager trimming).
+            self._journal.write_phase(
+                OperationJournalEntry(
+                    idempotency_key=entry.idempotency_key,
+                    operation="job_creation",
+                    phase="completed",
+                    collaboration_id=entry.collaboration_id,
+                    created_at=entry.created_at,
+                    repo_root=entry.repo_root,
+                    job_id=entry.job_id,
+                ),
+                session_id=self._session_id,
+            )
+
+
+def _phase_rank(phase: str) -> int:
+    """Phase-ordering helper for picking the latest phase per idempotency key."""
+    return {"intent": 0, "dispatched": 1, "completed": 2}.get(phase, -1)
