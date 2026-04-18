@@ -770,6 +770,8 @@ class TestStartExecutionRuntime:
         assert thread_id == "thr-execution-1"
         # The session was constructed against the worktree path, not the repo root.
         assert created_for == [worktree]
+        # On the success path the session MUST NOT be closed — caller owns lifetime.
+        assert fake_session.closed is False
 
     def test_start_execution_runtime_does_not_cache(self, tmp_path: Path) -> None:
         """Two calls return two distinct sessions — no advisory-style caching."""
@@ -853,3 +855,123 @@ class TestStartExecutionRuntime:
 
         with pytest.raises(RuntimeError, match="auth unavailable"):
             plane.start_execution_runtime(worktree)
+
+    def test_start_execution_runtime_fails_when_initialize_raises(
+        self, tmp_path: Path
+    ) -> None:
+        from server.control_plane import ControlPlane
+
+        worktree = tmp_path / "wk"
+        worktree.mkdir()
+
+        class _FakeSession:
+            def __init__(self) -> None:
+                self.closed = False
+
+            def initialize(self) -> object:
+                raise RuntimeError("boom during initialize")
+
+            def read_account(self) -> object:
+                raise AssertionError("should not be reached")
+
+            def start_thread(self) -> str:
+                raise AssertionError("should not be reached")
+
+            def close(self) -> None:
+                self.closed = True
+
+        fake_session = _FakeSession()
+
+        plane = ControlPlane(
+            plugin_data_path=tmp_path / "data",
+            runtime_factory=lambda _: fake_session,  # type: ignore[arg-type,return-value]
+            compat_checker=self._make_compat_result,
+        )
+
+        with pytest.raises(RuntimeError, match="initialize failed"):
+            plane.start_execution_runtime(worktree)
+        assert fake_session.closed is True
+
+    def test_start_execution_runtime_fails_when_read_account_raises(
+        self, tmp_path: Path
+    ) -> None:
+        from server.control_plane import ControlPlane
+        from server.models import RuntimeHandshake
+
+        worktree = tmp_path / "wk"
+        worktree.mkdir()
+
+        class _FakeSession:
+            def __init__(self) -> None:
+                self.closed = False
+
+            def initialize(self) -> RuntimeHandshake:
+                return RuntimeHandshake(
+                    codex_home="/h", platform_family="u",
+                    platform_os="d", user_agent="ua",
+                )
+
+            def read_account(self) -> object:
+                raise RuntimeError("boom during read_account")
+
+            def start_thread(self) -> str:
+                raise AssertionError("should not be reached")
+
+            def close(self) -> None:
+                self.closed = True
+
+        fake_session = _FakeSession()
+
+        plane = ControlPlane(
+            plugin_data_path=tmp_path / "data",
+            runtime_factory=lambda _: fake_session,  # type: ignore[arg-type,return-value]
+            compat_checker=self._make_compat_result,
+        )
+
+        with pytest.raises(RuntimeError, match="account/read failed"):
+            plane.start_execution_runtime(worktree)
+        assert fake_session.closed is True
+
+    def test_start_execution_runtime_fails_when_start_thread_raises(
+        self, tmp_path: Path
+    ) -> None:
+        from server.control_plane import ControlPlane
+        from server.models import AccountState, RuntimeHandshake
+
+        worktree = tmp_path / "wk"
+        worktree.mkdir()
+
+        class _FakeSession:
+            def __init__(self) -> None:
+                self.closed = False
+
+            def initialize(self) -> RuntimeHandshake:
+                return RuntimeHandshake(
+                    codex_home="/h", platform_family="u",
+                    platform_os="d", user_agent="ua",
+                )
+
+            def read_account(self) -> AccountState:
+                return AccountState(
+                    auth_status="authenticated",
+                    account_type="test",
+                    requires_openai_auth=False,
+                )
+
+            def start_thread(self) -> str:
+                raise RuntimeError("boom during start_thread")
+
+            def close(self) -> None:
+                self.closed = True
+
+        fake_session = _FakeSession()
+
+        plane = ControlPlane(
+            plugin_data_path=tmp_path / "data",
+            runtime_factory=lambda _: fake_session,  # type: ignore[arg-type,return-value]
+            compat_checker=self._make_compat_result,
+        )
+
+        with pytest.raises(RuntimeError, match="thread/start failed"):
+            plane.start_execution_runtime(worktree)
+        assert fake_session.closed is True

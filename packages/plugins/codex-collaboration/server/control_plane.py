@@ -275,6 +275,8 @@ class ControlPlane:
         for a future ``run_execution_turn`` call by a follow-up slice.
         """
 
+        # Normalize before compat check and factory to ensure consistent path
+        # identity (symlink resolution, relative→absolute) across call sites.
         resolved_worktree = worktree_path.resolve()
         compat_result = self._compat_checker()
         if not getattr(compat_result, "passed", False):
