@@ -743,9 +743,6 @@ def _write_unresolved_dispatched(
 
 def test_recover_startup_noop_on_fresh_session(tmp_path: Path) -> None:
     """No unresolved entries → no durable changes, no journal writes."""
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir()
-
     controller, _cp, _wm, _js, _ls, journal, _r = _build_controller(tmp_path)
 
     before = journal.list_unresolved(session_id="sess-1")
@@ -871,6 +868,58 @@ def test_recover_startup_closes_dispatched_without_persisted_state(tmp_path: Pat
     assert journal.list_unresolved(session_id="sess-1") == []
     assert lineage_store.get("collab-1") is None
     assert job_store.get("job-1") is None
+
+
+def test_recover_startup_does_not_downgrade_handle_already_unknown(
+    tmp_path: Path,
+) -> None:
+    """Row 5 of reconciliation contract: handle already unknown (same-session
+    committed-start failure) → no change, write completed. Exercises the
+    negation of the ``handle.status == "active"`` guard — a handle that was
+    best-effort marked unknown by Task 6's CommittedStartFinalizationError
+    path must not be re-touched by reconciliation.
+    """
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, _cp, _wm, job_store, lineage_store, journal, _r = _build_controller(
+        tmp_path
+    )
+
+    _write_unresolved_dispatched(
+        journal,
+        "sess-1",
+        idempotency_key="sess-1:hash-abc",
+        collaboration_id="collab-1",
+        job_id="job-1",
+        runtime_id="rt-1",
+        thread_id="thr-1",
+        repo_root=repo_root,
+    )
+    # Handle persisted directly in the "unknown" state — simulates the state
+    # left behind after a same-session CommittedStartFinalizationError best-
+    # effort marked it. Job store intentionally empty (register/lineage failed
+    # before job.create in the committed-start order).
+    lineage_store.create(
+        CollaborationHandle(
+            collaboration_id="collab-1",
+            capability_class="execution",
+            runtime_id="rt-1",
+            codex_thread_id="thr-1",
+            claude_session_id="sess-1",
+            repo_root=str(repo_root),
+            created_at=journal.timestamp(),
+            status="unknown",
+        )
+    )
+
+    controller.recover_startup()
+
+    # Handle stays unknown (guard skips non-active); journal closed.
+    handle = lineage_store.get("collab-1")
+    assert handle is not None and handle.status == "unknown"
+    assert job_store.get("job-1") is None
+    assert journal.list_unresolved(session_id="sess-1") == []
 
 
 def test_recover_startup_idempotent_second_call_is_noop(tmp_path: Path) -> None:

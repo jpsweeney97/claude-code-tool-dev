@@ -123,7 +123,8 @@ class McpServer:
 
         If a controller was provided directly at construction, runs recovery
         immediately. If a controller is deferred via factory, recovery runs
-        on first tool call instead (via _ensure_*_controller).
+        on first tool call instead (via _ensure_*_controller; delegation
+        lazy wiring lands with Task 8).
         """
         if self._recovery_completed:
             return
