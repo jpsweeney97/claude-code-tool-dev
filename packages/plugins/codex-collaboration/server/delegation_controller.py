@@ -464,6 +464,7 @@ class DelegationController:
                 try:
                     self._job_store.update_status(job_id, "unknown")
                 except Exception:
+                    # Best-effort — reconciliation will close it.
                     pass
             raise CommittedStartFinalizationError(
                 "Delegation start committed but local finalization failed: "

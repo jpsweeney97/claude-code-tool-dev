@@ -285,6 +285,10 @@ def test_start_returns_busy_response_when_active_job_exists(tmp_path: Path) -> N
     assert second.busy is True
     assert second.active_job_id == "job-1"
     assert second.active_job_status == "queued"
+    # The rejected second call must NOT have triggered side effects.
+    # Worktree and runtime counts stay at 1 (from the first, successful call).
+    assert len(_wm.calls) == 1
+    assert len(_cp.calls) == 1
 
 
 def test_start_does_not_persist_durable_state_on_bootstrap_failure(
@@ -603,6 +607,9 @@ def test_start_returns_busy_when_registry_has_entry_but_job_store_empty(
     assert isinstance(result, JobBusyResponse)
     assert result.busy is True
     assert result.active_job_id == "job-prior"
+    # The rejected call must NOT have triggered side effects.
+    assert _wm.calls == []
+    assert _cp.calls == []
 
 
 def test_start_returns_busy_when_unresolved_journal_entry_present(
@@ -656,3 +663,6 @@ def test_start_returns_busy_when_unresolved_journal_entry_present(
     assert isinstance(result, JobBusyResponse)
     assert result.busy is True
     assert result.active_job_id == "job-prior"
+    # The rejected call must NOT have triggered side effects.
+    assert _wm.calls == []
+    assert _cp.calls == []
