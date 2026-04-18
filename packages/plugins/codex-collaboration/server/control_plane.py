@@ -261,6 +261,63 @@ class ControlPlane:
         assert runtime is not None  # strict=True guarantees non-None or raises
         return runtime
 
+    def start_execution_runtime(
+        self, worktree_path: Path
+    ) -> tuple[str, AppServerRuntimeSession, str]:
+        """Bootstrap a fresh ephemeral execution runtime at ``worktree_path``.
+
+        Returns ``(runtime_id, session, thread_id)``. This path does NOT
+        cache the session — each call constructs a new runtime. The caller
+        is responsible for session lifetime (close on job completion or
+        crash recovery).
+
+        No turn is dispatched here. Thread creation prepares the runtime
+        for a future ``run_execution_turn`` call by a follow-up slice.
+        """
+
+        resolved_worktree = worktree_path.resolve()
+        compat_result = self._compat_checker()
+        if not getattr(compat_result, "passed", False):
+            raise RuntimeError(
+                "Execution runtime bootstrap failed: compatibility checks failed. "
+                f"Got: {getattr(compat_result, 'errors', ())!r:.200}"
+            )
+
+        session = self._runtime_factory(resolved_worktree)
+        try:
+            session.initialize()
+        except Exception as exc:
+            session.close()
+            raise RuntimeError(
+                "Execution runtime bootstrap failed: initialize failed. "
+                f"Got: {str(exc)!r:.100}"
+            ) from exc
+        try:
+            account_state = session.read_account()
+        except Exception as exc:
+            session.close()
+            raise RuntimeError(
+                "Execution runtime bootstrap failed: account/read failed. "
+                f"Got: {str(exc)!r:.100}"
+            ) from exc
+        if account_state.auth_status != "authenticated":
+            session.close()
+            raise RuntimeError(
+                "Execution runtime bootstrap failed: auth unavailable. "
+                f"Got: {account_state.auth_status!r:.100}"
+            )
+        try:
+            thread_id = session.start_thread()
+        except Exception as exc:
+            session.close()
+            raise RuntimeError(
+                "Execution runtime bootstrap failed: thread/start failed. "
+                f"Got: {str(exc)!r:.100}"
+            ) from exc
+
+        runtime_id = self._uuid_factory()
+        return runtime_id, session, thread_id
+
     def invalidate_runtime(self, repo_root: Path) -> None:
         """Drop a cached runtime. Public wrapper for error recovery paths."""
         self._invalidate_runtime(repo_root.resolve())
