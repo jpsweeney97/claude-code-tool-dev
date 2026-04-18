@@ -16,6 +16,9 @@ from .models import DelegationJob, JobStatus, PromotionState
 
 _VALID_STATUSES: frozenset[str] = frozenset(get_args(JobStatus))
 _VALID_PROMOTION_STATES: frozenset[str] = frozenset(get_args(PromotionState))
+# Manually curated subset of JobStatus (not derived from get_args): "active"
+# is the complement of terminal (completed | failed | unknown). Adding a new
+# JobStatus should be an explicit decision about whether it counts as active.
 _ACTIVE_STATUSES: frozenset[str] = frozenset(
     {"queued", "running", "needs_escalation"}
 )
@@ -60,7 +63,16 @@ class DelegationJobStore:
         return [j for j in self._replay().values() if j.status in _ACTIVE_STATUSES]
 
     def update_status(self, job_id: str, status: JobStatus) -> None:
-        """Append a status update for an existing job."""
+        """Append a status update record to the log.
+
+        By design this does NOT verify that ``job_id`` exists before
+        appending. Orphan updates (where the corresponding create record
+        is missing or was never written) are silently dropped on replay —
+        see ``_replay`` where ``op == "update_status"`` skips records whose
+        job_id is not present in the reconstructed state. Callers that
+        require creation verification must check ``get(job_id) is not None``
+        first.
+        """
 
         if status not in _VALID_STATUSES:
             raise ValueError(
@@ -89,7 +101,10 @@ class DelegationJobStore:
                 try:
                     record = json.loads(stripped)
                 except json.JSONDecodeError:
-                    # Incomplete trailing record from crash mid-write; discard.
+                    # Parse failure: silently skipped. Covers both crash-mid-write
+                    # truncation (typically trailing) and any mid-file corruption.
+                    # Distinguishing these two cases would require replay_jsonl;
+                    # deferred to a follow-up per scope-lock.
                     continue
                 if not isinstance(record, dict):
                     continue
@@ -109,6 +124,9 @@ class DelegationJobStore:
                     try:
                         jobs[record["job_id"]] = DelegationJob(**fields)
                     except TypeError:
+                        # Forward-compat skip: record was written with a different
+                        # DelegationJob shape (e.g., a missing required field added
+                        # in a later version). Silent by design.
                         continue
                 elif op == "update_status":
                     job_id = record.get("job_id")

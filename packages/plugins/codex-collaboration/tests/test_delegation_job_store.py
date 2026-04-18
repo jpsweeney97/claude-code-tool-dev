@@ -99,3 +99,16 @@ def test_replay_reconstructs_state_from_log(tmp_path: Path) -> None:
 
     assert job is not None
     assert job.status == "running"
+
+
+def test_replay_tolerates_truncated_trailing_record(tmp_path: Path) -> None:
+    store = DelegationJobStore(tmp_path, "sess-1")
+    store.create(_make_job(job_id="job-1"))
+    store.create(_make_job(job_id="job-2"))
+
+    store_path = tmp_path / "delegation_jobs" / "sess-1" / "jobs.jsonl"
+    with store_path.open("a", encoding="utf-8") as handle:
+        handle.write('{"op": "create", "job_id": "job-3"')  # truncated, no closing brace
+
+    replay = DelegationJobStore(tmp_path, "sess-1")
+    assert {j.job_id for j in replay.list()} == {"job-1", "job-2"}
