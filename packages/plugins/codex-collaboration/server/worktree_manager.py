@@ -24,7 +24,10 @@ class WorktreeManager:
         """Create a detached-HEAD worktree at `worktree_path` from `base_commit`.
 
         Fails fast on any git error. The parent directory of `worktree_path`
-        is created if it does not exist; the leaf directory must not exist.
+        is created if it does not exist. The leaf directory should be absent
+        OR an empty directory that ``git worktree add`` can populate —
+        a non-empty pre-existing leaf causes git to fail, which is propagated
+        as ``RuntimeError``.
         """
 
         worktree_path.parent.mkdir(parents=True, exist_ok=True)
