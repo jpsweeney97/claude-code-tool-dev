@@ -14,7 +14,10 @@ Keep this file small on purpose. It is not a control plane; it is a table.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .runtime import AppServerRuntimeSession
 
 
 @dataclass(frozen=True)
@@ -22,7 +25,7 @@ class ExecutionRuntimeEntry:
     """Live-ownership record for one execution runtime."""
 
     runtime_id: str
-    session: Any  # AppServerRuntimeSession — Any to avoid import cycle
+    session: "AppServerRuntimeSession"
     thread_id: str
     job_id: str
 

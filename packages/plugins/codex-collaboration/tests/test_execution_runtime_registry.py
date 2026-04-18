@@ -97,3 +97,27 @@ def test_active_runtime_ids_reflects_live_state() -> None:
 
     registry.release("rt-1")
     assert set(registry.active_runtime_ids()) == {"rt-2"}
+
+
+def test_register_after_release_allows_reuse() -> None:
+    """Previously-released runtime_id can be re-registered (new owner)."""
+
+    registry = ExecutionRuntimeRegistry()
+    registry.register(
+        runtime_id="rt-1",
+        session=_FakeSession("first"),  # type: ignore[arg-type]
+        thread_id="thr-1",
+        job_id="job-1",
+    )
+    registry.release("rt-1")
+    registry.register(
+        runtime_id="rt-1",
+        session=_FakeSession("second"),  # type: ignore[arg-type]
+        thread_id="thr-2",
+        job_id="job-2",
+    )
+
+    entry = registry.lookup("rt-1")
+    assert entry is not None
+    assert entry.session.name == "second"
+    assert entry.job_id == "job-2"
