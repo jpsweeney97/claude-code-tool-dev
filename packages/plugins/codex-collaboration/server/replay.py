@@ -49,7 +49,7 @@ class ReplayDiagnostics:
 
     @property
     def has_warnings(self) -> bool:
-        """True if any non-trailing diagnostics exist."""
+        """True if any non-trailing-truncation diagnostics exist (includes errors)."""
         return any(d.label != "trailing_truncation" for d in self.diagnostics)
 
     @property

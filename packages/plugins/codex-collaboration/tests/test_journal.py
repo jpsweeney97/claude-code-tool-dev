@@ -611,3 +611,28 @@ def test_journal_rejects_job_creation_dispatched_missing_runtime_or_thread(
 
     diagnostics = journal.check_health(session_id="sess-1")
     assert diagnostics.schema_violations != ()
+
+
+def test_journal_rejects_job_creation_dispatched_missing_job_id(tmp_path: Path) -> None:
+    import json as _json
+
+    from server.journal import OperationJournal
+
+    journal = OperationJournal(tmp_path)
+    path = journal._operations_path("sess-1")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    record = {
+        "idempotency_key": "sess-1:hash-abc",
+        "operation": "job_creation",
+        "phase": "dispatched",
+        "collaboration_id": "collab-1",
+        "created_at": "2026-04-17T00:00:00Z",
+        "repo_root": "/tmp/repo",
+        "runtime_id": "rt-1",
+        "codex_thread_id": "thr-1",
+        # job_id missing intentionally
+    }
+    path.write_text(_json.dumps(record) + "\n")
+
+    diagnostics = journal.check_health(session_id="sess-1")
+    assert diagnostics.schema_violations != ()

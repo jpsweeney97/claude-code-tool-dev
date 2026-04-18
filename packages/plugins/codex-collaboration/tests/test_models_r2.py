@@ -196,9 +196,6 @@ def test_delegation_job_has_required_fields() -> None:
 
 
 def test_delegation_job_is_frozen() -> None:
-    from dataclasses import FrozenInstanceError
-    import pytest
-
     from server.models import DelegationJob
 
     job = DelegationJob(

@@ -299,7 +299,7 @@ class OperationJournalEntry:
     # Outcome correlation — set when logically knowable
     codex_thread_id: str | None = None
     turn_sequence: int | None = None  # turn_dispatch only
-    runtime_id: str | None = None
+    runtime_id: str | None = None  # turn_dispatch and job_creation
     context_size: int | None = None  # turn_dispatch only, set at intent
     job_id: str | None = None  # job_creation only
 
@@ -311,6 +311,9 @@ class DelegationJob:
     This slice writes ``status`` and ``promotion_state`` at creation time only.
     Lifecycle transitions (running → completed, etc.) land in later slices
     alongside poll/decide/promote wiring.
+
+    No ``created_at`` field by design — creation timestamp is captured in the
+    ``job_creation`` journal entry under the same idempotency key.
     """
 
     job_id: str
