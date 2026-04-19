@@ -122,16 +122,24 @@ class DelegationJobStore:
                         ):
                             fields[field_name] = tuple(fields[field_name])
                     try:
-                        jobs[record["job_id"]] = DelegationJob(**fields)
+                        job = DelegationJob(**fields)
                     except TypeError:
                         # Forward-compat skip: record was written with a different
                         # DelegationJob shape (e.g., a missing required field added
                         # in a later version). Silent by design.
                         continue
+                    if (
+                        job.status not in _VALID_STATUSES
+                        or job.promotion_state not in _VALID_PROMOTION_STATES
+                    ):
+                        continue
+                    jobs[record["job_id"]] = job
                 elif op == "update_status":
                     job_id = record.get("job_id")
                     status = record.get("status")
                     if not isinstance(job_id, str) or not isinstance(status, str):
+                        continue
+                    if status not in _VALID_STATUSES:
                         continue
                     if job_id not in jobs:
                         continue

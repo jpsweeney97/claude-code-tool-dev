@@ -59,6 +59,9 @@ class _WorktreeManagerLike(Protocol):
     ) -> None:
         ...
 
+    def remove_worktree(self, *, repo_root: Path, worktree_path: Path) -> None:
+        ...
+
 
 def _resolve_head_commit(repo_root: Path) -> str:
     """Default head-commit resolver — `git rev-parse HEAD` in repo_root."""
@@ -329,9 +332,18 @@ class DelegationController:
             base_commit=resolved_base,
             worktree_path=worktree_path,
         )
-        runtime_id, session, thread_id = (
-            self._control_plane.start_execution_runtime(worktree_path)
-        )
+        try:
+            runtime_id, session, thread_id = (
+                self._control_plane.start_execution_runtime(worktree_path)
+            )
+        except Exception:
+            # Bootstrap failed before dispatched — no handle, job, or registry
+            # entry was persisted. Remove the worktree so there is no untracked
+            # directory that a later cleanup slice cannot discover.
+            self._worktree_manager.remove_worktree(
+                repo_root=resolved_root, worktree_path=worktree_path
+            )
+            raise
 
         # Phase 2: journal dispatched with outcome correlation.
         self._journal.write_phase(
