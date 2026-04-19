@@ -28,7 +28,7 @@ def client_request_schema(vendored_schema_dir: Path) -> Path:
     return path
 
 
-from server.models import CollaborationHandle
+from server.models import CollaborationHandle  # noqa: E402
 
 
 def make_test_handle(

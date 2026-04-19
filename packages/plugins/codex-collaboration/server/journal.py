@@ -32,7 +32,7 @@ def default_plugin_data_path() -> Path:
     return Path("/tmp/codex-collaboration").resolve()
 
 
-_VALID_OPERATIONS = frozenset(("thread_creation", "turn_dispatch"))
+_VALID_OPERATIONS = frozenset(("thread_creation", "turn_dispatch", "job_creation"))
 _VALID_PHASES = frozenset(("intent", "dispatched", "completed"))
 _JOURNAL_REQUIRED_STR = (
     "idempotency_key",
@@ -42,7 +42,7 @@ _JOURNAL_REQUIRED_STR = (
     "created_at",
     "repo_root",
 )
-_JOURNAL_OPTIONAL_STR = ("codex_thread_id", "runtime_id")
+_JOURNAL_OPTIONAL_STR = ("codex_thread_id", "runtime_id", "job_id")
 _JOURNAL_OPTIONAL_INT = ("turn_sequence", "context_size")
 
 
@@ -92,6 +92,24 @@ def _journal_callback(
             raise SchemaViolation(
                 "thread_creation at dispatched requires codex_thread_id (string)"
             )
+    elif op == "job_creation" and phase == "intent":
+        if not isinstance(record.get("job_id"), str):
+            raise SchemaViolation(
+                "job_creation at intent requires job_id (string)"
+            )
+    elif op == "job_creation" and phase == "dispatched":
+        if not isinstance(record.get("job_id"), str):
+            raise SchemaViolation(
+                "job_creation at dispatched requires job_id (string)"
+            )
+        if not isinstance(record.get("runtime_id"), str):
+            raise SchemaViolation(
+                "job_creation at dispatched requires runtime_id (string)"
+            )
+        if not isinstance(record.get("codex_thread_id"), str):
+            raise SchemaViolation(
+                "job_creation at dispatched requires codex_thread_id (string)"
+            )
     # Compatibility decision: runtime_id on turn_dispatch is NOT required.
     # Missing runtime_id suppresses audit event emission (dialogue.py:592,689)
     # but does not crash recovery. Requiring it would reject records from
@@ -108,6 +126,7 @@ def _journal_callback(
         turn_sequence=record.get("turn_sequence"),
         runtime_id=record.get("runtime_id"),
         context_size=record.get("context_size"),
+        job_id=record.get("job_id"),
     )
     return (entry.idempotency_key, entry)
 

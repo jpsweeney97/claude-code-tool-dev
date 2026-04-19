@@ -513,3 +513,126 @@ class TestReplayHardening:
             )
         unresolved = journal.list_unresolved(session_id="sess-1")
         assert len(unresolved) == 0
+
+
+def test_journal_accepts_job_creation_intent(tmp_path: Path) -> None:
+    from server.journal import OperationJournal
+    from server.models import OperationJournalEntry
+
+    journal = OperationJournal(tmp_path)
+    entry = OperationJournalEntry(
+        idempotency_key="sess-1:hash-abc",
+        operation="job_creation",
+        phase="intent",
+        collaboration_id="collab-1",
+        created_at="2026-04-17T00:00:00Z",
+        repo_root="/tmp/repo",
+        job_id="job-1",
+    )
+    journal.write_phase(entry, session_id="sess-1")
+
+    diagnostics = journal.check_health(session_id="sess-1")
+    assert diagnostics.schema_violations == ()
+
+
+def test_journal_accepts_job_creation_dispatched_with_outcome_correlation(
+    tmp_path: Path,
+) -> None:
+    from server.journal import OperationJournal
+    from server.models import OperationJournalEntry
+
+    journal = OperationJournal(tmp_path)
+    entry = OperationJournalEntry(
+        idempotency_key="sess-1:hash-abc",
+        operation="job_creation",
+        phase="dispatched",
+        collaboration_id="collab-1",
+        created_at="2026-04-17T00:00:00Z",
+        repo_root="/tmp/repo",
+        job_id="job-1",
+        runtime_id="rt-1",
+        codex_thread_id="thr-1",
+    )
+    journal.write_phase(entry, session_id="sess-1")
+
+    diagnostics = journal.check_health(session_id="sess-1")
+    assert diagnostics.schema_violations == ()
+    terminal = journal.check_idempotency("sess-1:hash-abc", session_id="sess-1")
+    assert terminal is not None
+    assert terminal.phase == "dispatched"
+    assert terminal.job_id == "job-1"
+
+
+def test_journal_rejects_job_creation_intent_missing_job_id(tmp_path: Path) -> None:
+    import json as _json
+
+    from server.journal import OperationJournal
+
+    journal = OperationJournal(tmp_path)
+    path = journal._operations_path("sess-1")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # Write a malformed record directly to exercise the validator.
+    record = {
+        "idempotency_key": "sess-1:hash-abc",
+        "operation": "job_creation",
+        "phase": "intent",
+        "collaboration_id": "collab-1",
+        "created_at": "2026-04-17T00:00:00Z",
+        "repo_root": "/tmp/repo",
+        # job_id missing intentionally
+    }
+    path.write_text(_json.dumps(record) + "\n")
+
+    diagnostics = journal.check_health(session_id="sess-1")
+    assert diagnostics.schema_violations != ()
+
+
+def test_journal_rejects_job_creation_dispatched_missing_runtime_or_thread(
+    tmp_path: Path,
+) -> None:
+    import json as _json
+
+    from server.journal import OperationJournal
+
+    journal = OperationJournal(tmp_path)
+    path = journal._operations_path("sess-1")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    record = {
+        "idempotency_key": "sess-1:hash-abc",
+        "operation": "job_creation",
+        "phase": "dispatched",
+        "collaboration_id": "collab-1",
+        "created_at": "2026-04-17T00:00:00Z",
+        "repo_root": "/tmp/repo",
+        "job_id": "job-1",
+        # runtime_id + codex_thread_id missing
+    }
+    path.write_text(_json.dumps(record) + "\n")
+
+    diagnostics = journal.check_health(session_id="sess-1")
+    assert diagnostics.schema_violations != ()
+
+
+def test_journal_rejects_job_creation_dispatched_missing_job_id(tmp_path: Path) -> None:
+    import json as _json
+
+    from server.journal import OperationJournal
+
+    journal = OperationJournal(tmp_path)
+    path = journal._operations_path("sess-1")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    record = {
+        "idempotency_key": "sess-1:hash-abc",
+        "operation": "job_creation",
+        "phase": "dispatched",
+        "collaboration_id": "collab-1",
+        "created_at": "2026-04-17T00:00:00Z",
+        "repo_root": "/tmp/repo",
+        "runtime_id": "rt-1",
+        "codex_thread_id": "thr-1",
+        # job_id missing intentionally
+    }
+    path.write_text(_json.dumps(record) + "\n")
+
+    diagnostics = journal.check_health(session_id="sess-1")
+    assert diagnostics.schema_violations != ()

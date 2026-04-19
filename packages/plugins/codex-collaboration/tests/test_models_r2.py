@@ -172,3 +172,113 @@ def test_advisory_runtime_state_session_not_any() -> None:
     field_type = AdvisoryRuntimeState.__dataclass_fields__["session"].type
     assert field_type != "Any", "session field is still typed as Any"
     assert "AppServerRuntimeSession" in field_type
+
+
+def test_delegation_job_has_required_fields() -> None:
+    from server.models import DelegationJob
+
+    job = DelegationJob(
+        job_id="job-1",
+        runtime_id="rt-1",
+        collaboration_id="collab-1",
+        base_commit="abc123",
+        worktree_path="/tmp/wk",
+        promotion_state="pending",
+        status="queued",
+        artifact_paths=(),
+        artifact_hash=None,
+    )
+    assert job.job_id == "job-1"
+    assert job.worktree_path == "/tmp/wk"
+    assert job.status == "queued"
+    assert job.promotion_state == "pending"
+    assert job.artifact_hash is None
+
+
+def test_delegation_job_is_frozen() -> None:
+    from server.models import DelegationJob
+
+    job = DelegationJob(
+        job_id="job-1",
+        runtime_id="rt-1",
+        collaboration_id="collab-1",
+        base_commit="abc123",
+        worktree_path="/tmp/wk",
+        promotion_state="pending",
+        status="queued",
+    )
+    with pytest.raises(FrozenInstanceError):
+        job.status = "running"  # type: ignore[misc]
+
+
+def test_job_busy_response_shape() -> None:
+    from server.models import JobBusyResponse
+
+    resp = JobBusyResponse(
+        busy=True,
+        active_job_id="job-1",
+        active_job_status="running",
+        detail="Another delegation is in flight.",
+    )
+    assert resp.busy is True
+    assert resp.active_job_id == "job-1"
+    assert resp.active_job_status == "running"
+
+
+def test_audit_event_has_top_level_job_id_field() -> None:
+    from server.models import AuditEvent
+
+    event = AuditEvent(
+        event_id="e-1",
+        timestamp="2026-04-17T00:00:00Z",
+        actor="claude",
+        action="delegate_start",
+        collaboration_id="collab-1",
+        runtime_id="rt-1",
+        job_id="job-1",
+    )
+    assert event.job_id == "job-1"
+
+
+def test_audit_event_job_id_defaults_to_none() -> None:
+    from server.models import AuditEvent
+
+    event = AuditEvent(
+        event_id="e-1",
+        timestamp="2026-04-17T00:00:00Z",
+        actor="claude",
+        action="consult",
+        collaboration_id="collab-1",
+        runtime_id="rt-1",
+    )
+    assert event.job_id is None
+
+
+def test_operation_journal_entry_accepts_job_creation_operation() -> None:
+    from server.models import OperationJournalEntry
+
+    entry = OperationJournalEntry(
+        idempotency_key="sess-1:hash-abc",
+        operation="job_creation",
+        phase="intent",
+        collaboration_id="collab-1",
+        created_at="2026-04-17T00:00:00Z",
+        repo_root="/tmp/repo",
+        job_id="job-1",
+    )
+    assert entry.operation == "job_creation"
+    assert entry.job_id == "job-1"
+
+
+def test_operation_journal_entry_job_id_defaults_to_none() -> None:
+    from server.models import OperationJournalEntry
+
+    entry = OperationJournalEntry(
+        idempotency_key="sess-1:collab-1",
+        operation="thread_creation",
+        phase="intent",
+        collaboration_id="collab-1",
+        created_at="2026-04-17T00:00:00Z",
+        repo_root="/tmp/repo",
+    )
+    assert entry.job_id is None
