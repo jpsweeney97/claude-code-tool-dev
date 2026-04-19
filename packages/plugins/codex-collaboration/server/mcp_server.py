@@ -328,12 +328,21 @@ class McpServer:
             result = controller.read(arguments["collaboration_id"])
             return asdict(result)
         if name == "codex.delegate.start":
+            from .models import DelegationEscalation
+
             controller = self._ensure_delegation_controller()
             result = controller.start(
                 repo_root=Path(arguments["repo_root"]),
                 base_commit=arguments.get("base_commit"),
                 objective=arguments["objective"],
             )
+            if isinstance(result, DelegationEscalation):
+                return {
+                    "job": asdict(result.job),
+                    "pending_request": asdict(result.pending_request),
+                    "agent_context": result.agent_context,
+                    "escalated": True,
+                }
             return asdict(result)
         raise ValueError(f"Unknown tool: {name!r:.100}")
 

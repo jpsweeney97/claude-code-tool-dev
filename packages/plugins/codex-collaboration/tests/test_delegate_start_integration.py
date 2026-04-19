@@ -7,6 +7,8 @@ import json
 import subprocess
 from pathlib import Path
 
+from typing import Any, Callable
+
 from server.control_plane import ControlPlane
 from server.delegation_controller import DelegationController
 from server.delegation_job_store import DelegationJobStore
@@ -14,7 +16,13 @@ from server.execution_runtime_registry import ExecutionRuntimeRegistry
 from server.journal import OperationJournal
 from server.lineage_store import LineageStore
 from server.mcp_server import McpServer
-from server.models import AccountState, OperationJournalEntry, RuntimeHandshake
+from server.models import (
+    AccountState,
+    OperationJournalEntry,
+    RuntimeHandshake,
+    TurnExecutionResult,
+)
+from server.pending_request_store import PendingRequestStore
 from server.worktree_manager import WorktreeManager
 
 
@@ -151,6 +159,28 @@ class _StubSession:
     def start_thread(self) -> str:
         return "thr-exec-stub"
 
+    def run_execution_turn(
+        self,
+        *,
+        thread_id: str,
+        prompt_text: str,
+        sandbox_policy: dict[str, Any],
+        approval_policy: str = "on-request",
+        output_schema: dict[str, Any] | None = None,
+        effort: str | None = None,
+        server_request_handler: Callable[[dict[str, Any]], dict[str, Any] | None]
+        | None = None,
+    ) -> TurnExecutionResult:
+        return TurnExecutionResult(
+            turn_id="turn-stub",
+            status="completed",
+            agent_message="Stub done.",
+            notifications=(),
+        )
+
+    def interrupt_turn(self, *, thread_id: str, turn_id: str | None) -> None:
+        pass
+
     def close(self) -> None:
         pass
 
@@ -183,6 +213,7 @@ def test_delegate_start_end_to_end_through_mcp_dispatch(tmp_path: Path) -> None:
     )
     job_store = DelegationJobStore(plugin_data, "sess-e2e")
     lineage_store = LineageStore(plugin_data, "sess-e2e")
+    pending_request_store = PendingRequestStore(plugin_data, "sess-e2e")
     runtime_registry = ExecutionRuntimeRegistry()
     controller = DelegationController(
         control_plane=control_plane,
@@ -193,6 +224,7 @@ def test_delegate_start_end_to_end_through_mcp_dispatch(tmp_path: Path) -> None:
         journal=journal,
         session_id="sess-e2e",
         plugin_data_path=plugin_data,
+        pending_request_store=pending_request_store,
     )
 
     # SEED (load-bearing proof of AC 4 consumer wiring): simulate a prior
@@ -272,7 +304,7 @@ def test_delegate_start_end_to_end_through_mcp_dispatch(tmp_path: Path) -> None:
             "method": "tools/call",
             "params": {
                 "name": "codex.delegate.start",
-                "arguments": {"repo_root": str(repo_root)},
+                "arguments": {"repo_root": str(repo_root), "objective": "E2E test"},
             },
         }
     )
@@ -280,7 +312,8 @@ def test_delegate_start_end_to_end_through_mcp_dispatch(tmp_path: Path) -> None:
     assert "isError" not in response["result"]
     content = response["result"]["content"][0]["text"]
     payload = json.loads(content)
-    assert payload["status"] == "queued"
+    # After turn dispatch (no server requests), job completes fully.
+    assert payload["status"] == "completed"
     assert payload["promotion_state"] == "pending"
     assert payload["base_commit"] == head
     worktree_path = Path(payload["worktree_path"])
@@ -290,19 +323,19 @@ def test_delegate_start_end_to_end_through_mcp_dispatch(tmp_path: Path) -> None:
     # Job is persisted in the job store.
     persisted_job = job_store.get(payload["job_id"])
     assert persisted_job is not None
+    assert persisted_job.status == "completed"
     # Execution CollaborationHandle is persisted in the lineage store.
     persisted_handle = lineage_store.get(payload["collaboration_id"])
     assert persisted_handle is not None
     assert persisted_handle.capability_class == "execution"
     assert persisted_handle.runtime_id == payload["runtime_id"]
-    # Runtime ownership is held by the in-process registry (live view).
+    # Runtime released and session closed after clean completion.
     registry_entry = runtime_registry.lookup(payload["runtime_id"])
-    assert registry_entry is not None
-    assert registry_entry.job_id == payload["job_id"]
+    assert registry_entry is None
     # All three journal phases are present for THIS job creation (the real
     # dispatch, not the seed).
     request_hash = hashlib.sha256(
-        f"{repo_root.resolve()}:{head}".encode("utf-8")
+        f"{repo_root.resolve()}:{head}:E2E test".encode("utf-8")
     ).hexdigest()
     key = f"sess-e2e:{request_hash}"
     terminal = journal.check_idempotency(key, session_id="sess-e2e")
@@ -318,11 +351,14 @@ def test_delegate_start_end_to_end_through_mcp_dispatch(tmp_path: Path) -> None:
     phases = [r["phase"] for r in records if r["idempotency_key"] == key]
     assert phases == ["intent", "dispatched", "completed"]
     # Audit event was emitted with delegate_start.
-    audit = json.loads(
-        (plugin_data / "audit" / "events.jsonl").read_text().splitlines()[-1]
-    )
-    assert audit["action"] == "delegate_start"
-    assert audit["job_id"] == payload["job_id"]
+    audit_lines = [
+        json.loads(line)
+        for line in (plugin_data / "audit" / "events.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
+    delegate_start_events = [e for e in audit_lines if e["action"] == "delegate_start"]
+    assert len(delegate_start_events) == 1
+    assert delegate_start_events[0]["job_id"] == payload["job_id"]
     # LOAD-BEARING AC 4 PROOF: the seeded unresolved ``dispatched`` entry
     # that existed BEFORE the first dispatch has been reconciled by
     # ``recover_startup()`` running inside ``_ensure_delegation_controller()``
@@ -344,19 +380,21 @@ def test_delegate_start_end_to_end_through_mcp_dispatch(tmp_path: Path) -> None:
     assert seeded_terminal is not None
     assert seeded_terminal.phase == "completed"
 
-    # Second call is rejected with Job Busy.
-    busy_response = server.handle_request(
+    # After a clean completion, the job is terminal — second call succeeds
+    # (no busy gate trip). This verifies that terminal cleanup (release +
+    # close) properly clears all three busy-gate sources.
+    second_response = server.handle_request(
         {
             "jsonrpc": "2.0",
             "id": 2,
             "method": "tools/call",
             "params": {
                 "name": "codex.delegate.start",
-                "arguments": {"repo_root": str(repo_root)},
+                "arguments": {"repo_root": str(repo_root), "objective": "E2E second"},
             },
         }
     )
-    assert "isError" not in busy_response["result"]
-    busy_payload = json.loads(busy_response["result"]["content"][0]["text"])
-    assert busy_payload["busy"] is True
-    assert busy_payload["active_job_id"] == payload["job_id"]
+    assert "isError" not in second_response["result"]
+    second_payload = json.loads(second_response["result"]["content"][0]["text"])
+    assert second_payload["status"] == "completed"
+    assert second_payload["job_id"] != payload["job_id"]
