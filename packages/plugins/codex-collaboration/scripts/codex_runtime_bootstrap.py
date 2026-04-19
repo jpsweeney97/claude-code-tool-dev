@@ -2,8 +2,9 @@
 """Bootstrap entry point for the codex-collaboration MCP server.
 
 Wires the object graph and starts the stdio JSON-RPC loop. Dialogue
-initialization is deferred until the first codex.dialogue.* tool call,
-at which point the published session identity is read and pinned.
+and delegation initialization are deferred until the first tool call
+on each surface, at which point the published session identity is read
+and pinned.
 
 Launch pattern (from .mcp.json):
   uv run --directory ${CLAUDE_PLUGIN_ROOT} python \
