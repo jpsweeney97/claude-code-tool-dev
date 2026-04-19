@@ -16,6 +16,7 @@ HandleStatus = Literal["active", "completed", "crashed", "unknown"]
 PendingRequestKind = Literal[
     "command_approval", "file_change", "request_user_input", "unknown"
 ]
+TurnStatus = Literal["completed", "interrupted", "failed"]
 PendingRequestStatus = Literal["pending", "resolved", "canceled"]
 JobStatus = Literal[
     "queued", "running", "needs_escalation", "completed", "failed", "unknown"
@@ -124,6 +125,7 @@ class TurnExecutionResult:
     """Projected result of a single `turn/start` execution."""
 
     turn_id: str
+    status: TurnStatus
     agent_message: str
     notifications: tuple[dict[str, Any], ...] = ()
 

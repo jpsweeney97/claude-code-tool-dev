@@ -214,3 +214,119 @@ def test_run_advisory_turn_uses_read_only_policy(tmp_path: Path) -> None:
 
     assert stub.last_params is not None
     assert stub.last_params["sandboxPolicy"] == {"type": "readOnly"}
+
+
+# ---------------------------------------------------------------------------
+# FakeServerProcess — configurable fake for status-widening tests
+# ---------------------------------------------------------------------------
+
+
+class FakeServerProcess:
+    """Fake JSON-RPC client that queues specific responses and notifications."""
+
+    def __init__(self) -> None:
+        self._responses: dict[str, dict] = {}
+        self._notifications: list[dict] = []
+        self._notification_index = 0
+        self.requests: list[tuple[str, dict]] = []
+        self.client = _FakeJsonRpcClient(self)
+
+    def queue_response(self, method: str, result: dict) -> None:
+        self._responses[method] = result
+
+    def queue_notification(self, method: str, params: dict) -> None:
+        self._notifications.append({"method": method, "params": params})
+
+
+class _FakeJsonRpcClient:
+    """Companion client for FakeServerProcess."""
+
+    def __init__(self, server: FakeServerProcess) -> None:
+        self._server = server
+
+    def start(self) -> None:
+        pass
+
+    def request(self, method: str, params: dict) -> dict:
+        self._server.requests.append((method, params))
+        return self._server._responses.get(method, {})
+
+    def next_notification(self, timeout: float = 60.0) -> dict:
+        if self._server._notification_index < len(self._server._notifications):
+            n = self._server._notifications[self._server._notification_index]
+            self._server._notification_index += 1
+            return n
+        raise TimeoutError("No more notifications")
+
+    def respond(self, request_id: str | int, result: dict) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+
+@pytest.fixture
+def fake_server_process() -> FakeServerProcess:
+    return FakeServerProcess()
+
+
+def test_run_turn_accepts_interrupted_status_when_allowed(
+    fake_server_process: FakeServerProcess,
+) -> None:
+    """Execution turns accept interrupted as a valid terminal status."""
+    fake_server_process.queue_response(
+        "turn/start",
+        {"turn": {"id": "t1", "status": "inProgress", "items": []}},
+    )
+    fake_server_process.queue_notification(
+        "turn/completed",
+        {
+            "threadId": "thr-1",
+            "turn": {"id": "t1", "status": "interrupted", "items": []},
+        },
+    )
+    session = AppServerRuntimeSession(repo_root=Path("/repo"))
+    session._client = fake_server_process.client  # type: ignore[assignment]
+
+    result = session.run_execution_turn(
+        thread_id="thr-1",
+        prompt_text="do work",
+        sandbox_policy={"type": "workspaceWrite"},
+        approval_policy="on-request",
+    )
+
+    assert result.status == "interrupted"
+    assert result.turn_id == "t1"
+
+
+def test_run_turn_accepts_failed_status_when_allowed(
+    fake_server_process: FakeServerProcess,
+) -> None:
+    """Execution turns accept failed as a valid terminal status."""
+    fake_server_process.queue_response(
+        "turn/start",
+        {"turn": {"id": "t1", "status": "inProgress", "items": []}},
+    )
+    fake_server_process.queue_notification(
+        "turn/completed",
+        {
+            "threadId": "thr-1",
+            "turn": {
+                "id": "t1",
+                "status": "failed",
+                "items": [],
+                "error": {"message": "boom"},
+            },
+        },
+    )
+    session = AppServerRuntimeSession(repo_root=Path("/repo"))
+    session._client = fake_server_process.client  # type: ignore[assignment]
+
+    result = session.run_execution_turn(
+        thread_id="thr-1",
+        prompt_text="do work",
+        sandbox_policy={"type": "workspaceWrite"},
+        approval_policy="on-request",
+    )
+
+    assert result.status == "failed"

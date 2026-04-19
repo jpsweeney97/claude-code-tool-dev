@@ -8,7 +8,7 @@ silently blur the runtime boundary.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .jsonrpc_client import JsonRpcClient
 from .models import AccountState, RuntimeHandshake, TurnExecutionResult
@@ -153,6 +153,8 @@ class AppServerRuntimeSession:
             output_schema=output_schema,
             effort=effort,
             sandbox_policy=_build_read_only_sandbox_policy(),
+            approval_policy="never",
+            allowed_terminal_statuses=("completed",),
         )
 
     def run_execution_turn(
@@ -160,9 +162,12 @@ class AppServerRuntimeSession:
         *,
         thread_id: str,
         prompt_text: str,
-        output_schema: dict[str, Any],
         sandbox_policy: dict[str, Any],
+        approval_policy: str = "on-request",
+        output_schema: dict[str, Any] | None = None,
         effort: str | None = None,
+        server_request_handler: Callable[[dict[str, Any]], dict[str, Any] | None]
+        | None = None,
     ) -> TurnExecutionResult:
         """Start an execution turn with an explicit execution sandbox."""
 
@@ -172,16 +177,32 @@ class AppServerRuntimeSession:
             output_schema=output_schema,
             effort=effort,
             sandbox_policy=sandbox_policy,
+            approval_policy=approval_policy,
+            allowed_terminal_statuses=("completed", "interrupted", "failed"),
+            server_request_handler=server_request_handler,
         )
+
+    def interrupt_turn(
+        self, *, thread_id: str, turn_id: str | None
+    ) -> None:
+        """Request cancellation of an in-flight turn via turn/interrupt."""
+        params: dict[str, Any] = {"threadId": thread_id}
+        if turn_id is not None:
+            params["turnId"] = turn_id
+        self._client.request("turn/interrupt", params)
 
     def _run_turn(
         self,
         *,
         thread_id: str,
         prompt_text: str,
-        output_schema: dict[str, Any],
+        output_schema: dict[str, Any] | None,
         effort: str | None,
         sandbox_policy: dict[str, Any],
+        approval_policy: str = "never",
+        allowed_terminal_statuses: tuple[str, ...] = ("completed",),
+        server_request_handler: Callable[[dict[str, Any]], dict[str, Any] | None]
+        | None = None,
     ) -> TurnExecutionResult:
         """Start a turn and collect notifications until completion."""
 
@@ -189,12 +210,13 @@ class AppServerRuntimeSession:
             "threadId": thread_id,
             "input": [{"type": "text", "text": prompt_text}],
             "cwd": str(self._repo_root),
-            "approvalPolicy": "never",
+            "approvalPolicy": approval_policy,
             "sandboxPolicy": sandbox_policy,
             "summary": "concise",
             "personality": "pragmatic",
-            "outputSchema": output_schema,
         }
+        if output_schema is not None:
+            params["outputSchema"] = output_schema
         if effort is not None:
             params["effort"] = effort
 
@@ -213,32 +235,39 @@ class AppServerRuntimeSession:
                 continue
             notifications.append(notification)
             method = str(notification["method"])
-            params = notification.get("params", {})
-            if not isinstance(params, dict):
+            params_n = notification.get("params", {})
+            if not isinstance(params_n, dict):
                 continue
-            if params.get("turnId") not in (None, turn_id):
+            if params_n.get("turnId") not in (None, turn_id):
                 continue
+            # Server-request handling: messages with both 'id' and 'method'
+            # are server-initiated requests, not passive notifications.
+            if "id" in notification and server_request_handler is not None:
+                response_payload = server_request_handler(notification)
+                if response_payload is not None:
+                    self._client.respond(notification["id"], response_payload)
             if method == "item/completed":
-                item = params.get("item")
+                item = params_n.get("item")
                 if isinstance(item, dict) and item.get("type") == "agentMessage":
                     text = item.get("text")
                     if isinstance(text, str):
                         agent_message = text
             if method == "turn/completed":
-                turn_payload = params.get("turn")
+                turn_payload = params_n.get("turn")
                 if not isinstance(turn_payload, dict):
                     raise RuntimeError(
                         "Turn completion failed: missing turn payload. "
-                        f"Got: {params!r:.100}"
+                        f"Got: {params_n!r:.100}"
                     )
                 status = turn_payload.get("status")
-                if status != "completed":
+                if status not in allowed_terminal_statuses:
                     raise RuntimeError(
-                        "Turn completion failed: turn did not complete successfully. "
-                        f"Got: {turn_payload!r:.100}"
+                        "Turn completion failed: turn status not in allowed set. "
+                        f"Got: {status!r:.100}, allowed: {allowed_terminal_statuses!r}"
                     )
                 return TurnExecutionResult(
                     turn_id=turn_id,
+                    status=str(status),
                     agent_message=agent_message,
                     notifications=tuple(notifications),
                 )
