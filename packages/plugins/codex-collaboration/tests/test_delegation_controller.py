@@ -1141,6 +1141,26 @@ def _command_approval_request(
     }
 
 
+def _request_user_input_request(
+    *,
+    request_id: int | str = 55,
+    item_id: str = "item-u",
+    thread_id: str = "thr-1",
+    turn_id: str = "turn-1",
+) -> dict[str, Any]:
+    """Build a fake request_user_input server request."""
+    return {
+        "id": request_id,
+        "method": "item/tool/requestUserInput",
+        "params": {
+            "itemId": item_id,
+            "threadId": thread_id,
+            "turnId": turn_id,
+            "questions": [],
+        },
+    }
+
+
 def _permissions_request(
     *,
     request_id: int | str = 99,
@@ -1385,3 +1405,96 @@ def test_start_post_turn_finalization_failure_marks_job_unknown_and_cleans_up(
     # Runtime released and session closed despite the failure.
     assert registry.lookup("rt-1") is None
     assert control_plane._sessions[0].closed
+
+
+def test_start_with_request_user_input_completed_returns_delegation_job(
+    tmp_path: Path,
+) -> None:
+    """request_user_input + completed turn → DelegationJob, not DelegationEscalation.
+
+    When a no-cancel known kind (request_user_input) is captured but the turn
+    completes normally, the job is completed — not escalated. The runtime is
+    released, the session is closed, the pending request is resolved, and no
+    escalation audit event is emitted.
+    """
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, job_store, _ls, journal, registry, prs = (
+        _build_controller(tmp_path)
+    )
+
+    control_plane._next_session_requests = [_request_user_input_request()]
+
+    result = controller.start(repo_root=repo_root, objective="Summarize")
+
+    # Returns a plain DelegationJob, not a DelegationEscalation.
+    assert isinstance(result, DelegationJob)
+    assert result.status == "completed"
+
+    # Pending request was persisted and resolved (D4).
+    stored = prs.get("55")
+    assert stored is not None
+    assert stored.status == "resolved"
+
+    # Runtime released and session closed — not kept live.
+    assert registry.lookup("rt-1") is None
+    assert control_plane._sessions[0].closed
+
+    # No escalation audit event emitted.
+    events_path = journal.plugin_data_path / "audit" / "events.jsonl"
+    lines = [
+        json.loads(line)
+        for line in events_path.read_text().splitlines()
+        if line.strip()
+    ]
+    escalation_events = [e for e in lines if e.get("action") == "escalate"]
+    assert len(escalation_events) == 0
+
+
+def test_later_parse_failure_does_not_prevent_captured_request_resolution(
+    tmp_path: Path,
+) -> None:
+    """First request parses fine, second message fails parse → first resolved.
+
+    The captured_request_parse_failed flag should only apply to the captured
+    (first) request. A later malformed message should still trigger
+    interrupted_by_unknown (escalation), but the successfully-parsed first
+    request must still be marked resolved.
+    """
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, _j, registry, prs = (
+        _build_controller(tmp_path)
+    )
+
+    # First message: parseable command_approval. Second: unparseable.
+    control_plane._next_session_requests = [
+        _command_approval_request(request_id=10, item_id="item-ok"),
+        {"id": 11, "method": "broken/method", "params": "not-a-dict"},
+    ]
+    # The second message triggers interrupt, so the turn ends interrupted.
+    control_plane._next_turn_result = TurnExecutionResult(
+        turn_id="turn-1",
+        status="interrupted",
+        agent_message="interrupted by unknown",
+    )
+
+    result = controller.start(repo_root=repo_root, objective="Mixed")
+
+    # Should escalate (interrupted_by_unknown from the second message).
+    assert isinstance(result, DelegationEscalation)
+    assert result.job.status == "needs_escalation"
+
+    # The FIRST request (successfully parsed) must be resolved — not left
+    # pending due to a later message's parse failure.
+    stored = prs.get("10")
+    assert stored is not None
+    assert stored.status == "resolved"
+
+    # Only the first request was persisted (first-capture semantics).
+    assert prs.get("11") is None
+
+    # Runtime kept live for escalation.
+    assert registry.lookup("rt-1") is not None

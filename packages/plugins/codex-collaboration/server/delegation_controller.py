@@ -551,7 +551,7 @@ class DelegationController:
         # Capture state — shared with the handler closure via nonlocal.
         captured_request: PendingServerRequest | None = None
         interrupted_by_unknown: bool = False
-        parse_failed: bool = False
+        captured_request_parse_failed: bool = False
 
         _CANCEL_CAPABLE_KINDS = frozenset({"command_approval", "file_change"})
         _KNOWN_DENIAL_KINDS = frozenset({"request_user_input"})
@@ -559,7 +559,7 @@ class DelegationController:
         def _server_request_handler(
             message: dict[str, Any],
         ) -> dict[str, Any] | None:
-            nonlocal captured_request, interrupted_by_unknown, parse_failed
+            nonlocal captured_request, interrupted_by_unknown, captured_request_parse_failed
 
             # --- Parse the wire message ---
             try:
@@ -587,8 +587,8 @@ class DelegationController:
                 if captured_request is None:
                     self._pending_request_store.create(minimal)
                     captured_request = minimal
+                    captured_request_parse_failed = True
                 interrupted_by_unknown = True
-                parse_failed = True
                 entry = self._runtime_registry.lookup(runtime_id)
                 if entry is not None:
                     entry.session.interrupt_turn(
@@ -668,7 +668,7 @@ class DelegationController:
                 turn_result=turn_result,
                 captured_request=captured_request,
                 interrupted_by_unknown=interrupted_by_unknown,
-                parse_failed=parse_failed,
+                captured_request_parse_failed=captured_request_parse_failed,
             )
         except Exception:
             try:
@@ -695,7 +695,7 @@ class DelegationController:
         turn_result: Any,
         captured_request: PendingServerRequest | None,
         interrupted_by_unknown: bool,
-        parse_failed: bool,
+        captured_request_parse_failed: bool,
     ) -> DelegationJob | DelegationEscalation:
         """Post-turn status derivation, audit, and cleanup.
 
@@ -706,7 +706,7 @@ class DelegationController:
         if captured_request is not None:
             # D6 diagnostic — only when we have a parseable request with
             # wire-correlated IDs.
-            if not parse_failed:
+            if not captured_request_parse_failed:
                 _verify_post_turn_signals(
                     notifications=turn_result.notifications,
                     request_id=captured_request.request_id,
@@ -727,43 +727,44 @@ class DelegationController:
 
             self._job_store.update_status(job_id, final_status)
 
-            # Audit event for escalation.
-            self._journal.append_audit_event(
-                AuditEvent(
-                    event_id=self._uuid_factory(),
-                    timestamp=self._journal.timestamp(),
-                    actor="claude",
-                    action="escalate",
-                    collaboration_id=collaboration_id,
-                    runtime_id=runtime_id,
-                    job_id=job_id,
-                    request_id=captured_request.request_id,
-                )
-            )
-
-            # Terminal cleanup: release + close for terminal statuses;
-            # keep live for needs_escalation (decide will reuse the runtime).
-            if final_status != "needs_escalation":
-                self._runtime_registry.release(runtime_id)
-                entry.session.close()
-
             updated_job = self._job_store.get(job_id)
             assert updated_job is not None, (
                 f"DelegationJobStore invariant violation: job_id={job_id!r} "
                 f"was just updated but get() returned None"
             )
 
-            # Re-read the request from the store so the returned object
-            # reflects the authoritative status (e.g., "resolved" after D4).
-            resolved_request = self._pending_request_store.get(
-                captured_request.request_id
-            )
+            if final_status == "needs_escalation":
+                # Audit event for escalation.
+                self._journal.append_audit_event(
+                    AuditEvent(
+                        event_id=self._uuid_factory(),
+                        timestamp=self._journal.timestamp(),
+                        actor="claude",
+                        action="escalate",
+                        collaboration_id=collaboration_id,
+                        runtime_id=runtime_id,
+                        job_id=job_id,
+                        request_id=captured_request.request_id,
+                    )
+                )
 
-            return DelegationEscalation(
-                job=updated_job,
-                pending_request=resolved_request or captured_request,
-                agent_context=turn_result.agent_message or None,
-            )
+                # Re-read the request from the store so the returned object
+                # reflects the authoritative status (e.g., "resolved" after D4).
+                resolved_request = self._pending_request_store.get(
+                    captured_request.request_id
+                )
+
+                # Keep runtime live — decide will reuse it.
+                return DelegationEscalation(
+                    job=updated_job,
+                    pending_request=resolved_request or captured_request,
+                    agent_context=turn_result.agent_message or None,
+                )
+
+            # Non-escalation: release + close and return plain job.
+            self._runtime_registry.release(runtime_id)
+            entry.session.close()
+            return updated_job
 
         # No server request captured — clean completion or failure.
         if turn_result.status == "completed":
