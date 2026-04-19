@@ -1324,3 +1324,64 @@ def test_start_turn_dispatch_failure_marks_job_unknown_and_cleans_up(
     # Runtime released and session closed.
     assert registry.lookup("rt-1") is None
     assert control_plane._sessions[0].closed
+
+
+def test_start_post_turn_finalization_failure_marks_job_unknown_and_cleans_up(
+    tmp_path: Path,
+) -> None:
+    """If a post-turn local write (e.g. audit emit) raises after
+    run_execution_turn() succeeds, the job is still marked unknown and
+    the runtime is released."""
+    controller, control_plane, _, job_store, _, journal, registry, _ = (
+        _build_controller(tmp_path)
+    )
+
+    # Configure a command-approval request so the capture path fires.
+    control_plane._next_session_requests = [
+        {
+            "id": "req-1",
+            "method": "item/commandExecution/requestApproval",
+            "params": {
+                "itemId": "item-1",
+                "threadId": "thr-1",
+                "turnId": "turn-1",
+                "command": "make build",
+                "cwd": "/repo",
+            },
+        },
+    ]
+    control_plane._next_turn_result = TurnExecutionResult(
+        turn_id="turn-1",
+        status="interrupted",
+        agent_message="was building",
+    )
+
+    # Sabotage the audit emit so _finalize_turn raises after the turn
+    # has already completed successfully. The first call (delegate_start
+    # audit in committed-start phase) must succeed; only the second call
+    # (escalation audit in _finalize_turn) should fail.
+    original_append = journal.append_audit_event
+    call_count = 0
+
+    def _exploding_audit_on_second(event: Any) -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count >= 2:
+            raise OSError("disk full")
+        original_append(event)
+
+    journal.append_audit_event = _exploding_audit_on_second  # type: ignore[assignment]
+
+    with pytest.raises(OSError, match="disk full"):
+        controller.start(
+            repo_root=tmp_path / "repo",
+            objective="Audit failure test",
+        )
+
+    # Job should be "unknown", not stuck "running" or "needs_escalation".
+    jobs = job_store.list_active()
+    assert len(jobs) == 0, f"Expected no active jobs, got: {[j.status for j in jobs]}"
+
+    # Runtime released and session closed despite the failure.
+    assert registry.lookup("rt-1") is None
+    assert control_plane._sessions[0].closed
