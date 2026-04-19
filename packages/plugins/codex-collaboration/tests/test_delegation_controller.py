@@ -204,7 +204,7 @@ def test_start_writes_three_phase_journal_records(tmp_path: Path) -> None:
 
     # Idempotency key is claude_session_id + delegation_request_hash.
     request_hash = hashlib.sha256(
-        f"{repo_root.resolve()}:head-abc".encode("utf-8")
+        f"{repo_root.resolve()}:head-abc:".encode("utf-8")
     ).hexdigest()
     key = f"sess-1:{request_hash}"
 
@@ -411,7 +411,7 @@ def test_start_raises_committed_start_finalization_error_on_lineage_failure(
         controller.start(repo_root=repo_root)
 
     request_hash = hashlib.sha256(
-        f"{repo_root.resolve()}:head-abc".encode("utf-8")
+        f"{repo_root.resolve()}:head-abc:".encode("utf-8")
     ).hexdigest()
     _assert_dispatched_but_not_completed(journal, "sess-1", request_hash)
     # Registry HAS the entry — register goes FIRST in the try block, before
@@ -446,7 +446,7 @@ def test_start_raises_committed_start_finalization_error_on_job_store_failure(
         controller.start(repo_root=repo_root)
 
     request_hash = hashlib.sha256(
-        f"{repo_root.resolve()}:head-abc".encode("utf-8")
+        f"{repo_root.resolve()}:head-abc:".encode("utf-8")
     ).hexdigest()
     _assert_dispatched_but_not_completed(journal, "sess-1", request_hash)
     # Registry HAS the entry — register goes FIRST in the try block.
@@ -491,7 +491,7 @@ def test_start_raises_committed_start_finalization_error_on_journal_completed_fa
     assert calls == ["intent", "dispatched", "completed"]
     # No completed in the file either — the selective_boom ensured it.
     request_hash = hashlib.sha256(
-        f"{repo_root.resolve()}:head-abc".encode("utf-8")
+        f"{repo_root.resolve()}:head-abc:".encode("utf-8")
     ).hexdigest()
     _assert_dispatched_but_not_completed(journal, "sess-1", request_hash)
     # Both handle and job were written before the failure — both must be unknown.
@@ -531,7 +531,7 @@ def test_start_raises_committed_start_finalization_error_on_audit_failure(
         controller.start(repo_root=repo_root)
 
     request_hash = hashlib.sha256(
-        f"{repo_root.resolve()}:head-abc".encode("utf-8")
+        f"{repo_root.resolve()}:head-abc:".encode("utf-8")
     ).hexdigest()
     _assert_dispatched_but_not_completed(journal, "sess-1", request_hash)
     # Handle, job, and registry entry were all created before the audit failure.
@@ -578,7 +578,7 @@ def test_start_raises_committed_start_finalization_error_on_register_failure(
         controller.start(repo_root=repo_root)
 
     request_hash = hashlib.sha256(
-        f"{repo_root.resolve()}:head-abc".encode("utf-8")
+        f"{repo_root.resolve()}:head-abc:".encode("utf-8")
     ).hexdigest()
     _assert_dispatched_but_not_completed(journal, "sess-1", request_hash)
     # Register itself failed — no entry, and downstream writes never started.
@@ -938,6 +938,28 @@ def test_recover_startup_does_not_downgrade_handle_already_unknown(
     assert handle is not None and handle.status == "unknown"
     assert job_store.get("job-1") is None
     assert journal.list_unresolved(session_id="sess-1") == []
+
+
+def test_start_accepts_objective_parameter(tmp_path: Path) -> None:
+    """start() accepts an objective parameter without error."""
+    controller, _, _, _, _, _, _ = _build_controller(tmp_path)
+    result = controller.start(
+        repo_root=tmp_path / "repo",
+        objective="Fix the login bug",
+    )
+    assert not isinstance(result, JobBusyResponse)
+
+
+def test_delegation_request_hash_includes_objective(tmp_path: Path) -> None:
+    """Objective is a component of the idempotency hash."""
+    from server.delegation_controller import _delegation_request_hash
+
+    repo_root = (tmp_path / "repo").resolve()
+    hash_a = _delegation_request_hash(repo_root, "head-abc", "Fix bug A")
+    hash_b = _delegation_request_hash(repo_root, "head-abc", "Fix bug B")
+    hash_no_obj = _delegation_request_hash(repo_root, "head-abc", "")
+    assert hash_a != hash_b, "Different objectives must produce different hashes"
+    assert hash_a != hash_no_obj, "Objective vs no-objective must differ"
 
 
 def test_recover_startup_idempotent_second_call_is_noop(tmp_path: Path) -> None:

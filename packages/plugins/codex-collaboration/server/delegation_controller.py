@@ -24,6 +24,29 @@ a live runtime whose session is retained by the registry so follow-up
 turn dispatch can find it via ExecutionRuntimeRegistry.lookup(runtime_id).
 """
 
+# Execution-turn journaling deferral (T-05 pending-request capture slice):
+#
+# The first execution turn dispatched inside start() is intentionally
+# unjournaled. job_creation.completed means "all durable start writes
+# landed," not "turn finished." Turn dispatch happens AFTER the journal
+# is terminal.
+#
+# Crash recovery for the first-turn window:
+#
+# After job_creation.completed, the journal entry IS resolved —
+# list_unresolved() will NOT return it. If the process crashes after
+# update_status(job_id, "running") but before post-turn terminal writes,
+# the job is persisted as "running" with no live runtime and no journal
+# replay anchor. recover_startup() handles this via orphaned-running-job
+# detection (see Step 6.2): any job persisted as "running" after a cold
+# restart has no live runtime (the registry is fresh) and is marked
+# "unknown".
+#
+# Turn-dispatch journaling (with its own ``turn_dispatch`` operation and
+# idempotency key per recovery-and-journal.md:49) lands with T-06
+# (codex.delegate.poll), where multi-turn dispatch and replay become
+# real requirements.
+
 from __future__ import annotations
 
 import hashlib
@@ -87,15 +110,18 @@ def _resolve_head_commit(repo_root: Path) -> str:
     return result.stdout.strip()
 
 
-def _delegation_request_hash(repo_root: Path, base_commit: str) -> str:
+def _delegation_request_hash(repo_root: Path, base_commit: str, objective: str) -> str:
     """Recovery-contract idempotency component — hash of the delegation request.
 
     Per recovery-and-journal.md:47, the ``job_creation`` idempotency key is
     ``claude_session_id + delegation_request_hash``. The request is fully
-    characterized by the resolved repo_root + base_commit pair in v1.
-    """
+    characterized by the resolved repo_root + base_commit + objective in v1.
 
-    payload = f"{repo_root}:{base_commit}".encode("utf-8")
+    When the MCP surface later accepts additional inputs (e.g., a delegation
+    brief or profile override), they must be included in the hash so replay
+    recognizes the full request shape.
+    """
+    payload = f"{repo_root}:{base_commit}:{objective}".encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
 
 
@@ -161,6 +187,7 @@ class DelegationController:
         *,
         repo_root: Path,
         base_commit: str | None = None,
+        objective: str = "",
     ) -> DelegationJob | JobBusyResponse:
         """Start a delegation job. Returns the job, or JobBusyResponse if busy.
 
@@ -301,7 +328,7 @@ class DelegationController:
         resolved_base = base_commit or self._head_commit_resolver(resolved_root)
         job_id = self._uuid_factory()
         collaboration_id = self._uuid_factory()
-        request_hash = _delegation_request_hash(resolved_root, resolved_base)
+        request_hash = _delegation_request_hash(resolved_root, resolved_base, objective)
         idempotency_key = f"{self._session_id}:{request_hash}"
         created_at = self._journal.timestamp()
         worktree_path = (
@@ -563,6 +590,21 @@ class DelegationController:
                 ),
                 session_id=self._session_id,
             )
+
+        # --- Orphaned-running-job reconciliation ---
+        # After a cold restart, the runtime registry is fresh: no live
+        # runtimes exist. Any job persisted as "running" is orphaned —
+        # the first-turn window crashed after update_status(job_id,
+        # "running") but before post-turn terminal writes. There is no
+        # journal replay anchor (D2: first turn is intentionally
+        # unjournaled), so the only safe terminal state is "unknown".
+        #
+        # This is separate from the journal-based reconciliation above
+        # because the journal entry is already "completed" at this point
+        # (job_creation.completed fired before turn dispatch).
+        for job in self._job_store.list_active():
+            if job.status == "running":
+                self._job_store.update_status(job.job_id, "unknown")
 
 
 def _phase_rank(phase: str) -> int:
