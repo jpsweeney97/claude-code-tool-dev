@@ -185,6 +185,56 @@ class _StubSession:
         pass
 
 
+class _ConfigurableStubSession(_StubSession):
+    """_StubSession extended with configurable server requests and turn result.
+
+    Mirrors _FakeSession from test_delegation_controller.py but layered on
+    top of _StubSession so all lifecycle methods are inherited.
+    """
+
+    def __init__(
+        self,
+        *,
+        server_requests: list[dict[str, Any]] | None = None,
+        turn_result: TurnExecutionResult | None = None,
+    ) -> None:
+        self._server_requests: list[dict[str, Any]] = server_requests or []
+        self._interrupted = False
+        self._turn_result = turn_result or TurnExecutionResult(
+            turn_id="turn-stub",
+            status="completed",
+            agent_message="Stub done.",
+            notifications=(),
+        )
+
+    def run_execution_turn(
+        self,
+        *,
+        thread_id: str,
+        prompt_text: str,
+        sandbox_policy: dict[str, Any],
+        approval_policy: str = "on-request",
+        output_schema: dict[str, Any] | None = None,
+        effort: str | None = None,
+        server_request_handler: Callable[[dict[str, Any]], dict[str, Any] | None]
+        | None = None,
+    ) -> TurnExecutionResult:
+        for req in self._server_requests:
+            if server_request_handler is not None:
+                server_request_handler(req)
+        if self._interrupted:
+            return TurnExecutionResult(
+                turn_id=self._turn_result.turn_id,
+                status="interrupted",
+                agent_message=self._turn_result.agent_message,
+                notifications=self._turn_result.notifications,
+            )
+        return self._turn_result
+
+    def interrupt_turn(self, *, thread_id: str, turn_id: str | None) -> None:
+        self._interrupted = True
+
+
 def _make_compat_result() -> object:
     from server.codex_compat import REQUIRED_METHODS
 
@@ -195,6 +245,53 @@ def _make_compat_result() -> object:
         errors: tuple[str, ...] = ()
 
     return _R()
+
+
+def _build_e2e_setup(
+    tmp_path: Path,
+    *,
+    session_factory: Callable[[], _StubSession] | None = None,
+) -> tuple[McpServer, DelegationJobStore, PendingRequestStore, OperationJournal, Path]:
+    """Build a full integration stack: ControlPlane + DelegationController + McpServer.
+
+    Returns (server, job_store, pending_request_store, journal, plugin_data).
+    The caller is responsible for initialising the git repo via _init_repo.
+    """
+    plugin_data = tmp_path / "pd"
+    plugin_data.mkdir()
+    (plugin_data / "session_id").write_text("sess-e2e-esc")
+
+    journal = OperationJournal(plugin_data)
+
+    stub_factory = session_factory or (lambda _: _StubSession())
+    control_plane = ControlPlane(
+        plugin_data_path=plugin_data,
+        journal=journal,
+        runtime_factory=lambda _: stub_factory(),  # type: ignore[arg-type]
+        compat_checker=_make_compat_result,
+    )
+
+    job_store = DelegationJobStore(plugin_data, "sess-e2e-esc")
+    lineage_store = LineageStore(plugin_data, "sess-e2e-esc")
+    pending_request_store = PendingRequestStore(plugin_data, "sess-e2e-esc")
+    runtime_registry = ExecutionRuntimeRegistry()
+    controller = DelegationController(
+        control_plane=control_plane,
+        worktree_manager=WorktreeManager(),
+        job_store=job_store,
+        lineage_store=lineage_store,
+        runtime_registry=runtime_registry,
+        journal=journal,
+        session_id="sess-e2e-esc",
+        plugin_data_path=plugin_data,
+        pending_request_store=pending_request_store,
+    )
+
+    server = McpServer(
+        control_plane=control_plane,
+        delegation_factory=lambda: controller,
+    )
+    return server, job_store, pending_request_store, journal, plugin_data
 
 
 def test_delegate_start_end_to_end_through_mcp_dispatch(tmp_path: Path) -> None:
@@ -398,3 +495,215 @@ def test_delegate_start_end_to_end_through_mcp_dispatch(tmp_path: Path) -> None:
     second_payload = json.loads(second_response["result"]["content"][0]["text"])
     assert second_payload["status"] == "completed"
     assert second_payload["job_id"] != payload["job_id"]
+
+
+# -----------------------------------------------------------------------------
+# Escalation E2E tests — verify full capture path through MCP dispatch.
+# -----------------------------------------------------------------------------
+
+
+def _command_approval_request_msg(
+    *,
+    request_id: int | str = 42,
+    item_id: str = "item-1",
+    thread_id: str = "thr-exec-stub",
+    turn_id: str = "turn-stub",
+) -> dict[str, Any]:
+    """Build a fake command_approval server request for integration tests."""
+    return {
+        "id": request_id,
+        "method": "item/commandExecution/requestApproval",
+        "params": {
+            "itemId": item_id,
+            "threadId": thread_id,
+            "turnId": turn_id,
+            "command": "rm -rf /",
+        },
+    }
+
+
+def _permissions_request_msg(
+    *,
+    request_id: int | str = 99,
+    item_id: str = "item-p",
+    thread_id: str = "thr-exec-stub",
+    turn_id: str = "turn-stub",
+) -> dict[str, Any]:
+    """Build a fake unknown-kind (permissions) server request for integration tests."""
+    return {
+        "id": request_id,
+        "method": "item/permissions/requestApproval",
+        "params": {
+            "itemId": item_id,
+            "threadId": thread_id,
+            "turnId": turn_id,
+            "scope": "network",
+        },
+    }
+
+
+def test_e2e_command_approval_produces_escalation(tmp_path: Path) -> None:
+    """Full path: start → turn dispatch → command approval → cancel → DelegationEscalation."""
+    repo_root = tmp_path / "repo"
+    _init_repo(repo_root)
+
+    session = _ConfigurableStubSession(
+        server_requests=[_command_approval_request_msg()],
+    )
+    server, job_store, prs, journal, plugin_data = _build_e2e_setup(
+        tmp_path,
+        session_factory=lambda: session,
+    )
+
+    response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "codex.delegate.start",
+                "arguments": {"repo_root": str(repo_root), "objective": "Fix the bug"},
+            },
+        }
+    )
+
+    assert "isError" not in response["result"]
+    payload = json.loads(response["result"]["content"][0]["text"])
+
+    # Top-level escalation flag set.
+    assert payload["escalated"] is True
+
+    # Job landed in needs_escalation.
+    assert payload["job"]["status"] == "needs_escalation"
+
+    # Pending request captured with correct kind.
+    assert payload["pending_request"]["kind"] == "command_approval"
+    # The returned pending_request is the captured snapshot (status="pending"
+    # at capture time). The store has the authoritative resolved status.
+    assert payload["pending_request"]["request_id"] == "42"
+
+    # agent_context captured (may be None but key must be present).
+    assert "agent_context" in payload
+
+    # Pending request was persisted AND marked resolved in the store (D4).
+    stored = prs.get("42")
+    assert stored is not None
+    assert stored.status == "resolved"
+
+    # Escalation audit event emitted.
+    audit_lines = [
+        json.loads(line)
+        for line in (plugin_data / "audit" / "events.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
+    escalation_events = [e for e in audit_lines if e.get("action") == "escalate"]
+    assert len(escalation_events) == 1
+    assert escalation_events[0]["request_id"] == "42"
+
+    # Job persisted with needs_escalation status.
+    job_id = payload["job"]["job_id"]
+    persisted_job = job_store.get(job_id)
+    assert persisted_job is not None
+    assert persisted_job.status == "needs_escalation"
+
+
+def test_e2e_unknown_request_kind_interrupts_and_escalates(tmp_path: Path) -> None:
+    """Unknown request kind (permissions) → turn interrupt → needs_escalation."""
+    repo_root = tmp_path / "repo"
+    _init_repo(repo_root)
+
+    session = _ConfigurableStubSession(
+        server_requests=[_permissions_request_msg()],
+    )
+    server, job_store, prs, _journal, _plugin_data = _build_e2e_setup(
+        tmp_path,
+        session_factory=lambda: session,
+    )
+
+    response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "codex.delegate.start",
+                "arguments": {"repo_root": str(repo_root), "objective": "Deploy"},
+            },
+        }
+    )
+
+    assert "isError" not in response["result"]
+    payload = json.loads(response["result"]["content"][0]["text"])
+
+    assert payload["escalated"] is True
+    assert payload["job"]["status"] == "needs_escalation"
+    assert payload["pending_request"]["kind"] == "unknown"
+    assert payload["pending_request"]["request_id"] == "99"
+
+    # Pending request persisted (unknown kind → status resolved, D4 rule for
+    # successful parse with unknown kind).
+    stored = prs.get("99")
+    assert stored is not None
+    assert stored.status == "resolved"
+
+    # Job persisted in needs_escalation.
+    persisted_job = job_store.get(payload["job"]["job_id"])
+    assert persisted_job is not None
+    assert persisted_job.status == "needs_escalation"
+
+
+def test_e2e_busy_gate_blocks_when_job_needs_escalation(tmp_path: Path) -> None:
+    """A job in needs_escalation is still active → busy gate blocks second start."""
+    repo_root = tmp_path / "repo"
+    _init_repo(repo_root)
+
+    session = _ConfigurableStubSession(
+        server_requests=[_command_approval_request_msg(request_id=55)],
+    )
+    server, job_store, _prs, _journal, _plugin_data = _build_e2e_setup(
+        tmp_path,
+        session_factory=lambda: session,
+    )
+
+    # First start produces an escalation (needs_escalation = active).
+    first_response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "codex.delegate.start",
+                "arguments": {
+                    "repo_root": str(repo_root),
+                    "objective": "First job",
+                },
+            },
+        }
+    )
+    first_payload = json.loads(first_response["result"]["content"][0]["text"])
+    assert first_payload["escalated"] is True
+    assert first_payload["job"]["status"] == "needs_escalation"
+
+    # Second start on the same repo is rejected by the busy gate.
+    second_response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {
+                "name": "codex.delegate.start",
+                "arguments": {
+                    "repo_root": str(repo_root),
+                    "objective": "Second job",
+                },
+            },
+        }
+    )
+
+    assert "isError" not in second_response["result"]
+    second_payload = json.loads(second_response["result"]["content"][0]["text"])
+
+    # Busy gate fires: response carries busy=True and the active job details.
+    assert second_payload["busy"] is True
+    assert second_payload["active_job_id"] == first_payload["job"]["job_id"]
+    assert second_payload["active_job_status"] == "needs_escalation"
