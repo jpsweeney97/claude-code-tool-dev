@@ -73,12 +73,24 @@ class _FakeControlPlane:
 class _FakeWorktreeManager:
     def __init__(self) -> None:
         self.calls: list[tuple[Path, str, Path]] = []
+        self.remove_calls: list[tuple[Path, Path]] = []
 
     def create_worktree(
         self, *, repo_root: Path, base_commit: str, worktree_path: Path
     ) -> None:
         self.calls.append((repo_root, base_commit, worktree_path))
         worktree_path.mkdir(parents=True, exist_ok=True)
+
+    def remove_worktree(self, *, repo_root: Path, worktree_path: Path) -> None:
+        self.remove_calls.append((repo_root, worktree_path))
+        if worktree_path.exists():
+            import shutil
+
+            shutil.rmtree(worktree_path)
+        # Mirror real WorktreeManager: clean up empty parent.
+        parent = worktree_path.parent
+        if parent.is_dir() and not any(parent.iterdir()):
+            parent.rmdir()
 
 
 def _build_controller(
@@ -340,6 +352,12 @@ def test_start_does_not_persist_durable_state_on_bootstrap_failure(
     if audit_path.exists():
         content = audit_path.read_text()
         assert "delegate_start" not in content
+    # Worktree must be cleaned up — no untracked directory left behind.
+    assert len(worktree_manager.remove_calls) == 1
+    _, removed_path = worktree_manager.remove_calls[0]
+    assert not removed_path.exists()
+    # Per-job parent directory must also be gone (not just the worktree leaf).
+    assert not removed_path.parent.exists()
 
 
 # -----------------------------------------------------------------------------

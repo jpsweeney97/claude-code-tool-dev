@@ -57,3 +57,43 @@ class WorktreeManager:
             raise RuntimeError(
                 f"worktree add failed: git timed out. Got: {worktree_path!r:.100}"
             ) from exc
+
+    def remove_worktree(self, *, repo_root: Path, worktree_path: Path) -> None:
+        """Remove a worktree created by ``create_worktree``.
+
+        Best-effort: if the git worktree remove fails (e.g., path already
+        gone, repo not reachable), the error is suppressed. Callers use
+        this for cleanup on failure paths where leaving a stale directory
+        is worse than a noisy removal attempt.
+
+        Also removes the per-job parent directory if it is empty after the
+        worktree leaf is gone. ``create_worktree`` eagerly creates the
+        parent (``worktree_path.parent.mkdir``), so this method cleans up
+        everything that ``create_worktree`` created.
+        """
+
+        try:
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(repo_root),
+                    "worktree",
+                    "remove",
+                    "--force",
+                    str(worktree_path),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+            pass
+        # Clean up the per-job parent directory if empty.
+        parent = worktree_path.parent
+        try:
+            if parent.is_dir() and not any(parent.iterdir()):
+                parent.rmdir()
+        except OSError:
+            pass

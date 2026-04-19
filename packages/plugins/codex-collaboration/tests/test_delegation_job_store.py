@@ -112,3 +112,84 @@ def test_replay_tolerates_truncated_trailing_record(tmp_path: Path) -> None:
 
     replay = DelegationJobStore(tmp_path, "sess-1")
     assert {j.job_id for j in replay.list()} == {"job-1", "job-2"}
+
+
+def test_replay_skips_update_status_with_invalid_status_literal(
+    tmp_path: Path,
+) -> None:
+    """An update_status record with an invalid status literal is silently
+    skipped — the job retains its last valid status and remains visible
+    to list_active()."""
+    store = DelegationJobStore(tmp_path, "sess-1")
+    store.create(_make_job(job_id="job-1", status="queued"))
+
+    # Manually inject a corrupted update_status record.
+    import json
+
+    store_path = tmp_path / "delegation_jobs" / "sess-1" / "jobs.jsonl"
+    with store_path.open("a", encoding="utf-8") as handle:
+        handle.write(
+            json.dumps({"op": "update_status", "job_id": "job-1", "status": "bogus"})
+            + "\n"
+        )
+
+    replay = DelegationJobStore(tmp_path, "sess-1")
+    job = replay.get("job-1")
+    assert job is not None
+    assert job.status == "queued"  # unchanged — invalid update skipped
+    assert len(replay.list_active()) == 1  # still visible in busy gate
+
+
+def test_replay_skips_create_with_invalid_status_literal(tmp_path: Path) -> None:
+    """A create record with an invalid status literal is silently skipped."""
+    import json
+
+    store_path = tmp_path / "delegation_jobs" / "sess-1" / "jobs.jsonl"
+    store_path.parent.mkdir(parents=True)
+    with store_path.open("a", encoding="utf-8") as handle:
+        handle.write(
+            json.dumps(
+                {
+                    "op": "create",
+                    "job_id": "job-bad",
+                    "runtime_id": "rt-1",
+                    "collaboration_id": "c-1",
+                    "base_commit": "abc",
+                    "worktree_path": "/tmp/wk",
+                    "promotion_state": "pending",
+                    "status": "bogus",
+                }
+            )
+            + "\n"
+        )
+
+    replay = DelegationJobStore(tmp_path, "sess-1")
+    assert replay.get("job-bad") is None
+    assert replay.list() == []
+
+
+def test_replay_skips_create_with_invalid_promotion_state(tmp_path: Path) -> None:
+    """A create record with an invalid promotion_state is silently skipped."""
+    import json
+
+    store_path = tmp_path / "delegation_jobs" / "sess-1" / "jobs.jsonl"
+    store_path.parent.mkdir(parents=True)
+    with store_path.open("a", encoding="utf-8") as handle:
+        handle.write(
+            json.dumps(
+                {
+                    "op": "create",
+                    "job_id": "job-bad",
+                    "runtime_id": "rt-1",
+                    "collaboration_id": "c-1",
+                    "base_commit": "abc",
+                    "worktree_path": "/tmp/wk",
+                    "promotion_state": "corrupted",
+                    "status": "queued",
+                }
+            )
+            + "\n"
+        )
+
+    replay = DelegationJobStore(tmp_path, "sess-1")
+    assert replay.get("job-bad") is None
