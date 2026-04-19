@@ -42,7 +42,7 @@ def parse_pending_server_request(
 ) -> PendingServerRequest:
     """Project a raw App Server request into a plugin-owned request record."""
 
-    request_id = _require_string(message, "id")
+    request_id = _require_request_id(message, "id")
     method = _require_string(message, "method")
     params = message.get("params")
     if not isinstance(params, dict):
@@ -78,6 +78,24 @@ def _require_string(payload: dict[str, Any], key: str) -> str:
             f"Server request parse failed: missing {key}. Got: {value!r:.100}"
         )
     return value
+
+
+def _require_request_id(payload: dict[str, Any], key: str) -> str:
+    """Extract a JSON-RPC request ID, normalizing to string.
+
+    The wire ``RequestId`` is ``anyOf [string, integer]`` per the App
+    Server schema (``ServerRequest.json:1475``). The plugin normalizes
+    to string at the parse boundary (D9). The stored ``request_id`` is
+    the wire request id in string form — used for ``serverRequest/resolved``
+    correlation and D6 diagnostics. The ``respond()`` transport layer
+    preserves the original wire type for the response.
+    """
+    value = payload.get(key)
+    if not isinstance(value, (str, int)):
+        raise RuntimeError(
+            f"Server request parse failed: missing {key}. Got: {value!r:.100}"
+        )
+    return str(value)
 
 
 def _resolve_available_decisions(

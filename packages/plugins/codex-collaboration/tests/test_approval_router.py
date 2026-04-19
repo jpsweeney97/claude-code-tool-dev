@@ -3,6 +3,26 @@ from __future__ import annotations
 from server.approval_router import parse_pending_server_request
 
 
+def test_parse_integer_request_id_normalized_to_string() -> None:
+    """Integer request IDs are accepted and normalized to string."""
+    message = {
+        "id": 42,
+        "method": "item/commandExecution/requestApproval",
+        "params": {
+            "itemId": "item-1",
+            "threadId": "thr-1",
+            "turnId": "turn-1",
+            "command": "echo hello",
+            "cwd": "/repo",
+        },
+    }
+    result = parse_pending_server_request(
+        message, runtime_id="rt-1", collaboration_id="collab-1"
+    )
+    assert result.request_id == "42"  # Normalized to string
+    assert result.kind == "command_approval"
+
+
 def test_parse_command_approval_preserves_request_payload_opaquely() -> None:
     message = {
         "id": "req-1",
