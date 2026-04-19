@@ -24,11 +24,15 @@ if str(_package_root) not in sys.path:
     sys.path.insert(0, str(_package_root))
 
 from server.control_plane import ControlPlane
+from server.delegation_controller import DelegationController
+from server.delegation_job_store import DelegationJobStore
 from server.dialogue import DialogueController
+from server.execution_runtime_registry import ExecutionRuntimeRegistry
 from server.journal import OperationJournal, default_plugin_data_path
 from server.lineage_store import LineageStore
 from server.mcp_server import McpServer
 from server.turn_store import TurnStore
+from server.worktree_manager import WorktreeManager
 
 
 def _read_session_id(plugin_data_path: Path) -> str:
@@ -82,6 +86,46 @@ def _build_dialogue_factory(
     return factory
 
 
+def _build_delegation_factory(
+    *,
+    plugin_data_path: Path,
+    control_plane: ControlPlane,
+    runtime_registry: ExecutionRuntimeRegistry,
+    journal: OperationJournal,
+) -> Callable[[], DelegationController]:
+    """Return a zero-arg factory that builds a DelegationController on first call.
+
+    Reads the published session_id, constructs session-scoped job_store +
+    lineage_store, and returns a fully initialized controller wired to the
+    shared runtime registry and journal. The McpServer calls this at most
+    once and pins the result.
+
+    Why lineage_store is built inside the factory closure: LineageStore is
+    session-scoped (it takes session_id at construction). session_id is
+    only available after ``_read_session_id`` succeeds, which happens
+    inside the factory. The dialogue factory follows the same pattern.
+    Both factories write to the same underlying lineage JSONL file for
+    a given session_id, so the identity layer is shared naturally.
+    """
+
+    def factory() -> DelegationController:
+        session_id = _read_session_id(plugin_data_path)
+        job_store = DelegationJobStore(plugin_data_path, session_id)
+        lineage_store = LineageStore(plugin_data_path, session_id)
+        return DelegationController(
+            control_plane=control_plane,
+            worktree_manager=WorktreeManager(),
+            job_store=job_store,
+            lineage_store=lineage_store,
+            runtime_registry=runtime_registry,
+            journal=journal,
+            session_id=session_id,
+            plugin_data_path=plugin_data_path,
+        )
+
+    return factory
+
+
 def main() -> None:
     plugin_data_path = default_plugin_data_path()
     journal = OperationJournal(plugin_data_path)
@@ -91,11 +135,19 @@ def main() -> None:
         journal=journal,
     )
 
+    runtime_registry = ExecutionRuntimeRegistry()
+
     server = McpServer(
         control_plane=control_plane,
         dialogue_factory=_build_dialogue_factory(
             plugin_data_path=plugin_data_path,
             control_plane=control_plane,
+            journal=journal,
+        ),
+        delegation_factory=_build_delegation_factory(
+            plugin_data_path=plugin_data_path,
+            control_plane=control_plane,
+            runtime_registry=runtime_registry,
             journal=journal,
         ),
     )
