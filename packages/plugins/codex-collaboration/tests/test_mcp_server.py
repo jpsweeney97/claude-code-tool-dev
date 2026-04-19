@@ -684,3 +684,331 @@ class TestCommittedTurnParseErrorSurfacing:
         error_text = response["result"]["content"][0]["text"]
         assert "turn committed" in error_text.lower()
         assert "codex.dialogue.read" in error_text
+
+
+class TestDelegateToolRegistration:
+    def test_delegate_start_tool_registered(self) -> None:
+        tool_names = {t["name"] for t in TOOL_DEFINITIONS}
+        assert "codex.delegate.start" in tool_names
+
+    def test_delegate_start_input_schema_requires_repo_root(self) -> None:
+        schema = next(
+            t["inputSchema"] for t in TOOL_DEFINITIONS if t["name"] == "codex.delegate.start"
+        )
+        assert schema["type"] == "object"
+        assert "repo_root" in schema["required"]
+
+
+class FakeDelegationController:
+    def __init__(self) -> None:
+        self.start_calls: list[dict] = []
+
+    def start(self, *, repo_root: Path, base_commit: str | None = None) -> object:
+        from server.models import DelegationJob
+
+        self.start_calls.append(
+            {"repo_root": repo_root, "base_commit": base_commit}
+        )
+        return DelegationJob(
+            job_id="job-x",
+            runtime_id="rt-x",
+            collaboration_id="collab-x",
+            base_commit=base_commit or "head-sha",
+            worktree_path="/tmp/wk",
+            promotion_state="pending",
+            status="queued",
+        )
+
+
+class TestDelegateDispatch:
+    def test_delegate_start_dispatch_returns_job_fields(self) -> None:
+        controller = FakeDelegationController()
+        server = McpServer(
+            control_plane=FakeControlPlane(),
+            dialogue_controller=FakeDialogueController(),
+            delegation_controller=controller,
+        )
+        response = server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "codex.delegate.start",
+                    "arguments": {"repo_root": "/some/repo"},
+                },
+            }
+        )
+        assert "isError" not in response["result"]
+        content = response["result"]["content"][0]["text"]
+        payload = json.loads(content)
+        assert payload["job_id"] == "job-x"
+        assert payload["status"] == "queued"
+        assert controller.start_calls == [
+            {"repo_root": Path("/some/repo"), "base_commit": None}
+        ]
+
+    def test_delegate_start_forwards_optional_base_commit(self) -> None:
+        controller = FakeDelegationController()
+        server = McpServer(
+            control_plane=FakeControlPlane(),
+            dialogue_controller=FakeDialogueController(),
+            delegation_controller=controller,
+        )
+        server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "codex.delegate.start",
+                    "arguments": {
+                        "repo_root": "/some/repo",
+                        "base_commit": "explicit-sha",
+                    },
+                },
+            }
+        )
+        assert controller.start_calls[0]["base_commit"] == "explicit-sha"
+
+    def test_delegate_start_returns_busy_response_payload(self) -> None:
+        from server.models import JobBusyResponse
+
+        class _BusyController:
+            def start(self, *, repo_root: Path, base_commit: str | None = None) -> object:
+                return JobBusyResponse(
+                    busy=True,
+                    active_job_id="job-1",
+                    active_job_status="running",
+                    detail="Active.",
+                )
+
+        server = McpServer(
+            control_plane=FakeControlPlane(),
+            dialogue_controller=FakeDialogueController(),
+            delegation_controller=_BusyController(),
+        )
+        response = server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "codex.delegate.start",
+                    "arguments": {"repo_root": "/some/repo"},
+                },
+            }
+        )
+        assert "isError" not in response["result"]
+        payload = json.loads(response["result"]["content"][0]["text"])
+        assert payload["busy"] is True
+        assert payload["active_job_id"] == "job-1"
+
+
+class _RecordingDelegationController:
+    """Records recover_startup + start invocations for wiring tests."""
+
+    def __init__(self) -> None:
+        self.recover_startup_calls = 0
+        self.start_calls: list[dict] = []
+
+    def recover_startup(self) -> None:
+        self.recover_startup_calls += 1
+
+    def start(self, *, repo_root: Path, base_commit: str | None = None) -> object:
+        from server.models import DelegationJob
+
+        self.start_calls.append({"repo_root": repo_root, "base_commit": base_commit})
+        return DelegationJob(
+            job_id="job-rec",
+            runtime_id="rt-rec",
+            collaboration_id="collab-rec",
+            base_commit=base_commit or "head-sha",
+            worktree_path="/tmp/wk",
+            promotion_state="pending",
+            status="queued",
+        )
+
+
+class _FailOnceDelegationController:
+    """Controller that raises from ``recover_startup`` a configurable number of
+    times before succeeding. Used to prove retry-on-recovery-failure semantics
+    of the lazy factory path: if ``recover_startup`` raises, the controller
+    must NOT be pinned, and the factory must be re-invoked on the next
+    dispatch.
+    """
+
+    def __init__(self, *, recovery_fails_remaining: int = 0) -> None:
+        self._recovery_fails_remaining = recovery_fails_remaining
+        self.recover_startup_calls = 0
+        self.start_calls: list[dict] = []
+
+    def recover_startup(self) -> None:
+        self.recover_startup_calls += 1
+        if self._recovery_fails_remaining > 0:
+            self._recovery_fails_remaining -= 1
+            raise RuntimeError("simulated transient recovery failure")
+
+    def start(self, *, repo_root: Path, base_commit: str | None = None) -> object:
+        from server.models import DelegationJob
+
+        self.start_calls.append({"repo_root": repo_root, "base_commit": base_commit})
+        return DelegationJob(
+            job_id="job-fail-once",
+            runtime_id="rt-fail-once",
+            collaboration_id="collab-fail-once",
+            base_commit=base_commit or "head-sha",
+            worktree_path="/tmp/wk",
+            promotion_state="pending",
+            status="queued",
+        )
+
+
+class TestDelegationRecoveryWiring:
+    """Recovery is wired at TWO call sites — eager (startup) and lazy
+    (_ensure_delegation_controller). Production deploys via factory, so the
+    lazy path is the load-bearing one. Both are tested below."""
+
+    def test_ensure_delegation_controller_runs_recover_startup_on_first_dispatch(self) -> None:
+        """Lazy factory path happy case: ``recover_startup`` runs once on first
+        dispatch; subsequent dispatches reuse the pinned controller without
+        re-running recovery. The pin-only-after-successful-recovery retry
+        ordering invariant is covered separately by
+        ``test_ensure_delegation_controller_does_not_pin_on_recovery_failure``.
+        """
+        controller = _RecordingDelegationController()
+
+        def factory() -> _RecordingDelegationController:
+            return controller
+
+        server = McpServer(
+            control_plane=FakeControlPlane(),
+            dialogue_controller=FakeDialogueController(),
+            delegation_factory=factory,
+        )
+        # First dispatch triggers _ensure_delegation_controller → recover_startup → pin.
+        server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "codex.delegate.start",
+                    "arguments": {"repo_root": "/some/repo"},
+                },
+            }
+        )
+        assert controller.recover_startup_calls == 1
+        # Second dispatch reuses the pinned controller — recover_startup is NOT re-called.
+        server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "codex.delegate.start",
+                    "arguments": {"repo_root": "/some/repo"},
+                },
+            }
+        )
+        assert controller.recover_startup_calls == 1
+        assert len(controller.start_calls) == 2
+
+    def test_ensure_delegation_controller_does_not_pin_on_recovery_failure(self) -> None:
+        """Lazy factory path retry safety: when ``recover_startup`` raises,
+        the controller is NOT pinned, ``start()`` is NOT reached, and a
+        subsequent dispatch retries by invoking the factory a second time
+        rather than reusing a poisoned controller. Protects the ordering
+        invariant named in ``_ensure_delegation_controller``'s docstring:
+        'Pin only after recovery succeeds — transient failures allow retry.'
+
+        Proof shape (3 dispatches):
+          1. First dispatch: recovery raises → error response; factory called
+             once; start() not reached; controller not pinned.
+          2. Second dispatch: factory invoked AGAIN (proves no pin on first
+             call); new controller's recovery succeeds; start() runs.
+          3. Third dispatch: factory NOT re-invoked (proves pin happened
+             after successful recovery on second dispatch); start() runs
+             on the pinned controller.
+        """
+        factory_controllers: list[_FailOnceDelegationController] = []
+
+        def factory() -> _FailOnceDelegationController:
+            # First factory call: recovery fails once. Subsequent calls: no failures.
+            controller = _FailOnceDelegationController(
+                recovery_fails_remaining=1 if not factory_controllers else 0
+            )
+            factory_controllers.append(controller)
+            return controller
+
+        server = McpServer(
+            control_plane=FakeControlPlane(),
+            dialogue_controller=FakeDialogueController(),
+            delegation_factory=factory,
+        )
+
+        # Dispatch 1: recovery raises → error response; start() not reached.
+        response1 = server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "codex.delegate.start",
+                    "arguments": {"repo_root": "/some/repo"},
+                },
+            }
+        )
+        assert response1["result"]["isError"] is True
+        assert len(factory_controllers) == 1
+        assert factory_controllers[0].recover_startup_calls == 1
+        assert factory_controllers[0].start_calls == []  # start not reached on failed recovery
+
+        # Dispatch 2: factory re-invoked (proves no pin on first call);
+        # second controller's recovery succeeds; start() runs.
+        response2 = server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "codex.delegate.start",
+                    "arguments": {"repo_root": "/some/repo"},
+                },
+            }
+        )
+        assert "isError" not in response2["result"]
+        assert len(factory_controllers) == 2  # factory re-invoked — retry, not reuse
+        assert factory_controllers[1].recover_startup_calls == 1
+        assert len(factory_controllers[1].start_calls) == 1
+
+        # Dispatch 3: NOW pinned — factory NOT re-invoked.
+        server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {
+                    "name": "codex.delegate.start",
+                    "arguments": {"repo_root": "/some/repo"},
+                },
+            }
+        )
+        assert len(factory_controllers) == 2  # still 2 — second controller pinned
+        assert len(factory_controllers[1].start_calls) == 2
+
+    def test_startup_runs_delegation_recover_startup_when_controller_provided_directly(
+        self,
+    ) -> None:
+        """Eager session-init path: startup() fires recover_startup once."""
+        controller = _RecordingDelegationController()
+        server = McpServer(
+            control_plane=FakeControlPlane(),
+            dialogue_controller=FakeDialogueController(),
+            delegation_controller=controller,
+        )
+        server.startup()
+        assert controller.recover_startup_calls == 1
+        # Idempotent — second startup call is a no-op.
+        server.startup()
+        assert controller.recover_startup_calls == 1

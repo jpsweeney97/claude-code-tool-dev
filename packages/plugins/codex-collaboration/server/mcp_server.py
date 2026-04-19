@@ -97,6 +97,24 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "required": ["collaboration_id"],
         },
     },
+    {
+        "name": "codex.delegate.start",
+        "description": "Start an isolated execution job. Creates a worktree and bootstraps an ephemeral execution runtime. Does not dispatch the first turn.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repo_root": {
+                    "type": "string",
+                    "description": "Repository root path",
+                },
+                "base_commit": {
+                    "type": "string",
+                    "description": "Optional — the commit SHA to base the worktree on. Defaults to current HEAD of repo_root.",
+                },
+            },
+            "required": ["repo_root"],
+        },
+    },
 ]
 
 
@@ -109,12 +127,14 @@ class McpServer:
         control_plane: Any,
         dialogue_controller: Any | None = None,
         dialogue_factory: Callable[[], Any] | None = None,
+        delegation_controller: Any | None = None,
+        delegation_factory: Callable[[], Any] | None = None,
     ) -> None:
         self._control_plane = control_plane
         self._dialogue_controller = dialogue_controller
         self._dialogue_factory = dialogue_factory
-        self._delegation_controller = None
-        self._delegation_factory = None
+        self._delegation_controller = delegation_controller
+        self._delegation_factory = delegation_factory
         self._initialized = False
         self._recovery_completed = False
 
@@ -154,6 +174,31 @@ class McpServer:
         self._dialogue_controller = controller
         self._dialogue_factory = None
         return self._dialogue_controller
+
+    def _ensure_delegation_controller(self) -> Any:
+        """Return the delegation controller, lazily initializing from factory if needed.
+
+        Mirrors _ensure_dialogue_controller exactly: build from factory, run
+        recovery, then pin. The recover_startup() call BEFORE pinning is
+        load-bearing — production deploys via delegation_factory (Task 9), so
+        without this call the consumer-half of AC 4 would never run on the
+        path that matters. See _ensure_dialogue_controller for the dialogue
+        precedent. Pin only after recovery succeeds — transient failures allow
+        retry.
+        """
+        if self._delegation_controller is not None:
+            return self._delegation_controller
+        if self._delegation_factory is None:
+            raise RuntimeError(
+                "Delegation dispatch failed: no delegation controller available. "
+                "Session identity may not have been published yet."
+            )
+        controller = self._delegation_factory()
+        controller.recover_startup()
+        # Pin only after recovery succeeds — transient failures allow retry
+        self._delegation_controller = controller
+        self._delegation_factory = None
+        return self._delegation_controller
 
     def handle_request(self, request: dict[str, Any]) -> dict[str, Any]:
         """Process a single JSON-RPC 2.0 request and return the response."""
@@ -278,6 +323,13 @@ class McpServer:
         if name == "codex.dialogue.read":
             controller = self._ensure_dialogue_controller()
             result = controller.read(arguments["collaboration_id"])
+            return asdict(result)
+        if name == "codex.delegate.start":
+            controller = self._ensure_delegation_controller()
+            result = controller.start(
+                repo_root=Path(arguments["repo_root"]),
+                base_commit=arguments.get("base_commit"),
+            )
             return asdict(result)
         raise ValueError(f"Unknown tool: {name!r:.100}")
 
