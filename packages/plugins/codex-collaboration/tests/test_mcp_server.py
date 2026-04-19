@@ -691,23 +691,26 @@ class TestDelegateToolRegistration:
         tool_names = {t["name"] for t in TOOL_DEFINITIONS}
         assert "codex.delegate.start" in tool_names
 
-    def test_delegate_start_input_schema_requires_repo_root(self) -> None:
+    def test_delegate_start_input_schema_requires_repo_root_and_objective(self) -> None:
         schema = next(
             t["inputSchema"] for t in TOOL_DEFINITIONS if t["name"] == "codex.delegate.start"
         )
         assert schema["type"] == "object"
         assert "repo_root" in schema["required"]
+        assert "objective" in schema["required"]
 
 
 class FakeDelegationController:
     def __init__(self) -> None:
         self.start_calls: list[dict] = []
 
-    def start(self, *, repo_root: Path, base_commit: str | None = None) -> object:
+    def start(
+        self, *, repo_root: Path, base_commit: str | None = None, objective: str = ""
+    ) -> object:
         from server.models import DelegationJob
 
         self.start_calls.append(
-            {"repo_root": repo_root, "base_commit": base_commit}
+            {"repo_root": repo_root, "base_commit": base_commit, "objective": objective}
         )
         return DelegationJob(
             job_id="job-x",
@@ -735,7 +738,7 @@ class TestDelegateDispatch:
                 "method": "tools/call",
                 "params": {
                     "name": "codex.delegate.start",
-                    "arguments": {"repo_root": "/some/repo"},
+                    "arguments": {"repo_root": "/some/repo", "objective": "Fix bug"},
                 },
             }
         )
@@ -745,7 +748,7 @@ class TestDelegateDispatch:
         assert payload["job_id"] == "job-x"
         assert payload["status"] == "queued"
         assert controller.start_calls == [
-            {"repo_root": Path("/some/repo"), "base_commit": None}
+            {"repo_root": Path("/some/repo"), "base_commit": None, "objective": "Fix bug"}
         ]
 
     def test_delegate_start_forwards_optional_base_commit(self) -> None:
@@ -764,6 +767,7 @@ class TestDelegateDispatch:
                     "name": "codex.delegate.start",
                     "arguments": {
                         "repo_root": "/some/repo",
+                        "objective": "Fix bug",
                         "base_commit": "explicit-sha",
                     },
                 },
@@ -775,7 +779,13 @@ class TestDelegateDispatch:
         from server.models import JobBusyResponse
 
         class _BusyController:
-            def start(self, *, repo_root: Path, base_commit: str | None = None) -> object:
+            def start(
+                self,
+                *,
+                repo_root: Path,
+                base_commit: str | None = None,
+                objective: str = "",
+            ) -> object:
                 return JobBusyResponse(
                     busy=True,
                     active_job_id="job-1",
@@ -795,7 +805,7 @@ class TestDelegateDispatch:
                 "method": "tools/call",
                 "params": {
                     "name": "codex.delegate.start",
-                    "arguments": {"repo_root": "/some/repo"},
+                    "arguments": {"repo_root": "/some/repo", "objective": "Fix bug"},
                 },
             }
         )
@@ -815,10 +825,14 @@ class _RecordingDelegationController:
     def recover_startup(self) -> None:
         self.recover_startup_calls += 1
 
-    def start(self, *, repo_root: Path, base_commit: str | None = None) -> object:
+    def start(
+        self, *, repo_root: Path, base_commit: str | None = None, objective: str = ""
+    ) -> object:
         from server.models import DelegationJob
 
-        self.start_calls.append({"repo_root": repo_root, "base_commit": base_commit})
+        self.start_calls.append(
+            {"repo_root": repo_root, "base_commit": base_commit, "objective": objective}
+        )
         return DelegationJob(
             job_id="job-rec",
             runtime_id="rt-rec",
@@ -849,10 +863,14 @@ class _FailOnceDelegationController:
             self._recovery_fails_remaining -= 1
             raise RuntimeError("simulated transient recovery failure")
 
-    def start(self, *, repo_root: Path, base_commit: str | None = None) -> object:
+    def start(
+        self, *, repo_root: Path, base_commit: str | None = None, objective: str = ""
+    ) -> object:
         from server.models import DelegationJob
 
-        self.start_calls.append({"repo_root": repo_root, "base_commit": base_commit})
+        self.start_calls.append(
+            {"repo_root": repo_root, "base_commit": base_commit, "objective": objective}
+        )
         return DelegationJob(
             job_id="job-fail-once",
             runtime_id="rt-fail-once",
@@ -894,7 +912,7 @@ class TestDelegationRecoveryWiring:
                 "method": "tools/call",
                 "params": {
                     "name": "codex.delegate.start",
-                    "arguments": {"repo_root": "/some/repo"},
+                    "arguments": {"repo_root": "/some/repo", "objective": "Fix bug"},
                 },
             }
         )
@@ -907,7 +925,7 @@ class TestDelegationRecoveryWiring:
                 "method": "tools/call",
                 "params": {
                     "name": "codex.delegate.start",
-                    "arguments": {"repo_root": "/some/repo"},
+                    "arguments": {"repo_root": "/some/repo", "objective": "Fix bug"},
                 },
             }
         )
@@ -955,7 +973,7 @@ class TestDelegationRecoveryWiring:
                 "method": "tools/call",
                 "params": {
                     "name": "codex.delegate.start",
-                    "arguments": {"repo_root": "/some/repo"},
+                    "arguments": {"repo_root": "/some/repo", "objective": "Fix bug"},
                 },
             }
         )
@@ -973,7 +991,7 @@ class TestDelegationRecoveryWiring:
                 "method": "tools/call",
                 "params": {
                     "name": "codex.delegate.start",
-                    "arguments": {"repo_root": "/some/repo"},
+                    "arguments": {"repo_root": "/some/repo", "objective": "Fix bug"},
                 },
             }
         )
@@ -990,7 +1008,7 @@ class TestDelegationRecoveryWiring:
                 "method": "tools/call",
                 "params": {
                     "name": "codex.delegate.start",
-                    "arguments": {"repo_root": "/some/repo"},
+                    "arguments": {"repo_root": "/some/repo", "objective": "Fix bug"},
                 },
             }
         )

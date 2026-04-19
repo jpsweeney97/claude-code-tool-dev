@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from typing import Any, Callable
 
 import pytest
 
@@ -20,17 +21,30 @@ from server.lineage_store import LineageStore
 from server.models import (
     AccountState,
     CollaborationHandle,
+    DelegationEscalation,
     DelegationJob,
     JobBusyResponse,
     OperationJournalEntry,
     RuntimeHandshake,
+    TurnExecutionResult,
 )
+from server.pending_request_store import PendingRequestStore
 
 
 class _FakeSession:
     def __init__(self, thread_id: str = "thr-1") -> None:
         self._thread_id = thread_id
         self.closed = False
+        self._interrupted = False
+        self._raise_on_turn: Exception | None = None
+        # Configurable server requests and turn result for capture loop tests.
+        self._server_requests: list[dict[str, Any]] = []
+        self._turn_result: TurnExecutionResult = TurnExecutionResult(
+            turn_id="turn-1",
+            status="completed",
+            agent_message="Done.",
+            notifications=(),
+        )
 
     def initialize(self) -> RuntimeHandshake:
         return RuntimeHandshake(
@@ -50,6 +64,36 @@ class _FakeSession:
     def start_thread(self) -> str:
         return self._thread_id
 
+    def run_execution_turn(
+        self,
+        *,
+        thread_id: str,
+        prompt_text: str,
+        sandbox_policy: dict[str, Any],
+        approval_policy: str = "on-request",
+        output_schema: dict[str, Any] | None = None,
+        effort: str | None = None,
+        server_request_handler: Callable[[dict[str, Any]], dict[str, Any] | None]
+        | None = None,
+    ) -> TurnExecutionResult:
+        """Simulate run_execution_turn by dispatching fake server requests."""
+        if self._raise_on_turn is not None:
+            raise self._raise_on_turn
+        for req in self._server_requests:
+            if server_request_handler is not None:
+                server_request_handler(req)
+        if self._interrupted:
+            return TurnExecutionResult(
+                turn_id=self._turn_result.turn_id,
+                status="interrupted",
+                agent_message=self._turn_result.agent_message,
+                notifications=self._turn_result.notifications,
+            )
+        return self._turn_result
+
+    def interrupt_turn(self, *, thread_id: str, turn_id: str | None) -> None:
+        self._interrupted = True
+
     def close(self) -> None:
         self.closed = True
 
@@ -59,6 +103,10 @@ class _FakeControlPlane:
         self.calls: list[Path] = []
         self._next_runtime_id = 0
         self._sessions: list[_FakeSession] = []
+        # Pre-configure server requests and turn result for the next session.
+        self._next_session_requests: list[dict[str, Any]] = []
+        self._next_turn_result: TurnExecutionResult | None = None
+        self._next_raise_on_turn: Exception | None = None
 
     def start_execution_runtime(
         self, worktree_path: Path
@@ -66,6 +114,10 @@ class _FakeControlPlane:
         self.calls.append(worktree_path)
         self._next_runtime_id += 1
         session = _FakeSession(thread_id=f"thr-{self._next_runtime_id}")
+        session._server_requests = list(self._next_session_requests)
+        if self._next_turn_result is not None:
+            session._turn_result = self._next_turn_result
+        session._raise_on_turn = self._next_raise_on_turn
         self._sessions.append(session)
         return f"rt-{self._next_runtime_id}", session, session._thread_id
 
@@ -106,17 +158,30 @@ def _build_controller(
     LineageStore,
     OperationJournal,
     ExecutionRuntimeRegistry,
+    PendingRequestStore,
 ]:
     plugin_data = tmp_path / "data"
     plugin_data.mkdir(parents=True, exist_ok=True)
     job_store = DelegationJobStore(plugin_data, session_id)
     lineage_store = LineageStore(plugin_data, session_id)
     journal = OperationJournal(plugin_data)
+    pending_request_store = PendingRequestStore(plugin_data, session_id)
     control_plane = _FakeControlPlane()
     worktree_manager = _FakeWorktreeManager()
     registry = ExecutionRuntimeRegistry()
+    # Enough IDs for: job, collab, delegate_start audit event,
+    # escalation audit event (or second job/collab/evt set).
     uuid_counter = iter(
-        ["job-1", "collab-1", "evt-1", "job-2", "collab-2", "evt-2"]
+        [
+            "job-1",
+            "collab-1",
+            "evt-1",
+            "esc-evt-1",
+            "job-2",
+            "collab-2",
+            "evt-2",
+            "esc-evt-2",
+        ]
     )
     controller = DelegationController(
         control_plane=control_plane,
@@ -127,6 +192,7 @@ def _build_controller(
         journal=journal,
         session_id=session_id,
         plugin_data_path=plugin_data,
+        pending_request_store=pending_request_store,
         head_commit_resolver=lambda repo_root: head_sha,
         uuid_factory=lambda: next(uuid_counter),
     )
@@ -138,6 +204,7 @@ def _build_controller(
         lineage_store,
         journal,
         registry,
+        pending_request_store,
     )
 
 
@@ -153,6 +220,7 @@ def test_start_creates_worktree_runtime_and_persists_job(tmp_path: Path) -> None
         _lineage,
         _journal,
         _registry,
+        _prs,
     ) = _build_controller(tmp_path)
 
     result = controller.start(repo_root=repo_root)
@@ -160,7 +228,8 @@ def test_start_creates_worktree_runtime_and_persists_job(tmp_path: Path) -> None
     assert isinstance(result, DelegationJob)
     assert result.job_id == "job-1"
     assert result.base_commit == "head-abc"
-    assert result.status == "queued"
+    # After the turn dispatch (no server requests), status is "completed".
+    assert result.status == "completed"
     assert result.promotion_state == "pending"
     # Worktree was created under the plugin data dir at the job's path.
     assert len(worktree_manager.calls) == 1
@@ -181,7 +250,7 @@ def test_start_persists_execution_collaboration_handle(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, _cp, _wm, _js, lineage, _j, _r = _build_controller(tmp_path)
+    controller, _cp, _wm, _js, lineage, _j, _r, _prs = _build_controller(tmp_path)
 
     controller.start(repo_root=repo_root)
 
@@ -198,13 +267,13 @@ def test_start_writes_three_phase_journal_records(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, _cp, _wm, _js, _ls, journal, _r = _build_controller(tmp_path)
+    controller, _cp, _wm, _js, _ls, journal, _r, _prs = _build_controller(tmp_path)
 
     controller.start(repo_root=repo_root)
 
     # Idempotency key is claude_session_id + delegation_request_hash.
     request_hash = hashlib.sha256(
-        f"{repo_root.resolve()}:head-abc".encode("utf-8")
+        f"{repo_root.resolve()}:head-abc:".encode("utf-8")
     ).hexdigest()
     key = f"sess-1:{request_hash}"
 
@@ -224,6 +293,11 @@ def test_start_writes_three_phase_journal_records(tmp_path: Path) -> None:
 
 
 def test_start_registers_runtime_ownership(tmp_path: Path) -> None:
+    """After clean completion (no server requests), the runtime was registered
+    during the committed-start phase and then released+closed during terminal
+    cleanup. Verify the session IS closed and the registry IS empty.
+    For needs_escalation scenarios, see test_start_with_command_approval_returns_escalation.
+    """
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
@@ -235,23 +309,21 @@ def test_start_registers_runtime_ownership(tmp_path: Path) -> None:
         _ls,
         _j,
         registry,
+        _prs,
     ) = _build_controller(tmp_path)
 
     controller.start(repo_root=repo_root)
 
-    entry = registry.lookup("rt-1")
-    assert entry is not None
-    assert entry.job_id == "job-1"
-    assert entry.thread_id == "thr-1"
-    # The registered session is the SAME object the control plane returned.
-    assert entry.session is control_plane._sessions[0]
+    # After clean completion, the runtime was released and session closed.
+    assert registry.lookup("rt-1") is None
+    assert control_plane._sessions[0].closed
 
 
 def test_start_emits_delegate_start_audit_event(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, _cp, _wm, _js, _ls, journal, _r = _build_controller(tmp_path)
+    controller, _cp, _wm, _js, _ls, journal, _r, _prs = _build_controller(tmp_path)
 
     controller.start(repo_root=repo_root)
 
@@ -276,7 +348,9 @@ def test_start_uses_caller_provided_base_commit(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, _cp, worktree_manager, _js, _ls, _j, _r = _build_controller(tmp_path)
+    controller, _cp, worktree_manager, _js, _ls, _j, _r, _prs = _build_controller(
+        tmp_path
+    )
 
     controller.start(repo_root=repo_root, base_commit="explicit-sha")
 
@@ -284,23 +358,40 @@ def test_start_uses_caller_provided_base_commit(tmp_path: Path) -> None:
 
 
 def test_start_returns_busy_response_when_active_job_exists(tmp_path: Path) -> None:
+    """Second start() is rejected when the first produced a needs_escalation job."""
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, _cp, _wm, _js, _ls, _j, _r = _build_controller(tmp_path)
+    controller, control_plane, _wm, _js, _ls, _j, _r, _prs = _build_controller(tmp_path)
+
+    # Configure the first start to hit a command_approval server request,
+    # which produces needs_escalation (an active status).
+    control_plane._next_session_requests = [
+        {
+            "id": 42,
+            "method": "item/commandExecution/requestApproval",
+            "params": {
+                "itemId": "item-1",
+                "threadId": "thr-1",
+                "turnId": "turn-1",
+                "command": "rm -rf /",
+            },
+        }
+    ]
 
     first = controller.start(repo_root=repo_root)
-    assert isinstance(first, DelegationJob)
+    assert isinstance(first, DelegationEscalation)
+    assert first.job.status == "needs_escalation"
 
     second = controller.start(repo_root=repo_root)
     assert isinstance(second, JobBusyResponse)
     assert second.busy is True
     assert second.active_job_id == "job-1"
-    assert second.active_job_status == "queued"
+    assert second.active_job_status == "needs_escalation"
     # The rejected second call must NOT have triggered side effects.
     # Worktree and runtime counts stay at 1 (from the first, successful call).
     assert len(_wm.calls) == 1
-    assert len(_cp.calls) == 1
+    assert len(control_plane.calls) == 1
 
 
 def test_start_does_not_persist_durable_state_on_bootstrap_failure(
@@ -328,6 +419,7 @@ def test_start_does_not_persist_durable_state_on_bootstrap_failure(
         def start_execution_runtime(self, worktree_path: Path) -> tuple:
             raise RuntimeError("Execution runtime bootstrap failed: test forced")
 
+    pending_request_store = PendingRequestStore(plugin_data, "sess-1")
     uuid_counter = iter(["job-1", "collab-1", "evt-1"])
     controller = DelegationController(
         control_plane=_FailingControlPlane(),  # type: ignore[arg-type]
@@ -338,6 +430,7 @@ def test_start_does_not_persist_durable_state_on_bootstrap_failure(
         journal=journal,
         session_id="sess-1",
         plugin_data_path=plugin_data,
+        pending_request_store=pending_request_store,
         head_commit_resolver=lambda _: "head-abc",
         uuid_factory=lambda: next(uuid_counter),
     )
@@ -398,7 +491,7 @@ def test_start_raises_committed_start_finalization_error_on_lineage_failure(
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, _cp, _wm, job_store, lineage_store, journal, registry = (
+    controller, _cp, _wm, job_store, lineage_store, journal, registry, _prs = (
         _build_controller(tmp_path)
     )
 
@@ -411,7 +504,7 @@ def test_start_raises_committed_start_finalization_error_on_lineage_failure(
         controller.start(repo_root=repo_root)
 
     request_hash = hashlib.sha256(
-        f"{repo_root.resolve()}:head-abc".encode("utf-8")
+        f"{repo_root.resolve()}:head-abc:".encode("utf-8")
     ).hexdigest()
     _assert_dispatched_but_not_completed(journal, "sess-1", request_hash)
     # Registry HAS the entry — register goes FIRST in the try block, before
@@ -433,7 +526,7 @@ def test_start_raises_committed_start_finalization_error_on_job_store_failure(
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, _cp, _wm, job_store, lineage_store, journal, registry = (
+    controller, _cp, _wm, job_store, lineage_store, journal, registry, _prs = (
         _build_controller(tmp_path)
     )
 
@@ -446,7 +539,7 @@ def test_start_raises_committed_start_finalization_error_on_job_store_failure(
         controller.start(repo_root=repo_root)
 
     request_hash = hashlib.sha256(
-        f"{repo_root.resolve()}:head-abc".encode("utf-8")
+        f"{repo_root.resolve()}:head-abc:".encode("utf-8")
     ).hexdigest()
     _assert_dispatched_but_not_completed(journal, "sess-1", request_hash)
     # Registry HAS the entry — register goes FIRST in the try block.
@@ -469,7 +562,7 @@ def test_start_raises_committed_start_finalization_error_on_journal_completed_fa
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, _cp, _wm, job_store, lineage_store, journal, registry = (
+    controller, _cp, _wm, job_store, lineage_store, journal, registry, _prs = (
         _build_controller(tmp_path)
     )
 
@@ -491,7 +584,7 @@ def test_start_raises_committed_start_finalization_error_on_journal_completed_fa
     assert calls == ["intent", "dispatched", "completed"]
     # No completed in the file either — the selective_boom ensured it.
     request_hash = hashlib.sha256(
-        f"{repo_root.resolve()}:head-abc".encode("utf-8")
+        f"{repo_root.resolve()}:head-abc:".encode("utf-8")
     ).hexdigest()
     _assert_dispatched_but_not_completed(journal, "sess-1", request_hash)
     # Both handle and job were written before the failure — both must be unknown.
@@ -518,7 +611,7 @@ def test_start_raises_committed_start_finalization_error_on_audit_failure(
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, _cp, _wm, job_store, lineage_store, journal, registry = (
+    controller, _cp, _wm, job_store, lineage_store, journal, registry, _prs = (
         _build_controller(tmp_path)
     )
 
@@ -531,7 +624,7 @@ def test_start_raises_committed_start_finalization_error_on_audit_failure(
         controller.start(repo_root=repo_root)
 
     request_hash = hashlib.sha256(
-        f"{repo_root.resolve()}:head-abc".encode("utf-8")
+        f"{repo_root.resolve()}:head-abc:".encode("utf-8")
     ).hexdigest()
     _assert_dispatched_but_not_completed(journal, "sess-1", request_hash)
     # Handle, job, and registry entry were all created before the audit failure.
@@ -565,7 +658,7 @@ def test_start_raises_committed_start_finalization_error_on_register_failure(
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, _cp, _wm, job_store, lineage_store, journal, registry = (
+    controller, _cp, _wm, job_store, lineage_store, journal, registry, _prs = (
         _build_controller(tmp_path)
     )
 
@@ -578,7 +671,7 @@ def test_start_raises_committed_start_finalization_error_on_register_failure(
         controller.start(repo_root=repo_root)
 
     request_hash = hashlib.sha256(
-        f"{repo_root.resolve()}:head-abc".encode("utf-8")
+        f"{repo_root.resolve()}:head-abc:".encode("utf-8")
     ).hexdigest()
     _assert_dispatched_but_not_completed(journal, "sess-1", request_hash)
     # Register itself failed — no entry, and downstream writes never started.
@@ -608,7 +701,7 @@ def test_start_returns_busy_when_registry_has_entry_but_job_store_empty(
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, _cp, _wm, _job_store, _lineage_store, _journal, registry = (
+    controller, _cp, _wm, _job_store, _lineage_store, _journal, registry, _prs = (
         _build_controller(tmp_path)
     )
 
@@ -645,7 +738,7 @@ def test_start_returns_busy_when_unresolved_journal_entry_present(
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, _cp, _wm, _job_store, _lineage_store, journal, _registry = (
+    controller, _cp, _wm, _job_store, _lineage_store, journal, _registry, _prs = (
         _build_controller(tmp_path)
     )
 
@@ -761,7 +854,7 @@ def _write_unresolved_dispatched(
 
 def test_recover_startup_noop_on_fresh_session(tmp_path: Path) -> None:
     """No unresolved entries → no durable changes, no journal writes."""
-    controller, _cp, _wm, _js, _ls, journal, _r = _build_controller(tmp_path)
+    controller, _cp, _wm, _js, _ls, journal, _r, _prs = _build_controller(tmp_path)
 
     before = journal.list_unresolved(session_id="sess-1")
     assert before == []
@@ -777,8 +870,8 @@ def test_recover_startup_closes_intent_only_as_noop(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, _cp, _wm, job_store, lineage_store, journal, _r = _build_controller(
-        tmp_path
+    controller, _cp, _wm, job_store, lineage_store, journal, _r, _prs = (
+        _build_controller(tmp_path)
     )
 
     _write_unresolved_intent(
@@ -803,13 +896,15 @@ def test_recover_startup_closes_intent_only_as_noop(tmp_path: Path) -> None:
     assert job_store.get("job-1") is None
 
 
-def test_recover_startup_marks_dispatched_handle_and_job_unknown(tmp_path: Path) -> None:
+def test_recover_startup_marks_dispatched_handle_and_job_unknown(
+    tmp_path: Path,
+) -> None:
     """intent + dispatched with persisted handle + job → mark both unknown, close journal."""
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, _cp, _wm, job_store, lineage_store, journal, _r = _build_controller(
-        tmp_path
+    controller, _cp, _wm, job_store, lineage_store, journal, _r, _prs = (
+        _build_controller(tmp_path)
     )
 
     # Seed: intent + dispatched journal + persisted active handle + persisted queued job.
@@ -858,13 +953,15 @@ def test_recover_startup_marks_dispatched_handle_and_job_unknown(tmp_path: Path)
     assert journal.list_unresolved(session_id="sess-1") == []
 
 
-def test_recover_startup_closes_dispatched_without_persisted_state(tmp_path: Path) -> None:
+def test_recover_startup_closes_dispatched_without_persisted_state(
+    tmp_path: Path,
+) -> None:
     """intent + dispatched but no handle/job persisted → write completed, no mark needed."""
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, _cp, _wm, job_store, lineage_store, journal, _r = _build_controller(
-        tmp_path
+    controller, _cp, _wm, job_store, lineage_store, journal, _r, _prs = (
+        _build_controller(tmp_path)
     )
 
     _write_unresolved_dispatched(
@@ -900,8 +997,8 @@ def test_recover_startup_does_not_downgrade_handle_already_unknown(
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, _cp, _wm, job_store, lineage_store, journal, _r = _build_controller(
-        tmp_path
+    controller, _cp, _wm, job_store, lineage_store, journal, _r, _prs = (
+        _build_controller(tmp_path)
     )
 
     _write_unresolved_dispatched(
@@ -940,12 +1037,67 @@ def test_recover_startup_does_not_downgrade_handle_already_unknown(
     assert journal.list_unresolved(session_id="sess-1") == []
 
 
+def test_start_accepts_objective_parameter(tmp_path: Path) -> None:
+    """start() accepts an objective parameter without error."""
+    controller, _, _, _, _, _, _, _ = _build_controller(tmp_path)
+    result = controller.start(
+        repo_root=tmp_path / "repo",
+        objective="Fix the login bug",
+    )
+    assert not isinstance(result, JobBusyResponse)
+
+
+def test_delegation_request_hash_includes_objective(tmp_path: Path) -> None:
+    """Objective is a component of the idempotency hash."""
+    from server.delegation_controller import _delegation_request_hash
+
+    repo_root = (tmp_path / "repo").resolve()
+    hash_a = _delegation_request_hash(repo_root, "head-abc", "Fix bug A")
+    hash_b = _delegation_request_hash(repo_root, "head-abc", "Fix bug B")
+    hash_no_obj = _delegation_request_hash(repo_root, "head-abc", "")
+    assert hash_a != hash_b, "Different objectives must produce different hashes"
+    assert hash_a != hash_no_obj, "Objective vs no-objective must differ"
+
+
+def test_recover_startup_marks_orphaned_running_jobs_unknown(
+    tmp_path: Path,
+) -> None:
+    """After a cold restart, running jobs with no live runtime are marked unknown.
+
+    Simulates the crash-during-turn window: job is created and set to "running"
+    by start(), then the process crashes before post-turn terminal writes. On
+    restart, recover_startup() marks the orphaned running job as "unknown".
+    """
+    _, _, _, job_store, _, _, _, _ = _build_controller(tmp_path)
+
+    # Directly create a job in the store to simulate a crash mid-turn.
+    job_store.create(
+        DelegationJob(
+            job_id="job-orphan",
+            runtime_id="rt-orphan",
+            collaboration_id="collab-orphan",
+            base_commit="head-abc",
+            worktree_path="/tmp/wk",
+            promotion_state="pending",
+            status="running",
+        )
+    )
+
+    # Cold restart: fresh controller (fresh registry, no live runtimes)
+    controller2, _, _, _, _, _, _, _ = _build_controller(tmp_path, session_id="sess-1")
+    controller2.recover_startup()
+
+    recovered = job_store.get("job-orphan")
+    assert recovered is not None
+    assert recovered.status == "unknown"
+
+
 def test_recover_startup_idempotent_second_call_is_noop(tmp_path: Path) -> None:
     """Second recover_startup after the first has reconciled finds nothing to do."""
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, _cp, _wm, _js, _ls, journal, _r = _build_controller(tmp_path)
+    controller, _cp, _wm, _js, _ls, journal, _r, _prs = _build_controller(tmp_path)
 
     _write_unresolved_intent(
         journal,
@@ -962,3 +1114,387 @@ def test_recover_startup_idempotent_second_call_is_noop(tmp_path: Path) -> None:
     # Second call should be a clean no-op.
     controller.recover_startup()
     assert journal.list_unresolved(session_id="sess-1") == []
+
+
+# -----------------------------------------------------------------------------
+# Capture loop tests — turn dispatch + three-strategy handler + job transitions.
+# -----------------------------------------------------------------------------
+
+
+def _command_approval_request(
+    *,
+    request_id: int | str = 42,
+    item_id: str = "item-1",
+    thread_id: str = "thr-1",
+    turn_id: str = "turn-1",
+) -> dict[str, Any]:
+    """Build a fake command_approval server request message."""
+    return {
+        "id": request_id,
+        "method": "item/commandExecution/requestApproval",
+        "params": {
+            "itemId": item_id,
+            "threadId": thread_id,
+            "turnId": turn_id,
+            "command": "rm -rf /",
+        },
+    }
+
+
+def _request_user_input_request(
+    *,
+    request_id: int | str = 55,
+    item_id: str = "item-u",
+    thread_id: str = "thr-1",
+    turn_id: str = "turn-1",
+) -> dict[str, Any]:
+    """Build a fake request_user_input server request."""
+    return {
+        "id": request_id,
+        "method": "item/tool/requestUserInput",
+        "params": {
+            "itemId": item_id,
+            "threadId": thread_id,
+            "turnId": turn_id,
+            "questions": [],
+        },
+    }
+
+
+def _permissions_request(
+    *,
+    request_id: int | str = 99,
+    item_id: str = "item-p",
+    thread_id: str = "thr-1",
+    turn_id: str = "turn-1",
+) -> dict[str, Any]:
+    """Build a fake unknown-kind server request (permissions)."""
+    return {
+        "id": request_id,
+        "method": "item/permissions/requestApproval",
+        "params": {
+            "itemId": item_id,
+            "threadId": thread_id,
+            "turnId": turn_id,
+            "scope": "network",
+        },
+    }
+
+
+def test_start_with_command_approval_returns_escalation(tmp_path: Path) -> None:
+    """command_approval → cancel response → DelegationEscalation with needs_escalation."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, job_store, _ls, journal, registry, prs = (
+        _build_controller(tmp_path)
+    )
+
+    control_plane._next_session_requests = [_command_approval_request()]
+
+    result = controller.start(repo_root=repo_root, objective="Fix the bug")
+
+    assert isinstance(result, DelegationEscalation)
+    assert result.job.status == "needs_escalation"
+    assert result.pending_request.kind == "command_approval"
+    assert result.pending_request.request_id == "42"
+    assert result.agent_context is not None
+
+    # Pending request was persisted and resolved (D4).
+    stored = prs.get("42")
+    assert stored is not None
+    assert stored.status == "resolved"
+
+    # Escalation audit event emitted.
+    events_path = journal.plugin_data_path / "audit" / "events.jsonl"
+    lines = [
+        json.loads(line)
+        for line in events_path.read_text().splitlines()
+        if line.strip()
+    ]
+    escalation_events = [e for e in lines if e.get("action") == "escalate"]
+    assert len(escalation_events) == 1
+    assert escalation_events[0]["request_id"] == "42"
+
+    # Runtime kept live for needs_escalation — NOT released, NOT closed.
+    assert registry.lookup("rt-1") is not None
+    assert not control_plane._sessions[0].closed
+
+
+def test_start_with_unknown_request_interrupts_and_escalates(tmp_path: Path) -> None:
+    """Unknown kind (e.g., permissions) → interrupt → needs_escalation."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, job_store, _ls, _j, registry, prs = (
+        _build_controller(tmp_path)
+    )
+
+    control_plane._next_session_requests = [_permissions_request()]
+
+    result = controller.start(repo_root=repo_root, objective="Deploy")
+
+    assert isinstance(result, DelegationEscalation)
+    assert result.job.status == "needs_escalation"
+    assert result.pending_request.kind == "unknown"
+    assert result.pending_request.request_id == "99"
+
+    # Pending request persisted and resolved (D4 — parse succeeded, kind unknown).
+    stored = prs.get("99")
+    assert stored is not None
+    assert stored.status == "resolved"
+
+    # Runtime kept live.
+    assert registry.lookup("rt-1") is not None
+
+
+def test_start_with_two_requests_responds_to_both(tmp_path: Path) -> None:
+    """Second request gets a response but is NOT separately persisted."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, _j, _r, prs = _build_controller(tmp_path)
+
+    control_plane._next_session_requests = [
+        _command_approval_request(request_id=1, item_id="item-a"),
+        _command_approval_request(request_id=2, item_id="item-b"),
+    ]
+
+    result = controller.start(repo_root=repo_root, objective="Fix")
+
+    assert isinstance(result, DelegationEscalation)
+    # Only the FIRST request is persisted.
+    assert prs.get("1") is not None
+    assert prs.get("2") is None
+    # The escalation refers to the first request.
+    assert result.pending_request.request_id == "1"
+
+
+def test_start_with_unparseable_request_creates_minimal_causal_record(
+    tmp_path: Path,
+) -> None:
+    """Parse failure → minimal record with status="pending" (D4 carve-out)."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, _j, _r, prs = _build_controller(tmp_path)
+
+    # A message with no params dict at all will fail parse.
+    control_plane._next_session_requests = [
+        {"id": 77, "method": "item/unknown/broken", "params": "not-a-dict"}
+    ]
+
+    result = controller.start(repo_root=repo_root, objective="Build")
+
+    assert isinstance(result, DelegationEscalation)
+    assert result.job.status == "needs_escalation"
+    assert result.pending_request.kind == "unknown"
+    assert result.pending_request.request_id == "77"
+    assert result.pending_request.requested_scope == {
+        "raw_method": "item/unknown/broken"
+    }
+
+    # D4 carve-out: parse failures stay "pending" — NOT updated to "resolved".
+    stored = prs.get("77")
+    assert stored is not None
+    assert stored.status == "pending"
+
+
+def test_start_with_no_server_requests_returns_delegation_job(tmp_path: Path) -> None:
+    """Clean completion (no server requests) → DelegationJob, runtime released and closed."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, job_store, _ls, _j, registry, _prs = (
+        _build_controller(tmp_path)
+    )
+
+    # No server requests configured — clean turn completion.
+    result = controller.start(repo_root=repo_root, objective="Refactor")
+
+    assert isinstance(result, DelegationJob)
+    assert result.status == "completed"
+    assert result.job_id == "job-1"
+
+    # Runtime released and session closed.
+    assert registry.lookup("rt-1") is None
+    assert control_plane._sessions[0].closed
+
+
+def test_start_turn_dispatch_failure_marks_job_unknown_and_cleans_up(
+    tmp_path: Path,
+) -> None:
+    """If run_execution_turn() raises, the job is marked unknown, the runtime
+    is released, and the session is closed — not left stuck running."""
+    controller, control_plane, _, job_store, _, _, registry, _ = _build_controller(
+        tmp_path
+    )
+    control_plane._next_raise_on_turn = RuntimeError("transport died")
+
+    with pytest.raises(RuntimeError, match="transport died"):
+        controller.start(
+            repo_root=tmp_path / "repo",
+            objective="Should fail",
+        )
+
+    # Job should be "unknown", not stuck "running".
+    jobs = job_store.list_active()
+    assert len(jobs) == 0, f"Expected no active jobs, got: {[j.status for j in jobs]}"
+
+    # Runtime released and session closed.
+    assert registry.lookup("rt-1") is None
+    assert control_plane._sessions[0].closed
+
+
+def test_start_post_turn_finalization_failure_marks_job_unknown_and_cleans_up(
+    tmp_path: Path,
+) -> None:
+    """If a post-turn local write (e.g. audit emit) raises after
+    run_execution_turn() succeeds, the job is still marked unknown and
+    the runtime is released."""
+    controller, control_plane, _, job_store, _, journal, registry, _ = (
+        _build_controller(tmp_path)
+    )
+
+    # Configure a command-approval request so the capture path fires.
+    control_plane._next_session_requests = [
+        {
+            "id": "req-1",
+            "method": "item/commandExecution/requestApproval",
+            "params": {
+                "itemId": "item-1",
+                "threadId": "thr-1",
+                "turnId": "turn-1",
+                "command": "make build",
+                "cwd": "/repo",
+            },
+        },
+    ]
+    control_plane._next_turn_result = TurnExecutionResult(
+        turn_id="turn-1",
+        status="interrupted",
+        agent_message="was building",
+    )
+
+    # Sabotage the audit emit so _finalize_turn raises after the turn
+    # has already completed successfully. The first call (delegate_start
+    # audit in committed-start phase) must succeed; only the second call
+    # (escalation audit in _finalize_turn) should fail.
+    original_append = journal.append_audit_event
+    call_count = 0
+
+    def _exploding_audit_on_second(event: Any) -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count >= 2:
+            raise OSError("disk full")
+        original_append(event)
+
+    journal.append_audit_event = _exploding_audit_on_second  # type: ignore[assignment]
+
+    with pytest.raises(OSError, match="disk full"):
+        controller.start(
+            repo_root=tmp_path / "repo",
+            objective="Audit failure test",
+        )
+
+    # Job should be "unknown", not stuck "running" or "needs_escalation".
+    jobs = job_store.list_active()
+    assert len(jobs) == 0, f"Expected no active jobs, got: {[j.status for j in jobs]}"
+
+    # Runtime released and session closed despite the failure.
+    assert registry.lookup("rt-1") is None
+    assert control_plane._sessions[0].closed
+
+
+def test_start_with_request_user_input_completed_returns_delegation_job(
+    tmp_path: Path,
+) -> None:
+    """request_user_input + completed turn → DelegationJob, not DelegationEscalation.
+
+    When a no-cancel known kind (request_user_input) is captured but the turn
+    completes normally, the job is completed — not escalated. The runtime is
+    released, the session is closed, the pending request is resolved, and no
+    escalation audit event is emitted.
+    """
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, job_store, _ls, journal, registry, prs = (
+        _build_controller(tmp_path)
+    )
+
+    control_plane._next_session_requests = [_request_user_input_request()]
+
+    result = controller.start(repo_root=repo_root, objective="Summarize")
+
+    # Returns a plain DelegationJob, not a DelegationEscalation.
+    assert isinstance(result, DelegationJob)
+    assert result.status == "completed"
+
+    # Pending request was persisted and resolved (D4).
+    stored = prs.get("55")
+    assert stored is not None
+    assert stored.status == "resolved"
+
+    # Runtime released and session closed — not kept live.
+    assert registry.lookup("rt-1") is None
+    assert control_plane._sessions[0].closed
+
+    # No escalation audit event emitted.
+    events_path = journal.plugin_data_path / "audit" / "events.jsonl"
+    lines = [
+        json.loads(line)
+        for line in events_path.read_text().splitlines()
+        if line.strip()
+    ]
+    escalation_events = [e for e in lines if e.get("action") == "escalate"]
+    assert len(escalation_events) == 0
+
+
+def test_later_parse_failure_does_not_prevent_captured_request_resolution(
+    tmp_path: Path,
+) -> None:
+    """First request parses fine, second message fails parse → first resolved.
+
+    The captured_request_parse_failed flag should only apply to the captured
+    (first) request. A later malformed message should still trigger
+    interrupted_by_unknown (escalation), but the successfully-parsed first
+    request must still be marked resolved.
+    """
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, _j, registry, prs = (
+        _build_controller(tmp_path)
+    )
+
+    # First message: parseable command_approval. Second: unparseable.
+    control_plane._next_session_requests = [
+        _command_approval_request(request_id=10, item_id="item-ok"),
+        {"id": 11, "method": "broken/method", "params": "not-a-dict"},
+    ]
+    # The second message triggers interrupt, so the turn ends interrupted.
+    control_plane._next_turn_result = TurnExecutionResult(
+        turn_id="turn-1",
+        status="interrupted",
+        agent_message="interrupted by unknown",
+    )
+
+    result = controller.start(repo_root=repo_root, objective="Mixed")
+
+    # Should escalate (interrupted_by_unknown from the second message).
+    assert isinstance(result, DelegationEscalation)
+    assert result.job.status == "needs_escalation"
+
+    # The FIRST request (successfully parsed) must be resolved — not left
+    # pending due to a later message's parse failure.
+    stored = prs.get("10")
+    assert stored is not None
+    assert stored.status == "resolved"
+
+    # Only the first request was persisted (first-capture semantics).
+    assert prs.get("11") is None
+
+    # Runtime kept live for escalation.
+    assert registry.lookup("rt-1") is not None

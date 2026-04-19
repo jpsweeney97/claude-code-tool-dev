@@ -2,6 +2,7 @@
 
 Mirrors dialogue.py::DialogueController.start three-phase discipline. Flow:
 
+    --- Committed-start phase ---
     busy check (job_store.list_active + registry.active_runtime_ids
         + unresolved job_creation journal entries)
     resolve base commit
@@ -18,49 +19,81 @@ Mirrors dialogue.py::DialogueController.start three-phase discipline. Flow:
         dispatched" is the universal terminal state for committed-start failures)
     journal Phase 3: completed (terminal write)
 
-This slice does NOT dispatch execution turns. The controller stops at
-journal.write_phase(completed). Callers receive a queued job record with
-a live runtime whose session is retained by the registry so follow-up
-turn dispatch can find it via ExecutionRuntimeRegistry.lookup(runtime_id).
+    --- First-turn dispatch + capture ---
+    update job status to "running"
+    dispatch first execution turn with three-strategy server request handler
+    post-turn status derivation (completed / needs_escalation / failed / unknown)
+    if needs_escalation: emit escalation audit, return DelegationEscalation
+        (runtime kept live for decide)
+    if terminal: release runtime, close session, return DelegationJob
 """
+
+# Execution-turn journaling deferral (T-05 pending-request capture slice):
+#
+# The first execution turn dispatched inside start() is intentionally
+# unjournaled. job_creation.completed means "all durable start writes
+# landed," not "turn finished." Turn dispatch happens AFTER the journal
+# is terminal.
+#
+# Crash recovery for the first-turn window:
+#
+# After job_creation.completed, the journal entry IS resolved —
+# list_unresolved() will NOT return it. If the process crashes after
+# update_status(job_id, "running") but before post-turn terminal writes,
+# the job is persisted as "running" with no live runtime and no journal
+# replay anchor. recover_startup() handles this via orphaned-running-job
+# detection (see Step 6.2): any job persisted as "running" after a cold
+# restart has no live runtime (the registry is fresh) and is marked
+# "unknown".
+#
+# Turn-dispatch journaling (with its own ``turn_dispatch`` operation and
+# idempotency key per recovery-and-journal.md:49) lands with T-06
+# (codex.delegate.poll), where multi-turn dispatch and replay become
+# real requirements.
 
 from __future__ import annotations
 
 import hashlib
+import logging
 import subprocess
 import uuid
 from pathlib import Path
-from typing import Callable, Protocol
+from typing import Any, Callable, Protocol
 
+from .approval_router import parse_pending_server_request
 from .delegation_job_store import DelegationJobStore
-from .execution_runtime_registry import ExecutionRuntimeRegistry
+from .execution_prompt_builder import build_execution_turn_text
+from .execution_runtime_registry import ExecutionRuntimeEntry, ExecutionRuntimeRegistry
 from .journal import OperationJournal
 from .lineage_store import LineageStore
 from .models import (
     AuditEvent,
     CollaborationHandle,
+    DelegationEscalation,
     DelegationJob,
     JobBusyResponse,
     OperationJournalEntry,
+    PendingServerRequest,
+    TurnExecutionResult,
 )
-from .runtime import AppServerRuntimeSession
+from .pending_request_store import PendingRequestStore
+from .runtime import AppServerRuntimeSession, build_workspace_write_sandbox_policy
+
+logger = logging.getLogger(__name__)
 
 
 class _ControlPlaneLike(Protocol):
     def start_execution_runtime(
         self, worktree_path: Path
-    ) -> tuple[str, AppServerRuntimeSession, str]:
-        ...
+    ) -> tuple[str, AppServerRuntimeSession, str]: ...
 
 
 class _WorktreeManagerLike(Protocol):
     def create_worktree(
         self, *, repo_root: Path, base_commit: str, worktree_path: Path
-    ) -> None:
-        ...
+    ) -> None: ...
 
-    def remove_worktree(self, *, repo_root: Path, worktree_path: Path) -> None:
-        ...
+    def remove_worktree(self, *, repo_root: Path, worktree_path: Path) -> None: ...
 
 
 def _resolve_head_commit(repo_root: Path) -> str:
@@ -87,15 +120,18 @@ def _resolve_head_commit(repo_root: Path) -> str:
     return result.stdout.strip()
 
 
-def _delegation_request_hash(repo_root: Path, base_commit: str) -> str:
+def _delegation_request_hash(repo_root: Path, base_commit: str, objective: str) -> str:
     """Recovery-contract idempotency component — hash of the delegation request.
 
     Per recovery-and-journal.md:47, the ``job_creation`` idempotency key is
     ``claude_session_id + delegation_request_hash``. The request is fully
-    characterized by the resolved repo_root + base_commit pair in v1.
-    """
+    characterized by the resolved repo_root + base_commit + objective in v1.
 
-    payload = f"{repo_root}:{base_commit}".encode("utf-8")
+    When the MCP surface later accepts additional inputs (e.g., a delegation
+    brief or profile override), they must be included in the hash so replay
+    recognizes the full request shape.
+    """
+    payload = f"{repo_root}:{base_commit}:{objective}".encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
 
 
@@ -142,6 +178,8 @@ class DelegationController:
         journal: OperationJournal,
         session_id: str,
         plugin_data_path: Path,
+        pending_request_store: PendingRequestStore,
+        approval_policy: str = "untrusted",
         head_commit_resolver: Callable[[Path], str] | None = None,
         uuid_factory: Callable[[], str] | None = None,
     ) -> None:
@@ -153,6 +191,8 @@ class DelegationController:
         self._journal = journal
         self._session_id = session_id
         self._plugin_data_path = plugin_data_path
+        self._pending_request_store = pending_request_store
+        self._approval_policy = approval_policy
         self._head_commit_resolver = head_commit_resolver or _resolve_head_commit
         self._uuid_factory = uuid_factory or (lambda: str(uuid.uuid4()))
 
@@ -161,7 +201,8 @@ class DelegationController:
         *,
         repo_root: Path,
         base_commit: str | None = None,
-    ) -> DelegationJob | JobBusyResponse:
+        objective: str = "",
+    ) -> DelegationJob | DelegationEscalation | JobBusyResponse:
         """Start a delegation job. Returns the job, or JobBusyResponse if busy.
 
         Write ordering invariant:
@@ -301,15 +342,11 @@ class DelegationController:
         resolved_base = base_commit or self._head_commit_resolver(resolved_root)
         job_id = self._uuid_factory()
         collaboration_id = self._uuid_factory()
-        request_hash = _delegation_request_hash(resolved_root, resolved_base)
+        request_hash = _delegation_request_hash(resolved_root, resolved_base, objective)
         idempotency_key = f"{self._session_id}:{request_hash}"
         created_at = self._journal.timestamp()
         worktree_path = (
-            self._plugin_data_path
-            / "runtimes"
-            / "delegation"
-            / job_id
-            / "worktree"
+            self._plugin_data_path / "runtimes" / "delegation" / job_id / "worktree"
         )
 
         # Phase 1: journal intent BEFORE any side effects.
@@ -491,7 +528,292 @@ class DelegationController:
                 f"path only recognizes a ``completed`` journal phase as "
                 f"terminal, which is exactly the phase that was NOT written."
             ) from exc
-        return job
+
+        # ------------------------------------------------------------------
+        # Turn dispatch + capture loop.
+        #
+        # The first execution turn is intentionally unjournaled (see module
+        # docstring). Crash recovery for the first-turn window uses orphaned-
+        # running-job detection in recover_startup().
+        #
+        # Failure semantics: the entire turn-dispatch + post-turn-finalization
+        # block is wrapped so that any exception (from run_execution_turn,
+        # post-turn status writes, audit emission, etc.) best-effort marks
+        # the job "unknown", releases the runtime, and closes the session.
+        # Without this guard, an exception would leave the job stuck
+        # "running", the runtime registered, and the session open —
+        # identical to the committed-start finalization gap the existing
+        # try/except above prevents.
+        # ------------------------------------------------------------------
+        self._job_store.update_status(job_id, "running")
+
+        sandbox_policy = build_workspace_write_sandbox_policy(worktree_path)
+        prompt_text = build_execution_turn_text(
+            objective=objective,
+            worktree_path=str(worktree_path),
+        )
+
+        # Capture state — shared with the handler closure via nonlocal.
+        captured_request: PendingServerRequest | None = None
+        interrupted_by_unknown: bool = False
+        captured_request_parse_failed: bool = False
+
+        _CANCEL_CAPABLE_KINDS = frozenset({"command_approval", "file_change"})
+        _KNOWN_DENIAL_KINDS = frozenset({"request_user_input"})
+
+        def _server_request_handler(
+            message: dict[str, Any],
+        ) -> dict[str, Any] | None:
+            nonlocal captured_request, interrupted_by_unknown, captured_request_parse_failed
+
+            # --- Parse the wire message ---
+            try:
+                parsed = parse_pending_server_request(
+                    message,
+                    runtime_id=runtime_id,
+                    collaboration_id=collaboration_id,
+                )
+            except Exception:
+                # Parse failure: create a minimal causal record (D4 carve-out).
+                logger.warning(
+                    "Server request parse failed; creating minimal causal record "
+                    "(D4 carve-out). Wire id=%r, method=%r",
+                    message.get("id"),
+                    message.get("method", ""),
+                    exc_info=True,
+                )
+                wire_id = message.get("id")
+                wire_method = message.get("method", "")
+                minimal = PendingServerRequest(
+                    request_id=str(wire_id)
+                    if wire_id is not None
+                    else self._uuid_factory(),
+                    runtime_id=runtime_id,
+                    collaboration_id=collaboration_id,
+                    codex_thread_id="",
+                    codex_turn_id="",
+                    item_id="",
+                    kind="unknown",
+                    requested_scope={"raw_method": wire_method},
+                )
+                if captured_request is None:
+                    self._pending_request_store.create(minimal)
+                    captured_request = minimal
+                    captured_request_parse_failed = True
+                interrupted_by_unknown = True
+                entry = self._runtime_registry.lookup(runtime_id)
+                if entry is not None:
+                    entry.session.interrupt_turn(
+                        thread_id=entry.thread_id, turn_id=None
+                    )
+                return None
+
+            # --- Strategy selection by kind ---
+            if (
+                parsed.kind not in _CANCEL_CAPABLE_KINDS
+                and parsed.kind not in _KNOWN_DENIAL_KINDS
+            ):
+                # Unknown kind — store and interrupt.
+                if captured_request is None:
+                    self._pending_request_store.create(parsed)
+                    captured_request = parsed
+                interrupted_by_unknown = True
+                entry = self._runtime_registry.lookup(runtime_id)
+                if entry is not None:
+                    entry.session.interrupt_turn(
+                        thread_id=entry.thread_id, turn_id=None
+                    )
+                return None
+
+            # Known kind — store if first, then respond inline.
+            if captured_request is None:
+                self._pending_request_store.create(parsed)
+                captured_request = parsed
+
+            if parsed.kind in _CANCEL_CAPABLE_KINDS:
+                return {"decision": "cancel"}
+            # No-cancel known kinds: respond with empty answers.
+            return {"answers": {}}
+
+        # --- Execute the turn ---
+        entry = self._runtime_registry.lookup(runtime_id)
+        assert entry is not None, (
+            f"ExecutionRuntimeRegistry invariant violation: "
+            f"runtime_id={runtime_id!r} was just registered but "
+            f"lookup() returned None"
+        )
+
+        try:
+            turn_result = entry.session.run_execution_turn(
+                thread_id=entry.thread_id,
+                prompt_text=prompt_text,
+                sandbox_policy=sandbox_policy,
+                approval_policy=self._approval_policy,
+                server_request_handler=_server_request_handler,
+            )
+        except Exception:
+            # Turn dispatch failure: the job is "running" but the turn
+            # never completed. Mark unknown, release, close, re-raise.
+            try:
+                self._job_store.update_status(job_id, "unknown")
+            except Exception:
+                logger.error(
+                    "Turn dispatch cleanup: failed to mark job %r as unknown",
+                    job_id, exc_info=True,
+                )
+            try:
+                self._runtime_registry.release(runtime_id)
+            except Exception:
+                logger.error(
+                    "Turn dispatch cleanup: failed to release runtime %r",
+                    runtime_id, exc_info=True,
+                )
+            try:
+                entry.session.close()
+            except Exception:
+                logger.error(
+                    "Turn dispatch cleanup: failed to close session for runtime %r",
+                    runtime_id, exc_info=True,
+                )
+            raise
+
+        # --- Post-turn processing ---
+        # Wrapped so that any local-write failure (status, audit, store)
+        # still cleans up the runtime and marks the job terminal.
+        try:
+            return self._finalize_turn(
+                job_id=job_id,
+                runtime_id=runtime_id,
+                collaboration_id=collaboration_id,
+                entry=entry,
+                turn_result=turn_result,
+                captured_request=captured_request,
+                interrupted_by_unknown=interrupted_by_unknown,
+                captured_request_parse_failed=captured_request_parse_failed,
+            )
+        except Exception:
+            try:
+                self._job_store.update_status(job_id, "unknown")
+            except Exception:
+                logger.error(
+                    "Finalization cleanup: failed to mark job %r as unknown",
+                    job_id, exc_info=True,
+                )
+            try:
+                self._runtime_registry.release(runtime_id)
+            except Exception:
+                logger.error(
+                    "Finalization cleanup: failed to release runtime %r",
+                    runtime_id, exc_info=True,
+                )
+            try:
+                entry.session.close()
+            except Exception:
+                logger.error(
+                    "Finalization cleanup: failed to close session for runtime %r",
+                    runtime_id, exc_info=True,
+                )
+            raise
+
+    def _finalize_turn(
+        self,
+        *,
+        job_id: str,
+        runtime_id: str,
+        collaboration_id: str,
+        entry: ExecutionRuntimeEntry,
+        turn_result: TurnExecutionResult,
+        captured_request: PendingServerRequest | None,
+        interrupted_by_unknown: bool,
+        captured_request_parse_failed: bool,
+    ) -> DelegationJob | DelegationEscalation:
+        """Post-turn status derivation, audit, and cleanup.
+
+        Extracted from start() so the caller can wrap it in a failure guard.
+        """
+        _CANCEL_CAPABLE_KINDS = frozenset({"command_approval", "file_change"})
+
+        if captured_request is not None:
+            # D6 diagnostic — only when we have a parseable request with
+            # wire-correlated IDs.
+            if not captured_request_parse_failed:
+                _verify_post_turn_signals(
+                    notifications=turn_result.notifications,
+                    request_id=captured_request.request_id,
+                    item_id=captured_request.item_id,
+                )
+                # D4: mark wire request resolved (parse failures stay pending).
+                self._pending_request_store.update_status(
+                    captured_request.request_id, "resolved"
+                )
+
+            # Job status derivation.
+            if captured_request.kind in _CANCEL_CAPABLE_KINDS or interrupted_by_unknown:
+                final_status = "needs_escalation"
+            elif turn_result.status == "completed":
+                final_status = "completed"
+            else:
+                final_status = "needs_escalation"
+
+            self._job_store.update_status(job_id, final_status)
+
+            updated_job = self._job_store.get(job_id)
+            assert updated_job is not None, (
+                f"DelegationJobStore invariant violation: job_id={job_id!r} "
+                f"was just updated but get() returned None"
+            )
+
+            if final_status == "needs_escalation":
+                # Audit event for escalation.
+                self._journal.append_audit_event(
+                    AuditEvent(
+                        event_id=self._uuid_factory(),
+                        timestamp=self._journal.timestamp(),
+                        actor="claude",
+                        action="escalate",
+                        collaboration_id=collaboration_id,
+                        runtime_id=runtime_id,
+                        job_id=job_id,
+                        request_id=captured_request.request_id,
+                    )
+                )
+
+                # Re-read the request from the store so the returned object
+                # reflects the authoritative status (e.g., "resolved" after D4).
+                resolved_request = self._pending_request_store.get(
+                    captured_request.request_id
+                )
+
+                # Keep runtime live — decide will reuse it.
+                return DelegationEscalation(
+                    job=updated_job,
+                    pending_request=resolved_request or captured_request,
+                    agent_context=turn_result.agent_message or None,
+                )
+
+            # Non-escalation: release + close and return plain job.
+            self._runtime_registry.release(runtime_id)
+            entry.session.close()
+            return updated_job
+
+        # No server request captured — clean completion or failure.
+        if turn_result.status == "completed":
+            final_status = "completed"
+        elif turn_result.status == "failed":
+            final_status = "failed"
+        else:
+            final_status = "unknown"
+
+        self._job_store.update_status(job_id, final_status)
+        self._runtime_registry.release(runtime_id)
+        entry.session.close()
+
+        updated_job = self._job_store.get(job_id)
+        assert updated_job is not None, (
+            f"DelegationJobStore invariant violation: job_id={job_id!r} "
+            f"was just updated but get() returned None"
+        )
+        return updated_job
 
     def recover_startup(self) -> None:
         """Consume unresolved job_creation journal records into durable terminal state.
@@ -519,9 +841,7 @@ class DelegationController:
         ``self._dialogue_controller.recover_startup()`` call.
         """
         unresolved = self._journal.list_unresolved(session_id=self._session_id)
-        job_creation_entries = [
-            e for e in unresolved if e.operation == "job_creation"
-        ]
+        job_creation_entries = [e for e in unresolved if e.operation == "job_creation"]
         # Group by idempotency_key and pick the latest phase per key.
         by_key: dict[str, OperationJournalEntry] = {}
         for entry in job_creation_entries:
@@ -537,9 +857,7 @@ class DelegationController:
             if entry.collaboration_id is not None:
                 handle = self._lineage_store.get(entry.collaboration_id)
                 if handle is not None and handle.status == "active":
-                    self._lineage_store.update_status(
-                        entry.collaboration_id, "unknown"
-                    )
+                    self._lineage_store.update_status(entry.collaboration_id, "unknown")
             if entry.job_id is not None:
                 job = self._job_store.get(entry.job_id)
                 if job is not None and job.status in ("queued", "running"):
@@ -563,6 +881,54 @@ class DelegationController:
                 ),
                 session_id=self._session_id,
             )
+
+        # --- Orphaned-running-job reconciliation ---
+        # After a cold restart, the runtime registry is fresh: no live
+        # runtimes exist. Any job persisted as "running" is orphaned —
+        # the first-turn window crashed after update_status(job_id,
+        # "running") but before post-turn terminal writes. There is no
+        # journal replay anchor (D2: first turn is intentionally
+        # unjournaled), so the only safe terminal state is "unknown".
+        #
+        # This is separate from the journal-based reconciliation above
+        # because the journal entry is already "completed" at this point
+        # (job_creation.completed fired before turn dispatch).
+        for job in self._job_store.list_active():
+            if job.status == "running":
+                self._job_store.update_status(job.job_id, "unknown")
+
+
+def _verify_post_turn_signals(
+    *,
+    notifications: tuple[dict[str, Any], ...],
+    request_id: str,
+    item_id: str,
+) -> None:
+    """D6 diagnostic: check serverRequest/resolved + item/completed."""
+    seen_resolved = False
+    seen_item_completed = False
+    for notification in notifications:
+        method = notification.get("method")
+        params = notification.get("params", {})
+        if not isinstance(params, dict):
+            continue
+        if method == "serverRequest/resolved":
+            raw_request_id = params.get("requestId")
+            if raw_request_id is not None and str(raw_request_id) == request_id:
+                seen_resolved = True
+        if method == "item/completed" and isinstance(params.get("item"), dict):
+            if params["item"].get("id") == item_id:
+                seen_item_completed = True
+    if not seen_resolved:
+        logger.warning(
+            "D6 signal missing: serverRequest/resolved not seen for request_id=%r after turn/completed",
+            request_id,
+        )
+    if not seen_item_completed:
+        logger.warning(
+            "D6 signal missing: item/completed not seen for item_id=%r after turn/completed",
+            item_id,
+        )
 
 
 def _phase_rank(phase: str) -> int:

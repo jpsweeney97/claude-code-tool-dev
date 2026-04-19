@@ -99,7 +99,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     },
     {
         "name": "codex.delegate.start",
-        "description": "Start an isolated execution job. Creates a worktree and bootstraps an ephemeral execution runtime. Does not dispatch the first turn.",
+        "description": "Start an isolated execution job. Creates a worktree, bootstraps an ephemeral execution runtime, and accepts an execution objective.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -107,12 +107,16 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "type": "string",
                     "description": "Repository root path",
                 },
+                "objective": {
+                    "type": "string",
+                    "description": "What the execution agent should accomplish in the worktree.",
+                },
                 "base_commit": {
                     "type": "string",
                     "description": "Optional — the commit SHA to base the worktree on. Defaults to current HEAD of repo_root.",
                 },
             },
-            "required": ["repo_root"],
+            "required": ["repo_root", "objective"],
         },
     },
 ]
@@ -324,11 +328,21 @@ class McpServer:
             result = controller.read(arguments["collaboration_id"])
             return asdict(result)
         if name == "codex.delegate.start":
+            from .models import DelegationEscalation
+
             controller = self._ensure_delegation_controller()
             result = controller.start(
                 repo_root=Path(arguments["repo_root"]),
                 base_commit=arguments.get("base_commit"),
+                objective=arguments["objective"],
             )
+            if isinstance(result, DelegationEscalation):
+                return {
+                    "job": asdict(result.job),
+                    "pending_request": asdict(result.pending_request),
+                    "agent_context": result.agent_context,
+                    "escalated": True,
+                }
             return asdict(result)
         raise ValueError(f"Unknown tool: {name!r:.100}")
 

@@ -1811,6 +1811,7 @@ class TestReplyParseFailure:
 
                     return TurnExecutionResult(
                         turn_id="turn-1",
+                        status="completed",
                         agent_message="not valid json {{{{",
                     )
                 return super().run_turn(**kwargs)

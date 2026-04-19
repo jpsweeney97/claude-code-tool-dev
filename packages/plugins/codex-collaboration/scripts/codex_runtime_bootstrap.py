@@ -32,6 +32,7 @@ from server.execution_runtime_registry import ExecutionRuntimeRegistry  # noqa: 
 from server.journal import OperationJournal, default_plugin_data_path  # noqa: E402
 from server.lineage_store import LineageStore  # noqa: E402
 from server.mcp_server import McpServer  # noqa: E402
+from server.pending_request_store import PendingRequestStore  # noqa: E402
 from server.turn_store import TurnStore  # noqa: E402
 from server.worktree_manager import WorktreeManager  # noqa: E402
 
@@ -113,6 +114,7 @@ def _build_delegation_factory(
         session_id = _read_session_id(plugin_data_path)
         job_store = DelegationJobStore(plugin_data_path, session_id)
         lineage_store = LineageStore(plugin_data_path, session_id)
+        pending_request_store = PendingRequestStore(plugin_data_path, session_id)
         return DelegationController(
             control_plane=control_plane,
             worktree_manager=WorktreeManager(),
@@ -122,6 +124,7 @@ def _build_delegation_factory(
             journal=journal,
             session_id=session_id,
             plugin_data_path=plugin_data_path,
+            pending_request_store=pending_request_store,
         )
 
     return factory

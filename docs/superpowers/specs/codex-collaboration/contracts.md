@@ -78,7 +78,7 @@ A server-initiated request from Codex that requires resolution.
 
 | Field | Type | Description |
 |---|---|---|
-| `request_id` | string | Plugin-assigned unique identifier |
+| `request_id` | string | Wire request id from the App Server, normalized to string. Used for `serverRequest/resolved` correlation. Parse-failure causal records may use a plugin-generated fallback id (not wire-correlated). |
 | `runtime_id` | string | Runtime that issued the request |
 | `collaboration_id` | string | Associated [CollaborationHandle](#collaborationhandle) |
 | `codex_thread_id` | string | Codex thread context |

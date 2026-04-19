@@ -116,6 +116,7 @@ class FakeRuntimeSession:
         self.last_effort = effort  # Capture for assertion in profile tests
         return TurnExecutionResult(
             turn_id="turn-1",
+            status="completed",
             agent_message=self.agent_message.replace("thr-start", thread_id),
         )
 

@@ -16,6 +16,7 @@ HandleStatus = Literal["active", "completed", "crashed", "unknown"]
 PendingRequestKind = Literal[
     "command_approval", "file_change", "request_user_input", "unknown"
 ]
+TurnStatus = Literal["completed", "interrupted", "failed"]
 PendingRequestStatus = Literal["pending", "resolved", "canceled"]
 JobStatus = Literal[
     "queued", "running", "needs_escalation", "completed", "failed", "unknown"
@@ -124,6 +125,7 @@ class TurnExecutionResult:
     """Projected result of a single `turn/start` execution."""
 
     turn_id: str
+    status: TurnStatus
     agent_message: str
     notifications: tuple[dict[str, Any], ...] = ()
 
@@ -169,6 +171,7 @@ class AuditEvent:
     policy_fingerprint: str | None = None
     turn_id: str | None = None
     job_id: str | None = None
+    request_id: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -308,9 +311,8 @@ class OperationJournalEntry:
 class DelegationJob:
     """Persisted delegation job record. See contracts.md §DelegationJob.
 
-    This slice writes ``status`` and ``promotion_state`` at creation time only.
-    Lifecycle transitions (running → completed, etc.) land in later slices
-    alongside poll/decide/promote wiring.
+    Status transitions (running, completed, needs_escalation, failed, unknown)
+    are managed by ``DelegationController`` and ``recover_startup()``.
 
     No ``created_at`` field by design — creation timestamp is captured in the
     ``job_creation`` journal entry under the same idempotency key.
@@ -338,3 +340,20 @@ class JobBusyResponse:
     active_job_id: str
     active_job_status: JobStatus
     detail: str
+
+
+@dataclass(frozen=True)
+class DelegationEscalation:
+    """Returned when codex.delegate.start dispatched a turn that needs escalation.
+
+    Separates persisted job lifecycle state from transient escalation state.
+    For successfully parsed requests, ``pending_request.status`` is
+    ``"resolved"`` (D4). For parse failures, ``pending_request`` is a
+    minimal causal record with ``kind="unknown"`` and ``status="pending"``
+    (D4 carve-out: parse failures are not marked resolved).
+    Plugin escalation lifecycle is tracked by ``DelegationJob.status``.
+    """
+
+    job: DelegationJob
+    pending_request: PendingServerRequest
+    agent_context: str | None = None

@@ -103,6 +103,32 @@ class JsonRpcClient:
                 )
             return result
 
+    def respond(self, request_id: str | int, result: dict[str, Any]) -> None:
+        """Send a JSON-RPC 2.0 response to a server-initiated request.
+
+        Server requests arrive as messages with both ``id`` and ``method``
+        fields. This method sends the response back to the subprocess so
+        the App Server can continue processing.
+        """
+        if self._process is None:
+            raise RuntimeError(
+                "JSON-RPC respond failed: client not started"
+            )
+        assert self._process.stdin is not None
+        payload = {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": result,
+        }
+        try:
+            self._process.stdin.write(json.dumps(payload) + "\n")
+            self._process.stdin.flush()
+        except BrokenPipeError as exc:
+            raise RuntimeError(
+                "JSON-RPC respond failed: broken stdin pipe. "
+                f"Got: request_id={request_id!r:.100}"
+            ) from exc
+
     def next_notification(self, timeout: float | None = None) -> dict[str, Any]:
         """Return the next buffered or streamed notification."""
 
