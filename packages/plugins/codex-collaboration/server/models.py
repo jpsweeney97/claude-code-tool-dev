@@ -171,6 +171,7 @@ class AuditEvent:
     policy_fingerprint: str | None = None
     turn_id: str | None = None
     job_id: str | None = None
+    request_id: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -340,3 +341,24 @@ class JobBusyResponse:
     active_job_id: str
     active_job_status: JobStatus
     detail: str
+
+
+@dataclass(frozen=True)
+class DelegationEscalation:
+    """Returned when codex.delegate.start dispatched a turn that needs escalation.
+
+    Separates persisted job lifecycle state from transient escalation state.
+    The ``pending_request`` is a causal record — the wire request was already
+    resolved at capture time (``PendingServerRequest.status == "resolved"``).
+    Plugin escalation lifecycle is tracked by ``DelegationJob.status``.
+
+    For parse failures, ``pending_request`` is a minimal causal record
+    with ``kind="unknown"`` and whatever envelope fields could be
+    extracted from the raw message (at minimum ``request_id`` and
+    ``requested_scope.raw_method``). This gives ``codex.delegate.decide``
+    enough context to operate on the escalation.
+    """
+
+    job: DelegationJob
+    pending_request: PendingServerRequest
+    agent_context: str | None = None

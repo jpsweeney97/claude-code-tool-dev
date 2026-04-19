@@ -10,12 +10,14 @@ from .models import (
     CollaborationHandle,
     ConsultRequest,
     ConsultResult,
+    DelegationEscalation,
     DelegationJob,
     DialogueReadResult,
     DialogueReplyResult,
     DialogueStartResult,
     JobBusyResponse,
 )
+from .pending_request_store import PendingRequestStore
 from .worktree_manager import WorktreeManager
 
 __all__ = [
@@ -24,6 +26,7 @@ __all__ = [
     "ConsultResult",
     "ControlPlane",
     "DelegationController",
+    "DelegationEscalation",
     "DelegationJob",
     "DelegationJobStore",
     "DialogueController",
@@ -33,6 +36,7 @@ __all__ = [
     "ExecutionRuntimeRegistry",
     "JobBusyResponse",
     "LineageStore",
+    "PendingRequestStore",
     "WorktreeManager",
     "build_policy_fingerprint",
     "load_repo_identity",
