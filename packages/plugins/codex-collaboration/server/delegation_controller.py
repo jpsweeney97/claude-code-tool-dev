@@ -544,8 +544,8 @@ class DelegationController:
         interrupted_by_unknown: bool = False
         parse_failed: bool = False
 
-        _CANCEL_CAPABLE_KINDS = frozenset({"command_approval"})
-        _KNOWN_DENIAL_KINDS = frozenset({"file_change", "request_user_input"})
+        _CANCEL_CAPABLE_KINDS = frozenset({"command_approval", "file_change"})
+        _KNOWN_DENIAL_KINDS = frozenset({"request_user_input"})
 
         def _server_request_handler(
             message: dict[str, Any],
@@ -564,7 +564,9 @@ class DelegationController:
                 wire_id = message.get("id")
                 wire_method = message.get("method", "")
                 minimal = PendingServerRequest(
-                    request_id=str(wire_id) if wire_id is not None else "",
+                    request_id=str(wire_id)
+                    if wire_id is not None
+                    else self._uuid_factory(),
                     runtime_id=runtime_id,
                     collaboration_id=collaboration_id,
                     codex_thread_id="",
