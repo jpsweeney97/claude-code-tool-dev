@@ -36,6 +36,7 @@ class _FakeSession:
         self._thread_id = thread_id
         self.closed = False
         self._interrupted = False
+        self._raise_on_turn: Exception | None = None
         # Configurable server requests and turn result for capture loop tests.
         self._server_requests: list[dict[str, Any]] = []
         self._turn_result: TurnExecutionResult = TurnExecutionResult(
@@ -76,6 +77,8 @@ class _FakeSession:
         | None = None,
     ) -> TurnExecutionResult:
         """Simulate run_execution_turn by dispatching fake server requests."""
+        if self._raise_on_turn is not None:
+            raise self._raise_on_turn
         for req in self._server_requests:
             if server_request_handler is not None:
                 server_request_handler(req)
@@ -103,6 +106,7 @@ class _FakeControlPlane:
         # Pre-configure server requests and turn result for the next session.
         self._next_session_requests: list[dict[str, Any]] = []
         self._next_turn_result: TurnExecutionResult | None = None
+        self._next_raise_on_turn: Exception | None = None
 
     def start_execution_runtime(
         self, worktree_path: Path
@@ -113,6 +117,7 @@ class _FakeControlPlane:
         session._server_requests = list(self._next_session_requests)
         if self._next_turn_result is not None:
             session._turn_result = self._next_turn_result
+        session._raise_on_turn = self._next_raise_on_turn
         self._sessions.append(session)
         return f"rt-{self._next_runtime_id}", session, session._thread_id
 
@@ -1290,6 +1295,31 @@ def test_start_with_no_server_requests_returns_delegation_job(tmp_path: Path) ->
     assert isinstance(result, DelegationJob)
     assert result.status == "completed"
     assert result.job_id == "job-1"
+
+    # Runtime released and session closed.
+    assert registry.lookup("rt-1") is None
+    assert control_plane._sessions[0].closed
+
+
+def test_start_turn_dispatch_failure_marks_job_unknown_and_cleans_up(
+    tmp_path: Path,
+) -> None:
+    """If run_execution_turn() raises, the job is marked unknown, the runtime
+    is released, and the session is closed — not left stuck running."""
+    controller, control_plane, _, job_store, _, _, registry, _ = _build_controller(
+        tmp_path
+    )
+    control_plane._next_raise_on_turn = RuntimeError("transport died")
+
+    with pytest.raises(RuntimeError, match="transport died"):
+        controller.start(
+            repo_root=tmp_path / "repo",
+            objective="Should fail",
+        )
+
+    # Job should be "unknown", not stuck "running".
+    jobs = job_store.list_active()
+    assert len(jobs) == 0, f"Expected no active jobs, got: {[j.status for j in jobs]}"
 
     # Runtime released and session closed.
     assert registry.lookup("rt-1") is None

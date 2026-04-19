@@ -174,7 +174,7 @@ class DelegationController:
         session_id: str,
         plugin_data_path: Path,
         pending_request_store: PendingRequestStore,
-        approval_policy: str = "on-request",
+        approval_policy: str = "untrusted",
         head_commit_resolver: Callable[[Path], str] | None = None,
         uuid_factory: Callable[[], str] | None = None,
     ) -> None:
@@ -530,6 +530,15 @@ class DelegationController:
         # The first execution turn is intentionally unjournaled (see module
         # docstring). Crash recovery for the first-turn window uses orphaned-
         # running-job detection in recover_startup().
+        #
+        # Failure semantics: the entire turn-dispatch + post-turn-finalization
+        # block is wrapped so that any exception (from run_execution_turn,
+        # post-turn status writes, audit emission, etc.) best-effort marks
+        # the job "unknown", releases the runtime, and closes the session.
+        # Without this guard, an exception would leave the job stuck
+        # "running", the runtime registered, and the session open —
+        # identical to the committed-start finalization gap the existing
+        # try/except above prevents.
         # ------------------------------------------------------------------
         self._job_store.update_status(job_id, "running")
 
@@ -622,15 +631,78 @@ class DelegationController:
             f"lookup() returned None"
         )
 
-        turn_result = entry.session.run_execution_turn(
-            thread_id=entry.thread_id,
-            prompt_text=prompt_text,
-            sandbox_policy=sandbox_policy,
-            approval_policy=self._approval_policy,
-            server_request_handler=_server_request_handler,
-        )
+        try:
+            turn_result = entry.session.run_execution_turn(
+                thread_id=entry.thread_id,
+                prompt_text=prompt_text,
+                sandbox_policy=sandbox_policy,
+                approval_policy=self._approval_policy,
+                server_request_handler=_server_request_handler,
+            )
+        except Exception:
+            # Turn dispatch failure: the job is "running" but the turn
+            # never completed. Mark unknown, release, close, re-raise.
+            try:
+                self._job_store.update_status(job_id, "unknown")
+            except Exception:
+                pass
+            try:
+                self._runtime_registry.release(runtime_id)
+            except Exception:
+                pass
+            try:
+                entry.session.close()
+            except Exception:
+                pass
+            raise
 
         # --- Post-turn processing ---
+        # Wrapped so that any local-write failure (status, audit, store)
+        # still cleans up the runtime and marks the job terminal.
+        try:
+            return self._finalize_turn(
+                job_id=job_id,
+                runtime_id=runtime_id,
+                collaboration_id=collaboration_id,
+                entry=entry,
+                turn_result=turn_result,
+                captured_request=captured_request,
+                interrupted_by_unknown=interrupted_by_unknown,
+                parse_failed=parse_failed,
+            )
+        except Exception:
+            try:
+                self._job_store.update_status(job_id, "unknown")
+            except Exception:
+                pass
+            try:
+                self._runtime_registry.release(runtime_id)
+            except Exception:
+                pass
+            try:
+                entry.session.close()
+            except Exception:
+                pass
+            raise
+
+    def _finalize_turn(
+        self,
+        *,
+        job_id: str,
+        runtime_id: str,
+        collaboration_id: str,
+        entry: Any,
+        turn_result: Any,
+        captured_request: PendingServerRequest | None,
+        interrupted_by_unknown: bool,
+        parse_failed: bool,
+    ) -> DelegationJob | DelegationEscalation:
+        """Post-turn status derivation, audit, and cleanup.
+
+        Extracted from start() so the caller can wrap it in a failure guard.
+        """
+        _CANCEL_CAPABLE_KINDS = frozenset({"command_approval", "file_change"})
+
         if captured_request is not None:
             # D6 diagnostic — only when we have a parseable request with
             # wire-correlated IDs.
@@ -681,9 +753,15 @@ class DelegationController:
                 f"was just updated but get() returned None"
             )
 
+            # Re-read the request from the store so the returned object
+            # reflects the authoritative status (e.g., "resolved" after D4).
+            resolved_request = self._pending_request_store.get(
+                captured_request.request_id
+            )
+
             return DelegationEscalation(
                 job=updated_job,
-                pending_request=captured_request,
+                pending_request=resolved_request or captured_request,
                 agent_context=turn_result.agent_message or None,
             )
 

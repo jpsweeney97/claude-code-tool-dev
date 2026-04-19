@@ -576,16 +576,15 @@ def test_e2e_command_approval_produces_escalation(tmp_path: Path) -> None:
     # Job landed in needs_escalation.
     assert payload["job"]["status"] == "needs_escalation"
 
-    # Pending request captured with correct kind.
+    # Pending request captured with correct kind and resolved status (D4).
     assert payload["pending_request"]["kind"] == "command_approval"
-    # The returned pending_request is the captured snapshot (status="pending"
-    # at capture time). The store has the authoritative resolved status.
     assert payload["pending_request"]["request_id"] == "42"
+    assert payload["pending_request"]["status"] == "resolved"
 
     # agent_context captured (may be None but key must be present).
     assert "agent_context" in payload
 
-    # Pending request was persisted AND marked resolved in the store (D4).
+    # Store confirms resolved status matches the returned object.
     stored = prs.get("42")
     assert stored is not None
     assert stored.status == "resolved"
