@@ -1,4 +1,4 @@
-"""Smoke tests for production wiring of codex.delegate.start."""
+"""Production wiring and end-to-end tests for codex.delegate.start."""
 
 from __future__ import annotations
 
@@ -92,6 +92,7 @@ def test_delegation_factory_passes_shared_runtime_registry(
 
 
 def _init_repo(repo_path: Path) -> str:
+    """Init a tmp git repo with one commit. Returns the HEAD SHA."""
     repo_path.mkdir(parents=True, exist_ok=True)
     subprocess.run(
         ["git", "init", "--initial-branch=main"],
@@ -103,9 +104,13 @@ def _init_repo(repo_path: Path) -> str:
         ["git", "config", "user.email", "test@example.com"],
         cwd=repo_path,
         check=True,
+        capture_output=True,
     )
     subprocess.run(
-        ["git", "config", "user.name", "Test User"], cwd=repo_path, check=True
+        ["git", "config", "user.name", "Test User"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
     )
     (repo_path / "README.md").write_text("hello\n")
     subprocess.run(
