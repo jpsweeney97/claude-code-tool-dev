@@ -962,6 +962,29 @@ def test_delegation_request_hash_includes_objective(tmp_path: Path) -> None:
     assert hash_a != hash_no_obj, "Objective vs no-objective must differ"
 
 
+def test_recover_startup_marks_orphaned_running_jobs_unknown(
+    tmp_path: Path,
+) -> None:
+    """After a cold restart, running jobs with no live runtime are marked unknown."""
+    controller, _, _, job_store, _, _, _ = _build_controller(tmp_path)
+
+    # First create a job via normal path
+    result = controller.start(repo_root=tmp_path / "repo")
+    assert isinstance(result, DelegationJob)
+    job_id = result.job_id
+
+    # Manually set to "running" to simulate the post-journal, pre-turn-completion crash
+    job_store.update_status(job_id, "running")
+
+    # Cold restart: fresh controller (fresh registry, no live runtimes)
+    controller2, _, _, _, _, _, _ = _build_controller(tmp_path, session_id="sess-1")
+    controller2.recover_startup()
+
+    recovered = job_store.get(job_id)
+    assert recovered is not None
+    assert recovered.status == "unknown"
+
+
 def test_recover_startup_idempotent_second_call_is_noop(tmp_path: Path) -> None:
     """Second recover_startup after the first has reconciled finds nothing to do."""
     repo_root = tmp_path / "repo"
