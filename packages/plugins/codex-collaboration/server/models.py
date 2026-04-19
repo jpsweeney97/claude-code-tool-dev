@@ -311,9 +311,8 @@ class OperationJournalEntry:
 class DelegationJob:
     """Persisted delegation job record. See contracts.md §DelegationJob.
 
-    This slice writes ``status`` and ``promotion_state`` at creation time only.
-    Lifecycle transitions (running → completed, etc.) land in later slices
-    alongside poll/decide/promote wiring.
+    Status transitions (running, completed, needs_escalation, failed, unknown)
+    are managed by ``DelegationController`` and ``recover_startup()``.
 
     No ``created_at`` field by design — creation timestamp is captured in the
     ``job_creation`` journal entry under the same idempotency key.
@@ -348,15 +347,11 @@ class DelegationEscalation:
     """Returned when codex.delegate.start dispatched a turn that needs escalation.
 
     Separates persisted job lifecycle state from transient escalation state.
-    The ``pending_request`` is a causal record — the wire request was already
-    resolved at capture time (``PendingServerRequest.status == "resolved"``).
+    For successfully parsed requests, ``pending_request.status`` is
+    ``"resolved"`` (D4). For parse failures, ``pending_request`` is a
+    minimal causal record with ``kind="unknown"`` and ``status="pending"``
+    (D4 carve-out: parse failures are not marked resolved).
     Plugin escalation lifecycle is tracked by ``DelegationJob.status``.
-
-    For parse failures, ``pending_request`` is a minimal causal record
-    with ``kind="unknown"`` and whatever envelope fields could be
-    extracted from the raw message (at minimum ``request_id`` and
-    ``requested_scope.raw_method``). This gives ``codex.delegate.decide``
-    enough context to operate on the escalation.
     """
 
     job: DelegationJob

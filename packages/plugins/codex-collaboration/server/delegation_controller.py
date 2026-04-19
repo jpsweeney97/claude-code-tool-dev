@@ -2,6 +2,7 @@
 
 Mirrors dialogue.py::DialogueController.start three-phase discipline. Flow:
 
+    --- Committed-start phase ---
     busy check (job_store.list_active + registry.active_runtime_ids
         + unresolved job_creation journal entries)
     resolve base commit
@@ -18,10 +19,13 @@ Mirrors dialogue.py::DialogueController.start three-phase discipline. Flow:
         dispatched" is the universal terminal state for committed-start failures)
     journal Phase 3: completed (terminal write)
 
-This slice does NOT dispatch execution turns. The controller stops at
-journal.write_phase(completed). Callers receive a queued job record with
-a live runtime whose session is retained by the registry so follow-up
-turn dispatch can find it via ExecutionRuntimeRegistry.lookup(runtime_id).
+    --- First-turn dispatch + capture ---
+    update job status to "running"
+    dispatch first execution turn with three-strategy server request handler
+    post-turn status derivation (completed / needs_escalation / failed / unknown)
+    if needs_escalation: emit escalation audit, return DelegationEscalation
+        (runtime kept live for decide)
+    if terminal: release runtime, close session, return DelegationJob
 """
 
 # Execution-turn journaling deferral (T-05 pending-request capture slice):
@@ -59,7 +63,7 @@ from typing import Any, Callable, Protocol
 from .approval_router import parse_pending_server_request
 from .delegation_job_store import DelegationJobStore
 from .execution_prompt_builder import build_execution_turn_text
-from .execution_runtime_registry import ExecutionRuntimeRegistry
+from .execution_runtime_registry import ExecutionRuntimeEntry, ExecutionRuntimeRegistry
 from .journal import OperationJournal
 from .lineage_store import LineageStore
 from .models import (
@@ -70,6 +74,7 @@ from .models import (
     JobBusyResponse,
     OperationJournalEntry,
     PendingServerRequest,
+    TurnExecutionResult,
 )
 from .pending_request_store import PendingRequestStore
 from .runtime import AppServerRuntimeSession, build_workspace_write_sandbox_policy
@@ -570,6 +575,13 @@ class DelegationController:
                 )
             except Exception:
                 # Parse failure: create a minimal causal record (D4 carve-out).
+                logger.warning(
+                    "Server request parse failed; creating minimal causal record "
+                    "(D4 carve-out). Wire id=%r, method=%r",
+                    message.get("id"),
+                    message.get("method", ""),
+                    exc_info=True,
+                )
                 wire_id = message.get("id")
                 wire_method = message.get("method", "")
                 minimal = PendingServerRequest(
@@ -645,15 +657,24 @@ class DelegationController:
             try:
                 self._job_store.update_status(job_id, "unknown")
             except Exception:
-                pass
+                logger.error(
+                    "Turn dispatch cleanup: failed to mark job %r as unknown",
+                    job_id, exc_info=True,
+                )
             try:
                 self._runtime_registry.release(runtime_id)
             except Exception:
-                pass
+                logger.error(
+                    "Turn dispatch cleanup: failed to release runtime %r",
+                    runtime_id, exc_info=True,
+                )
             try:
                 entry.session.close()
             except Exception:
-                pass
+                logger.error(
+                    "Turn dispatch cleanup: failed to close session for runtime %r",
+                    runtime_id, exc_info=True,
+                )
             raise
 
         # --- Post-turn processing ---
@@ -674,15 +695,24 @@ class DelegationController:
             try:
                 self._job_store.update_status(job_id, "unknown")
             except Exception:
-                pass
+                logger.error(
+                    "Finalization cleanup: failed to mark job %r as unknown",
+                    job_id, exc_info=True,
+                )
             try:
                 self._runtime_registry.release(runtime_id)
             except Exception:
-                pass
+                logger.error(
+                    "Finalization cleanup: failed to release runtime %r",
+                    runtime_id, exc_info=True,
+                )
             try:
                 entry.session.close()
             except Exception:
-                pass
+                logger.error(
+                    "Finalization cleanup: failed to close session for runtime %r",
+                    runtime_id, exc_info=True,
+                )
             raise
 
     def _finalize_turn(
@@ -691,8 +721,8 @@ class DelegationController:
         job_id: str,
         runtime_id: str,
         collaboration_id: str,
-        entry: Any,
-        turn_result: Any,
+        entry: ExecutionRuntimeEntry,
+        turn_result: TurnExecutionResult,
         captured_request: PendingServerRequest | None,
         interrupted_by_unknown: bool,
         captured_request_parse_failed: bool,
@@ -882,8 +912,10 @@ def _verify_post_turn_signals(
         params = notification.get("params", {})
         if not isinstance(params, dict):
             continue
-        if method == "serverRequest/resolved" and params.get("requestId") == request_id:
-            seen_resolved = True
+        if method == "serverRequest/resolved":
+            raw_request_id = params.get("requestId")
+            if raw_request_id is not None and str(raw_request_id) == request_id:
+                seen_resolved = True
         if method == "item/completed" and isinstance(params.get("item"), dict):
             if params["item"].get("id") == item_id:
                 seen_item_completed = True
