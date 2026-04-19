@@ -24,16 +24,16 @@ _package_root = Path(__file__).resolve().parent.parent
 if str(_package_root) not in sys.path:
     sys.path.insert(0, str(_package_root))
 
-from server.control_plane import ControlPlane
-from server.delegation_controller import DelegationController
-from server.delegation_job_store import DelegationJobStore
-from server.dialogue import DialogueController
-from server.execution_runtime_registry import ExecutionRuntimeRegistry
-from server.journal import OperationJournal, default_plugin_data_path
-from server.lineage_store import LineageStore
-from server.mcp_server import McpServer
-from server.turn_store import TurnStore
-from server.worktree_manager import WorktreeManager
+from server.control_plane import ControlPlane  # noqa: E402
+from server.delegation_controller import DelegationController  # noqa: E402
+from server.delegation_job_store import DelegationJobStore  # noqa: E402
+from server.dialogue import DialogueController  # noqa: E402
+from server.execution_runtime_registry import ExecutionRuntimeRegistry  # noqa: E402
+from server.journal import OperationJournal, default_plugin_data_path  # noqa: E402
+from server.lineage_store import LineageStore  # noqa: E402
+from server.mcp_server import McpServer  # noqa: E402
+from server.turn_store import TurnStore  # noqa: E402
+from server.worktree_manager import WorktreeManager  # noqa: E402
 
 
 def _read_session_id(plugin_data_path: Path) -> str:

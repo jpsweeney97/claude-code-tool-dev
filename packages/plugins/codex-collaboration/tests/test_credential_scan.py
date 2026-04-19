@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from server.credential_scan import ScanResult, scan_text
+from server.credential_scan import scan_text
 
 
 class TestStrictTier:
