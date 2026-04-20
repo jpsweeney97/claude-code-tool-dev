@@ -7,6 +7,7 @@ import pytest
 from server.consultation_safety import (
     CONSULT_POLICY,
     DELEGATE_DECIDE_POLICY,
+    DELEGATE_POLL_POLICY,
     DIALOGUE_REPLY_POLICY,
     DIALOGUE_START_POLICY,
     ToolInputLimitExceeded,
@@ -218,6 +219,13 @@ def test_delegate_decide_returns_decide_policy() -> None:
         "mcp__plugin_codex-collaboration_codex-collaboration__codex.delegate.decide"
     )
     assert policy is DELEGATE_DECIDE_POLICY
+
+
+def test_delegate_poll_returns_poll_policy() -> None:
+    policy = policy_for_tool(
+        "mcp__plugin_codex-collaboration_codex-collaboration__codex.delegate.poll"
+    )
+    assert policy is DELEGATE_POLL_POLICY
 
 
 def test_delegate_decide_answers_field_is_scanned() -> None:
