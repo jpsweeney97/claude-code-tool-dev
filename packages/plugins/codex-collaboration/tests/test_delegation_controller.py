@@ -1532,3 +1532,128 @@ def test_start_escalation_keeps_execution_handle_active(tmp_path: Path) -> None:
     handle = lineage.get("collab-1")
     assert handle is not None
     assert handle.status == "active"
+
+
+# -----------------------------------------------------------------------------
+# decide() success-path tests — approve, deny, re-escalation.
+# -----------------------------------------------------------------------------
+
+
+def test_decide_approve_resumes_runtime_and_returns_completed_result(
+    tmp_path: Path,
+) -> None:
+    from server.models import DelegationDecisionResult
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, lineage, _j, registry, _prs = _build_controller(
+        tmp_path
+    )
+    control_plane._next_session_requests = [_command_approval_request()]
+    start_result = controller.start(repo_root=repo_root, objective="Fix it")
+    assert isinstance(start_result, DelegationEscalation)
+
+    session = control_plane._sessions[0]
+    session._server_requests = []
+    session._turn_result = TurnExecutionResult(
+        turn_id="turn-2",
+        status="completed",
+        agent_message="Approved work finished.",
+        notifications=(),
+    )
+
+    result = controller.decide(
+        job_id="job-1",
+        request_id="42",
+        decision="approve",
+    )
+
+    assert isinstance(result, DelegationDecisionResult)
+    assert result.decision == "approve"
+    assert result.resumed is True
+    assert result.pending_request is None
+    assert result.job.status == "completed"
+    assert registry.lookup("rt-1") is None
+    handle = lineage.get("collab-1")
+    assert handle is not None and handle.status == "completed"
+
+
+def test_decide_approve_can_reescalate_with_new_pending_request(tmp_path: Path) -> None:
+    from server.models import DelegationDecisionResult
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, _j, registry, prs = _build_controller(
+        tmp_path
+    )
+    control_plane._next_session_requests = [_command_approval_request()]
+    start_result = controller.start(repo_root=repo_root, objective="Fix it")
+    assert isinstance(start_result, DelegationEscalation)
+
+    session = control_plane._sessions[0]
+    session._server_requests = [_permissions_request(request_id=99, item_id="item-2")]
+    session._turn_result = TurnExecutionResult(
+        turn_id="turn-2",
+        status="interrupted",
+        agent_message="Need another escalation.",
+        notifications=(),
+    )
+
+    result = controller.decide(
+        job_id="job-1",
+        request_id="42",
+        decision="approve",
+    )
+
+    assert isinstance(result, DelegationDecisionResult)
+    assert result.decision == "approve"
+    assert result.resumed is True
+    assert result.pending_request is not None
+    assert result.pending_request.request_id == "99"
+    assert result.job.status == "needs_escalation"
+    assert registry.lookup("rt-1") is not None
+    stored = prs.get("99")
+    assert stored is not None and stored.status == "resolved"
+
+
+def test_decide_deny_marks_job_failed_and_closes_runtime(tmp_path: Path) -> None:
+    from server.models import DelegationDecisionResult
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, job_store, lineage, journal, registry, _prs = (
+        _build_controller(tmp_path)
+    )
+    control_plane._next_session_requests = [_command_approval_request()]
+    start_result = controller.start(repo_root=repo_root, objective="Fix it")
+    assert isinstance(start_result, DelegationEscalation)
+
+    result = controller.decide(
+        job_id="job-1",
+        request_id="42",
+        decision="deny",
+    )
+
+    assert isinstance(result, DelegationDecisionResult)
+    assert result.decision == "deny"
+    assert result.resumed is False
+    assert result.pending_request is None
+    assert result.job.status == "failed"
+    assert job_store.get("job-1") is not None
+    assert registry.lookup("rt-1") is None
+    handle = lineage.get("collab-1")
+    assert handle is not None and handle.status == "completed"
+
+    events_path = journal.plugin_data_path / "audit" / "events.jsonl"
+    lines = [
+        json.loads(line)
+        for line in events_path.read_text().splitlines()
+        if line.strip()
+    ]
+    approval_events = [e for e in lines if e.get("action") == "approve"]
+    assert len(approval_events) == 1
+    assert approval_events[0]["decision"] == "deny"
+    assert approval_events[0]["request_id"] == "42"

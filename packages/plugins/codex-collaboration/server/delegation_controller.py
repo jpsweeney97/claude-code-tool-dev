@@ -62,13 +62,16 @@ from typing import Any, Callable, Protocol
 
 from .approval_router import parse_pending_server_request
 from .delegation_job_store import DelegationJobStore
-from .execution_prompt_builder import build_execution_turn_text
+from .execution_prompt_builder import build_execution_resume_turn_text, build_execution_turn_text
 from .execution_runtime_registry import ExecutionRuntimeEntry, ExecutionRuntimeRegistry
 from .journal import OperationJournal
 from .lineage_store import LineageStore
 from .models import (
     AuditEvent,
     CollaborationHandle,
+    DecisionAction,
+    DecisionRejectedResponse,
+    DelegationDecisionResult,
     DelegationEscalation,
     DelegationJob,
     JobBusyResponse,
@@ -164,8 +167,17 @@ class CommittedStartFinalizationError(RuntimeError):
     """
 
 
+class CommittedDecisionFinalizationError(RuntimeError):
+    """Raised when codex.delegate.decide committed a caller decision but local
+    finalization failed.
+
+    Blind retry is unsafe: approve may have already dispatched a follow-up turn,
+    and deny may already have terminated the live runtime.
+    """
+
+
 class DelegationController:
-    """Implements codex.delegate.start."""
+    """Implements codex.delegate.start and codex.delegate.decide."""
 
     def __init__(
         self,
@@ -818,6 +830,240 @@ class DelegationController:
             f"was just updated but get() returned None"
         )
         return updated_job
+
+    def _reject_decision(
+        self,
+        *,
+        reason: str,
+        detail: str,
+        job_id: str | None,
+        request_id: str | None,
+    ) -> DecisionRejectedResponse:
+        return DecisionRejectedResponse(
+            rejected=True,
+            reason=reason,
+            detail=detail,
+            job_id=job_id,
+            request_id=request_id,
+        )
+
+    def decide(
+        self,
+        *,
+        job_id: str,
+        request_id: str,
+        decision: DecisionAction | str,
+        answers: dict[str, tuple[str, ...]] | None = None,
+    ) -> DelegationDecisionResult | DecisionRejectedResponse:
+        if decision not in ("approve", "deny"):
+            return self._reject_decision(
+                reason="invalid_decision",
+                detail=(
+                    "Delegation decide failed: invalid decision. "
+                    f"Got: {decision!r:.100}"
+                ),
+                job_id=job_id,
+                request_id=request_id,
+            )
+        job = self._job_store.get(job_id)
+        if job is None:
+            return self._reject_decision(
+                reason="job_not_found",
+                detail=f"Delegation decide failed: job not found. Got: {job_id!r:.100}",
+                job_id=job_id,
+                request_id=request_id,
+            )
+        if job.status != "needs_escalation":
+            return self._reject_decision(
+                reason="job_not_awaiting_decision",
+                detail=(
+                    "Delegation decide failed: job not awaiting decision. "
+                    f"Got: status={job.status!r:.100}"
+                ),
+                job_id=job_id,
+                request_id=request_id,
+            )
+
+        request = self._pending_request_store.get(request_id)
+        if request is None:
+            return self._reject_decision(
+                reason="request_not_found",
+                detail=(
+                    "Delegation decide failed: request not found. "
+                    f"Got: {request_id!r:.100}"
+                ),
+                job_id=job_id,
+                request_id=request_id,
+            )
+        if request.collaboration_id != job.collaboration_id:
+            return self._reject_decision(
+                reason="request_job_mismatch",
+                detail=(
+                    "Delegation decide failed: request does not belong to job. "
+                    f"Got: request_id={request_id!r:.100}"
+                ),
+                job_id=job_id,
+                request_id=request_id,
+            )
+        if decision == "deny" and answers:
+            return self._reject_decision(
+                reason="answers_not_allowed",
+                detail="Delegation decide failed: deny does not accept answers. Got: 'answers'",
+                job_id=job_id,
+                request_id=request_id,
+            )
+        if request.kind == "request_user_input" and decision == "approve" and not answers:
+            return self._reject_decision(
+                reason="answers_required",
+                detail=(
+                    "Delegation decide failed: request_user_input approval requires answers. "
+                    f"Got: {request_id!r:.100}"
+                ),
+                job_id=job_id,
+                request_id=request_id,
+            )
+        if request.kind != "request_user_input" and answers:
+            return self._reject_decision(
+                reason="answers_not_allowed",
+                detail=(
+                    "Delegation decide failed: answers are only valid for request_user_input. "
+                    f"Got: kind={request.kind!r:.100}"
+                ),
+                job_id=job_id,
+                request_id=request_id,
+            )
+
+        handle = self._lineage_store.get(job.collaboration_id)
+        entry = self._runtime_registry.lookup(job.runtime_id)
+        if handle is None or entry is None:
+            return self._reject_decision(
+                reason="runtime_unavailable",
+                detail=(
+                    "Delegation decide failed: runtime unavailable for same-session decision. "
+                    f"Got: runtime_id={job.runtime_id!r:.100}"
+                ),
+                job_id=job_id,
+                request_id=request_id,
+            )
+
+        idempotency_key = f"{request_id}:{decision}"
+        created_at = self._journal.timestamp()
+        self._journal.write_phase(
+            OperationJournalEntry(
+                idempotency_key=idempotency_key,
+                operation="approval_resolution",
+                phase="intent",
+                collaboration_id=job.collaboration_id,
+                created_at=created_at,
+                repo_root=handle.repo_root,
+                job_id=job_id,
+                request_id=request_id,
+                decision=decision,
+            ),
+            session_id=self._session_id,
+        )
+        self._journal.append_audit_event(
+            AuditEvent(
+                event_id=self._uuid_factory(),
+                timestamp=self._journal.timestamp(),
+                actor="claude",
+                action="approve",
+                collaboration_id=job.collaboration_id,
+                runtime_id=job.runtime_id,
+                job_id=job_id,
+                request_id=request_id,
+                decision=decision,
+            )
+        )
+        self._journal.write_phase(
+            OperationJournalEntry(
+                idempotency_key=idempotency_key,
+                operation="approval_resolution",
+                phase="dispatched",
+                collaboration_id=job.collaboration_id,
+                created_at=created_at,
+                repo_root=handle.repo_root,
+                codex_thread_id=handle.codex_thread_id,
+                runtime_id=job.runtime_id,
+                job_id=job_id,
+                request_id=request_id,
+                decision=decision,
+            ),
+            session_id=self._session_id,
+        )
+
+        if decision == "deny":
+            self._job_store.update_status(job_id, "failed")
+            self._lineage_store.update_status(job.collaboration_id, "completed")
+            self._runtime_registry.release(job.runtime_id)
+            entry.session.close()
+            updated_job = self._job_store.get(job_id)
+            assert updated_job is not None
+            self._journal.write_phase(
+                OperationJournalEntry(
+                    idempotency_key=idempotency_key,
+                    operation="approval_resolution",
+                    phase="completed",
+                    collaboration_id=job.collaboration_id,
+                    created_at=created_at,
+                    repo_root=handle.repo_root,
+                    job_id=job_id,
+                    request_id=request_id,
+                    decision=decision,
+                ),
+                session_id=self._session_id,
+            )
+            return DelegationDecisionResult(
+                job=updated_job,
+                decision="deny",
+                resumed=False,
+            )
+
+        prompt_text = build_execution_resume_turn_text(
+            pending_request=request,
+            answers=answers,
+        )
+        try:
+            follow_up = self._execute_live_turn(
+                job_id=job_id,
+                collaboration_id=job.collaboration_id,
+                runtime_id=job.runtime_id,
+                worktree_path=Path(job.worktree_path),
+                prompt_text=prompt_text,
+            )
+        except Exception as exc:
+            raise CommittedDecisionFinalizationError(
+                "Delegation decide committed but local finalization failed: "
+                f"{exc}. Blind retry may duplicate follow-up execution."
+            ) from exc
+
+        self._journal.write_phase(
+            OperationJournalEntry(
+                idempotency_key=idempotency_key,
+                operation="approval_resolution",
+                phase="completed",
+                collaboration_id=job.collaboration_id,
+                created_at=created_at,
+                repo_root=handle.repo_root,
+                job_id=job_id,
+                request_id=request_id,
+                decision=decision,
+            ),
+            session_id=self._session_id,
+        )
+        if isinstance(follow_up, DelegationEscalation):
+            return DelegationDecisionResult(
+                job=follow_up.job,
+                decision="approve",
+                resumed=True,
+                pending_request=follow_up.pending_request,
+                agent_context=follow_up.agent_context,
+            )
+        return DelegationDecisionResult(
+            job=follow_up,
+            decision="approve",
+            resumed=True,
+        )
 
     def recover_startup(self) -> None:
         """Consume unresolved job_creation journal records into durable terminal state.
