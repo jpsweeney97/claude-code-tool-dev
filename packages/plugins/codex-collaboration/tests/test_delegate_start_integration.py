@@ -824,6 +824,7 @@ def test_delegate_poll_needs_escalation_returns_projected_request(
     poll_payload = json.loads(poll_response["result"]["content"][0]["text"])
 
     assert poll_payload["pending_escalation"]["request_id"] == "42"
+    assert poll_payload["pending_escalation"]["available_decisions"] == ["approve", "deny"]
     # codex_thread_id must NOT be in the response (PendingEscalationView strips it).
     assert "codex_thread_id" not in json.dumps(poll_payload["pending_escalation"])
 

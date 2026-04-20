@@ -2294,6 +2294,7 @@ def test_poll_needs_escalation_projects_pending_request_without_raw_ids(
     assert isinstance(polled, DelegationPollResult)
     assert polled.pending_escalation is not None
     assert polled.pending_escalation.request_id == "42"
+    assert polled.pending_escalation.available_decisions == ("approve", "deny")
     assert not hasattr(polled.pending_escalation, "codex_thread_id")
 
 

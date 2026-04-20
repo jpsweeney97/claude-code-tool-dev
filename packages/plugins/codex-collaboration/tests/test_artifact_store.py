@@ -138,10 +138,15 @@ def test_materialize_completed_snapshot_hash_matches_spec_recipe(
 
     snapshot = store.materialize_snapshot(job=job)
 
-    # Independently compute expected hash
+    # Independently compute expected hash using spec-required sorted order.
+    # artifact_paths is in insertion order; the hash must sort by relative path.
     inspection_dir = plugin_data / "runtimes" / "delegation" / job.job_id / "inspection"
+    sorted_paths = sorted(
+        snapshot.artifact_paths,
+        key=lambda p: Path(p).relative_to(inspection_dir).as_posix(),
+    )
     expected_sha = hashlib.sha256()
-    for artifact_path_str in snapshot.artifact_paths:
+    for artifact_path_str in sorted_paths:
         path = Path(artifact_path_str)
         relative = path.relative_to(inspection_dir).as_posix().encode("utf-8")
         expected_sha.update(relative)
@@ -196,3 +201,25 @@ def test_missing_test_results_file_produces_deterministic_stub(
 
     assert record["status"] == "not_recorded"
     assert record["source_path"] == ".codex-collaboration/test-results.json"
+
+
+def test_load_snapshot_returns_none_for_corrupt_json(tmp_path: Path) -> None:
+    """Truncated or corrupt snapshot.json must not prevent rematerialization."""
+    plugin_data = tmp_path / "plugin-data"
+    store = ArtifactStore(plugin_data, timestamp_factory=lambda: "2026-04-20T04:00:00Z")
+    job = DelegationJob(
+        job_id="job-corrupt",
+        runtime_id="rt-1",
+        collaboration_id="collab-1",
+        base_commit="abc",
+        worktree_path="/tmp/wk",
+        promotion_state="pending",
+        status="completed",
+    )
+    # Write a truncated snapshot.json
+    inspection_dir = plugin_data / "runtimes" / "delegation" / "job-corrupt" / "inspection"
+    inspection_dir.mkdir(parents=True)
+    (inspection_dir / "snapshot.json").write_text('{"artifact_hash": "abc', encoding="utf-8")
+
+    result = store.load_snapshot(job=job)
+    assert result is None

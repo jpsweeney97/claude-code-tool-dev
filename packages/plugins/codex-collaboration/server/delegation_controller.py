@@ -761,6 +761,9 @@ class DelegationController:
         )
         return updated
 
+    # Plugin-level decisions exposed by codex.delegate.decide.
+    _PLUGIN_DECISIONS: tuple[str, ...] = ("approve", "deny")
+
     def _project_pending_escalation(
         self, collaboration_id: str
     ) -> PendingEscalationView | None:
@@ -772,7 +775,7 @@ class DelegationController:
             request_id=request.request_id,
             kind=request.kind,
             requested_scope=request.requested_scope,
-            available_decisions=request.available_decisions,
+            available_decisions=self._PLUGIN_DECISIONS,
         )
 
     def _load_or_materialize_inspection(

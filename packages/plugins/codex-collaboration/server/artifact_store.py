@@ -86,17 +86,24 @@ class ArtifactStore:
         return snapshot
 
     def load_snapshot(self, *, job: DelegationJob) -> ArtifactInspectionSnapshot | None:
-        """Load a previously materialized snapshot from disk."""
+        """Load a previously materialized snapshot from disk.
+
+        Returns None if the snapshot file is missing or corrupt, so the
+        caller falls through to rematerialization.
+        """
         snapshot_path = self._inspection_dir(job.job_id) / "snapshot.json"
         if not snapshot_path.exists():
             return None
-        payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
-        return ArtifactInspectionSnapshot(
-            artifact_hash=payload["artifact_hash"],
-            artifact_paths=tuple(payload["artifact_paths"]),
-            changed_files=tuple(payload["changed_files"]),
-            reviewed_at=payload["reviewed_at"],
-        )
+        try:
+            payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+            return ArtifactInspectionSnapshot(
+                artifact_hash=payload["artifact_hash"],
+                artifact_paths=tuple(payload["artifact_paths"]),
+                changed_files=tuple(payload["changed_files"]),
+                reviewed_at=payload["reviewed_at"],
+            )
+        except (json.JSONDecodeError, KeyError, TypeError):
+            return None
 
     def _inspection_dir(self, job_id: str) -> Path:
         return self._plugin_data_path / "runtimes" / "delegation" / job_id / "inspection"
@@ -180,7 +187,8 @@ class ArtifactStore:
 
     def _review_hash(self, inspection_dir: Path, artifact_paths: tuple[str, ...]) -> str:
         sha = hashlib.sha256()
-        for artifact_path in artifact_paths:
+        sorted_paths = sorted(artifact_paths, key=lambda p: Path(p).relative_to(inspection_dir).as_posix())
+        for artifact_path in sorted_paths:
             path = Path(artifact_path)
             relative_path = path.relative_to(inspection_dir).as_posix().encode("utf-8")
             sha.update(relative_path)
