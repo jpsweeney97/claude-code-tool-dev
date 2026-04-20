@@ -2239,11 +2239,11 @@ def test_decide_approve_post_turn_journal_failure_raises_committed_decision_fina
             decision="approve",
         )
 
-    # The turn completed successfully — the job status should reflect the
-    # committed turn outcome, not be stuck at needs_escalation.
+    # The turn completed successfully — the job status must be "completed",
+    # not degraded to "unknown" (recovery state) or stuck at "needs_escalation".
     job = job_store.get("job-1")
     assert job is not None
-    assert job.status in ("completed", "unknown")
+    assert job.status == "completed"
 
 
 def test_decide_deny_post_commit_failure_raises_committed_decision_finalization_error(
