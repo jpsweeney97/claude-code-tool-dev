@@ -1196,3 +1196,57 @@ def test_handle_tools_call_delegate_decide() -> None:
         "decision": "approve",
         "answers": {"q1": ("yes",)},
     }
+
+
+def _decide_with_answers(answers: object) -> dict[str, object]:
+    """Helper: send a codex.delegate.decide call with the given answers payload."""
+    controller = FakeDelegationControllerWithDecide()
+    server = McpServer(
+        control_plane=FakeControlPlane(),
+        delegation_controller=controller,
+    )
+    server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "clientInfo": {"name": "test"},
+            },
+        }
+    )
+    return server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "codex.delegate.decide",
+                "arguments": {
+                    "job_id": "job-1",
+                    "request_id": "req-1",
+                    "decision": "approve",
+                    "answers": answers,
+                },
+            },
+        }
+    )
+
+
+def test_decide_rejects_non_dict_answers() -> None:
+    response = _decide_with_answers(["not", "a", "dict"])
+    assert response["result"]["isError"] is True
+    assert "must be an object" in response["result"]["content"][0]["text"]
+
+
+def test_decide_rejects_malformed_answer_entry() -> None:
+    response = _decide_with_answers({"q1": "not-an-entry-dict"})
+    assert response["result"]["isError"] is True
+    assert 'must have shape' in response["result"]["content"][0]["text"]
+
+
+def test_decide_rejects_non_string_answer_values() -> None:
+    response = _decide_with_answers({"q1": {"answers": [123, True]}})
+    assert response["result"]["isError"] is True
+    assert "must be strings" in response["result"]["content"][0]["text"]

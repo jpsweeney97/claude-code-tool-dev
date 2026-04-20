@@ -2195,6 +2195,57 @@ def test_decide_rejects_stale_request_id_after_reescalation(tmp_path: Path) -> N
     assert result.reason == "request_already_decided"
 
 
+def test_decide_approve_post_turn_journal_failure_raises_committed_decision_finalization_error(
+    tmp_path: Path,
+) -> None:
+    """If the approve turn succeeds but the post-turn journal write_phase fails,
+    CommittedDecisionFinalizationError is raised with the turn result already
+    committed (job status reflects the turn outcome, not a rollback)."""
+    from server.delegation_controller import CommittedDecisionFinalizationError
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, job_store, lineage, journal, registry, _prs = (
+        _build_controller(tmp_path)
+    )
+    control_plane._next_session_requests = [_command_approval_request()]
+    start_result = controller.start(repo_root=repo_root, objective="Fix it")
+    assert isinstance(start_result, DelegationEscalation)
+
+    # Clear session requests so the follow-up turn completes cleanly
+    # (no re-escalation). The follow-up turn is what approve triggers.
+    session = control_plane._sessions[0]
+    session._server_requests = []
+
+    # The approve path calls write_phase three times: intent, dispatched,
+    # then completed. Make the third call (post-turn completed) fail.
+    original_write_phase = journal.write_phase
+    write_phase_count = 0
+
+    def _exploding_third_write_phase(*args: object, **kwargs: object) -> None:
+        nonlocal write_phase_count
+        write_phase_count += 1
+        if write_phase_count >= 3:
+            raise OSError("disk full on completed phase")
+        original_write_phase(*args, **kwargs)  # type: ignore[arg-type]
+
+    journal.write_phase = _exploding_third_write_phase  # type: ignore[assignment]
+
+    with pytest.raises(CommittedDecisionFinalizationError, match="committed"):
+        controller.decide(
+            job_id="job-1",
+            request_id="42",
+            decision="approve",
+        )
+
+    # The turn completed successfully — the job status should reflect the
+    # committed turn outcome, not be stuck at needs_escalation.
+    job = job_store.get("job-1")
+    assert job is not None
+    assert job.status in ("completed", "unknown")
+
+
 def test_decide_deny_post_commit_failure_raises_committed_decision_finalization_error(
     tmp_path: Path,
 ) -> None:
