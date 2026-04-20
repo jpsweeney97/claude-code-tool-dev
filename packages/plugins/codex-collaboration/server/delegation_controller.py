@@ -535,38 +535,45 @@ class DelegationController:
         # The first execution turn is intentionally unjournaled (see module
         # docstring). Crash recovery for the first-turn window uses orphaned-
         # running-job detection in recover_startup().
-        #
-        # Failure semantics: the entire turn-dispatch + post-turn-finalization
-        # block is wrapped so that any exception (from run_execution_turn,
-        # post-turn status writes, audit emission, etc.) best-effort marks
-        # the job "unknown", releases the runtime, and closes the session.
-        # Without this guard, an exception would leave the job stuck
-        # "running", the runtime registered, and the session open —
-        # identical to the committed-start finalization gap the existing
-        # try/except above prevents.
         # ------------------------------------------------------------------
-        self._job_store.update_status(job_id, "running")
-
-        sandbox_policy = build_workspace_write_sandbox_policy(worktree_path)
         prompt_text = build_execution_turn_text(
             objective=objective,
             worktree_path=str(worktree_path),
         )
+        return self._execute_live_turn(
+            job_id=job_id,
+            collaboration_id=collaboration_id,
+            runtime_id=runtime_id,
+            worktree_path=worktree_path,
+            prompt_text=prompt_text,
+        )
 
-        # Capture state — shared with the handler closure via nonlocal.
+    def _execute_live_turn(
+        self,
+        *,
+        job_id: str,
+        collaboration_id: str,
+        runtime_id: str,
+        worktree_path: Path,
+        prompt_text: str,
+    ) -> DelegationJob | DelegationEscalation:
+        self._job_store.update_status(job_id, "running")
+
         captured_request: PendingServerRequest | None = None
-        interrupted_by_unknown: bool = False
-        captured_request_parse_failed: bool = False
-
+        interrupted_by_unknown = False
+        captured_request_parse_failed = False
         _CANCEL_CAPABLE_KINDS = frozenset({"command_approval", "file_change"})
         _KNOWN_DENIAL_KINDS = frozenset({"request_user_input"})
+        entry = self._runtime_registry.lookup(runtime_id)
+        assert entry is not None, (
+            f"ExecutionRuntimeRegistry invariant violation: runtime_id={runtime_id!r} "
+            "not found during live turn execution"
+        )
 
         def _server_request_handler(
             message: dict[str, Any],
         ) -> dict[str, Any] | None:
             nonlocal captured_request, interrupted_by_unknown, captured_request_parse_failed
-
-            # --- Parse the wire message ---
             try:
                 parsed = parse_pending_server_request(
                     message,
@@ -574,7 +581,6 @@ class DelegationController:
                     collaboration_id=collaboration_id,
                 )
             except Exception:
-                # Parse failure: create a minimal causal record (D4 carve-out).
                 logger.warning(
                     "Server request parse failed; creating minimal causal record "
                     "(D4 carve-out). Wire id=%r, method=%r",
@@ -604,16 +610,15 @@ class DelegationController:
                 entry = self._runtime_registry.lookup(runtime_id)
                 if entry is not None:
                     entry.session.interrupt_turn(
-                        thread_id=entry.thread_id, turn_id=None
+                        thread_id=entry.thread_id,
+                        turn_id=None,
                     )
                 return None
 
-            # --- Strategy selection by kind ---
             if (
                 parsed.kind not in _CANCEL_CAPABLE_KINDS
                 and parsed.kind not in _KNOWN_DENIAL_KINDS
             ):
-                # Unknown kind — store and interrupt.
                 if captured_request is None:
                     self._pending_request_store.create(parsed)
                     captured_request = parsed
@@ -621,65 +626,36 @@ class DelegationController:
                 entry = self._runtime_registry.lookup(runtime_id)
                 if entry is not None:
                     entry.session.interrupt_turn(
-                        thread_id=entry.thread_id, turn_id=None
+                        thread_id=entry.thread_id,
+                        turn_id=None,
                     )
                 return None
 
-            # Known kind — store if first, then respond inline.
             if captured_request is None:
                 self._pending_request_store.create(parsed)
                 captured_request = parsed
 
             if parsed.kind in _CANCEL_CAPABLE_KINDS:
                 return {"decision": "cancel"}
-            # No-cancel known kinds: respond with empty answers.
             return {"answers": {}}
-
-        # --- Execute the turn ---
-        entry = self._runtime_registry.lookup(runtime_id)
-        assert entry is not None, (
-            f"ExecutionRuntimeRegistry invariant violation: "
-            f"runtime_id={runtime_id!r} was just registered but "
-            f"lookup() returned None"
-        )
 
         try:
             turn_result = entry.session.run_execution_turn(
                 thread_id=entry.thread_id,
                 prompt_text=prompt_text,
-                sandbox_policy=sandbox_policy,
+                sandbox_policy=build_workspace_write_sandbox_policy(worktree_path),
                 approval_policy=self._approval_policy,
                 server_request_handler=_server_request_handler,
             )
         except Exception:
-            # Turn dispatch failure: the job is "running" but the turn
-            # never completed. Mark unknown, release, close, re-raise.
-            try:
-                self._job_store.update_status(job_id, "unknown")
-            except Exception:
-                logger.error(
-                    "Turn dispatch cleanup: failed to mark job %r as unknown",
-                    job_id, exc_info=True,
-                )
-            try:
-                self._runtime_registry.release(runtime_id)
-            except Exception:
-                logger.error(
-                    "Turn dispatch cleanup: failed to release runtime %r",
-                    runtime_id, exc_info=True,
-                )
-            try:
-                entry.session.close()
-            except Exception:
-                logger.error(
-                    "Turn dispatch cleanup: failed to close session for runtime %r",
-                    runtime_id, exc_info=True,
-                )
+            self._mark_execution_unknown_and_cleanup(
+                job_id=job_id,
+                collaboration_id=collaboration_id,
+                runtime_id=runtime_id,
+                entry=entry,
+            )
             raise
 
-        # --- Post-turn processing ---
-        # Wrapped so that any local-write failure (status, audit, store)
-        # still cleans up the runtime and marks the job terminal.
         try:
             return self._finalize_turn(
                 job_id=job_id,
@@ -692,28 +668,54 @@ class DelegationController:
                 captured_request_parse_failed=captured_request_parse_failed,
             )
         except Exception:
-            try:
-                self._job_store.update_status(job_id, "unknown")
-            except Exception:
-                logger.error(
-                    "Finalization cleanup: failed to mark job %r as unknown",
-                    job_id, exc_info=True,
-                )
-            try:
-                self._runtime_registry.release(runtime_id)
-            except Exception:
-                logger.error(
-                    "Finalization cleanup: failed to release runtime %r",
-                    runtime_id, exc_info=True,
-                )
-            try:
-                entry.session.close()
-            except Exception:
-                logger.error(
-                    "Finalization cleanup: failed to close session for runtime %r",
-                    runtime_id, exc_info=True,
-                )
+            self._mark_execution_unknown_and_cleanup(
+                job_id=job_id,
+                collaboration_id=collaboration_id,
+                runtime_id=runtime_id,
+                entry=entry,
+            )
             raise
+
+    def _mark_execution_unknown_and_cleanup(
+        self,
+        *,
+        job_id: str,
+        collaboration_id: str,
+        runtime_id: str,
+        entry: ExecutionRuntimeEntry,
+    ) -> None:
+        try:
+            self._job_store.update_status(job_id, "unknown")
+        except Exception:
+            logger.error(
+                "Execution cleanup: failed to mark job %r unknown",
+                job_id,
+                exc_info=True,
+            )
+        try:
+            self._lineage_store.update_status(collaboration_id, "unknown")
+        except Exception:
+            logger.error(
+                "Execution cleanup: failed to mark handle %r unknown",
+                collaboration_id,
+                exc_info=True,
+            )
+        try:
+            self._runtime_registry.release(runtime_id)
+        except Exception:
+            logger.error(
+                "Execution cleanup: failed to release runtime %r",
+                runtime_id,
+                exc_info=True,
+            )
+        try:
+            entry.session.close()
+        except Exception:
+            logger.error(
+                "Execution cleanup: failed to close runtime %r",
+                runtime_id,
+                exc_info=True,
+            )
 
     def _finalize_turn(
         self,
@@ -791,7 +793,8 @@ class DelegationController:
                     agent_context=turn_result.agent_message or None,
                 )
 
-            # Non-escalation: release + close and return plain job.
+            # Non-escalation: mark handle completed, release + close and return plain job.
+            self._lineage_store.update_status(collaboration_id, "completed")
             self._runtime_registry.release(runtime_id)
             entry.session.close()
             return updated_job
@@ -805,6 +808,7 @@ class DelegationController:
             final_status = "unknown"
 
         self._job_store.update_status(job_id, final_status)
+        self._lineage_store.update_status(collaboration_id, "completed")
         self._runtime_registry.release(runtime_id)
         entry.session.close()
 

@@ -79,6 +79,7 @@ class _FakeSession:
         """Simulate run_execution_turn by dispatching fake server requests."""
         if self._raise_on_turn is not None:
             raise self._raise_on_turn
+        self._interrupted = False
         for req in self._server_requests:
             if server_request_handler is not None:
                 server_request_handler(req)
@@ -169,18 +170,18 @@ def _build_controller(
     control_plane = _FakeControlPlane()
     worktree_manager = _FakeWorktreeManager()
     registry = ExecutionRuntimeRegistry()
-    # Enough IDs for: job, collab, delegate_start audit event,
-    # escalation audit event (or second job/collab/evt set).
     uuid_counter = iter(
         [
             "job-1",
             "collab-1",
-            "evt-1",
-            "esc-evt-1",
+            "delegate-start-evt-1",
+            "escalation-evt-1",
+            "decision-evt-1",
+            "re-escalation-evt-1",
             "job-2",
             "collab-2",
-            "evt-2",
-            "esc-evt-2",
+            "delegate-start-evt-2",
+            "escalation-evt-2",
         ]
     )
     controller = DelegationController(
@@ -260,7 +261,9 @@ def test_start_persists_execution_collaboration_handle(tmp_path: Path) -> None:
     assert handle.runtime_id == "rt-1"
     assert handle.codex_thread_id == "thr-1"
     assert handle.claude_session_id == "sess-1"
-    assert handle.status == "active"
+    # Terminal completion: handle transitions to "completed" when the job
+    # completes without escalation.
+    assert handle.status == "completed"
 
 
 def test_start_writes_three_phase_journal_records(tmp_path: Path) -> None:
@@ -1498,3 +1501,34 @@ def test_later_parse_failure_does_not_prevent_captured_request_resolution(
 
     # Runtime kept live for escalation.
     assert registry.lookup("rt-1") is not None
+
+
+def test_start_completed_job_marks_execution_handle_completed(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, _cp, _wm, _js, lineage, _j, _r, _prs = _build_controller(tmp_path)
+
+    result = controller.start(repo_root=repo_root, objective="Finish cleanly")
+
+    assert isinstance(result, DelegationJob)
+    handle = lineage.get("collab-1")
+    assert handle is not None
+    assert handle.status == "completed"
+
+
+def test_start_escalation_keeps_execution_handle_active(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, lineage, _j, _r, _prs = _build_controller(
+        tmp_path
+    )
+    control_plane._next_session_requests = [_command_approval_request()]
+
+    result = controller.start(repo_root=repo_root, objective="Need approval")
+
+    assert isinstance(result, DelegationEscalation)
+    handle = lineage.get("collab-1")
+    assert handle is not None
+    assert handle.status == "active"
