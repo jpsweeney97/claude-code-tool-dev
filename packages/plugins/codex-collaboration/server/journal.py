@@ -32,7 +32,9 @@ def default_plugin_data_path() -> Path:
     return Path("/tmp/codex-collaboration").resolve()
 
 
-_VALID_OPERATIONS = frozenset(("thread_creation", "turn_dispatch", "job_creation"))
+_VALID_OPERATIONS = frozenset(
+    ("thread_creation", "turn_dispatch", "job_creation", "approval_resolution")
+)
 _VALID_PHASES = frozenset(("intent", "dispatched", "completed"))
 _JOURNAL_REQUIRED_STR = (
     "idempotency_key",
@@ -42,7 +44,7 @@ _JOURNAL_REQUIRED_STR = (
     "created_at",
     "repo_root",
 )
-_JOURNAL_OPTIONAL_STR = ("codex_thread_id", "runtime_id", "job_id")
+_JOURNAL_OPTIONAL_STR = ("codex_thread_id", "runtime_id", "job_id", "request_id", "decision")
 _JOURNAL_OPTIONAL_INT = ("turn_sequence", "context_size")
 
 
@@ -110,6 +112,40 @@ def _journal_callback(
             raise SchemaViolation(
                 "job_creation at dispatched requires codex_thread_id (string)"
             )
+    elif op == "approval_resolution" and phase == "intent":
+        if not isinstance(record.get("job_id"), str):
+            raise SchemaViolation(
+                "approval_resolution at intent requires job_id (string)"
+            )
+        if not isinstance(record.get("request_id"), str):
+            raise SchemaViolation(
+                "approval_resolution at intent requires request_id (string)"
+            )
+        if not isinstance(record.get("decision"), str):
+            raise SchemaViolation(
+                "approval_resolution at intent requires decision (string)"
+            )
+    elif op == "approval_resolution" and phase == "dispatched":
+        if not isinstance(record.get("job_id"), str):
+            raise SchemaViolation(
+                "approval_resolution at dispatched requires job_id (string)"
+            )
+        if not isinstance(record.get("request_id"), str):
+            raise SchemaViolation(
+                "approval_resolution at dispatched requires request_id (string)"
+            )
+        if not isinstance(record.get("decision"), str):
+            raise SchemaViolation(
+                "approval_resolution at dispatched requires decision (string)"
+            )
+        if not isinstance(record.get("runtime_id"), str):
+            raise SchemaViolation(
+                "approval_resolution at dispatched requires runtime_id (string)"
+            )
+        if not isinstance(record.get("codex_thread_id"), str):
+            raise SchemaViolation(
+                "approval_resolution at dispatched requires codex_thread_id (string)"
+            )
     # Compatibility decision: runtime_id on turn_dispatch is NOT required.
     # Missing runtime_id suppresses audit event emission (dialogue.py:592,689)
     # but does not crash recovery. Requiring it would reject records from
@@ -127,6 +163,8 @@ def _journal_callback(
         runtime_id=record.get("runtime_id"),
         context_size=record.get("context_size"),
         job_id=record.get("job_id"),
+        request_id=record.get("request_id"),
+        decision=record.get("decision"),
     )
     return (entry.idempotency_key, entry)
 

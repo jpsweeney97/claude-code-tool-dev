@@ -119,6 +119,35 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "required": ["repo_root", "objective"],
         },
     },
+    {
+        "name": "codex.delegate.decide",
+        "description": "Resolve a live same-session delegation escalation.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string"},
+                "request_id": {"type": "string"},
+                "decision": {
+                    "type": "string",
+                    "enum": ["approve", "deny"],
+                },
+                "answers": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "object",
+                        "properties": {
+                            "answers": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            }
+                        },
+                        "required": ["answers"],
+                    },
+                },
+            },
+            "required": ["job_id", "request_id", "decision"],
+        },
+    },
 ]
 
 
@@ -343,6 +372,63 @@ class McpServer:
                     "agent_context": result.agent_context,
                     "escalated": True,
                 }
+            return asdict(result)
+        if name == "codex.delegate.decide":
+            from .models import DelegationDecisionResult
+
+            controller = self._ensure_delegation_controller()
+            raw_answers = arguments.get("answers")
+            answers = None
+            if raw_answers is not None:
+                if not isinstance(raw_answers, dict):
+                    raise ValueError(
+                        f"codex.delegate.decide validation failed: 'answers' must be "
+                        f"an object. Got: {type(raw_answers).__name__!r:.100}"
+                    )
+                normalized: dict[str, tuple[str, ...]] = {}
+                for key, value in raw_answers.items():
+                    if not isinstance(key, str):
+                        raise ValueError(
+                            f"codex.delegate.decide validation failed: answer key must "
+                            f"be a string. Got: {type(key).__name__!r:.100}"
+                        )
+                    if not isinstance(value, dict) or not isinstance(
+                        value.get("answers"), list
+                    ):
+                        raise ValueError(
+                            f"codex.delegate.decide validation failed: answer entry "
+                            f"{key!r:.100} must have shape "
+                            '{"answers": ["..."]}. '
+                            f"Got: {type(value).__name__!r:.100}"
+                        )
+                    raw_list = value["answers"]
+                    for item in raw_list:
+                        if not isinstance(item, str):
+                            raise ValueError(
+                                f"codex.delegate.decide validation failed: answer "
+                                f"values for {key!r:.100} must be strings. "
+                                f"Got: {type(item).__name__!r:.100}"
+                            )
+                    normalized[key] = tuple(raw_list)
+                answers = normalized
+
+            result = controller.decide(
+                job_id=arguments["job_id"],
+                request_id=arguments["request_id"],
+                decision=arguments["decision"],
+                answers=answers,
+            )
+            if isinstance(result, DelegationDecisionResult):
+                payload = {
+                    "job": asdict(result.job),
+                    "decision": result.decision,
+                    "resumed": result.resumed,
+                }
+                if result.pending_request is not None:
+                    payload["pending_request"] = asdict(result.pending_request)
+                if result.agent_context is not None:
+                    payload["agent_context"] = result.agent_context
+                return payload
             return asdict(result)
         raise ValueError(f"Unknown tool: {name!r:.100}")
 

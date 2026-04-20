@@ -1030,3 +1030,106 @@ class TestDelegationRecoveryWiring:
         # Idempotent — second startup call is a no-op.
         server.startup()
         assert controller.recover_startup_calls == 1
+
+
+class FakeDelegationControllerWithDecide:
+    def __init__(self) -> None:
+        self.startup_called = False
+        self.last_decide_args: dict[str, object] | None = None
+
+    def recover_startup(self) -> None:
+        self.startup_called = True
+
+    def start(self, **kwargs: object) -> object:
+        from server.models import DelegationJob
+
+        return DelegationJob(
+            job_id="job-1",
+            runtime_id="rt-1",
+            collaboration_id="collab-1",
+            base_commit="abc123",
+            worktree_path="/tmp/wk",
+            promotion_state="pending",
+            status="completed",
+        )
+
+    def decide(
+        self,
+        *,
+        job_id: str,
+        request_id: str,
+        decision: str,
+        answers: dict[str, tuple[str, ...]] | None = None,
+    ) -> object:
+        from server.models import DelegationDecisionResult, DelegationJob
+
+        self.last_decide_args = {
+            "job_id": job_id,
+            "request_id": request_id,
+            "decision": decision,
+            "answers": answers,
+        }
+        return DelegationDecisionResult(
+            job=DelegationJob(
+                job_id=job_id,
+                runtime_id="rt-1",
+                collaboration_id="collab-1",
+                base_commit="abc123",
+                worktree_path="/tmp/wk",
+                promotion_state="pending",
+                status="completed",
+            ),
+            decision=decision,
+            resumed=(decision == "approve"),
+        )
+
+
+def test_delegate_decide_tool_registered() -> None:
+    tool_names = {t["name"] for t in TOOL_DEFINITIONS}
+    assert "codex.delegate.decide" in tool_names
+
+
+def test_handle_tools_call_delegate_decide() -> None:
+    controller = FakeDelegationControllerWithDecide()
+    server = McpServer(
+        control_plane=FakeControlPlane(),
+        delegation_controller=controller,
+    )
+    server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "clientInfo": {"name": "test"},
+            },
+        }
+    )
+
+    response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "codex.delegate.decide",
+                "arguments": {
+                    "job_id": "job-1",
+                    "request_id": "req-1",
+                    "decision": "approve",
+                    "answers": {"q1": {"answers": ["yes"]}},
+                },
+            },
+        }
+    )
+
+    payload = json.loads(response["result"]["content"][0]["text"])
+    assert payload["decision"] == "approve"
+    assert payload["resumed"] is True
+    assert controller.last_decide_args == {
+        "job_id": "job-1",
+        "request_id": "req-1",
+        "decision": "approve",
+        "answers": {"q1": ("yes",)},
+    }

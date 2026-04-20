@@ -47,10 +47,16 @@ DIALOGUE_REPLY_POLICY = ToolScanPolicy(
     # No profile (stored on handle), no repo_root.
 )
 
+DELEGATE_DECIDE_POLICY = ToolScanPolicy(
+    expected_fields=frozenset({"job_id", "request_id", "decision"}),
+    content_fields=frozenset({"answers"}),
+)
+
 _TOOL_POLICY_MAP: dict[str, ToolScanPolicy] = {
     "mcp__plugin_codex-collaboration_codex-collaboration__codex.consult": CONSULT_POLICY,
     "mcp__plugin_codex-collaboration_codex-collaboration__codex.dialogue.start": DIALOGUE_START_POLICY,
     "mcp__plugin_codex-collaboration_codex-collaboration__codex.dialogue.reply": DIALOGUE_REPLY_POLICY,
+    "mcp__plugin_codex-collaboration_codex-collaboration__codex.delegate.decide": DELEGATE_DECIDE_POLICY,
 }
 
 

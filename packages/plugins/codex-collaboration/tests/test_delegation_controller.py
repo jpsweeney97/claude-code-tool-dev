@@ -25,6 +25,7 @@ from server.models import (
     DelegationJob,
     JobBusyResponse,
     OperationJournalEntry,
+    PendingServerRequest,
     RuntimeHandshake,
     TurnExecutionResult,
 )
@@ -79,6 +80,7 @@ class _FakeSession:
         """Simulate run_execution_turn by dispatching fake server requests."""
         if self._raise_on_turn is not None:
             raise self._raise_on_turn
+        self._interrupted = False
         for req in self._server_requests:
             if server_request_handler is not None:
                 server_request_handler(req)
@@ -169,18 +171,18 @@ def _build_controller(
     control_plane = _FakeControlPlane()
     worktree_manager = _FakeWorktreeManager()
     registry = ExecutionRuntimeRegistry()
-    # Enough IDs for: job, collab, delegate_start audit event,
-    # escalation audit event (or second job/collab/evt set).
     uuid_counter = iter(
         [
             "job-1",
             "collab-1",
-            "evt-1",
-            "esc-evt-1",
+            "delegate-start-evt-1",
+            "escalation-evt-1",
+            "decision-evt-1",
+            "re-escalation-evt-1",
             "job-2",
             "collab-2",
-            "evt-2",
-            "esc-evt-2",
+            "delegate-start-evt-2",
+            "escalation-evt-2",
         ]
     )
     controller = DelegationController(
@@ -260,7 +262,9 @@ def test_start_persists_execution_collaboration_handle(tmp_path: Path) -> None:
     assert handle.runtime_id == "rt-1"
     assert handle.codex_thread_id == "thr-1"
     assert handle.claude_session_id == "sess-1"
-    assert handle.status == "active"
+    # Terminal completion: handle transitions to "completed" when the job
+    # completes without escalation.
+    assert handle.status == "completed"
 
 
 def test_start_writes_three_phase_journal_records(tmp_path: Path) -> None:
@@ -1498,3 +1502,680 @@ def test_later_parse_failure_does_not_prevent_captured_request_resolution(
 
     # Runtime kept live for escalation.
     assert registry.lookup("rt-1") is not None
+
+
+def test_start_completed_job_marks_execution_handle_completed(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, _cp, _wm, _js, lineage, _j, _r, _prs = _build_controller(tmp_path)
+
+    result = controller.start(repo_root=repo_root, objective="Finish cleanly")
+
+    assert isinstance(result, DelegationJob)
+    handle = lineage.get("collab-1")
+    assert handle is not None
+    assert handle.status == "completed"
+
+
+def test_start_escalation_keeps_execution_handle_active(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, lineage, _j, _r, _prs = _build_controller(
+        tmp_path
+    )
+    control_plane._next_session_requests = [_command_approval_request()]
+
+    result = controller.start(repo_root=repo_root, objective="Need approval")
+
+    assert isinstance(result, DelegationEscalation)
+    handle = lineage.get("collab-1")
+    assert handle is not None
+    assert handle.status == "active"
+
+
+# -----------------------------------------------------------------------------
+# decide() success-path tests — approve, deny, re-escalation.
+# -----------------------------------------------------------------------------
+
+
+def test_decide_approve_resumes_runtime_and_returns_completed_result(
+    tmp_path: Path,
+) -> None:
+    from server.models import DelegationDecisionResult
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, lineage, _j, registry, _prs = _build_controller(
+        tmp_path
+    )
+    control_plane._next_session_requests = [_command_approval_request()]
+    start_result = controller.start(repo_root=repo_root, objective="Fix it")
+    assert isinstance(start_result, DelegationEscalation)
+
+    session = control_plane._sessions[0]
+    session._server_requests = []
+    session._turn_result = TurnExecutionResult(
+        turn_id="turn-2",
+        status="completed",
+        agent_message="Approved work finished.",
+        notifications=(),
+    )
+
+    result = controller.decide(
+        job_id="job-1",
+        request_id="42",
+        decision="approve",
+    )
+
+    assert isinstance(result, DelegationDecisionResult)
+    assert result.decision == "approve"
+    assert result.resumed is True
+    assert result.pending_request is None
+    assert result.job.status == "completed"
+    assert registry.lookup("rt-1") is None
+    handle = lineage.get("collab-1")
+    assert handle is not None and handle.status == "completed"
+
+
+def test_decide_approve_can_reescalate_with_new_pending_request(tmp_path: Path) -> None:
+    from server.models import DelegationDecisionResult
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, _j, registry, prs = _build_controller(
+        tmp_path
+    )
+    control_plane._next_session_requests = [_command_approval_request()]
+    start_result = controller.start(repo_root=repo_root, objective="Fix it")
+    assert isinstance(start_result, DelegationEscalation)
+
+    session = control_plane._sessions[0]
+    session._server_requests = [_permissions_request(request_id=99, item_id="item-2")]
+    session._turn_result = TurnExecutionResult(
+        turn_id="turn-2",
+        status="interrupted",
+        agent_message="Need another escalation.",
+        notifications=(),
+    )
+
+    result = controller.decide(
+        job_id="job-1",
+        request_id="42",
+        decision="approve",
+    )
+
+    assert isinstance(result, DelegationDecisionResult)
+    assert result.decision == "approve"
+    assert result.resumed is True
+    assert result.pending_request is not None
+    assert result.pending_request.request_id == "99"
+    assert result.job.status == "needs_escalation"
+    assert registry.lookup("rt-1") is not None
+    stored = prs.get("99")
+    assert stored is not None and stored.status == "resolved"
+
+
+def test_decide_deny_marks_job_failed_and_closes_runtime(tmp_path: Path) -> None:
+    from server.models import DelegationDecisionResult
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, job_store, lineage, journal, registry, _prs = (
+        _build_controller(tmp_path)
+    )
+    control_plane._next_session_requests = [_command_approval_request()]
+    start_result = controller.start(repo_root=repo_root, objective="Fix it")
+    assert isinstance(start_result, DelegationEscalation)
+
+    result = controller.decide(
+        job_id="job-1",
+        request_id="42",
+        decision="deny",
+    )
+
+    assert isinstance(result, DelegationDecisionResult)
+    assert result.decision == "deny"
+    assert result.resumed is False
+    assert result.pending_request is None
+    assert result.job.status == "failed"
+    assert job_store.get("job-1") is not None
+    assert registry.lookup("rt-1") is None
+    handle = lineage.get("collab-1")
+    assert handle is not None and handle.status == "completed"
+
+    events_path = journal.plugin_data_path / "audit" / "events.jsonl"
+    lines = [
+        json.loads(line)
+        for line in events_path.read_text().splitlines()
+        if line.strip()
+    ]
+    approval_events = [e for e in lines if e.get("action") == "approve"]
+    assert len(approval_events) == 1
+    assert approval_events[0]["decision"] == "deny"
+    assert approval_events[0]["request_id"] == "42"
+
+
+def test_decide_rejects_when_runtime_is_missing(tmp_path: Path) -> None:
+    from server.models import DecisionRejectedResponse
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, _j, registry, _prs = _build_controller(
+        tmp_path
+    )
+    control_plane._next_session_requests = [_command_approval_request()]
+    start_result = controller.start(repo_root=repo_root, objective="Fix it")
+    assert isinstance(start_result, DelegationEscalation)
+
+    registry.release("rt-1")
+
+    result = controller.decide(
+        job_id="job-1",
+        request_id="42",
+        decision="approve",
+    )
+
+    assert isinstance(result, DecisionRejectedResponse)
+    assert result.rejected is True
+    assert result.reason == "runtime_unavailable"
+
+
+def test_decide_rejects_invalid_decision_value(tmp_path: Path) -> None:
+    from server.models import DecisionRejectedResponse
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, _j, _r, _prs = _build_controller(
+        tmp_path
+    )
+    control_plane._next_session_requests = [_command_approval_request()]
+    start_result = controller.start(repo_root=repo_root, objective="Fix it")
+    assert isinstance(start_result, DelegationEscalation)
+
+    result = controller.decide(
+        job_id="job-1",
+        request_id="42",
+        decision="later",
+    )
+
+    assert isinstance(result, DecisionRejectedResponse)
+    assert result.rejected is True
+    assert result.reason == "invalid_decision"
+
+
+def test_decide_request_user_input_requires_answers(tmp_path: Path) -> None:
+    from server.models import DecisionRejectedResponse
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, _j, _r, _prs = _build_controller(
+        tmp_path
+    )
+    control_plane._next_session_requests = [_request_user_input_request()]
+    control_plane._next_turn_result = TurnExecutionResult(
+        turn_id="turn-1",
+        status="interrupted",
+        agent_message="Need input",
+        notifications=(),
+    )
+    start_result = controller.start(repo_root=repo_root, objective="Ask user")
+    assert isinstance(start_result, DelegationEscalation)
+
+    result = controller.decide(
+        job_id="job-1",
+        request_id="55",
+        decision="approve",
+    )
+
+    assert isinstance(result, DecisionRejectedResponse)
+    assert result.rejected is True
+    assert result.reason == "answers_required"
+
+
+def test_decide_rejects_job_not_found(tmp_path: Path) -> None:
+    from server.models import DecisionRejectedResponse
+
+    controller, _cp, _wm, _js, _ls, _j, _r, _prs = _build_controller(tmp_path)
+
+    result = controller.decide(
+        job_id="nonexistent-job",
+        request_id="42",
+        decision="approve",
+    )
+
+    assert isinstance(result, DecisionRejectedResponse)
+    assert result.reason == "job_not_found"
+    assert result.job_id == "nonexistent-job"
+
+
+def test_decide_rejects_job_not_awaiting_decision(tmp_path: Path) -> None:
+    from server.models import DecisionRejectedResponse
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, _j, _r, _prs = _build_controller(
+        tmp_path
+    )
+    # Start with no server requests → turn completes without escalation
+    start_result = controller.start(repo_root=repo_root, objective="Fix it")
+    assert isinstance(start_result, DelegationJob)
+    assert start_result.status == "completed"
+
+    result = controller.decide(
+        job_id="job-1",
+        request_id="42",
+        decision="approve",
+    )
+
+    assert isinstance(result, DecisionRejectedResponse)
+    assert result.reason == "job_not_awaiting_decision"
+
+
+def test_decide_rejects_request_not_found(tmp_path: Path) -> None:
+    from server.models import DecisionRejectedResponse
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, _j, _r, _prs = _build_controller(
+        tmp_path
+    )
+    control_plane._next_session_requests = [_command_approval_request()]
+    start_result = controller.start(repo_root=repo_root, objective="Fix it")
+    assert isinstance(start_result, DelegationEscalation)
+
+    result = controller.decide(
+        job_id="job-1",
+        request_id="nonexistent-request",
+        decision="approve",
+    )
+
+    assert isinstance(result, DecisionRejectedResponse)
+    assert result.reason == "request_not_found"
+
+
+def test_decide_rejects_request_job_mismatch(tmp_path: Path) -> None:
+    from server.models import DecisionRejectedResponse
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, _j, _r, prs = _build_controller(
+        tmp_path
+    )
+    control_plane._next_session_requests = [_command_approval_request()]
+    start_result = controller.start(repo_root=repo_root, objective="Fix it")
+    assert isinstance(start_result, DelegationEscalation)
+
+    # Plant a request belonging to a different collaboration
+    prs.create(
+        PendingServerRequest(
+            request_id="foreign-99",
+            runtime_id="rt-other",
+            collaboration_id="other-collab",
+            codex_thread_id="thr-other",
+            codex_turn_id="turn-other",
+            item_id="item-x",
+            kind="command_approval",
+            requested_scope={"cmd": "ls"},
+            status="resolved",
+        )
+    )
+
+    result = controller.decide(
+        job_id="job-1",
+        request_id="foreign-99",
+        decision="approve",
+    )
+
+    assert isinstance(result, DecisionRejectedResponse)
+    assert result.reason == "request_job_mismatch"
+
+
+def test_decide_rejects_deny_with_answers(tmp_path: Path) -> None:
+    from server.models import DecisionRejectedResponse
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, _j, _r, _prs = _build_controller(
+        tmp_path
+    )
+    control_plane._next_session_requests = [_command_approval_request()]
+    start_result = controller.start(repo_root=repo_root, objective="Fix it")
+    assert isinstance(start_result, DelegationEscalation)
+
+    result = controller.decide(
+        job_id="job-1",
+        request_id="42",
+        decision="deny",
+        answers={"q1": ("yes",)},
+    )
+
+    assert isinstance(result, DecisionRejectedResponse)
+    assert result.reason == "answers_not_allowed"
+
+
+def test_decide_rejects_answers_for_non_request_user_input(tmp_path: Path) -> None:
+    from server.models import DecisionRejectedResponse
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, _j, _r, _prs = _build_controller(
+        tmp_path
+    )
+    # command_approval is not request_user_input — answers not allowed
+    control_plane._next_session_requests = [_command_approval_request()]
+    start_result = controller.start(repo_root=repo_root, objective="Fix it")
+    assert isinstance(start_result, DelegationEscalation)
+
+    result = controller.decide(
+        job_id="job-1",
+        request_id="42",
+        decision="approve",
+        answers={"q1": ("yes",)},
+    )
+
+    assert isinstance(result, DecisionRejectedResponse)
+    assert result.reason == "answers_not_allowed"
+
+
+def test_recover_startup_marks_orphaned_needs_escalation_job_and_handle_unknown(
+    tmp_path: Path,
+) -> None:
+    """After a cold restart, needs_escalation jobs with no live runtime are marked unknown.
+
+    Simulates a crash between start() returning an escalation and decide()
+    being called. On restart, recover_startup() marks both the orphaned job
+    and its active handle as unknown.
+    """
+    _, _, _, job_store, lineage_store, _, _, _ = _build_controller(tmp_path)
+
+    job_store.create(
+        DelegationJob(
+            job_id="job-orphan",
+            runtime_id="rt-orphan",
+            collaboration_id="collab-orphan",
+            base_commit="head-abc",
+            worktree_path="/tmp/wk",
+            promotion_state="pending",
+            status="needs_escalation",
+        )
+    )
+    lineage_store.create(
+        CollaborationHandle(
+            collaboration_id="collab-orphan",
+            capability_class="execution",
+            runtime_id="rt-orphan",
+            codex_thread_id="thr-orphan",
+            claude_session_id="sess-old",
+            repo_root="/tmp/repo",
+            created_at="2026-01-01T00:00:00Z",
+            status="active",
+        )
+    )
+
+    # Cold restart: fresh controller (fresh registry, no live runtimes)
+    controller2, _, _, _, _, _, _, _ = _build_controller(tmp_path, session_id="sess-1")
+    controller2.recover_startup()
+
+    recovered_job = job_store.get("job-orphan")
+    assert recovered_job is not None
+    assert recovered_job.status == "unknown"
+    recovered_handle = lineage_store.get("collab-orphan")
+    assert recovered_handle is not None
+    assert recovered_handle.status == "unknown"
+
+
+def test_decide_approve_turn_failure_raises_committed_decision_finalization_error(
+    tmp_path: Path,
+) -> None:
+    from server.delegation_controller import CommittedDecisionFinalizationError
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, job_store, lineage, journal, registry, _prs = (
+        _build_controller(tmp_path)
+    )
+    control_plane._next_session_requests = [_command_approval_request()]
+    start_result = controller.start(repo_root=repo_root, objective="Fix it")
+    assert isinstance(start_result, DelegationEscalation)
+
+    session = control_plane._sessions[0]
+    session._raise_on_turn = RuntimeError("transport died during decide")
+
+    with pytest.raises(CommittedDecisionFinalizationError, match="committed"):
+        controller.decide(
+            job_id="job-1",
+            request_id="42",
+            decision="approve",
+        )
+
+    job = job_store.get("job-1")
+    assert job is not None and job.status == "unknown"
+    handle = lineage.get("collab-1")
+    assert handle is not None and handle.status == "unknown"
+    assert registry.lookup("rt-1") is None
+
+    unresolved = [
+        e
+        for e in journal.list_unresolved(session_id="sess-1")
+        if e.operation == "approval_resolution"
+    ]
+    assert len(unresolved) == 1
+    assert unresolved[0].phase == "dispatched"
+
+
+def test_recover_startup_marks_intent_only_approval_resolution_unknown(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, _cp, _wm, job_store, lineage_store, journal, _r, _prs = _build_controller(
+        tmp_path
+    )
+
+    job_store.create(
+        DelegationJob(
+            job_id="job-1",
+            runtime_id="rt-1",
+            collaboration_id="collab-1",
+            base_commit="head-abc",
+            worktree_path=str(tmp_path / "wk"),
+            promotion_state="pending",
+            status="needs_escalation",
+        )
+    )
+    lineage_store.create(
+        CollaborationHandle(
+            collaboration_id="collab-1",
+            capability_class="execution",
+            runtime_id="rt-1",
+            codex_thread_id="thr-1",
+            claude_session_id="sess-1",
+            repo_root=str(repo_root),
+            created_at=journal.timestamp(),
+            status="active",
+        )
+    )
+    journal.write_phase(
+        OperationJournalEntry(
+            idempotency_key="42:approve",
+            operation="approval_resolution",
+            phase="intent",
+            collaboration_id="collab-1",
+            created_at=journal.timestamp(),
+            repo_root=str(repo_root),
+            job_id="job-1",
+            request_id="42",
+            decision="approve",
+        ),
+        session_id="sess-1",
+    )
+
+    controller.recover_startup()
+
+    job = job_store.get("job-1")
+    assert job is not None and job.status == "unknown"
+    handle = lineage_store.get("collab-1")
+    assert handle is not None and handle.status == "unknown"
+    assert journal.list_unresolved(session_id="sess-1") == []
+
+
+def test_recover_startup_marks_dispatched_approval_resolution_unknown(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, _cp, _wm, job_store, lineage_store, journal, _r, _prs = _build_controller(
+        tmp_path
+    )
+
+    job_store.create(
+        DelegationJob(
+            job_id="job-1",
+            runtime_id="rt-1",
+            collaboration_id="collab-1",
+            base_commit="head-abc",
+            worktree_path=str(tmp_path / "wk"),
+            promotion_state="pending",
+            status="needs_escalation",
+        )
+    )
+    lineage_store.create(
+        CollaborationHandle(
+            collaboration_id="collab-1",
+            capability_class="execution",
+            runtime_id="rt-1",
+            codex_thread_id="thr-1",
+            claude_session_id="sess-1",
+            repo_root=str(repo_root),
+            created_at=journal.timestamp(),
+            status="active",
+        )
+    )
+    created_at = journal.timestamp()
+    journal.write_phase(
+        OperationJournalEntry(
+            idempotency_key="42:approve",
+            operation="approval_resolution",
+            phase="intent",
+            collaboration_id="collab-1",
+            created_at=created_at,
+            repo_root=str(repo_root),
+            job_id="job-1",
+            request_id="42",
+            decision="approve",
+        ),
+        session_id="sess-1",
+    )
+    journal.write_phase(
+        OperationJournalEntry(
+            idempotency_key="42:approve",
+            operation="approval_resolution",
+            phase="dispatched",
+            collaboration_id="collab-1",
+            created_at=created_at,
+            repo_root=str(repo_root),
+            codex_thread_id="thr-1",
+            runtime_id="rt-1",
+            job_id="job-1",
+            request_id="42",
+            decision="approve",
+        ),
+        session_id="sess-1",
+    )
+
+    controller.recover_startup()
+
+    job = job_store.get("job-1")
+    assert job is not None and job.status == "unknown"
+    handle = lineage_store.get("collab-1")
+    assert handle is not None and handle.status == "unknown"
+    assert journal.list_unresolved(session_id="sess-1") == []
+
+
+def test_decide_rejects_stale_request_id_after_reescalation(tmp_path: Path) -> None:
+    from server.models import DecisionRejectedResponse, DelegationDecisionResult
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, _j, registry, prs = _build_controller(
+        tmp_path
+    )
+    # First escalation: command_approval with request_id "42"
+    control_plane._next_session_requests = [_command_approval_request()]
+    start_result = controller.start(repo_root=repo_root, objective="Fix it")
+    assert isinstance(start_result, DelegationEscalation)
+
+    # Approve the first escalation — configure follow-up to re-escalate
+    session = control_plane._sessions[0]
+    session._server_requests = [_permissions_request(request_id=99, item_id="item-2")]
+    session._turn_result = TurnExecutionResult(
+        turn_id="turn-2",
+        status="interrupted",
+        agent_message="Need another escalation.",
+        notifications=(),
+    )
+    approve_result = controller.decide(
+        job_id="job-1",
+        request_id="42",
+        decision="approve",
+    )
+    assert isinstance(approve_result, DelegationDecisionResult)
+    assert approve_result.pending_request is not None
+    assert approve_result.pending_request.request_id == "99"
+
+    # Now try to use the stale request_id "42" to decide the new escalation
+    result = controller.decide(
+        job_id="job-1",
+        request_id="42",
+        decision="approve",
+    )
+    assert isinstance(result, DecisionRejectedResponse)
+    assert result.reason == "request_already_decided"
+
+
+def test_decide_deny_post_commit_failure_raises_committed_decision_finalization_error(
+    tmp_path: Path,
+) -> None:
+    from server.delegation_controller import CommittedDecisionFinalizationError
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, job_store, lineage, journal, registry, _prs = (
+        _build_controller(tmp_path)
+    )
+    control_plane._next_session_requests = [_command_approval_request()]
+    start_result = controller.start(repo_root=repo_root, objective="Fix it")
+    assert isinstance(start_result, DelegationEscalation)
+
+    # Make session.close() raise after the deny decision has committed
+    session = control_plane._sessions[0]
+    session.close = lambda: (_ for _ in ()).throw(RuntimeError("close failed"))
+
+    with pytest.raises(CommittedDecisionFinalizationError, match="committed deny"):
+        controller.decide(
+            job_id="job-1",
+            request_id="42",
+            decision="deny",
+        )
+
+    # Job should be failed (deny committed before close failed)
+    job = job_store.get("job-1")
+    assert job is not None and job.status == "failed"

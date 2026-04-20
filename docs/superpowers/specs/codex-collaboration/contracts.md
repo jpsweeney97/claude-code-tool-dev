@@ -243,6 +243,31 @@ Returned by `codex.delegate.start` when a delegation job is already running. See
 | `active_job_status` | enum | Current status of the active job |
 | `detail` | string | Human-readable explanation |
 
+### Decision Rejection
+
+Returned by `codex.delegate.decide` when the caller asks to resolve an escalation
+that cannot be handled under the opening-slice constraints.
+
+| Field | Type | Description |
+|---|---|---|
+| `rejected` | boolean | Always `true` |
+| `reason` | enum | `invalid_decision`, `job_not_found`, `job_not_awaiting_decision`, `request_not_found`, `request_job_mismatch`, `request_already_decided`, `runtime_unavailable`, `answers_required`, `answers_not_allowed` |
+| `detail` | string | Human-readable explanation |
+| `job_id` | string? | Rejected job id when known |
+| `request_id` | string? | Rejected request id when known |
+
+### Decide Result
+
+Returned by `codex.delegate.decide` on success.
+
+| Field | Type | Description |
+|---|---|---|
+| `job` | [DelegationJob](#delegationjob) | Updated job after the decision path finished |
+| `decision` | enum | `approve` or `deny` |
+| `resumed` | boolean | `true` only when approve dispatched a follow-up turn |
+| `pending_request` | [PendingServerRequest](#pendingserverrequest)? | Present only when the resumed turn hit another escalation |
+| `agent_context` | string? | Best-effort agent message from the resumed turn when present |
+
 ### Runtime Health
 
 Returned by `codex.status`.

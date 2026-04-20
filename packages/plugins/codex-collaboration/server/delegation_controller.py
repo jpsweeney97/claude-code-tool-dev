@@ -1,4 +1,4 @@
-"""Controller for codex.delegate.start.
+"""Controller for codex.delegate.start and codex.delegate.decide.
 
 Mirrors dialogue.py::DialogueController.start three-phase discipline. Flow:
 
@@ -41,10 +41,10 @@ Mirrors dialogue.py::DialogueController.start three-phase discipline. Flow:
 # list_unresolved() will NOT return it. If the process crashes after
 # update_status(job_id, "running") but before post-turn terminal writes,
 # the job is persisted as "running" with no live runtime and no journal
-# replay anchor. recover_startup() handles this via orphaned-running-job
-# detection (see Step 6.2): any job persisted as "running" after a cold
-# restart has no live runtime (the registry is fresh) and is marked
-# "unknown".
+# replay anchor. recover_startup() handles this via orphaned-active-job
+# detection (see Step 6.2): any job persisted as "running" or
+# "needs_escalation" after a cold restart has no live runtime (the
+# registry is fresh) and is marked "unknown".
 #
 # Turn-dispatch journaling (with its own ``turn_dispatch`` operation and
 # idempotency key per recovery-and-journal.md:49) lands with T-06
@@ -62,13 +62,17 @@ from typing import Any, Callable, Protocol
 
 from .approval_router import parse_pending_server_request
 from .delegation_job_store import DelegationJobStore
-from .execution_prompt_builder import build_execution_turn_text
+from .execution_prompt_builder import build_execution_resume_turn_text, build_execution_turn_text
 from .execution_runtime_registry import ExecutionRuntimeEntry, ExecutionRuntimeRegistry
 from .journal import OperationJournal
 from .lineage_store import LineageStore
 from .models import (
     AuditEvent,
     CollaborationHandle,
+    DecisionAction,
+    DecisionRejectedReason,
+    DecisionRejectedResponse,
+    DelegationDecisionResult,
     DelegationEscalation,
     DelegationJob,
     JobBusyResponse,
@@ -164,8 +168,17 @@ class CommittedStartFinalizationError(RuntimeError):
     """
 
 
+class CommittedDecisionFinalizationError(RuntimeError):
+    """Raised when codex.delegate.decide committed a caller decision but local
+    finalization failed.
+
+    Blind retry is unsafe: approve may have already dispatched a follow-up turn,
+    and deny may already have terminated the live runtime.
+    """
+
+
 class DelegationController:
-    """Implements codex.delegate.start."""
+    """Implements codex.delegate.start and codex.delegate.decide."""
 
     def __init__(
         self,
@@ -195,6 +208,7 @@ class DelegationController:
         self._approval_policy = approval_policy
         self._head_commit_resolver = head_commit_resolver or _resolve_head_commit
         self._uuid_factory = uuid_factory or (lambda: str(uuid.uuid4()))
+        self._decided_request_ids: set[str] = set()
 
     def start(
         self,
@@ -535,38 +549,45 @@ class DelegationController:
         # The first execution turn is intentionally unjournaled (see module
         # docstring). Crash recovery for the first-turn window uses orphaned-
         # running-job detection in recover_startup().
-        #
-        # Failure semantics: the entire turn-dispatch + post-turn-finalization
-        # block is wrapped so that any exception (from run_execution_turn,
-        # post-turn status writes, audit emission, etc.) best-effort marks
-        # the job "unknown", releases the runtime, and closes the session.
-        # Without this guard, an exception would leave the job stuck
-        # "running", the runtime registered, and the session open —
-        # identical to the committed-start finalization gap the existing
-        # try/except above prevents.
         # ------------------------------------------------------------------
-        self._job_store.update_status(job_id, "running")
-
-        sandbox_policy = build_workspace_write_sandbox_policy(worktree_path)
         prompt_text = build_execution_turn_text(
             objective=objective,
             worktree_path=str(worktree_path),
         )
+        return self._execute_live_turn(
+            job_id=job_id,
+            collaboration_id=collaboration_id,
+            runtime_id=runtime_id,
+            worktree_path=worktree_path,
+            prompt_text=prompt_text,
+        )
 
-        # Capture state — shared with the handler closure via nonlocal.
+    def _execute_live_turn(
+        self,
+        *,
+        job_id: str,
+        collaboration_id: str,
+        runtime_id: str,
+        worktree_path: Path,
+        prompt_text: str,
+    ) -> DelegationJob | DelegationEscalation:
+        self._job_store.update_status(job_id, "running")
+
         captured_request: PendingServerRequest | None = None
-        interrupted_by_unknown: bool = False
-        captured_request_parse_failed: bool = False
-
+        interrupted_by_unknown = False
+        captured_request_parse_failed = False
         _CANCEL_CAPABLE_KINDS = frozenset({"command_approval", "file_change"})
         _KNOWN_DENIAL_KINDS = frozenset({"request_user_input"})
+        entry = self._runtime_registry.lookup(runtime_id)
+        assert entry is not None, (
+            f"ExecutionRuntimeRegistry invariant violation: runtime_id={runtime_id!r} "
+            "not found during live turn execution"
+        )
 
         def _server_request_handler(
             message: dict[str, Any],
         ) -> dict[str, Any] | None:
             nonlocal captured_request, interrupted_by_unknown, captured_request_parse_failed
-
-            # --- Parse the wire message ---
             try:
                 parsed = parse_pending_server_request(
                     message,
@@ -574,7 +595,6 @@ class DelegationController:
                     collaboration_id=collaboration_id,
                 )
             except Exception:
-                # Parse failure: create a minimal causal record (D4 carve-out).
                 logger.warning(
                     "Server request parse failed; creating minimal causal record "
                     "(D4 carve-out). Wire id=%r, method=%r",
@@ -604,16 +624,15 @@ class DelegationController:
                 entry = self._runtime_registry.lookup(runtime_id)
                 if entry is not None:
                     entry.session.interrupt_turn(
-                        thread_id=entry.thread_id, turn_id=None
+                        thread_id=entry.thread_id,
+                        turn_id=None,
                     )
                 return None
 
-            # --- Strategy selection by kind ---
             if (
                 parsed.kind not in _CANCEL_CAPABLE_KINDS
                 and parsed.kind not in _KNOWN_DENIAL_KINDS
             ):
-                # Unknown kind — store and interrupt.
                 if captured_request is None:
                     self._pending_request_store.create(parsed)
                     captured_request = parsed
@@ -621,65 +640,36 @@ class DelegationController:
                 entry = self._runtime_registry.lookup(runtime_id)
                 if entry is not None:
                     entry.session.interrupt_turn(
-                        thread_id=entry.thread_id, turn_id=None
+                        thread_id=entry.thread_id,
+                        turn_id=None,
                     )
                 return None
 
-            # Known kind — store if first, then respond inline.
             if captured_request is None:
                 self._pending_request_store.create(parsed)
                 captured_request = parsed
 
             if parsed.kind in _CANCEL_CAPABLE_KINDS:
                 return {"decision": "cancel"}
-            # No-cancel known kinds: respond with empty answers.
             return {"answers": {}}
-
-        # --- Execute the turn ---
-        entry = self._runtime_registry.lookup(runtime_id)
-        assert entry is not None, (
-            f"ExecutionRuntimeRegistry invariant violation: "
-            f"runtime_id={runtime_id!r} was just registered but "
-            f"lookup() returned None"
-        )
 
         try:
             turn_result = entry.session.run_execution_turn(
                 thread_id=entry.thread_id,
                 prompt_text=prompt_text,
-                sandbox_policy=sandbox_policy,
+                sandbox_policy=build_workspace_write_sandbox_policy(worktree_path),
                 approval_policy=self._approval_policy,
                 server_request_handler=_server_request_handler,
             )
         except Exception:
-            # Turn dispatch failure: the job is "running" but the turn
-            # never completed. Mark unknown, release, close, re-raise.
-            try:
-                self._job_store.update_status(job_id, "unknown")
-            except Exception:
-                logger.error(
-                    "Turn dispatch cleanup: failed to mark job %r as unknown",
-                    job_id, exc_info=True,
-                )
-            try:
-                self._runtime_registry.release(runtime_id)
-            except Exception:
-                logger.error(
-                    "Turn dispatch cleanup: failed to release runtime %r",
-                    runtime_id, exc_info=True,
-                )
-            try:
-                entry.session.close()
-            except Exception:
-                logger.error(
-                    "Turn dispatch cleanup: failed to close session for runtime %r",
-                    runtime_id, exc_info=True,
-                )
+            self._mark_execution_unknown_and_cleanup(
+                job_id=job_id,
+                collaboration_id=collaboration_id,
+                runtime_id=runtime_id,
+                entry=entry,
+            )
             raise
 
-        # --- Post-turn processing ---
-        # Wrapped so that any local-write failure (status, audit, store)
-        # still cleans up the runtime and marks the job terminal.
         try:
             return self._finalize_turn(
                 job_id=job_id,
@@ -692,28 +682,54 @@ class DelegationController:
                 captured_request_parse_failed=captured_request_parse_failed,
             )
         except Exception:
-            try:
-                self._job_store.update_status(job_id, "unknown")
-            except Exception:
-                logger.error(
-                    "Finalization cleanup: failed to mark job %r as unknown",
-                    job_id, exc_info=True,
-                )
-            try:
-                self._runtime_registry.release(runtime_id)
-            except Exception:
-                logger.error(
-                    "Finalization cleanup: failed to release runtime %r",
-                    runtime_id, exc_info=True,
-                )
-            try:
-                entry.session.close()
-            except Exception:
-                logger.error(
-                    "Finalization cleanup: failed to close session for runtime %r",
-                    runtime_id, exc_info=True,
-                )
+            self._mark_execution_unknown_and_cleanup(
+                job_id=job_id,
+                collaboration_id=collaboration_id,
+                runtime_id=runtime_id,
+                entry=entry,
+            )
             raise
+
+    def _mark_execution_unknown_and_cleanup(
+        self,
+        *,
+        job_id: str,
+        collaboration_id: str,
+        runtime_id: str,
+        entry: ExecutionRuntimeEntry,
+    ) -> None:
+        try:
+            self._job_store.update_status(job_id, "unknown")
+        except Exception:
+            logger.error(
+                "Execution cleanup: failed to mark job %r unknown",
+                job_id,
+                exc_info=True,
+            )
+        try:
+            self._lineage_store.update_status(collaboration_id, "unknown")
+        except Exception:
+            logger.error(
+                "Execution cleanup: failed to mark handle %r unknown",
+                collaboration_id,
+                exc_info=True,
+            )
+        try:
+            self._runtime_registry.release(runtime_id)
+        except Exception:
+            logger.error(
+                "Execution cleanup: failed to release runtime %r",
+                runtime_id,
+                exc_info=True,
+            )
+        try:
+            entry.session.close()
+        except Exception:
+            logger.error(
+                "Execution cleanup: failed to close runtime %r",
+                runtime_id,
+                exc_info=True,
+            )
 
     def _finalize_turn(
         self,
@@ -729,7 +745,8 @@ class DelegationController:
     ) -> DelegationJob | DelegationEscalation:
         """Post-turn status derivation, audit, and cleanup.
 
-        Extracted from start() so the caller can wrap it in a failure guard.
+        Called by _execute_live_turn (used by both start and decide).
+        Separated so the caller can wrap it in a failure guard.
         """
         _CANCEL_CAPABLE_KINDS = frozenset({"command_approval", "file_change"})
 
@@ -791,7 +808,8 @@ class DelegationController:
                     agent_context=turn_result.agent_message or None,
                 )
 
-            # Non-escalation: release + close and return plain job.
+            # Non-escalation: mark handle completed, release + close and return plain job.
+            self._lineage_store.update_status(collaboration_id, "completed")
             self._runtime_registry.release(runtime_id)
             entry.session.close()
             return updated_job
@@ -805,6 +823,7 @@ class DelegationController:
             final_status = "unknown"
 
         self._job_store.update_status(job_id, final_status)
+        self._lineage_store.update_status(collaboration_id, "completed")
         self._runtime_registry.release(runtime_id)
         entry.session.close()
 
@@ -814,6 +833,257 @@ class DelegationController:
             f"was just updated but get() returned None"
         )
         return updated_job
+
+    def _reject_decision(
+        self,
+        *,
+        reason: DecisionRejectedReason,
+        detail: str,
+        job_id: str | None,
+        request_id: str | None,
+    ) -> DecisionRejectedResponse:
+        return DecisionRejectedResponse(
+            rejected=True,
+            reason=reason,
+            detail=detail,
+            job_id=job_id,
+            request_id=request_id,
+        )
+
+    def decide(
+        self,
+        *,
+        job_id: str,
+        request_id: str,
+        decision: DecisionAction | str,
+        answers: dict[str, tuple[str, ...]] | None = None,
+    ) -> DelegationDecisionResult | DecisionRejectedResponse:
+        if decision not in ("approve", "deny"):
+            return self._reject_decision(
+                reason="invalid_decision",
+                detail=(
+                    "Delegation decide failed: invalid decision. "
+                    f"Got: {decision!r:.100}"
+                ),
+                job_id=job_id,
+                request_id=request_id,
+            )
+        job = self._job_store.get(job_id)
+        if job is None:
+            return self._reject_decision(
+                reason="job_not_found",
+                detail=f"Delegation decide failed: job not found. Got: {job_id!r:.100}",
+                job_id=job_id,
+                request_id=request_id,
+            )
+        if job.status != "needs_escalation":
+            return self._reject_decision(
+                reason="job_not_awaiting_decision",
+                detail=(
+                    "Delegation decide failed: job not awaiting decision. "
+                    f"Got: status={job.status!r:.100}"
+                ),
+                job_id=job_id,
+                request_id=request_id,
+            )
+
+        request = self._pending_request_store.get(request_id)
+        if request is None:
+            return self._reject_decision(
+                reason="request_not_found",
+                detail=(
+                    "Delegation decide failed: request not found. "
+                    f"Got: {request_id!r:.100}"
+                ),
+                job_id=job_id,
+                request_id=request_id,
+            )
+        if request.collaboration_id != job.collaboration_id:
+            return self._reject_decision(
+                reason="request_job_mismatch",
+                detail=(
+                    "Delegation decide failed: request does not belong to job. "
+                    f"Got: request_id={request_id!r:.100}"
+                ),
+                job_id=job_id,
+                request_id=request_id,
+            )
+        if request_id in self._decided_request_ids:
+            return self._reject_decision(
+                reason="request_already_decided",
+                detail=(
+                    "Delegation decide failed: request was already decided. "
+                    f"Got: {request_id!r:.100}"
+                ),
+                job_id=job_id,
+                request_id=request_id,
+            )
+        if decision == "deny" and answers:
+            return self._reject_decision(
+                reason="answers_not_allowed",
+                detail="Delegation decide failed: deny does not accept answers. Got: 'answers'",
+                job_id=job_id,
+                request_id=request_id,
+            )
+        if request.kind == "request_user_input" and decision == "approve" and not answers:
+            return self._reject_decision(
+                reason="answers_required",
+                detail=(
+                    "Delegation decide failed: request_user_input approval requires answers. "
+                    f"Got: {request_id!r:.100}"
+                ),
+                job_id=job_id,
+                request_id=request_id,
+            )
+        if request.kind != "request_user_input" and answers:
+            return self._reject_decision(
+                reason="answers_not_allowed",
+                detail=(
+                    "Delegation decide failed: answers are only valid for request_user_input. "
+                    f"Got: kind={request.kind!r:.100}"
+                ),
+                job_id=job_id,
+                request_id=request_id,
+            )
+
+        handle = self._lineage_store.get(job.collaboration_id)
+        entry = self._runtime_registry.lookup(job.runtime_id)
+        if handle is None or entry is None:
+            return self._reject_decision(
+                reason="runtime_unavailable",
+                detail=(
+                    "Delegation decide failed: runtime unavailable for same-session decision. "
+                    f"Got: runtime_id={job.runtime_id!r:.100}"
+                ),
+                job_id=job_id,
+                request_id=request_id,
+            )
+
+        idempotency_key = f"{request_id}:{decision}"
+        created_at = self._journal.timestamp()
+        self._journal.write_phase(
+            OperationJournalEntry(
+                idempotency_key=idempotency_key,
+                operation="approval_resolution",
+                phase="intent",
+                collaboration_id=job.collaboration_id,
+                created_at=created_at,
+                repo_root=handle.repo_root,
+                job_id=job_id,
+                request_id=request_id,
+                decision=decision,
+            ),
+            session_id=self._session_id,
+        )
+        self._journal.append_audit_event(
+            AuditEvent(
+                event_id=self._uuid_factory(),
+                timestamp=self._journal.timestamp(),
+                actor="claude",
+                action="approve",
+                collaboration_id=job.collaboration_id,
+                runtime_id=job.runtime_id,
+                job_id=job_id,
+                request_id=request_id,
+                decision=decision,
+            )
+        )
+        self._journal.write_phase(
+            OperationJournalEntry(
+                idempotency_key=idempotency_key,
+                operation="approval_resolution",
+                phase="dispatched",
+                collaboration_id=job.collaboration_id,
+                created_at=created_at,
+                repo_root=handle.repo_root,
+                codex_thread_id=handle.codex_thread_id,
+                runtime_id=job.runtime_id,
+                job_id=job_id,
+                request_id=request_id,
+                decision=decision,
+            ),
+            session_id=self._session_id,
+        )
+
+        if decision == "deny":
+            try:
+                self._job_store.update_status(job_id, "failed")
+                self._lineage_store.update_status(job.collaboration_id, "completed")
+                self._runtime_registry.release(job.runtime_id)
+                entry.session.close()
+                updated_job = self._job_store.get(job_id)
+                assert updated_job is not None
+                self._journal.write_phase(
+                    OperationJournalEntry(
+                        idempotency_key=idempotency_key,
+                        operation="approval_resolution",
+                        phase="completed",
+                        collaboration_id=job.collaboration_id,
+                        created_at=created_at,
+                        repo_root=handle.repo_root,
+                        job_id=job_id,
+                        request_id=request_id,
+                        decision=decision,
+                    ),
+                    session_id=self._session_id,
+                )
+                self._decided_request_ids.add(request_id)
+                return DelegationDecisionResult(
+                    job=updated_job,
+                    decision="deny",
+                    resumed=False,
+                )
+            except Exception as exc:
+                raise CommittedDecisionFinalizationError(
+                    "Delegation decide committed deny but local finalization failed: "
+                    f"{exc}. The deny decision has been audited."
+                ) from exc
+
+        prompt_text = build_execution_resume_turn_text(
+            pending_request=request,
+            answers=answers,
+        )
+        try:
+            follow_up = self._execute_live_turn(
+                job_id=job_id,
+                collaboration_id=job.collaboration_id,
+                runtime_id=job.runtime_id,
+                worktree_path=Path(job.worktree_path),
+                prompt_text=prompt_text,
+            )
+            self._journal.write_phase(
+                OperationJournalEntry(
+                    idempotency_key=idempotency_key,
+                    operation="approval_resolution",
+                    phase="completed",
+                    collaboration_id=job.collaboration_id,
+                    created_at=created_at,
+                    repo_root=handle.repo_root,
+                    job_id=job_id,
+                    request_id=request_id,
+                    decision=decision,
+                ),
+                session_id=self._session_id,
+            )
+            self._decided_request_ids.add(request_id)
+            if isinstance(follow_up, DelegationEscalation):
+                return DelegationDecisionResult(
+                    job=follow_up.job,
+                    decision="approve",
+                    resumed=True,
+                    pending_request=follow_up.pending_request,
+                    agent_context=follow_up.agent_context,
+                )
+            return DelegationDecisionResult(
+                job=follow_up,
+                decision="approve",
+                resumed=True,
+            )
+        except Exception as exc:
+            raise CommittedDecisionFinalizationError(
+                "Delegation decide committed but local finalization failed: "
+                f"{exc}. Blind retry may duplicate follow-up execution."
+            ) from exc
 
     def recover_startup(self) -> None:
         """Consume unresolved job_creation journal records into durable terminal state.
@@ -882,20 +1152,54 @@ class DelegationController:
                 session_id=self._session_id,
             )
 
-        # --- Orphaned-running-job reconciliation ---
+        # --- approval_resolution reconciliation ---
+        # Close unresolved approval_resolution journal entries left by
+        # CommittedDecisionFinalizationError or mid-decide crashes.
+        approval_resolution_entries = [
+            e for e in unresolved if e.operation == "approval_resolution"
+        ]
+        by_key_ar: dict[str, OperationJournalEntry] = {}
+        for entry in approval_resolution_entries:
+            existing = by_key_ar.get(entry.idempotency_key)
+            if existing is None or _phase_rank(entry.phase) > _phase_rank(existing.phase):
+                by_key_ar[entry.idempotency_key] = entry
+
+        for entry in by_key_ar.values():
+            self._journal.write_phase(
+                OperationJournalEntry(
+                    idempotency_key=entry.idempotency_key,
+                    operation="approval_resolution",
+                    phase="completed",
+                    collaboration_id=entry.collaboration_id,
+                    created_at=entry.created_at,
+                    repo_root=entry.repo_root,
+                    job_id=entry.job_id,
+                    request_id=entry.request_id,
+                    decision=entry.decision,
+                ),
+                session_id=self._session_id,
+            )
+
+        # --- Orphaned active-job reconciliation ---
         # After a cold restart, the runtime registry is fresh: no live
-        # runtimes exist. Any job persisted as "running" is orphaned —
-        # the first-turn window crashed after update_status(job_id,
-        # "running") but before post-turn terminal writes. There is no
-        # journal replay anchor (D2: first turn is intentionally
-        # unjournaled), so the only safe terminal state is "unknown".
+        # runtimes exist. Any job persisted as "running" or
+        # "needs_escalation" is orphaned — the runtime subprocess that
+        # was serving it is gone. There is no journal replay anchor for
+        # the turn window (D2: first turn is intentionally unjournaled),
+        # so the only safe terminal state is "unknown".
         #
         # This is separate from the journal-based reconciliation above
         # because the journal entry is already "completed" at this point
         # (job_creation.completed fired before turn dispatch).
         for job in self._job_store.list_active():
-            if job.status == "running":
+            if job.status in ("running", "needs_escalation"):
                 self._job_store.update_status(job.job_id, "unknown")
+                handle = self._lineage_store.get(job.collaboration_id)
+                if handle is not None and handle.status == "active":
+                    self._lineage_store.update_status(
+                        job.collaboration_id,
+                        "unknown",
+                    )
 
 
 def _verify_post_turn_signals(

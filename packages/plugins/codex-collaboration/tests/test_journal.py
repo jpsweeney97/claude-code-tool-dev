@@ -636,3 +636,57 @@ def test_journal_rejects_job_creation_dispatched_missing_job_id(tmp_path: Path) 
 
     diagnostics = journal.check_health(session_id="sess-1")
     assert diagnostics.schema_violations != ()
+
+
+def test_approval_resolution_round_trips_as_unresolved_terminal_record(
+    tmp_path: Path,
+) -> None:
+    journal = OperationJournal(tmp_path / "plugin-data")
+    journal.write_phase(
+        OperationJournalEntry(
+            idempotency_key="req-1:approve",
+            operation="approval_resolution",
+            phase="intent",
+            collaboration_id="collab-1",
+            created_at="2026-04-19T00:00:00Z",
+            repo_root="/repo",
+            job_id="job-1",
+            request_id="req-1",
+            decision="approve",
+        ),
+        session_id="sess-1",
+    )
+
+    unresolved = journal.list_unresolved(session_id="sess-1")
+    assert len(unresolved) == 1
+    assert unresolved[0].operation == "approval_resolution"
+    assert unresolved[0].request_id == "req-1"
+    assert unresolved[0].decision == "approve"
+
+
+def test_check_health_reports_missing_request_id_for_approval_resolution(
+    tmp_path: Path,
+) -> None:
+    journal = OperationJournal(tmp_path / "plugin-data")
+    path = journal._operations_path("sess-1")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "idempotency_key": "req-1:approve",
+                "operation": "approval_resolution",
+                "phase": "intent",
+                "collaboration_id": "collab-1",
+                "created_at": "2026-04-19T00:00:00Z",
+                "repo_root": "/repo",
+                "job_id": "job-1",
+                "decision": "approve",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    diagnostics = journal.check_health(session_id="sess-1")
+    assert len(diagnostics.schema_violations) == 1
+    assert "request_id" in diagnostics.schema_violations[0].detail

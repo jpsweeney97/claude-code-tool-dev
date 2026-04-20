@@ -706,3 +706,108 @@ def test_e2e_busy_gate_blocks_when_job_needs_escalation(tmp_path: Path) -> None:
     assert second_payload["busy"] is True
     assert second_payload["active_job_id"] == first_payload["job"]["job_id"]
     assert second_payload["active_job_status"] == "needs_escalation"
+
+
+def test_delegate_decide_approve_end_to_end_through_mcp_dispatch(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    _init_repo(repo_root)
+
+    server, job_store, pending_request_store, journal, _plugin_data = _build_e2e_setup(
+        tmp_path,
+        session_factory=lambda: _ConfigurableStubSession(
+            server_requests=[_command_approval_request_msg()],
+        ),
+    )
+
+    start_response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "codex.delegate.start",
+                "arguments": {"repo_root": str(repo_root), "objective": "Fix the bug"},
+            },
+        }
+    )
+    start_payload = json.loads(start_response["result"]["content"][0]["text"])
+    assert start_payload["job"]["status"] == "needs_escalation"
+
+    controller = server._ensure_delegation_controller()
+    entry = controller._runtime_registry.lookup(start_payload["job"]["runtime_id"])
+    assert entry is not None
+    stub = entry.session
+    stub._server_requests = []
+    stub._turn_result = TurnExecutionResult(
+        turn_id="turn-stub-2",
+        status="completed",
+        agent_message="Follow-up done.",
+        notifications=(),
+    )
+
+    decide_response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {
+                "name": "codex.delegate.decide",
+                "arguments": {
+                    "job_id": start_payload["job"]["job_id"],
+                    "request_id": start_payload["pending_request"]["request_id"],
+                    "decision": "approve",
+                },
+            },
+        }
+    )
+
+    decide_payload = json.loads(decide_response["result"]["content"][0]["text"])
+    assert decide_payload["decision"] == "approve"
+    assert decide_payload["resumed"] is True
+    assert decide_payload["job"]["status"] == "completed"
+
+
+def test_delegate_decide_deny_end_to_end_through_mcp_dispatch(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    _init_repo(repo_root)
+
+    server, job_store, pending_request_store, journal, _plugin_data = _build_e2e_setup(
+        tmp_path,
+        session_factory=lambda: _ConfigurableStubSession(
+            server_requests=[_command_approval_request_msg()],
+        ),
+    )
+
+    start_response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "codex.delegate.start",
+                "arguments": {"repo_root": str(repo_root), "objective": "Fix the bug"},
+            },
+        }
+    )
+    start_payload = json.loads(start_response["result"]["content"][0]["text"])
+
+    decide_response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {
+                "name": "codex.delegate.decide",
+                "arguments": {
+                    "job_id": start_payload["job"]["job_id"],
+                    "request_id": start_payload["pending_request"]["request_id"],
+                    "decision": "deny",
+                },
+            },
+        }
+    )
+
+    decide_payload = json.loads(decide_response["result"]["content"][0]["text"])
+    assert decide_payload["decision"] == "deny"
+    assert decide_payload["resumed"] is False
+    assert decide_payload["job"]["status"] == "failed"
