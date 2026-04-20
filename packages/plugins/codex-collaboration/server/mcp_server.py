@@ -379,16 +379,37 @@ class McpServer:
             controller = self._ensure_delegation_controller()
             raw_answers = arguments.get("answers")
             answers = None
-            if isinstance(raw_answers, dict):
+            if raw_answers is not None:
+                if not isinstance(raw_answers, dict):
+                    raise ValueError(
+                        f"codex.delegate.decide validation failed: 'answers' must be "
+                        f"an object. Got: {type(raw_answers).__name__!r:.100}"
+                    )
                 normalized: dict[str, tuple[str, ...]] = {}
                 for key, value in raw_answers.items():
-                    if not isinstance(key, str) or not isinstance(value, dict):
-                        continue
-                    raw_list = value.get("answers", ())
-                    if isinstance(raw_list, list) and all(
-                        isinstance(item, str) for item in raw_list
+                    if not isinstance(key, str):
+                        raise ValueError(
+                            f"codex.delegate.decide validation failed: answer key must "
+                            f"be a string. Got: {type(key).__name__!r:.100}"
+                        )
+                    if not isinstance(value, dict) or not isinstance(
+                        value.get("answers"), list
                     ):
-                        normalized[key] = tuple(raw_list)
+                        raise ValueError(
+                            f"codex.delegate.decide validation failed: answer entry "
+                            f"{key!r:.100} must have shape "
+                            '{"answers": ["..."]}. '
+                            f"Got: {type(value).__name__!r:.100}"
+                        )
+                    raw_list = value["answers"]
+                    for item in raw_list:
+                        if not isinstance(item, str):
+                            raise ValueError(
+                                f"codex.delegate.decide validation failed: answer "
+                                f"values for {key!r:.100} must be strings. "
+                                f"Got: {type(item).__name__!r:.100}"
+                            )
+                    normalized[key] = tuple(raw_list)
                 answers = normalized
 
             result = controller.decide(

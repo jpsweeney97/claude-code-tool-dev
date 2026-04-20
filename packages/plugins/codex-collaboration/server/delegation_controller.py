@@ -1,4 +1,4 @@
-"""Controller for codex.delegate.start.
+"""Controller for codex.delegate.start and codex.delegate.decide.
 
 Mirrors dialogue.py::DialogueController.start three-phase discipline. Flow:
 
@@ -41,10 +41,10 @@ Mirrors dialogue.py::DialogueController.start three-phase discipline. Flow:
 # list_unresolved() will NOT return it. If the process crashes after
 # update_status(job_id, "running") but before post-turn terminal writes,
 # the job is persisted as "running" with no live runtime and no journal
-# replay anchor. recover_startup() handles this via orphaned-running-job
-# detection (see Step 6.2): any job persisted as "running" after a cold
-# restart has no live runtime (the registry is fresh) and is marked
-# "unknown".
+# replay anchor. recover_startup() handles this via orphaned-active-job
+# detection (see Step 6.2): any job persisted as "running" or
+# "needs_escalation" after a cold restart has no live runtime (the
+# registry is fresh) and is marked "unknown".
 #
 # Turn-dispatch journaling (with its own ``turn_dispatch`` operation and
 # idempotency key per recovery-and-journal.md:49) lands with T-06
@@ -70,6 +70,7 @@ from .models import (
     AuditEvent,
     CollaborationHandle,
     DecisionAction,
+    DecisionRejectedReason,
     DecisionRejectedResponse,
     DelegationDecisionResult,
     DelegationEscalation,
@@ -744,7 +745,8 @@ class DelegationController:
     ) -> DelegationJob | DelegationEscalation:
         """Post-turn status derivation, audit, and cleanup.
 
-        Extracted from start() so the caller can wrap it in a failure guard.
+        Called by _execute_live_turn (used by both start and decide).
+        Separated so the caller can wrap it in a failure guard.
         """
         _CANCEL_CAPABLE_KINDS = frozenset({"command_approval", "file_change"})
 
@@ -835,7 +837,7 @@ class DelegationController:
     def _reject_decision(
         self,
         *,
-        reason: str,
+        reason: DecisionRejectedReason,
         detail: str,
         job_id: str | None,
         request_id: str | None,
