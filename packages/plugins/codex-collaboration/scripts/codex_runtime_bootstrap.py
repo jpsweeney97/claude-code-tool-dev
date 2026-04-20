@@ -24,6 +24,7 @@ _package_root = Path(__file__).resolve().parent.parent
 if str(_package_root) not in sys.path:
     sys.path.insert(0, str(_package_root))
 
+from server.artifact_store import ArtifactStore  # noqa: E402
 from server.control_plane import ControlPlane  # noqa: E402
 from server.delegation_controller import DelegationController  # noqa: E402
 from server.delegation_job_store import DelegationJobStore  # noqa: E402
@@ -115,6 +116,10 @@ def _build_delegation_factory(
         job_store = DelegationJobStore(plugin_data_path, session_id)
         lineage_store = LineageStore(plugin_data_path, session_id)
         pending_request_store = PendingRequestStore(plugin_data_path, session_id)
+        artifact_store = ArtifactStore(
+            plugin_data_path,
+            timestamp_factory=journal.timestamp,
+        )
         return DelegationController(
             control_plane=control_plane,
             worktree_manager=WorktreeManager(),
@@ -125,6 +130,7 @@ def _build_delegation_factory(
             session_id=session_id,
             plugin_data_path=plugin_data_path,
             pending_request_store=pending_request_store,
+            artifact_store=artifact_store,
         )
 
     return factory

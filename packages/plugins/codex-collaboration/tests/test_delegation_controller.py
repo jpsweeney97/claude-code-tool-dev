@@ -20,12 +20,15 @@ from server.journal import OperationJournal
 from server.lineage_store import LineageStore
 from server.models import (
     AccountState,
+    ArtifactInspectionSnapshot,
     CollaborationHandle,
     DelegationEscalation,
     DelegationJob,
+    DelegationPollResult,
     JobBusyResponse,
     OperationJournalEntry,
     PendingServerRequest,
+    PollRejectedResponse,
     RuntimeHandshake,
     TurnExecutionResult,
 )
@@ -147,6 +150,32 @@ class _FakeWorktreeManager:
             parent.rmdir()
 
 
+class _FakeArtifactStore:
+    def __init__(self) -> None:
+        self._snapshots: dict[str, ArtifactInspectionSnapshot] = {}
+
+    def materialize_snapshot(
+        self, *, job: DelegationJob
+    ) -> ArtifactInspectionSnapshot:
+        snapshot = ArtifactInspectionSnapshot(
+            artifact_hash=f"hash-{job.job_id}" if job.status == "completed" else None,
+            artifact_paths=(
+                f"/tmp/inspection/{job.job_id}/full.diff",
+                f"/tmp/inspection/{job.job_id}/changed-files.json",
+                f"/tmp/inspection/{job.job_id}/test-results.json",
+            ),
+            changed_files=("README.md",),
+            reviewed_at="2026-04-20T10:00:00Z",
+        )
+        self._snapshots[job.job_id] = snapshot
+        return snapshot
+
+    def load_snapshot(
+        self, *, job: DelegationJob
+    ) -> ArtifactInspectionSnapshot | None:
+        return self._snapshots.get(job.job_id)
+
+
 def _build_controller(
     tmp_path: Path,
     *,
@@ -185,6 +214,7 @@ def _build_controller(
             "escalation-evt-2",
         ]
     )
+    artifact_store = _FakeArtifactStore()
     controller = DelegationController(
         control_plane=control_plane,
         worktree_manager=worktree_manager,
@@ -195,6 +225,7 @@ def _build_controller(
         session_id=session_id,
         plugin_data_path=plugin_data,
         pending_request_store=pending_request_store,
+        artifact_store=artifact_store,
         head_commit_resolver=lambda repo_root: head_sha,
         uuid_factory=lambda: next(uuid_counter),
     )
@@ -424,6 +455,7 @@ def test_start_does_not_persist_durable_state_on_bootstrap_failure(
             raise RuntimeError("Execution runtime bootstrap failed: test forced")
 
     pending_request_store = PendingRequestStore(plugin_data, "sess-1")
+    artifact_store = _FakeArtifactStore()
     uuid_counter = iter(["job-1", "collab-1", "evt-1"])
     controller = DelegationController(
         control_plane=_FailingControlPlane(),  # type: ignore[arg-type]
@@ -435,6 +467,7 @@ def test_start_does_not_persist_durable_state_on_bootstrap_failure(
         session_id="sess-1",
         plugin_data_path=plugin_data,
         pending_request_store=pending_request_store,
+        artifact_store=artifact_store,
         head_commit_resolver=lambda _: "head-abc",
         uuid_factory=lambda: next(uuid_counter),
     )
@@ -941,7 +974,7 @@ def test_recover_startup_marks_dispatched_handle_and_job_unknown(
             collaboration_id="collab-1",
             base_commit="head-abc",
             worktree_path=str(tmp_path / "wk"),
-            promotion_state="pending",
+            promotion_state=None,
             status="queued",
         )
     )
@@ -1082,7 +1115,7 @@ def test_recover_startup_marks_orphaned_running_jobs_unknown(
             collaboration_id="collab-orphan",
             base_commit="head-abc",
             worktree_path="/tmp/wk",
-            promotion_state="pending",
+            promotion_state=None,
             status="running",
         )
     )
@@ -1908,7 +1941,7 @@ def test_recover_startup_marks_orphaned_needs_escalation_job_and_handle_unknown(
             collaboration_id="collab-orphan",
             base_commit="head-abc",
             worktree_path="/tmp/wk",
-            promotion_state="pending",
+            promotion_state=None,
             status="needs_escalation",
         )
     )
@@ -1994,7 +2027,7 @@ def test_recover_startup_marks_intent_only_approval_resolution_unknown(
             collaboration_id="collab-1",
             base_commit="head-abc",
             worktree_path=str(tmp_path / "wk"),
-            promotion_state="pending",
+            promotion_state=None,
             status="needs_escalation",
         )
     )
@@ -2051,7 +2084,7 @@ def test_recover_startup_marks_dispatched_approval_resolution_unknown(
             collaboration_id="collab-1",
             base_commit="head-abc",
             worktree_path=str(tmp_path / "wk"),
-            promotion_state="pending",
+            promotion_state=None,
             status="needs_escalation",
         )
     )
@@ -2179,3 +2212,93 @@ def test_decide_deny_post_commit_failure_raises_committed_decision_finalization_
     # Job should be failed (deny committed before close failed)
     job = job_store.get("job-1")
     assert job is not None and job.status == "failed"
+
+
+# -----------------------------------------------------------------------------
+# poll() tests — DelegationController.poll lifecycle.
+# -----------------------------------------------------------------------------
+
+
+def test_start_completed_job_sets_promotion_state_pending(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    controller, _cp, _wm, job_store, _lineage, _journal, _registry, _prs = _build_controller(tmp_path)
+    result = controller.start(repo_root=repo_root)
+    assert isinstance(result, DelegationJob)
+    assert result.status == "completed"
+    assert result.promotion_state == "pending"
+    persisted = job_store.get(result.job_id)
+    assert persisted is not None
+    assert persisted.promotion_state == "pending"
+
+
+def test_start_escalation_keeps_promotion_state_none(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    controller, control_plane, _wm, job_store, _lineage, _journal, _registry, _prs = _build_controller(tmp_path)
+    control_plane._next_session_requests = [_command_approval_request()]
+    result = controller.start(repo_root=repo_root)
+    assert isinstance(result, DelegationEscalation)
+    assert result.job.status == "needs_escalation"
+    assert result.job.promotion_state is None
+    persisted = job_store.get(result.job.job_id)
+    assert persisted is not None
+    assert persisted.promotion_state is None
+
+
+def test_poll_completed_job_materializes_snapshot_and_reuses_it(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    controller, _cp, _wm, job_store, _lineage, _journal, _registry, _prs = _build_controller(tmp_path)
+    start_result = controller.start(repo_root=repo_root)
+    assert isinstance(start_result, DelegationJob)
+    first = controller.poll(job_id=start_result.job_id)
+    second = controller.poll(job_id=start_result.job_id)
+    assert isinstance(first, DelegationPollResult)
+    assert first.inspection is not None
+    assert first.inspection.artifact_hash is not None
+    assert second.inspection == first.inspection
+
+
+def test_poll_rehydrates_store_from_cached_snapshot_when_artifacts_are_missing(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    controller, _cp, _wm, job_store, _lineage, _journal, _registry, _prs = _build_controller(tmp_path)
+    start_result = controller.start(repo_root=repo_root)
+    assert isinstance(start_result, DelegationJob)
+    first = controller.poll(job_id=start_result.job_id)
+    assert isinstance(first, DelegationPollResult)
+    assert first.inspection is not None
+    job_store.update_artifacts(start_result.job_id, artifact_paths=(), artifact_hash=None)
+    second = controller.poll(job_id=start_result.job_id)
+    persisted = job_store.get(start_result.job_id)
+    assert isinstance(second, DelegationPollResult)
+    assert second.inspection == first.inspection
+    assert persisted is not None
+    assert persisted.artifact_paths == first.inspection.artifact_paths
+    assert persisted.artifact_hash == first.inspection.artifact_hash
+
+
+def test_poll_needs_escalation_projects_pending_request_without_raw_ids(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    controller, control_plane, _wm, _job_store, _lineage, _journal, _registry, _prs = _build_controller(tmp_path)
+    control_plane._next_session_requests = [_command_approval_request()]
+    start_result = controller.start(repo_root=repo_root)
+    assert isinstance(start_result, DelegationEscalation)
+    polled = controller.poll(job_id=start_result.job.job_id)
+    assert isinstance(polled, DelegationPollResult)
+    assert polled.pending_escalation is not None
+    assert polled.pending_escalation.request_id == "42"
+    assert not hasattr(polled.pending_escalation, "codex_thread_id")
+
+
+def test_poll_returns_job_not_found_rejection(tmp_path: Path) -> None:
+    controller, _cp, _wm, _js, _lineage, _journal, _registry, _prs = _build_controller(tmp_path)
+    result = controller.poll(job_id="job-missing")
+    assert isinstance(result, PollRejectedResponse)
+    assert result.reason == "job_not_found"

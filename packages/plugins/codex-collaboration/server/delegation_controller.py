@@ -67,6 +67,7 @@ from .execution_runtime_registry import ExecutionRuntimeEntry, ExecutionRuntimeR
 from .journal import OperationJournal
 from .lineage_store import LineageStore
 from .models import (
+    ArtifactInspectionSnapshot,
     AuditEvent,
     CollaborationHandle,
     DecisionAction,
@@ -75,9 +76,13 @@ from .models import (
     DelegationDecisionResult,
     DelegationEscalation,
     DelegationJob,
+    DelegationPollResult,
     JobBusyResponse,
+    JobStatus,
     OperationJournalEntry,
+    PendingEscalationView,
     PendingServerRequest,
+    PollRejectedResponse,
     TurnExecutionResult,
 )
 from .pending_request_store import PendingRequestStore
@@ -98,6 +103,16 @@ class _WorktreeManagerLike(Protocol):
     ) -> None: ...
 
     def remove_worktree(self, *, repo_root: Path, worktree_path: Path) -> None: ...
+
+
+class _ArtifactStoreLike(Protocol):
+    def materialize_snapshot(
+        self, *, job: DelegationJob
+    ) -> ArtifactInspectionSnapshot: ...
+
+    def load_snapshot(
+        self, *, job: DelegationJob
+    ) -> ArtifactInspectionSnapshot | None: ...
 
 
 def _resolve_head_commit(repo_root: Path) -> str:
@@ -192,6 +207,7 @@ class DelegationController:
         session_id: str,
         plugin_data_path: Path,
         pending_request_store: PendingRequestStore,
+        artifact_store: _ArtifactStoreLike,
         approval_policy: str = "untrusted",
         head_commit_resolver: Callable[[Path], str] | None = None,
         uuid_factory: Callable[[], str] | None = None,
@@ -205,6 +221,7 @@ class DelegationController:
         self._session_id = session_id
         self._plugin_data_path = plugin_data_path
         self._pending_request_store = pending_request_store
+        self._artifact_store = artifact_store
         self._approval_policy = approval_policy
         self._head_commit_resolver = head_commit_resolver or _resolve_head_commit
         self._uuid_factory = uuid_factory or (lambda: str(uuid.uuid4()))
@@ -470,7 +487,7 @@ class DelegationController:
                 collaboration_id=collaboration_id,
                 base_commit=resolved_base,
                 worktree_path=str(worktree_path),
-                promotion_state="pending",
+                promotion_state=None,
                 status="queued",
             )
             self._job_store.create(job)
@@ -525,7 +542,7 @@ class DelegationController:
                     pass
             if job_persisted:
                 try:
-                    self._job_store.update_status(job_id, "unknown")
+                    self._persist_job_transition(job_id, "unknown")
                 except Exception:
                     # Best-effort — reconciliation will close it.
                     pass
@@ -571,7 +588,7 @@ class DelegationController:
         worktree_path: Path,
         prompt_text: str,
     ) -> DelegationJob | DelegationEscalation:
-        self._job_store.update_status(job_id, "running")
+        self._job_store.update_status_and_promotion(job_id, status="running", promotion_state=None)
 
         captured_request: PendingServerRequest | None = None
         interrupted_by_unknown = False
@@ -699,7 +716,7 @@ class DelegationController:
         entry: ExecutionRuntimeEntry,
     ) -> None:
         try:
-            self._job_store.update_status(job_id, "unknown")
+            self._persist_job_transition(job_id, "unknown")
         except Exception:
             logger.error(
                 "Execution cleanup: failed to mark job %r unknown",
@@ -730,6 +747,87 @@ class DelegationController:
                 runtime_id,
                 exc_info=True,
             )
+
+    def _persist_job_transition(self, job_id: str, status: JobStatus) -> DelegationJob:
+        self._job_store.update_status_and_promotion(
+            job_id,
+            status=status,
+            promotion_state="pending" if status == "completed" else None,
+        )
+        updated = self._job_store.get(job_id)
+        assert updated is not None, (
+            f"DelegationJobStore invariant violation: job_id={job_id!r} "
+            f"was just updated but get() returned None"
+        )
+        return updated
+
+    def _project_pending_escalation(
+        self, collaboration_id: str
+    ) -> PendingEscalationView | None:
+        requests = self._pending_request_store.list_by_collaboration_id(collaboration_id)
+        if not requests:
+            return None
+        request = requests[-1]
+        return PendingEscalationView(
+            request_id=request.request_id,
+            kind=request.kind,
+            requested_scope=request.requested_scope,
+            available_decisions=request.available_decisions,
+        )
+
+    def _load_or_materialize_inspection(
+        self, job: DelegationJob
+    ) -> ArtifactInspectionSnapshot | None:
+        if job.status not in ("completed", "failed", "unknown"):
+            return None
+        existing = self._artifact_store.load_snapshot(job=job)
+        if existing is not None:
+            if (
+                job.artifact_paths != existing.artifact_paths
+                or job.artifact_hash != existing.artifact_hash
+            ):
+                self._job_store.update_artifacts(
+                    job.job_id,
+                    artifact_paths=existing.artifact_paths,
+                    artifact_hash=existing.artifact_hash,
+                )
+            return existing
+        snapshot = self._artifact_store.materialize_snapshot(job=job)
+        self._job_store.update_artifacts(
+            job.job_id,
+            artifact_paths=snapshot.artifact_paths,
+            artifact_hash=snapshot.artifact_hash,
+        )
+        return snapshot
+
+    def poll(self, *, job_id: str) -> DelegationPollResult | PollRejectedResponse:
+        job = self._job_store.get(job_id)
+        if job is None:
+            return PollRejectedResponse(
+                rejected=True,
+                reason="job_not_found",
+                detail=f"Delegation poll failed: job not found. Got: {job_id!r:.100}",
+                job_id=job_id,
+            )
+
+        inspection = self._load_or_materialize_inspection(job)
+        refreshed = self._job_store.get(job_id) or job
+        pending_escalation = None
+        if refreshed.status == "needs_escalation":
+            pending_escalation = self._project_pending_escalation(refreshed.collaboration_id)
+
+        detail = None
+        if refreshed.status == "failed":
+            detail = "Delegation execution failed. Inspect artifacts before retrying or discarding."
+        elif refreshed.status == "unknown":
+            detail = "Delegation outcome could not be confirmed after recovery. Inspect artifacts, then restart or discard."
+
+        return DelegationPollResult(
+            job=refreshed,
+            pending_escalation=pending_escalation,
+            inspection=inspection,
+            detail=detail,
+        )
 
     def _finalize_turn(
         self,
@@ -766,19 +864,13 @@ class DelegationController:
 
             # Job status derivation.
             if captured_request.kind in _CANCEL_CAPABLE_KINDS or interrupted_by_unknown:
-                final_status = "needs_escalation"
+                final_status: JobStatus = "needs_escalation"
             elif turn_result.status == "completed":
                 final_status = "completed"
             else:
                 final_status = "needs_escalation"
 
-            self._job_store.update_status(job_id, final_status)
-
-            updated_job = self._job_store.get(job_id)
-            assert updated_job is not None, (
-                f"DelegationJobStore invariant violation: job_id={job_id!r} "
-                f"was just updated but get() returned None"
-            )
+            updated_job = self._persist_job_transition(job_id, final_status)
 
             if final_status == "needs_escalation":
                 # Audit event for escalation.
@@ -816,22 +908,17 @@ class DelegationController:
 
         # No server request captured — clean completion or failure.
         if turn_result.status == "completed":
-            final_status = "completed"
+            no_request_status: JobStatus = "completed"
         elif turn_result.status == "failed":
-            final_status = "failed"
+            no_request_status = "failed"
         else:
-            final_status = "unknown"
+            no_request_status = "unknown"
 
-        self._job_store.update_status(job_id, final_status)
+        updated_job = self._persist_job_transition(job_id, no_request_status)
         self._lineage_store.update_status(collaboration_id, "completed")
         self._runtime_registry.release(runtime_id)
         entry.session.close()
 
-        updated_job = self._job_store.get(job_id)
-        assert updated_job is not None, (
-            f"DelegationJobStore invariant violation: job_id={job_id!r} "
-            f"was just updated but get() returned None"
-        )
         return updated_job
 
     def _reject_decision(
@@ -1007,12 +1094,10 @@ class DelegationController:
 
         if decision == "deny":
             try:
-                self._job_store.update_status(job_id, "failed")
+                updated_job = self._persist_job_transition(job_id, "failed")
                 self._lineage_store.update_status(job.collaboration_id, "completed")
                 self._runtime_registry.release(job.runtime_id)
                 entry.session.close()
-                updated_job = self._job_store.get(job_id)
-                assert updated_job is not None
                 self._journal.write_phase(
                     OperationJournalEntry(
                         idempotency_key=idempotency_key,
@@ -1131,7 +1216,7 @@ class DelegationController:
             if entry.job_id is not None:
                 job = self._job_store.get(entry.job_id)
                 if job is not None and job.status in ("queued", "running"):
-                    self._job_store.update_status(entry.job_id, "unknown")
+                    self._persist_job_transition(entry.job_id, "unknown")
 
             # Advance the journal to completed — this is the terminal phase
             # per recovery-and-journal.md, and it causes list_unresolved to
@@ -1193,7 +1278,7 @@ class DelegationController:
         # (job_creation.completed fired before turn dispatch).
         for job in self._job_store.list_active():
             if job.status in ("running", "needs_escalation"):
-                self._job_store.update_status(job.job_id, "unknown")
+                self._persist_job_transition(job.job_id, "unknown")
                 handle = self._lineage_store.get(job.collaboration_id)
                 if handle is not None and handle.status == "active":
                     self._lineage_store.update_status(

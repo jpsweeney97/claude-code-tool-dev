@@ -9,6 +9,7 @@ from pathlib import Path
 
 from typing import Any, Callable
 
+from server.artifact_store import ArtifactStore
 from server.control_plane import ControlPlane
 from server.delegation_controller import DelegationController
 from server.delegation_job_store import DelegationJobStore
@@ -275,6 +276,7 @@ def _build_e2e_setup(
     lineage_store = LineageStore(plugin_data, "sess-e2e-esc")
     pending_request_store = PendingRequestStore(plugin_data, "sess-e2e-esc")
     runtime_registry = ExecutionRuntimeRegistry()
+    artifact_store = ArtifactStore(plugin_data, timestamp_factory=journal.timestamp)
     controller = DelegationController(
         control_plane=control_plane,
         worktree_manager=WorktreeManager(),
@@ -285,6 +287,7 @@ def _build_e2e_setup(
         session_id="sess-e2e-esc",
         plugin_data_path=plugin_data,
         pending_request_store=pending_request_store,
+        artifact_store=artifact_store,
     )
 
     server = McpServer(
@@ -312,6 +315,7 @@ def test_delegate_start_end_to_end_through_mcp_dispatch(tmp_path: Path) -> None:
     lineage_store = LineageStore(plugin_data, "sess-e2e")
     pending_request_store = PendingRequestStore(plugin_data, "sess-e2e")
     runtime_registry = ExecutionRuntimeRegistry()
+    artifact_store = ArtifactStore(plugin_data, timestamp_factory=journal.timestamp)
     controller = DelegationController(
         control_plane=control_plane,
         worktree_manager=WorktreeManager(),
@@ -322,6 +326,7 @@ def test_delegate_start_end_to_end_through_mcp_dispatch(tmp_path: Path) -> None:
         session_id="sess-e2e",
         plugin_data_path=plugin_data,
         pending_request_store=pending_request_store,
+        artifact_store=artifact_store,
     )
 
     # SEED (load-bearing proof of AC 4 consumer wiring): simulate a prior
