@@ -223,3 +223,55 @@ def test_load_snapshot_returns_none_for_corrupt_json(tmp_path: Path) -> None:
 
     result = store.load_snapshot(job=job)
     assert result is None
+
+
+def test_reconstruct_from_artifacts_heals_corrupt_cache(tmp_path: Path) -> None:
+    """Reconstruction reads the persisted manifest and rewrites snapshot.json."""
+    repo_root = tmp_path / "repo"
+    base_commit = _init_repo(repo_root)
+    (repo_root / "README.md").write_text("changed\n", encoding="utf-8")
+
+    plugin_data = tmp_path / "plugin-data"
+    store = ArtifactStore(plugin_data, timestamp_factory=lambda: "2026-04-20T05:00:00Z")
+    job = DelegationJob(
+        job_id="job-heal",
+        runtime_id="rt-1",
+        collaboration_id="collab-1",
+        base_commit=base_commit,
+        worktree_path=str(repo_root),
+        promotion_state="pending",
+        status="completed",
+    )
+
+    # First materialize to create the artifact files.
+    original = store.materialize_snapshot(job=job)
+
+    # Corrupt snapshot.json.
+    inspection_dir = plugin_data / "runtimes" / "delegation" / "job-heal" / "inspection"
+    (inspection_dir / "snapshot.json").write_text("{truncated", encoding="utf-8")
+
+    # Confirm load_snapshot fails.
+    assert store.load_snapshot(job=job) is None
+
+    # Reconstruct from persisted artifacts and store data.
+    job_with_artifacts = DelegationJob(
+        job_id="job-heal",
+        runtime_id="rt-1",
+        collaboration_id="collab-1",
+        base_commit=base_commit,
+        worktree_path=str(repo_root),
+        promotion_state="pending",
+        status="completed",
+        artifact_paths=original.artifact_paths,
+        artifact_hash=original.artifact_hash,
+    )
+    reconstructed = store.reconstruct_from_artifacts(job=job_with_artifacts)
+    assert reconstructed is not None
+    assert reconstructed.artifact_hash == original.artifact_hash
+    assert reconstructed.artifact_paths == original.artifact_paths
+    assert reconstructed.changed_files == original.changed_files
+
+    # snapshot.json should be healed — load_snapshot works again.
+    healed = store.load_snapshot(job=job_with_artifacts)
+    assert healed is not None
+    assert healed.artifact_hash == original.artifact_hash

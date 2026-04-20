@@ -114,6 +114,10 @@ class _ArtifactStoreLike(Protocol):
         self, *, job: DelegationJob
     ) -> ArtifactInspectionSnapshot | None: ...
 
+    def reconstruct_from_artifacts(
+        self, *, job: DelegationJob
+    ) -> ArtifactInspectionSnapshot | None: ...
+
 
 def _resolve_head_commit(repo_root: Path) -> str:
     """Default head-commit resolver — `git rev-parse HEAD` in repo_root."""
@@ -795,6 +799,12 @@ class DelegationController:
                     artifact_hash=existing.artifact_hash,
                 )
             return existing
+        # No usable cache. If the store already holds a reviewed hash,
+        # the job was previously materialized — do not recompute from the
+        # worktree (it may have been modified since the original review).
+        # Reconstruct from the persisted artifact files instead.
+        if job.artifact_hash is not None:
+            return self._artifact_store.reconstruct_from_artifacts(job=job)
         snapshot = self._artifact_store.materialize_snapshot(job=job)
         self._job_store.update_artifacts(
             job.job_id,

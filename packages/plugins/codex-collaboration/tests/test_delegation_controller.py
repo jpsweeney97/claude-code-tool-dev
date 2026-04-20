@@ -175,6 +175,18 @@ class _FakeArtifactStore:
     ) -> ArtifactInspectionSnapshot | None:
         return self._snapshots.get(job.job_id)
 
+    def reconstruct_from_artifacts(
+        self, *, job: DelegationJob
+    ) -> ArtifactInspectionSnapshot | None:
+        if not job.artifact_paths:
+            return None
+        return ArtifactInspectionSnapshot(
+            artifact_hash=job.artifact_hash,
+            artifact_paths=job.artifact_paths,
+            changed_files=("README.md",),
+            reviewed_at="2026-04-20T10:00:00Z",
+        )
+
 
 def _build_controller(
     tmp_path: Path,
@@ -2296,6 +2308,45 @@ def test_poll_needs_escalation_projects_pending_request_without_raw_ids(
     assert polled.pending_escalation.request_id == "42"
     assert polled.pending_escalation.available_decisions == ("approve", "deny")
     assert not hasattr(polled.pending_escalation, "codex_thread_id")
+
+
+def test_poll_reconstructs_from_artifacts_when_cache_is_corrupt(
+    tmp_path: Path,
+) -> None:
+    """A completed job with an existing hash reconstructs from artifact files.
+
+    If snapshot.json is corrupt but the store already holds a reviewed hash,
+    the controller reconstructs the inspection from the persisted artifacts
+    rather than rematerializing from the (potentially mutated) worktree.
+    """
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    controller, _cp, _wm, job_store, _lineage, _journal, _registry, _prs = _build_controller(tmp_path)
+
+    start_result = controller.start(repo_root=repo_root)
+    assert isinstance(start_result, DelegationJob)
+
+    # First poll — materializes and records hash.
+    first = controller.poll(job_id=start_result.job_id)
+    assert isinstance(first, DelegationPollResult)
+    assert first.inspection is not None
+    original_hash = first.inspection.artifact_hash
+
+    # Simulate corrupt cache by clearing the fake store's internal dict
+    # (so load_snapshot returns None), while the job store still has the hash.
+    fake_store = controller._artifact_store  # type: ignore[attr-defined]
+    fake_store._snapshots.clear()
+
+    # Poll again — reconstructs from artifacts, preserving the reviewed hash.
+    second = controller.poll(job_id=start_result.job_id)
+    assert isinstance(second, DelegationPollResult)
+    assert second.inspection is not None
+    assert second.inspection.artifact_hash == original_hash
+
+    # The store's hash must be preserved — not overwritten.
+    persisted = job_store.get(start_result.job_id)
+    assert persisted is not None
+    assert persisted.artifact_hash == original_hash
 
 
 def test_poll_returns_job_not_found_rejection(tmp_path: Path) -> None:

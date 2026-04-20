@@ -85,6 +85,56 @@ class ArtifactStore:
         )
         return snapshot
 
+    def reconstruct_from_artifacts(
+        self, *, job: DelegationJob
+    ) -> ArtifactInspectionSnapshot | None:
+        """Reconstruct a snapshot from persisted artifact files and store data.
+
+        Used when ``snapshot.json`` is corrupt but the job store still holds
+        the authoritative ``artifact_hash`` and ``artifact_paths``. The
+        artifact files under the inspection directory are immutable once
+        written, so reading them is safe even if the worktree has been
+        modified. Rewrites ``snapshot.json`` to heal the cache.
+
+        Returns None if the manifest file cannot be read (artifacts deleted).
+        """
+        if not job.artifact_paths:
+            return None
+        changed_files: tuple[str, ...] = ()
+        for path_str in job.artifact_paths:
+            path = Path(path_str)
+            if path.name == "changed-files.json" and path.exists():
+                try:
+                    payload = json.loads(path.read_text(encoding="utf-8"))
+                    changed_files = tuple(payload.get("changed_files", []))
+                except (json.JSONDecodeError, KeyError):
+                    pass
+                break
+        reviewed_at = self._timestamp_factory()
+        snapshot = ArtifactInspectionSnapshot(
+            artifact_hash=job.artifact_hash,
+            artifact_paths=job.artifact_paths,
+            changed_files=changed_files,
+            reviewed_at=reviewed_at,
+        )
+        # Heal the cache so subsequent polls use the fast path.
+        snapshot_path = self._inspection_dir(job.job_id) / "snapshot.json"
+        snapshot_path.write_text(
+            json.dumps(
+                {
+                    "artifact_hash": snapshot.artifact_hash,
+                    "artifact_paths": list(snapshot.artifact_paths),
+                    "changed_files": list(snapshot.changed_files),
+                    "reviewed_at": snapshot.reviewed_at,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return snapshot
+
     def load_snapshot(self, *, job: DelegationJob) -> ArtifactInspectionSnapshot | None:
         """Load a previously materialized snapshot from disk.
 
