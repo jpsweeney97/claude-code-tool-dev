@@ -96,7 +96,7 @@ class ArtifactStore:
         written, so reading them is safe even if the worktree has been
         modified. Rewrites ``snapshot.json`` to heal the cache.
 
-        Returns None if the manifest file cannot be read (artifacts deleted).
+        Returns None if artifact_paths is empty or any artifact file is missing.
         """
         if not job.artifact_paths:
             return None
@@ -241,12 +241,12 @@ class ArtifactStore:
             }
         try:
             return json.loads(record_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, ValueError):
+        except (json.JSONDecodeError, ValueError, OSError):
             return {
                 "schema_version": 1,
                 "status": "malformed",
                 "commands": [],
-                "summary": "Execution agent persisted test results but the file is malformed.",
+                "summary": "Execution agent persisted test results but the file is malformed or unreadable.",
                 "source_path": TEST_RESULTS_RECORD_RELATIVE_PATH,
             }
 

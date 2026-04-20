@@ -2349,6 +2349,62 @@ def test_poll_reconstructs_from_artifacts_when_cache_is_corrupt(
     assert persisted.artifact_hash == original_hash
 
 
+def test_poll_returns_structured_result_when_materialization_raises(
+    tmp_path: Path,
+) -> None:
+    """If artifact materialization raises CalledProcessError (e.g. worktree deleted),
+    poll returns a structured result with inspection=None and diagnostic detail."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    controller, _cp, _wm, job_store, _lineage, _journal, _registry, _prs = _build_controller(tmp_path)
+    start_result = controller.start(repo_root=repo_root)
+    assert isinstance(start_result, DelegationJob)
+
+    # Patch the fake store to raise CalledProcessError on materialize.
+    import subprocess as _sp
+
+    def _raise_on_materialize(*, job: DelegationJob) -> ArtifactInspectionSnapshot:
+        raise _sp.CalledProcessError(128, ["git", "diff"], stderr="fatal: not a git repository")
+
+    controller._artifact_store.materialize_snapshot = _raise_on_materialize  # type: ignore[assignment]
+
+    result = controller.poll(job_id=start_result.job_id)
+    assert isinstance(result, DelegationPollResult)
+    assert result.inspection is None
+
+
+def test_poll_sets_detail_when_artifacts_unavailable_for_reviewed_job(
+    tmp_path: Path,
+) -> None:
+    """A completed job with artifact_hash but no loadable inspection gets a diagnostic detail."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    controller, _cp, _wm, job_store, _lineage, _journal, _registry, _prs = _build_controller(tmp_path)
+    start_result = controller.start(repo_root=repo_root)
+    assert isinstance(start_result, DelegationJob)
+
+    # First poll materializes and records hash.
+    first = controller.poll(job_id=start_result.job_id)
+    assert isinstance(first, DelegationPollResult)
+    assert first.inspection is not None
+
+    # Clear the fake store's cache AND make reconstruct return None
+    # (simulates all artifact files deleted from disk).
+    fake_store = controller._artifact_store  # type: ignore[attr-defined]
+    fake_store._snapshots.clear()
+
+    def _fail_reconstruct(*, job: DelegationJob) -> None:
+        return None
+
+    fake_store.reconstruct_from_artifacts = _fail_reconstruct  # type: ignore[assignment]
+
+    result = controller.poll(job_id=start_result.job_id)
+    assert isinstance(result, DelegationPollResult)
+    assert result.inspection is None
+    assert result.detail is not None
+    assert "unavailable" in result.detail.lower()
+
+
 def test_poll_returns_job_not_found_rejection(tmp_path: Path) -> None:
     controller, _cp, _wm, _js, _lineage, _journal, _registry, _prs = _build_controller(tmp_path)
     result = controller.poll(job_id="job-missing")

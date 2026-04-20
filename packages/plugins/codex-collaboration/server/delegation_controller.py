@@ -1,4 +1,4 @@
-"""Controller for codex.delegate.start and codex.delegate.decide.
+"""Controller for codex.delegate.start, codex.delegate.decide, and codex.delegate.poll.
 
 Mirrors dialogue.py::DialogueController.start three-phase discipline. Flow:
 
@@ -39,7 +39,7 @@ Mirrors dialogue.py::DialogueController.start three-phase discipline. Flow:
 #
 # After job_creation.completed, the journal entry IS resolved —
 # list_unresolved() will NOT return it. If the process crashes after
-# update_status(job_id, "running") but before post-turn terminal writes,
+# _persist_job_transition(job_id, "running") but before post-turn terminal writes,
 # the job is persisted as "running" with no live runtime and no journal
 # replay anchor. recover_startup() handles this via orphaned-active-job
 # detection (see Step 6.2): any job persisted as "running" or
@@ -47,9 +47,9 @@ Mirrors dialogue.py::DialogueController.start three-phase discipline. Flow:
 # registry is fresh) and is marked "unknown".
 #
 # Turn-dispatch journaling (with its own ``turn_dispatch`` operation and
-# idempotency key per recovery-and-journal.md:49) lands with T-06
-# (codex.delegate.poll), where multi-turn dispatch and replay become
-# real requirements.
+# idempotency key per recovery-and-journal.md:49) is deferred beyond the
+# poll slice. Poll operates on materialized artifacts and does not
+# require turn-level replay.
 
 from __future__ import annotations
 
@@ -197,7 +197,7 @@ class CommittedDecisionFinalizationError(RuntimeError):
 
 
 class DelegationController:
-    """Implements codex.delegate.start and codex.delegate.decide."""
+    """Implements codex.delegate.start, codex.delegate.decide, and codex.delegate.poll."""
 
     def __init__(
         self,
@@ -823,7 +823,15 @@ class DelegationController:
                 job_id=job_id,
             )
 
-        inspection = self._load_or_materialize_inspection(job)
+        try:
+            inspection = self._load_or_materialize_inspection(job)
+        except (subprocess.CalledProcessError, OSError) as exc:
+            logger.warning(
+                "poll: artifact materialization failed for job %r: %s",
+                job_id,
+                exc,
+            )
+            inspection = None
         refreshed = self._job_store.get(job_id) or job
         pending_escalation = None
         if refreshed.status == "needs_escalation":
@@ -834,6 +842,11 @@ class DelegationController:
             detail = "Delegation execution failed. Inspect artifacts before retrying or discarding."
         elif refreshed.status == "unknown":
             detail = "Delegation outcome could not be confirmed after recovery. Inspect artifacts, then restart or discard."
+
+        # A completed job with a prior artifact_hash but no inspection means
+        # artifact files were deleted or the worktree is unreachable.
+        if inspection is None and refreshed.artifact_hash is not None:
+            detail = "Inspection artifacts unavailable — original artifact files may have been deleted."
 
         return DelegationPollResult(
             job=refreshed,
