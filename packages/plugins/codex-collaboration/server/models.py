@@ -31,6 +31,17 @@ PromotionState = Literal[
     "rolled_back",
     "discarded",
 ]
+DecisionAction = Literal["approve", "deny"]
+DecisionRejectedReason = Literal[
+    "invalid_decision",
+    "job_not_found",
+    "job_not_awaiting_decision",
+    "request_not_found",
+    "request_job_mismatch",
+    "runtime_unavailable",
+    "answers_required",
+    "answers_not_allowed",
+]
 
 
 @dataclass(frozen=True)
@@ -172,6 +183,7 @@ class AuditEvent:
     turn_id: str | None = None
     job_id: str | None = None
     request_id: str | None = None
+    decision: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -294,7 +306,12 @@ class OperationJournalEntry:
     """
 
     idempotency_key: str
-    operation: Literal["thread_creation", "turn_dispatch", "job_creation"]
+    operation: Literal[
+        "thread_creation",
+        "turn_dispatch",
+        "job_creation",
+        "approval_resolution",
+    ]
     phase: Literal["intent", "dispatched", "completed"]
     collaboration_id: str
     created_at: str
@@ -304,7 +321,9 @@ class OperationJournalEntry:
     turn_sequence: int | None = None  # turn_dispatch only
     runtime_id: str | None = None  # turn_dispatch and job_creation
     context_size: int | None = None  # turn_dispatch only, set at intent
-    job_id: str | None = None  # job_creation only
+    job_id: str | None = None  # job_creation and approval_resolution
+    request_id: str | None = None  # approval_resolution only
+    decision: str | None = None  # approval_resolution only
 
 
 @dataclass(frozen=True)
@@ -357,3 +376,25 @@ class DelegationEscalation:
     job: DelegationJob
     pending_request: PendingServerRequest
     agent_context: str | None = None
+
+
+@dataclass(frozen=True)
+class DelegationDecisionResult:
+    """Returned by codex.delegate.decide after approve or deny."""
+
+    job: DelegationJob
+    decision: DecisionAction
+    resumed: bool
+    pending_request: PendingServerRequest | None = None
+    agent_context: str | None = None
+
+
+@dataclass(frozen=True)
+class DecisionRejectedResponse:
+    """Typed rejection returned by codex.delegate.decide."""
+
+    rejected: bool
+    reason: DecisionRejectedReason
+    detail: str
+    job_id: str | None = None
+    request_id: str | None = None

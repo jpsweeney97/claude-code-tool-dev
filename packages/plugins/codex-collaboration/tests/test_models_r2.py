@@ -282,3 +282,101 @@ def test_operation_journal_entry_job_id_defaults_to_none() -> None:
         repo_root="/tmp/repo",
     )
     assert entry.job_id is None
+
+
+def test_delegation_decision_result_shape() -> None:
+    from server.models import (
+        DelegationDecisionResult,
+        DelegationJob,
+        PendingServerRequest,
+    )
+
+    job = DelegationJob(
+        job_id="job-1",
+        runtime_id="rt-1",
+        collaboration_id="collab-1",
+        base_commit="abc123",
+        worktree_path="/tmp/wk",
+        promotion_state="pending",
+        status="completed",
+    )
+    request = PendingServerRequest(
+        request_id="req-1",
+        runtime_id="rt-1",
+        collaboration_id="collab-1",
+        codex_thread_id="thr-1",
+        codex_turn_id="turn-1",
+        item_id="item-1",
+        kind="command_approval",
+        requested_scope={"command": "make test"},
+        status="resolved",
+    )
+
+    result = DelegationDecisionResult(
+        job=job,
+        decision="approve",
+        resumed=True,
+        pending_request=request,
+        agent_context="Need approval",
+    )
+
+    assert result.job.job_id == "job-1"
+    assert result.decision == "approve"
+    assert result.resumed is True
+    assert result.pending_request is request
+
+
+def test_decision_rejected_response_shape() -> None:
+    from server.models import DecisionRejectedResponse
+
+    rejected = DecisionRejectedResponse(
+        rejected=True,
+        reason="runtime_unavailable",
+        detail="Delegation decide failed: runtime unavailable. Got: 'rt-1'",
+        job_id="job-1",
+        request_id="req-1",
+    )
+
+    assert rejected.rejected is True
+    assert rejected.reason == "runtime_unavailable"
+    assert rejected.job_id == "job-1"
+    assert rejected.request_id == "req-1"
+
+
+def test_audit_event_supports_decision_field() -> None:
+    from server.models import AuditEvent
+
+    event = AuditEvent(
+        event_id="evt-1",
+        timestamp="2026-04-19T00:00:00Z",
+        actor="claude",
+        action="approve",
+        collaboration_id="collab-1",
+        runtime_id="rt-1",
+        job_id="job-1",
+        request_id="req-1",
+        decision="deny",
+    )
+
+    assert event.action == "approve"
+    assert event.decision == "deny"
+
+
+def test_operation_journal_entry_supports_approval_resolution_fields() -> None:
+    from server.models import OperationJournalEntry
+
+    entry = OperationJournalEntry(
+        idempotency_key="req-1:approve",
+        operation="approval_resolution",
+        phase="intent",
+        collaboration_id="collab-1",
+        created_at="2026-04-19T00:00:00Z",
+        repo_root="/repo",
+        job_id="job-1",
+        request_id="req-1",
+        decision="approve",
+    )
+
+    assert entry.operation == "approval_resolution"
+    assert entry.request_id == "req-1"
+    assert entry.decision == "approve"
