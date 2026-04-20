@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from server.execution_prompt_builder import build_execution_turn_text
+from server.models import PendingServerRequest
 
 
 def test_build_execution_turn_text_includes_objective() -> None:
@@ -29,8 +30,6 @@ def test_build_execution_turn_text_conveys_execution_context() -> None:
     )
     assert "worktree" in result.lower() or "isolated" in result.lower()
 
-
-from server.models import PendingServerRequest
 
 
 def test_build_execution_resume_turn_text_includes_request_context() -> None:
