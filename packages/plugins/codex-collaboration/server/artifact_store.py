@@ -239,7 +239,16 @@ class ArtifactStore:
                 "summary": "Execution agent did not persist test results.",
                 "source_path": TEST_RESULTS_RECORD_RELATIVE_PATH,
             }
-        return json.loads(record_path.read_text(encoding="utf-8"))
+        try:
+            return json.loads(record_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, ValueError):
+            return {
+                "schema_version": 1,
+                "status": "malformed",
+                "commands": [],
+                "summary": "Execution agent persisted test results but the file is malformed.",
+                "source_path": TEST_RESULTS_RECORD_RELATIVE_PATH,
+            }
 
     def _review_hash(self, inspection_dir: Path, artifact_paths: tuple[str, ...]) -> str:
         sha = hashlib.sha256()

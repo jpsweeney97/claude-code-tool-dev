@@ -300,6 +300,31 @@ def test_reconstruct_returns_none_when_artifact_file_missing(tmp_path: Path) -> 
     assert result is None
 
 
+def test_malformed_test_results_produces_stub(tmp_path: Path) -> None:
+    """Truncated .codex-collaboration/test-results.json must not crash materialization."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    base_commit = _init_repo(repo)
+
+    (repo / "README.md").write_text("# Changed\n", encoding="utf-8")
+    cc_dir = repo / ".codex-collaboration"
+    cc_dir.mkdir()
+    (cc_dir / "test-results.json").write_text('{"truncated', encoding="utf-8")
+
+    plugin_data = tmp_path / "plugin-data"
+    store = ArtifactStore(plugin_data, timestamp_factory=lambda: "2026-04-20T08:00:00Z")
+    job = _make_job(worktree_path=str(repo), base_commit=base_commit)
+
+    snapshot = store.materialize_snapshot(job=job)
+
+    # Materialization succeeds — no JSONDecodeError propagation
+    assert snapshot.artifact_hash is not None
+    test_results_path = Path(snapshot.artifact_paths[2])
+    record = json.loads(test_results_path.read_text(encoding="utf-8"))
+    assert record["status"] == "malformed"
+    assert record["source_path"] == ".codex-collaboration/test-results.json"
+
+
 def test_reconstruct_handles_malformed_manifest(tmp_path: Path) -> None:
     """Malformed changed-files.json (valid JSON, wrong shape) must not crash."""
     plugin_data = tmp_path / "plugin-data"
