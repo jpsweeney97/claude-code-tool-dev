@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 
+from .artifact_store import TEST_RESULTS_RECORD_RELATIVE_PATH
 from .models import PendingServerRequest
 
 
@@ -29,6 +30,9 @@ def build_execution_turn_text(
         f"  {worktree_path}\n\n"
         "Objective:\n"
         f"  {objective}\n\n"
+        "When you run verification, persist a deterministic test-results record at:\n"
+        f"  {TEST_RESULTS_RECORD_RELATIVE_PATH}\n"
+        "Write JSON with keys: schema_version, status, commands, summary.\n"
         "Work within the worktree boundary. Commands that require approval "
         "will be escalated to the caller for review."
     )
@@ -50,6 +54,7 @@ def build_execution_resume_turn_text(
         "Continue the existing isolated delegation thread.",
         "The earlier server request has already been resolved at the wire layer.",
         "Do not re-ask for the same approval; treat the caller decision below as authoritative.",
+        f"Persist verification output (status, commands, summary) at {TEST_RESULTS_RECORD_RELATIVE_PATH} when you run tests.",
         "",
         f"Escalation kind: {pending_request.kind}",
         f"Request id: {pending_request.request_id}",
