@@ -119,6 +119,35 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "required": ["repo_root", "objective"],
         },
     },
+    {
+        "name": "codex.delegate.decide",
+        "description": "Resolve a live same-session delegation escalation.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string"},
+                "request_id": {"type": "string"},
+                "decision": {
+                    "type": "string",
+                    "enum": ["approve", "deny"],
+                },
+                "answers": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "object",
+                        "properties": {
+                            "answers": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            }
+                        },
+                        "required": ["answers"],
+                    },
+                },
+            },
+            "required": ["job_id", "request_id", "decision"],
+        },
+    },
 ]
 
 
@@ -343,6 +372,42 @@ class McpServer:
                     "agent_context": result.agent_context,
                     "escalated": True,
                 }
+            return asdict(result)
+        if name == "codex.delegate.decide":
+            from .models import DelegationDecisionResult
+
+            controller = self._ensure_delegation_controller()
+            raw_answers = arguments.get("answers")
+            answers = None
+            if isinstance(raw_answers, dict):
+                normalized: dict[str, tuple[str, ...]] = {}
+                for key, value in raw_answers.items():
+                    if not isinstance(key, str) or not isinstance(value, dict):
+                        continue
+                    raw_list = value.get("answers", ())
+                    if isinstance(raw_list, list) and all(
+                        isinstance(item, str) for item in raw_list
+                    ):
+                        normalized[key] = tuple(raw_list)
+                answers = normalized
+
+            result = controller.decide(
+                job_id=arguments["job_id"],
+                request_id=arguments["request_id"],
+                decision=arguments["decision"],
+                answers=answers,
+            )
+            if isinstance(result, DelegationDecisionResult):
+                payload = {
+                    "job": asdict(result.job),
+                    "decision": result.decision,
+                    "resumed": result.resumed,
+                }
+                if result.pending_request is not None:
+                    payload["pending_request"] = asdict(result.pending_request)
+                if result.agent_context is not None:
+                    payload["agent_context"] = result.agent_context
+                return payload
             return asdict(result)
         raise ValueError(f"Unknown tool: {name!r:.100}")
 
