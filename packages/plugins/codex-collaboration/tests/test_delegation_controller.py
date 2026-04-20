@@ -2353,7 +2353,8 @@ def test_poll_returns_structured_result_when_materialization_raises(
     tmp_path: Path,
 ) -> None:
     """If artifact materialization raises CalledProcessError (e.g. worktree deleted),
-    poll returns a structured result with inspection=None and diagnostic detail."""
+    poll returns a structured result with inspection=None and a diagnostic detail
+    explaining that materialization failed."""
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     controller, _cp, _wm, job_store, _lineage, _journal, _registry, _prs = _build_controller(tmp_path)
@@ -2371,6 +2372,8 @@ def test_poll_returns_structured_result_when_materialization_raises(
     result = controller.poll(job_id=start_result.job_id)
     assert isinstance(result, DelegationPollResult)
     assert result.inspection is None
+    assert result.detail is not None
+    assert "materialization failed" in result.detail.lower()
 
 
 def test_poll_sets_detail_when_artifacts_unavailable_for_reviewed_job(

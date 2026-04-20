@@ -823,6 +823,7 @@ class DelegationController:
                 job_id=job_id,
             )
 
+        materialization_failed = False
         try:
             inspection = self._load_or_materialize_inspection(job)
         except (subprocess.CalledProcessError, OSError) as exc:
@@ -832,6 +833,7 @@ class DelegationController:
                 exc,
             )
             inspection = None
+            materialization_failed = True
         refreshed = self._job_store.get(job_id) or job
         pending_escalation = None
         if refreshed.status == "needs_escalation":
@@ -843,10 +845,10 @@ class DelegationController:
         elif refreshed.status == "unknown":
             detail = "Delegation outcome could not be confirmed after recovery. Inspect artifacts, then restart or discard."
 
-        # A completed job with a prior artifact_hash but no inspection means
-        # artifact files were deleted or the worktree is unreachable.
         if inspection is None and refreshed.artifact_hash is not None:
             detail = "Inspection artifacts unavailable — original artifact files may have been deleted."
+        elif inspection is None and materialization_failed:
+            detail = "Artifact materialization failed — worktree may have been deleted or is unreachable."
 
         return DelegationPollResult(
             job=refreshed,
