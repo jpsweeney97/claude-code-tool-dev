@@ -275,3 +275,59 @@ def test_reconstruct_from_artifacts_heals_corrupt_cache(tmp_path: Path) -> None:
     healed = store.load_snapshot(job=job_with_artifacts)
     assert healed is not None
     assert healed.artifact_hash == original.artifact_hash
+
+
+def test_reconstruct_returns_none_when_artifact_file_missing(tmp_path: Path) -> None:
+    """If any canonical artifact is deleted, reconstruction must fail."""
+    plugin_data = tmp_path / "plugin-data"
+    store = ArtifactStore(plugin_data, timestamp_factory=lambda: "2026-04-20T06:00:00Z")
+    job = DelegationJob(
+        job_id="job-missing-file",
+        runtime_id="rt-1",
+        collaboration_id="collab-1",
+        base_commit="abc",
+        worktree_path="/tmp/wk",
+        promotion_state="pending",
+        status="completed",
+        artifact_paths=(
+            "/tmp/nonexistent/full.diff",
+            "/tmp/nonexistent/changed-files.json",
+            "/tmp/nonexistent/test-results.json",
+        ),
+        artifact_hash="abc123",
+    )
+    result = store.reconstruct_from_artifacts(job=job)
+    assert result is None
+
+
+def test_reconstruct_handles_malformed_manifest(tmp_path: Path) -> None:
+    """Malformed changed-files.json (valid JSON, wrong shape) must not crash."""
+    plugin_data = tmp_path / "plugin-data"
+    store = ArtifactStore(plugin_data, timestamp_factory=lambda: "2026-04-20T07:00:00Z")
+    inspection_dir = plugin_data / "runtimes" / "delegation" / "job-bad-manifest" / "inspection"
+    inspection_dir.mkdir(parents=True)
+
+    # Write artifact files — manifest is valid JSON but wrong shape (list, not dict)
+    (inspection_dir / "full.diff").write_text("diff content\n", encoding="utf-8")
+    (inspection_dir / "changed-files.json").write_text('["not", "a", "dict"]', encoding="utf-8")
+    (inspection_dir / "test-results.json").write_text('{"status": "passed"}', encoding="utf-8")
+
+    job = DelegationJob(
+        job_id="job-bad-manifest",
+        runtime_id="rt-1",
+        collaboration_id="collab-1",
+        base_commit="abc",
+        worktree_path="/tmp/wk",
+        promotion_state="pending",
+        status="completed",
+        artifact_paths=(
+            str(inspection_dir / "full.diff"),
+            str(inspection_dir / "changed-files.json"),
+            str(inspection_dir / "test-results.json"),
+        ),
+        artifact_hash="abc123",
+    )
+    result = store.reconstruct_from_artifacts(job=job)
+    assert result is not None
+    assert result.artifact_hash == "abc123"
+    assert result.changed_files == ()  # Gracefully empty, not crashed

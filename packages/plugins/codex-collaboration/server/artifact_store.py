@@ -100,14 +100,20 @@ class ArtifactStore:
         """
         if not job.artifact_paths:
             return None
+        # All canonical artifact files must exist — if any are missing,
+        # the artifact set is corrupted beyond cache-level recovery.
+        for path_str in job.artifact_paths:
+            if not Path(path_str).exists():
+                return None
         changed_files: tuple[str, ...] = ()
         for path_str in job.artifact_paths:
             path = Path(path_str)
-            if path.name == "changed-files.json" and path.exists():
+            if path.name == "changed-files.json":
                 try:
                     payload = json.loads(path.read_text(encoding="utf-8"))
-                    changed_files = tuple(payload.get("changed_files", []))
-                except (json.JSONDecodeError, KeyError):
+                    if isinstance(payload, dict):
+                        changed_files = tuple(payload.get("changed_files", []))
+                except (json.JSONDecodeError, KeyError, TypeError):
                     pass
                 break
         reviewed_at = self._timestamp_factory()
