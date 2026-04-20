@@ -43,6 +43,7 @@ DecisionRejectedReason = Literal[
     "answers_required",
     "answers_not_allowed",
 ]
+PollRejectedReason = Literal["job_not_found"]
 
 
 @dataclass(frozen=True)
@@ -343,7 +344,7 @@ class DelegationJob:
     collaboration_id: str
     base_commit: str
     worktree_path: str
-    promotion_state: PromotionState
+    promotion_state: PromotionState | None
     status: JobStatus
     artifact_paths: tuple[str, ...] = ()
     artifact_hash: str | None = None
@@ -399,3 +400,52 @@ class DecisionRejectedResponse:
     detail: str
     job_id: str | None = None
     request_id: str | None = None
+
+
+@dataclass(frozen=True)
+class PendingEscalationView:
+    """Projected view of a pending escalation for poll results.
+
+    Minimal subset of PendingServerRequest fields needed by the caller
+    to render an escalation prompt. Does not carry internal correlation
+    ids (codex_thread_id, codex_turn_id, item_id).
+    """
+
+    request_id: str
+    kind: PendingRequestKind
+    requested_scope: dict[str, Any]
+    available_decisions: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ArtifactInspectionSnapshot:
+    """Point-in-time snapshot of inspection artifacts for poll results.
+
+    Captures the artifact state at poll time so the caller can present
+    a diff summary without re-reading the worktree.
+    """
+
+    artifact_hash: str | None
+    artifact_paths: tuple[str, ...]
+    changed_files: tuple[str, ...]
+    reviewed_at: str
+
+
+@dataclass(frozen=True)
+class DelegationPollResult:
+    """Successful poll result returned by codex.delegate.poll."""
+
+    job: DelegationJob
+    pending_escalation: PendingEscalationView | None = None
+    inspection: ArtifactInspectionSnapshot | None = None
+    detail: str | None = None
+
+
+@dataclass(frozen=True)
+class PollRejectedResponse:
+    """Typed rejection returned by codex.delegate.poll."""
+
+    rejected: bool
+    reason: PollRejectedReason
+    detail: str
+    job_id: str | None = None

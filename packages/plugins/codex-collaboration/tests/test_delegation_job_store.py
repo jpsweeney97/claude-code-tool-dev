@@ -14,6 +14,7 @@ def _make_job(
     job_id: str = "job-1",
     runtime_id: str = "rt-1",
     status: str = "queued",
+    promotion_state: str | None = "pending",
 ) -> DelegationJob:
     return DelegationJob(
         job_id=job_id,
@@ -21,7 +22,7 @@ def _make_job(
         collaboration_id=f"collab-{job_id}",
         base_commit="abc123",
         worktree_path=f"/tmp/wk-{job_id}",
-        promotion_state="pending",
+        promotion_state=promotion_state,  # type: ignore[arg-type]
         status=status,  # type: ignore[arg-type]
     )
 
@@ -193,3 +194,69 @@ def test_replay_skips_create_with_invalid_promotion_state(tmp_path: Path) -> Non
 
     replay = DelegationJobStore(tmp_path, "sess-1")
     assert replay.get("job-bad") is None
+
+
+def test_update_status_and_promotion_last_write_wins(tmp_path: Path) -> None:
+    store = DelegationJobStore(tmp_path, "sess-1")
+    store.create(_make_job(job_id="job-1", status="queued", promotion_state=None))
+
+    store.update_status_and_promotion(
+        "job-1",
+        status="completed",
+        promotion_state="pending",
+    )
+
+    job = store.get("job-1")
+    assert job is not None
+    assert job.status == "completed"
+    assert job.promotion_state == "pending"
+
+
+def test_update_artifacts_last_write_wins(tmp_path: Path) -> None:
+    store = DelegationJobStore(tmp_path, "sess-1")
+    store.create(_make_job(job_id="job-1", status="completed", promotion_state="pending"))
+
+    store.update_artifacts(
+        "job-1",
+        artifact_paths=("/tmp/inspection/full.diff", "/tmp/inspection/test-results.json"),
+        artifact_hash="sha-1",
+    )
+
+    job = store.get("job-1")
+    assert job is not None
+    assert job.artifact_paths == (
+        "/tmp/inspection/full.diff",
+        "/tmp/inspection/test-results.json",
+    )
+    assert job.artifact_hash == "sha-1"
+
+
+def test_replay_accepts_legacy_pending_on_non_completed_job(tmp_path: Path) -> None:
+    import json
+
+    store_path = tmp_path / "delegation_jobs" / "sess-1" / "jobs.jsonl"
+    store_path.parent.mkdir(parents=True)
+    with store_path.open("a", encoding="utf-8") as handle:
+        handle.write(
+            json.dumps(
+                {
+                    "op": "create",
+                    "job_id": "job-legacy",
+                    "runtime_id": "rt-1",
+                    "collaboration_id": "c-1",
+                    "base_commit": "abc",
+                    "worktree_path": "/tmp/wk",
+                    "promotion_state": "pending",
+                    "status": "queued",
+                    "artifact_paths": [],
+                    "artifact_hash": None,
+                }
+            )
+            + "\n"
+        )
+
+    replay = DelegationJobStore(tmp_path, "sess-1")
+    job = replay.get("job-legacy")
+    assert job is not None
+    assert job.status == "queued"
+    assert job.promotion_state == "pending"

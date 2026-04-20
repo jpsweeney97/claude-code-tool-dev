@@ -24,6 +24,11 @@ _ACTIVE_STATUSES: frozenset[str] = frozenset(
 )
 
 
+def _is_valid_promotion_state(value: str | None) -> bool:
+    """Accept None or any valid PromotionState literal."""
+    return value is None or value in _VALID_PROMOTION_STATES
+
+
 class DelegationJobStore:
     """Append-only JSONL store for DelegationJob records."""
 
@@ -40,7 +45,7 @@ class DelegationJobStore:
                 f"DelegationJobStore.create failed: unknown status. "
                 f"Got: {job.status!r:.100}"
             )
-        if job.promotion_state not in _VALID_PROMOTION_STATES:
+        if not _is_valid_promotion_state(job.promotion_state):
             raise ValueError(
                 f"DelegationJobStore.create failed: unknown promotion_state. "
                 f"Got: {job.promotion_state!r:.100}"
@@ -80,6 +85,52 @@ class DelegationJobStore:
                 f"Got: {status!r:.100}"
             )
         self._append({"op": "update_status", "job_id": job_id, "status": status})
+
+    def update_status_and_promotion(
+        self,
+        job_id: str,
+        *,
+        status: JobStatus,
+        promotion_state: PromotionState | None,
+    ) -> None:
+        """Atomically update status and promotion_state in a single JSONL append.
+
+        Coupling these in one record ensures crash safety — a crash cannot
+        strand a job as ``completed + promotion_state=None``.
+        """
+
+        if status not in _VALID_STATUSES:
+            raise ValueError(
+                f"DelegationJobStore.update_status_and_promotion failed: unknown status. "
+                f"Got: {status!r:.100}"
+            )
+        if not _is_valid_promotion_state(promotion_state):
+            raise ValueError(
+                f"DelegationJobStore.update_status_and_promotion failed: unknown promotion_state. "
+                f"Got: {promotion_state!r:.100}"
+            )
+        self._append({
+            "op": "update_status_and_promotion",
+            "job_id": job_id,
+            "status": status,
+            "promotion_state": promotion_state,
+        })
+
+    def update_artifacts(
+        self,
+        job_id: str,
+        *,
+        artifact_paths: tuple[str, ...],
+        artifact_hash: str | None,
+    ) -> None:
+        """Append an artifact update record to the log."""
+
+        self._append({
+            "op": "update_artifacts",
+            "job_id": job_id,
+            "artifact_paths": list(artifact_paths),
+            "artifact_hash": artifact_hash,
+        })
 
     def _append(self, record: dict[str, Any]) -> None:
         with self._store_path.open("a", encoding="utf-8") as handle:
@@ -130,7 +181,7 @@ class DelegationJobStore:
                         continue
                     if (
                         job.status not in _VALID_STATUSES
-                        or job.promotion_state not in _VALID_PROMOTION_STATES
+                        or not _is_valid_promotion_state(job.promotion_state)
                     ):
                         continue
                     jobs[record["job_id"]] = job
@@ -146,5 +197,44 @@ class DelegationJobStore:
                     existing = jobs[job_id]
                     jobs[job_id] = DelegationJob(
                         **{**asdict(existing), "status": status}
+                    )
+                elif op == "update_status_and_promotion":
+                    job_id = record.get("job_id")
+                    status = record.get("status")
+                    promotion_state = record.get("promotion_state")
+                    if not isinstance(job_id, str) or not isinstance(status, str):
+                        continue
+                    if status not in _VALID_STATUSES:
+                        continue
+                    if not _is_valid_promotion_state(promotion_state):
+                        continue
+                    if job_id not in jobs:
+                        continue
+                    existing = jobs[job_id]
+                    jobs[job_id] = DelegationJob(
+                        **{
+                            **asdict(existing),
+                            "status": status,
+                            "promotion_state": promotion_state,
+                        }
+                    )
+                elif op == "update_artifacts":
+                    job_id = record.get("job_id")
+                    artifact_paths = record.get("artifact_paths")
+                    artifact_hash = record.get("artifact_hash")
+                    if not isinstance(job_id, str):
+                        continue
+                    if job_id not in jobs:
+                        continue
+                    if not isinstance(artifact_paths, list):
+                        continue
+                    artifact_paths = tuple(artifact_paths)
+                    existing = jobs[job_id]
+                    jobs[job_id] = DelegationJob(
+                        **{
+                            **asdict(existing),
+                            "artifact_paths": artifact_paths,
+                            "artifact_hash": artifact_hash,
+                        }
                     )
         return jobs
