@@ -1049,40 +1049,39 @@ class DelegationController:
                 worktree_path=Path(job.worktree_path),
                 prompt_text=prompt_text,
             )
+            self._journal.write_phase(
+                OperationJournalEntry(
+                    idempotency_key=idempotency_key,
+                    operation="approval_resolution",
+                    phase="completed",
+                    collaboration_id=job.collaboration_id,
+                    created_at=created_at,
+                    repo_root=handle.repo_root,
+                    job_id=job_id,
+                    request_id=request_id,
+                    decision=decision,
+                ),
+                session_id=self._session_id,
+            )
+            self._decided_request_ids.add(request_id)
+            if isinstance(follow_up, DelegationEscalation):
+                return DelegationDecisionResult(
+                    job=follow_up.job,
+                    decision="approve",
+                    resumed=True,
+                    pending_request=follow_up.pending_request,
+                    agent_context=follow_up.agent_context,
+                )
+            return DelegationDecisionResult(
+                job=follow_up,
+                decision="approve",
+                resumed=True,
+            )
         except Exception as exc:
             raise CommittedDecisionFinalizationError(
                 "Delegation decide committed but local finalization failed: "
                 f"{exc}. Blind retry may duplicate follow-up execution."
             ) from exc
-
-        self._journal.write_phase(
-            OperationJournalEntry(
-                idempotency_key=idempotency_key,
-                operation="approval_resolution",
-                phase="completed",
-                collaboration_id=job.collaboration_id,
-                created_at=created_at,
-                repo_root=handle.repo_root,
-                job_id=job_id,
-                request_id=request_id,
-                decision=decision,
-            ),
-            session_id=self._session_id,
-        )
-        self._decided_request_ids.add(request_id)
-        if isinstance(follow_up, DelegationEscalation):
-            return DelegationDecisionResult(
-                job=follow_up.job,
-                decision="approve",
-                resumed=True,
-                pending_request=follow_up.pending_request,
-                agent_context=follow_up.agent_context,
-            )
-        return DelegationDecisionResult(
-            job=follow_up,
-            decision="approve",
-            resumed=True,
-        )
 
     def recover_startup(self) -> None:
         """Consume unresolved job_creation journal records into durable terminal state.
