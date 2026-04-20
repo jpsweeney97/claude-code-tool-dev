@@ -198,6 +198,32 @@ class TestHookFailsClosed:
         assert "internal error" in capsys.readouterr().err.lower()
 
 
+class TestDelegateDecideGuard:
+    def test_delegate_decide_clean(self) -> None:
+        result = _run_hook(
+            "mcp__plugin_codex-collaboration_codex-collaboration__codex.delegate.decide",
+            {
+                "job_id": "job-1",
+                "request_id": "req-1",
+                "decision": "approve",
+                "answers": {"q1": {"answers": ["yes"]}},
+            },
+        )
+        assert result.returncode == 0
+
+    def test_delegate_decide_answers_with_secret_block(self) -> None:
+        result = _run_hook(
+            "mcp__plugin_codex-collaboration_codex-collaboration__codex.delegate.decide",
+            {
+                "job_id": "job-1",
+                "request_id": "req-1",
+                "decision": "approve",
+                "answers": {"q1": {"answers": ["sk-" + "a" * 40]}},
+            },
+        )
+        assert result.returncode == 2
+
+
 class TestHookEntrypoint:
     def test_keyboard_interrupt_exits_fail_closed(self, monkeypatch, capsys) -> None:
         module = _load_guard_module()

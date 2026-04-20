@@ -1132,20 +1132,54 @@ class DelegationController:
                 session_id=self._session_id,
             )
 
-        # --- Orphaned-running-job reconciliation ---
+        # --- approval_resolution reconciliation ---
+        # Close unresolved approval_resolution journal entries left by
+        # CommittedDecisionFinalizationError or mid-decide crashes.
+        approval_resolution_entries = [
+            e for e in unresolved if e.operation == "approval_resolution"
+        ]
+        by_key_ar: dict[str, OperationJournalEntry] = {}
+        for entry in approval_resolution_entries:
+            existing = by_key_ar.get(entry.idempotency_key)
+            if existing is None or _phase_rank(entry.phase) > _phase_rank(existing.phase):
+                by_key_ar[entry.idempotency_key] = entry
+
+        for entry in by_key_ar.values():
+            self._journal.write_phase(
+                OperationJournalEntry(
+                    idempotency_key=entry.idempotency_key,
+                    operation="approval_resolution",
+                    phase="completed",
+                    collaboration_id=entry.collaboration_id,
+                    created_at=entry.created_at,
+                    repo_root=entry.repo_root,
+                    job_id=entry.job_id,
+                    request_id=entry.request_id,
+                    decision=entry.decision,
+                ),
+                session_id=self._session_id,
+            )
+
+        # --- Orphaned active-job reconciliation ---
         # After a cold restart, the runtime registry is fresh: no live
-        # runtimes exist. Any job persisted as "running" is orphaned —
-        # the first-turn window crashed after update_status(job_id,
-        # "running") but before post-turn terminal writes. There is no
-        # journal replay anchor (D2: first turn is intentionally
-        # unjournaled), so the only safe terminal state is "unknown".
+        # runtimes exist. Any job persisted as "running" or
+        # "needs_escalation" is orphaned — the runtime subprocess that
+        # was serving it is gone. There is no journal replay anchor for
+        # the turn window (D2: first turn is intentionally unjournaled),
+        # so the only safe terminal state is "unknown".
         #
         # This is separate from the journal-based reconciliation above
         # because the journal entry is already "completed" at this point
         # (job_creation.completed fired before turn dispatch).
         for job in self._job_store.list_active():
-            if job.status == "running":
+            if job.status in ("running", "needs_escalation"):
                 self._job_store.update_status(job.job_id, "unknown")
+                handle = self._lineage_store.get(job.collaboration_id)
+                if handle is not None and handle.status == "active":
+                    self._lineage_store.update_status(
+                        job.collaboration_id,
+                        "unknown",
+                    )
 
 
 def _verify_post_turn_signals(

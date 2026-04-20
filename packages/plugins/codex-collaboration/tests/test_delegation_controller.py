@@ -1657,3 +1657,254 @@ def test_decide_deny_marks_job_failed_and_closes_runtime(tmp_path: Path) -> None
     assert len(approval_events) == 1
     assert approval_events[0]["decision"] == "deny"
     assert approval_events[0]["request_id"] == "42"
+
+
+def test_decide_rejects_when_runtime_is_missing(tmp_path: Path) -> None:
+    from server.models import DecisionRejectedResponse
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, _j, registry, _prs = _build_controller(
+        tmp_path
+    )
+    control_plane._next_session_requests = [_command_approval_request()]
+    start_result = controller.start(repo_root=repo_root, objective="Fix it")
+    assert isinstance(start_result, DelegationEscalation)
+
+    registry.release("rt-1")
+
+    result = controller.decide(
+        job_id="job-1",
+        request_id="42",
+        decision="approve",
+    )
+
+    assert isinstance(result, DecisionRejectedResponse)
+    assert result.rejected is True
+    assert result.reason == "runtime_unavailable"
+
+
+def test_decide_rejects_invalid_decision_value(tmp_path: Path) -> None:
+    from server.models import DecisionRejectedResponse
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, _j, _r, _prs = _build_controller(
+        tmp_path
+    )
+    control_plane._next_session_requests = [_command_approval_request()]
+    start_result = controller.start(repo_root=repo_root, objective="Fix it")
+    assert isinstance(start_result, DelegationEscalation)
+
+    result = controller.decide(
+        job_id="job-1",
+        request_id="42",
+        decision="later",
+    )
+
+    assert isinstance(result, DecisionRejectedResponse)
+    assert result.rejected is True
+    assert result.reason == "invalid_decision"
+
+
+def test_decide_request_user_input_requires_answers(tmp_path: Path) -> None:
+    from server.models import DecisionRejectedResponse
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, _j, _r, _prs = _build_controller(
+        tmp_path
+    )
+    control_plane._next_session_requests = [_request_user_input_request()]
+    control_plane._next_turn_result = TurnExecutionResult(
+        turn_id="turn-1",
+        status="interrupted",
+        agent_message="Need input",
+        notifications=(),
+    )
+    start_result = controller.start(repo_root=repo_root, objective="Ask user")
+    assert isinstance(start_result, DelegationEscalation)
+
+    result = controller.decide(
+        job_id="job-1",
+        request_id="55",
+        decision="approve",
+    )
+
+    assert isinstance(result, DecisionRejectedResponse)
+    assert result.rejected is True
+    assert result.reason == "answers_required"
+
+
+def test_decide_approve_turn_failure_raises_committed_decision_finalization_error(
+    tmp_path: Path,
+) -> None:
+    from server.delegation_controller import CommittedDecisionFinalizationError
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, job_store, lineage, journal, registry, _prs = (
+        _build_controller(tmp_path)
+    )
+    control_plane._next_session_requests = [_command_approval_request()]
+    start_result = controller.start(repo_root=repo_root, objective="Fix it")
+    assert isinstance(start_result, DelegationEscalation)
+
+    session = control_plane._sessions[0]
+    session._raise_on_turn = RuntimeError("transport died during decide")
+
+    with pytest.raises(CommittedDecisionFinalizationError, match="committed"):
+        controller.decide(
+            job_id="job-1",
+            request_id="42",
+            decision="approve",
+        )
+
+    job = job_store.get("job-1")
+    assert job is not None and job.status == "unknown"
+    handle = lineage.get("collab-1")
+    assert handle is not None and handle.status == "unknown"
+    assert registry.lookup("rt-1") is None
+
+    unresolved = [
+        e
+        for e in journal.list_unresolved(session_id="sess-1")
+        if e.operation == "approval_resolution"
+    ]
+    assert len(unresolved) == 1
+    assert unresolved[0].phase == "dispatched"
+
+
+def test_recover_startup_marks_intent_only_approval_resolution_unknown(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, _cp, _wm, job_store, lineage_store, journal, _r, _prs = _build_controller(
+        tmp_path
+    )
+
+    job_store.create(
+        DelegationJob(
+            job_id="job-1",
+            runtime_id="rt-1",
+            collaboration_id="collab-1",
+            base_commit="head-abc",
+            worktree_path=str(tmp_path / "wk"),
+            promotion_state="pending",
+            status="needs_escalation",
+        )
+    )
+    lineage_store.create(
+        CollaborationHandle(
+            collaboration_id="collab-1",
+            capability_class="execution",
+            runtime_id="rt-1",
+            codex_thread_id="thr-1",
+            claude_session_id="sess-1",
+            repo_root=str(repo_root),
+            created_at=journal.timestamp(),
+            status="active",
+        )
+    )
+    journal.write_phase(
+        OperationJournalEntry(
+            idempotency_key="42:approve",
+            operation="approval_resolution",
+            phase="intent",
+            collaboration_id="collab-1",
+            created_at=journal.timestamp(),
+            repo_root=str(repo_root),
+            job_id="job-1",
+            request_id="42",
+            decision="approve",
+        ),
+        session_id="sess-1",
+    )
+
+    controller.recover_startup()
+
+    job = job_store.get("job-1")
+    assert job is not None and job.status == "unknown"
+    handle = lineage_store.get("collab-1")
+    assert handle is not None and handle.status == "unknown"
+    assert journal.list_unresolved(session_id="sess-1") == []
+
+
+def test_recover_startup_marks_dispatched_approval_resolution_unknown(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, _cp, _wm, job_store, lineage_store, journal, _r, _prs = _build_controller(
+        tmp_path
+    )
+
+    job_store.create(
+        DelegationJob(
+            job_id="job-1",
+            runtime_id="rt-1",
+            collaboration_id="collab-1",
+            base_commit="head-abc",
+            worktree_path=str(tmp_path / "wk"),
+            promotion_state="pending",
+            status="needs_escalation",
+        )
+    )
+    lineage_store.create(
+        CollaborationHandle(
+            collaboration_id="collab-1",
+            capability_class="execution",
+            runtime_id="rt-1",
+            codex_thread_id="thr-1",
+            claude_session_id="sess-1",
+            repo_root=str(repo_root),
+            created_at=journal.timestamp(),
+            status="active",
+        )
+    )
+    created_at = journal.timestamp()
+    journal.write_phase(
+        OperationJournalEntry(
+            idempotency_key="42:approve",
+            operation="approval_resolution",
+            phase="intent",
+            collaboration_id="collab-1",
+            created_at=created_at,
+            repo_root=str(repo_root),
+            job_id="job-1",
+            request_id="42",
+            decision="approve",
+        ),
+        session_id="sess-1",
+    )
+    journal.write_phase(
+        OperationJournalEntry(
+            idempotency_key="42:approve",
+            operation="approval_resolution",
+            phase="dispatched",
+            collaboration_id="collab-1",
+            created_at=created_at,
+            repo_root=str(repo_root),
+            codex_thread_id="thr-1",
+            runtime_id="rt-1",
+            job_id="job-1",
+            request_id="42",
+            decision="approve",
+        ),
+        session_id="sess-1",
+    )
+
+    controller.recover_startup()
+
+    job = job_store.get("job-1")
+    assert job is not None and job.status == "unknown"
+    handle = lineage_store.get("collab-1")
+    assert handle is not None and handle.status == "unknown"
+    assert journal.list_unresolved(session_id="sess-1") == []
