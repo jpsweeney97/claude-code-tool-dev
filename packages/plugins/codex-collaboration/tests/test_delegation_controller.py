@@ -1908,3 +1908,76 @@ def test_recover_startup_marks_dispatched_approval_resolution_unknown(
     handle = lineage_store.get("collab-1")
     assert handle is not None and handle.status == "unknown"
     assert journal.list_unresolved(session_id="sess-1") == []
+
+
+def test_decide_rejects_stale_request_id_after_reescalation(tmp_path: Path) -> None:
+    from server.models import DecisionRejectedResponse, DelegationDecisionResult
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, _j, registry, prs = _build_controller(
+        tmp_path
+    )
+    # First escalation: command_approval with request_id "42"
+    control_plane._next_session_requests = [_command_approval_request()]
+    start_result = controller.start(repo_root=repo_root, objective="Fix it")
+    assert isinstance(start_result, DelegationEscalation)
+
+    # Approve the first escalation — configure follow-up to re-escalate
+    session = control_plane._sessions[0]
+    session._server_requests = [_permissions_request(request_id=99, item_id="item-2")]
+    session._turn_result = TurnExecutionResult(
+        turn_id="turn-2",
+        status="interrupted",
+        agent_message="Need another escalation.",
+        notifications=(),
+    )
+    approve_result = controller.decide(
+        job_id="job-1",
+        request_id="42",
+        decision="approve",
+    )
+    assert isinstance(approve_result, DelegationDecisionResult)
+    assert approve_result.pending_request is not None
+    assert approve_result.pending_request.request_id == "99"
+
+    # Now try to use the stale request_id "42" to decide the new escalation
+    result = controller.decide(
+        job_id="job-1",
+        request_id="42",
+        decision="approve",
+    )
+    assert isinstance(result, DecisionRejectedResponse)
+    assert result.reason == "request_already_decided"
+
+
+def test_decide_deny_post_commit_failure_raises_committed_decision_finalization_error(
+    tmp_path: Path,
+) -> None:
+    from server.delegation_controller import CommittedDecisionFinalizationError
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, job_store, lineage, journal, registry, _prs = (
+        _build_controller(tmp_path)
+    )
+    control_plane._next_session_requests = [_command_approval_request()]
+    start_result = controller.start(repo_root=repo_root, objective="Fix it")
+    assert isinstance(start_result, DelegationEscalation)
+
+    # Make session.close() raise after the deny decision has committed
+    session = control_plane._sessions[0]
+    session.close = lambda: (_ for _ in ()).throw(RuntimeError("close failed"))
+
+    with pytest.raises(CommittedDecisionFinalizationError, match="committed deny"):
+        controller.decide(
+            job_id="job-1",
+            request_id="42",
+            decision="deny",
+        )
+
+    # Job should be failed (deny committed before close failed)
+    job = job_store.get("job-1")
+    assert job is not None and job.status == "failed"

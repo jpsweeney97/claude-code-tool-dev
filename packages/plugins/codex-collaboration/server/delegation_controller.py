@@ -207,6 +207,7 @@ class DelegationController:
         self._approval_policy = approval_policy
         self._head_commit_resolver = head_commit_resolver or _resolve_head_commit
         self._uuid_factory = uuid_factory or (lambda: str(uuid.uuid4()))
+        self._decided_request_ids: set[str] = set()
 
     def start(
         self,
@@ -905,6 +906,16 @@ class DelegationController:
                 job_id=job_id,
                 request_id=request_id,
             )
+        if request_id in self._decided_request_ids:
+            return self._reject_decision(
+                reason="request_already_decided",
+                detail=(
+                    "Delegation decide failed: request was already decided. "
+                    f"Got: {request_id!r:.100}"
+                ),
+                job_id=job_id,
+                request_id=request_id,
+            )
         if decision == "deny" and answers:
             return self._reject_decision(
                 reason="answers_not_allowed",
@@ -993,31 +1004,38 @@ class DelegationController:
         )
 
         if decision == "deny":
-            self._job_store.update_status(job_id, "failed")
-            self._lineage_store.update_status(job.collaboration_id, "completed")
-            self._runtime_registry.release(job.runtime_id)
-            entry.session.close()
-            updated_job = self._job_store.get(job_id)
-            assert updated_job is not None
-            self._journal.write_phase(
-                OperationJournalEntry(
-                    idempotency_key=idempotency_key,
-                    operation="approval_resolution",
-                    phase="completed",
-                    collaboration_id=job.collaboration_id,
-                    created_at=created_at,
-                    repo_root=handle.repo_root,
-                    job_id=job_id,
-                    request_id=request_id,
-                    decision=decision,
-                ),
-                session_id=self._session_id,
-            )
-            return DelegationDecisionResult(
-                job=updated_job,
-                decision="deny",
-                resumed=False,
-            )
+            try:
+                self._job_store.update_status(job_id, "failed")
+                self._lineage_store.update_status(job.collaboration_id, "completed")
+                self._runtime_registry.release(job.runtime_id)
+                entry.session.close()
+                updated_job = self._job_store.get(job_id)
+                assert updated_job is not None
+                self._journal.write_phase(
+                    OperationJournalEntry(
+                        idempotency_key=idempotency_key,
+                        operation="approval_resolution",
+                        phase="completed",
+                        collaboration_id=job.collaboration_id,
+                        created_at=created_at,
+                        repo_root=handle.repo_root,
+                        job_id=job_id,
+                        request_id=request_id,
+                        decision=decision,
+                    ),
+                    session_id=self._session_id,
+                )
+                self._decided_request_ids.add(request_id)
+                return DelegationDecisionResult(
+                    job=updated_job,
+                    decision="deny",
+                    resumed=False,
+                )
+            except Exception as exc:
+                raise CommittedDecisionFinalizationError(
+                    "Delegation decide committed deny but local finalization failed: "
+                    f"{exc}. The deny decision has been audited."
+                ) from exc
 
         prompt_text = build_execution_resume_turn_text(
             pending_request=request,
@@ -1051,6 +1069,7 @@ class DelegationController:
             ),
             session_id=self._session_id,
         )
+        self._decided_request_ids.add(request_id)
         if isinstance(follow_up, DelegationEscalation):
             return DelegationDecisionResult(
                 job=follow_up.job,

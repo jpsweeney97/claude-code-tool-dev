@@ -38,6 +38,7 @@ DecisionRejectedReason = Literal[
     "job_not_awaiting_decision",
     "request_not_found",
     "request_job_mismatch",
+    "request_already_decided",
     "runtime_unavailable",
     "answers_required",
     "answers_not_allowed",
