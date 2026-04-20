@@ -67,10 +67,10 @@ A unit of autonomous execution work. One job = one execution runtime = one workt
 | `collaboration_id` | string | Associated [CollaborationHandle](#collaborationhandle) |
 | `base_commit` | string | Git commit SHA the worktree was created from |
 | `worktree_path` | path | Absolute path to the isolated worktree |
-| `promotion_state` | enum | `pending`, `prechecks_passed`, `applied`, `verified`, `prechecks_failed`, `rollback_needed`, `rolled_back`, `discarded` — lifecycle governed by [promotion-protocol.md §Promotion State Machine](promotion-protocol.md#promotion-state-machine) |
+| `promotion_state` | enum? | Null until promotion lifecycle becomes applicable. Set to `pending` when a job reaches `status=completed` and has not been promoted or discarded. Values: `pending`, `prechecks_passed`, `applied`, `verified`, `prechecks_failed`, `rollback_needed`, `rolled_back`, `discarded` — lifecycle governed by [promotion-protocol.md §Promotion State Machine](promotion-protocol.md#promotion-state-machine). Upgraded implementations must accept legacy records with `promotion_state="pending"` on non-completed jobs and must not interpret them as promotion-eligible solely from that legacy value. |
 | `status` | enum | `queued`, `running`, `needs_escalation`, `completed`, `failed`, `unknown` |
-| `artifact_paths` | list\[path\] | Paths to produced artifacts |
-| `artifact_hash` | string? | Hash of the reviewed artifact set — see [promotion-protocol.md §Artifact Hash Integrity](promotion-protocol.md#artifact-hash-integrity) |
+| `artifact_paths` | list\[path\] | Absolute paths to persisted inspection artifacts materialized by `codex.delegate.poll`. Empty until poll first materializes inspection data. |
+| `artifact_hash` | string? | Hash of the reviewed artifact set for a completed job. Null until `codex.delegate.poll` has materialized a reviewable completed-job snapshot. See [promotion-protocol.md §Artifact Hash Integrity](promotion-protocol.md#artifact-hash-integrity). |
 
 ### PendingServerRequest
 
@@ -227,7 +227,7 @@ Returned by `codex.delegate.promote` when preconditions fail. See [promotion-pro
 | Field | Type | Description |
 |---|---|---|
 | `rejected` | boolean | Always `true` |
-| `reason` | enum | `head_mismatch`, `index_dirty`, `worktree_dirty`, `artifact_hash_mismatch`, `job_not_completed` |
+| `reason` | enum | `head_mismatch`, `index_dirty`, `worktree_dirty`, `artifact_hash_mismatch`, `job_not_completed`, `job_not_reviewed` |
 | `detail` | string | Human-readable explanation |
 | `expected` | string? | Expected value (e.g., expected HEAD SHA) |
 | `actual` | string? | Actual value found |
@@ -267,6 +267,52 @@ Returned by `codex.delegate.decide` on success.
 | `resumed` | boolean | `true` only when approve dispatched a follow-up turn |
 | `pending_request` | [PendingServerRequest](#pendingserverrequest)? | Present only when the resumed turn hit another escalation |
 | `agent_context` | string? | Best-effort agent message from the resumed turn when present |
+
+### Poll Rejection
+
+Returned by `codex.delegate.poll` when the requested job cannot be found.
+
+| Field | Type | Description |
+|---|---|---|
+| `rejected` | boolean | Always `true` |
+| `reason` | enum | `job_not_found` |
+| `detail` | string | Human-readable explanation |
+| `job_id` | string? | Rejected job id when known |
+
+### Pending Escalation View
+
+Projection returned by `codex.delegate.poll` and serialized by `codex.delegate.start` and `codex.delegate.decide` when a job is awaiting caller action. Raw Codex IDs (`codex_thread_id`, `codex_turn_id`, `item_id`) remain internal to the control plane per [§Logical Data Model](#logical-data-model).
+
+**Note:** `codex.delegate.start` and `codex.delegate.decide` currently serialize the full [PendingServerRequest](#pendingserverrequest) via `asdict()`, leaking internal Codex IDs. Projection of start/decide responses to use this view is tracked as a hardening sidecar item.
+
+| Field | Type | Description |
+|---|---|---|
+| `request_id` | string | Plugin request identifier |
+| `kind` | enum | `command_approval`, `file_change`, `request_user_input`, `unknown` |
+| `requested_scope` | object | Opaque request payload needed for resolution |
+| `available_decisions` | list\[string\] | Valid resolution options |
+
+### Artifact Inspection Snapshot
+
+Inspection bundle surfaced by `codex.delegate.poll`. For `completed` jobs, this is the reviewable snapshot whose hash anchors the [promotion protocol](promotion-protocol.md#artifact-hash-integrity). For `unknown` or `failed` jobs, this is an inspection-only snapshot without hash backing.
+
+| Field | Type | Description |
+|---|---|---|
+| `artifact_hash` | string? | Present for completed jobs once the reviewed snapshot has been materialized; null for inspection-only snapshots (`unknown`, `failed`) |
+| `artifact_paths` | list\[path\] | Exact persisted artifact files that define the inspection set |
+| `changed_files` | list\[path\] | Convenience projection of files changed relative to `base_commit` |
+| `reviewed_at` | ISO 8601 | Time the inspection snapshot was materialized |
+
+### Poll Result
+
+Returned by `codex.delegate.poll`. Takes a required `job_id` and returns the current execution-domain projection for that job. v1 does not define list mode.
+
+| Field | Type | Description |
+|---|---|---|
+| `job` | [DelegationJob](#delegationjob) | Current job record |
+| `pending_escalation` | [Pending Escalation View](#pending-escalation-view)? | Present only when `job.status == "needs_escalation"` |
+| `inspection` | [Artifact Inspection Snapshot](#artifact-inspection-snapshot)? | Present when inspection artifacts are available; for `completed` jobs this is the reviewable snapshot |
+| `detail` | string? | Human-readable operational explanation, especially for `failed` or `unknown` jobs where the outcome could not be confirmed and the job is inspection-only / restart-or-discard territory |
 
 ### Runtime Health
 

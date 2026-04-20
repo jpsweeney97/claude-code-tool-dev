@@ -18,8 +18,9 @@ All preconditions must pass before promotion begins. Each has a specific [typed 
 | 1 | `HEAD == base_commit` | `head_mismatch` | Primary workspace has not diverged since delegation started |
 | 2 | Working tree clean (no unstaged changes) | `worktree_dirty` | No invisible local edits that could interact with the applied diff |
 | 3 | Index clean (no staged changes) | `index_dirty` | No pending staged work that could be disrupted |
-| 4 | Artifact hash matches reviewed artifact | `artifact_hash_mismatch` | The exact artifact Claude reviewed is what gets applied |
-| 5 | Job status is `completed` | `job_not_completed` | Only completed jobs can be promoted |
+| 4 | Job status is `completed` | `job_not_completed` | Only completed jobs can be promoted |
+| 5 | Reviewed artifact hash exists | `job_not_reviewed` | Job must have been reviewed via `codex.delegate.poll` before promotion |
+| 6 | Artifact hash matches reviewed artifact | `artifact_hash_mismatch` | The exact artifact Claude reviewed is what gets applied |
 
 ### HEAD Match
 
@@ -35,11 +36,38 @@ Both the working tree and the index must be clean. Staged changes are just as in
 
 The artifact hash is the load-bearing integrity guarantee for the entire delegation flow.
 
-- **At review time:** When Claude reviews delegation results via `codex.delegate.poll`, the control plane computes a hash of the complete artifact set (diff, changed files, test results).
-- **At promotion time:** The control plane recomputes the hash and compares it to the reviewed hash stored in the [DelegationJob](contracts.md#delegationjob).
-- **On mismatch:** Promotion is rejected with `artifact_hash_mismatch`.
+#### Materialization
 
-This makes the delegation flow tamper-evident: any modification to the artifact set between review and promotion is detected.
+On first `codex.delegate.poll` for a `completed` job with no reviewed snapshot, the control plane materializes the [Artifact Inspection Snapshot](contracts.md#artifact-inspection-snapshot):
+
+1. Computes the canonical review set from the job's `base_commit` and `worktree_path`.
+2. Persists the inspection artifacts to durable storage and records `artifact_paths` on the [DelegationJob](contracts.md#delegationjob).
+3. Computes the `artifact_hash` and records it on the job.
+4. Returns the snapshot with `artifact_hash` populated.
+
+Subsequent polls return the persisted snapshot and do not recompute it. This makes the operation lazy and idempotent — retries are harmless, and there are no caller-visible "first reviewer" semantics.
+
+#### Canonical Review Set
+
+The review set must include at least:
+
+- Full diff against `base_commit`
+- Changed-files manifest
+- Test-results record
+
+Additional artifacts (e.g., unresolved-risks summary) are allowed. If included in the review snapshot, they must also participate in promote-time recomputation.
+
+#### Hash Recipe
+
+The hash is computed over the persisted artifact files listed in `artifact_paths`, sorted by relative path. For each file: `relative_path + NUL + file_bytes`. The concatenation is hashed with SHA-256. Without a canonical ordering and separator rule, the integrity promise is underspecified.
+
+#### Promotion Verification
+
+- **At promotion time:** `codex.delegate.promote` regenerates the canonical review set from the current worktree state (same `base_commit` + `worktree_path` inputs as poll-time materialization), applies the same hash recipe to that regenerated set, and compares the result to the stored reviewed hash on the [DelegationJob](contracts.md#delegationjob). Promote does not hash the persisted snapshot files — it independently regenerates and hashes, so any post-review worktree modification is detected.
+- **On missing hash:** Promotion is rejected with `job_not_reviewed`. The caller must poll the job to trigger materialization before retrying.
+- **On mismatch:** Promotion is rejected with `artifact_hash_mismatch`. Any modification to the worktree or artifact set between review and promotion is detected.
+
+This makes the delegation flow tamper-evident across the review-to-promotion boundary.
 
 ## Promotion State Machine
 
