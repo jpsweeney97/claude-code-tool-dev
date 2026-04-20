@@ -182,9 +182,10 @@ App Server enforces sandboxing, approval semantics, and thread/session state. Th
 3. The plugin starts a fresh execution runtime bound to that worktree.
 4. Codex executes autonomously inside the worktree.
 5. If App Server raises a server request: unsupported escalations become `needs_escalation`; Claude resolves them with `codex.delegate.decide`.
-6. When the job completes, the plugin computes: diff summary, changed files, test results, unresolved risks.
-7. Claude reviews the result.
-8. If accepted, `codex.delegate.promote` applies the diff into the main workspace. See [promotion-protocol.md](promotion-protocol.md) for the promotion state machine and preconditions.
+6. When the job reaches `completed`, the job becomes eligible for review via `codex.delegate.poll`. Promotion eligibility requires a reviewed snapshot to exist.
+7. On first `codex.delegate.poll` of a completed job, the plugin materializes the inspection artifacts, computes the reviewed artifact hash, and returns the review snapshot. See [promotion-protocol.md §Artifact Hash Integrity](promotion-protocol.md#artifact-hash-integrity).
+8. Claude reviews the result.
+9. If accepted, `codex.delegate.promote` applies the diff into the main workspace. See [promotion-protocol.md](promotion-protocol.md) for the promotion state machine and preconditions.
 
 ## Prompting Contract
 
