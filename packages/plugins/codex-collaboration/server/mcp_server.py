@@ -120,6 +120,17 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "codex.delegate.poll",
+        "description": "Read delegation job state and materialize review artifacts when needed.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string"},
+            },
+            "required": ["job_id"],
+        },
+    },
+    {
         "name": "codex.delegate.decide",
         "description": "Resolve a live same-session delegation escalation.",
         "inputSchema": {
@@ -373,6 +384,9 @@ class McpServer:
                     "escalated": True,
                 }
             return asdict(result)
+        if name == "codex.delegate.poll":
+            controller = self._ensure_delegation_controller()
+            return asdict(controller.poll(job_id=arguments["job_id"]))
         if name == "codex.delegate.decide":
             from .models import DelegationDecisionResult
 

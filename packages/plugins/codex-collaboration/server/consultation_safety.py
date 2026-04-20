@@ -52,11 +52,17 @@ DELEGATE_DECIDE_POLICY = ToolScanPolicy(
     content_fields=frozenset({"answers"}),
 )
 
+DELEGATE_POLL_POLICY = ToolScanPolicy(
+    expected_fields=frozenset({"job_id"}),
+    content_fields=frozenset(),
+)
+
 _TOOL_POLICY_MAP: dict[str, ToolScanPolicy] = {
     "mcp__plugin_codex-collaboration_codex-collaboration__codex.consult": CONSULT_POLICY,
     "mcp__plugin_codex-collaboration_codex-collaboration__codex.dialogue.start": DIALOGUE_START_POLICY,
     "mcp__plugin_codex-collaboration_codex-collaboration__codex.dialogue.reply": DIALOGUE_REPLY_POLICY,
     "mcp__plugin_codex-collaboration_codex-collaboration__codex.delegate.decide": DELEGATE_DECIDE_POLICY,
+    "mcp__plugin_codex-collaboration_codex-collaboration__codex.delegate.poll": DELEGATE_POLL_POLICY,
 }
 
 

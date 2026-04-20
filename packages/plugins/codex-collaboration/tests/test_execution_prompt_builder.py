@@ -81,3 +81,39 @@ def test_build_execution_resume_turn_text_includes_answers_when_present() -> Non
     assert "request_user_input" in result
     assert "q1" in result
     assert "ship it" in result
+
+
+def test_build_execution_turn_text_instructs_agent_to_persist_test_results() -> None:
+    """Execution prompt must instruct agent to persist test results."""
+    result = build_execution_turn_text(
+        objective="Add tests",
+        worktree_path="/wt/abc",
+    )
+    assert ".codex-collaboration/test-results.json" in result
+    assert "schema_version" in result
+    assert "commands" in result
+
+
+def test_build_execution_resume_turn_text_repeats_test_results_requirement() -> None:
+    """Resume prompt must repeat the test-results persistence requirement."""
+    from server.execution_prompt_builder import build_execution_resume_turn_text
+
+    request = PendingServerRequest(
+        request_id="req-3",
+        runtime_id="rt-1",
+        collaboration_id="collab-1",
+        codex_thread_id="thr-1",
+        codex_turn_id="turn-1",
+        item_id="item-3",
+        kind="command_approval",
+        requested_scope={"command": "pytest"},
+        status="resolved",
+    )
+
+    result = build_execution_resume_turn_text(
+        pending_request=request,
+        answers=None,
+    )
+
+    assert ".codex-collaboration/test-results.json" in result
+    assert "status" in result

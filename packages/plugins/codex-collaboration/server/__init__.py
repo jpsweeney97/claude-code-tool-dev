@@ -7,6 +7,7 @@ from .dialogue import DialogueController
 from .execution_runtime_registry import ExecutionRuntimeRegistry
 from .lineage_store import LineageStore
 from .models import (
+    ArtifactInspectionSnapshot,
     CollaborationHandle,
     ConsultRequest,
     ConsultResult,
@@ -14,15 +15,20 @@ from .models import (
     DelegationDecisionResult,
     DelegationEscalation,
     DelegationJob,
+    DelegationPollResult,
     DialogueReadResult,
     DialogueReplyResult,
     DialogueStartResult,
     JobBusyResponse,
+    PendingEscalationView,
+    PollRejectedReason,
+    PollRejectedResponse,
 )
 from .pending_request_store import PendingRequestStore
 from .worktree_manager import WorktreeManager
 
 __all__ = [
+    "ArtifactInspectionSnapshot",
     "CollaborationHandle",
     "ConsultRequest",
     "ConsultResult",
@@ -33,6 +39,7 @@ __all__ = [
     "DelegationEscalation",
     "DelegationJob",
     "DelegationJobStore",
+    "DelegationPollResult",
     "DialogueController",
     "DialogueReadResult",
     "DialogueReplyResult",
@@ -40,7 +47,10 @@ __all__ = [
     "ExecutionRuntimeRegistry",
     "JobBusyResponse",
     "LineageStore",
+    "PendingEscalationView",
     "PendingRequestStore",
+    "PollRejectedReason",
+    "PollRejectedResponse",
     "WorktreeManager",
     "build_policy_fingerprint",
     "load_repo_identity",

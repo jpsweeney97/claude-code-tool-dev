@@ -1032,6 +1032,64 @@ class TestDelegationRecoveryWiring:
         assert controller.recover_startup_calls == 1
 
 
+class FakeDelegationControllerWithPoll:
+    def __init__(self) -> None:
+        self.startup_called = False
+
+    def recover_startup(self) -> None:
+        self.startup_called = True
+
+    def poll(self, *, job_id: str) -> object:
+        from server.models import DelegationJob, DelegationPollResult
+
+        return DelegationPollResult(
+            job=DelegationJob(
+                job_id=job_id,
+                runtime_id="rt-1",
+                collaboration_id="collab-1",
+                base_commit="abc123",
+                worktree_path="/tmp/wk",
+                promotion_state="pending",
+                status="completed",
+            ),
+        )
+
+
+def test_handle_tools_call_delegate_poll() -> None:
+    controller = FakeDelegationControllerWithPoll()
+    server = McpServer(
+        control_plane=FakeControlPlane(),
+        delegation_controller=controller,
+    )
+    server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "clientInfo": {"name": "test"},
+            },
+        }
+    )
+
+    response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "codex.delegate.poll",
+                "arguments": {"job_id": "job-1"},
+            },
+        }
+    )
+
+    payload = json.loads(response["result"]["content"][0]["text"])
+    assert payload["job"]["job_id"] == "job-1"
+    assert payload["job"]["promotion_state"] == "pending"
+
+
 class FakeDelegationControllerWithDecide:
     def __init__(self) -> None:
         self.startup_called = False
@@ -1082,6 +1140,11 @@ class FakeDelegationControllerWithDecide:
             decision=decision,
             resumed=(decision == "approve"),
         )
+
+
+def test_delegate_poll_tool_registered() -> None:
+    tool_names = {t["name"] for t in TOOL_DEFINITIONS}
+    assert "codex.delegate.poll" in tool_names
 
 
 def test_delegate_decide_tool_registered() -> None:

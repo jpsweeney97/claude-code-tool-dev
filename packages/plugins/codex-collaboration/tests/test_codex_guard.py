@@ -224,6 +224,15 @@ class TestDelegateDecideGuard:
         assert result.returncode == 2
 
 
+class TestDelegatePollGuard:
+    def test_delegate_poll_clean(self) -> None:
+        result = _run_hook(
+            "mcp__plugin_codex-collaboration_codex-collaboration__codex.delegate.poll",
+            {"job_id": "job-1"},
+        )
+        assert result.returncode == 0
+
+
 class TestHookEntrypoint:
     def test_keyboard_interrupt_exits_fail_closed(self, monkeypatch, capsys) -> None:
         module = _load_guard_module()

@@ -9,6 +9,7 @@ from pathlib import Path
 
 from typing import Any, Callable
 
+from server.artifact_store import ArtifactStore
 from server.control_plane import ControlPlane
 from server.delegation_controller import DelegationController
 from server.delegation_job_store import DelegationJobStore
@@ -275,6 +276,7 @@ def _build_e2e_setup(
     lineage_store = LineageStore(plugin_data, "sess-e2e-esc")
     pending_request_store = PendingRequestStore(plugin_data, "sess-e2e-esc")
     runtime_registry = ExecutionRuntimeRegistry()
+    artifact_store = ArtifactStore(plugin_data, timestamp_factory=journal.timestamp)
     controller = DelegationController(
         control_plane=control_plane,
         worktree_manager=WorktreeManager(),
@@ -285,6 +287,7 @@ def _build_e2e_setup(
         session_id="sess-e2e-esc",
         plugin_data_path=plugin_data,
         pending_request_store=pending_request_store,
+        artifact_store=artifact_store,
     )
 
     server = McpServer(
@@ -312,6 +315,7 @@ def test_delegate_start_end_to_end_through_mcp_dispatch(tmp_path: Path) -> None:
     lineage_store = LineageStore(plugin_data, "sess-e2e")
     pending_request_store = PendingRequestStore(plugin_data, "sess-e2e")
     runtime_registry = ExecutionRuntimeRegistry()
+    artifact_store = ArtifactStore(plugin_data, timestamp_factory=journal.timestamp)
     controller = DelegationController(
         control_plane=control_plane,
         worktree_manager=WorktreeManager(),
@@ -322,6 +326,7 @@ def test_delegate_start_end_to_end_through_mcp_dispatch(tmp_path: Path) -> None:
         session_id="sess-e2e",
         plugin_data_path=plugin_data,
         pending_request_store=pending_request_store,
+        artifact_store=artifact_store,
     )
 
     # SEED (load-bearing proof of AC 4 consumer wiring): simulate a prior
@@ -706,6 +711,122 @@ def test_e2e_busy_gate_blocks_when_job_needs_escalation(tmp_path: Path) -> None:
     assert second_payload["busy"] is True
     assert second_payload["active_job_id"] == first_payload["job"]["job_id"]
     assert second_payload["active_job_status"] == "needs_escalation"
+
+
+def test_delegate_poll_completed_job_materializes_snapshot_through_mcp(
+    tmp_path: Path,
+) -> None:
+    """Poll a completed job → materializes inspection artifacts through MCP dispatch."""
+    repo_root = tmp_path / "repo"
+    _init_repo(repo_root)
+
+    server, job_store, _prs, _journal, _plugin_data = _build_e2e_setup(
+        tmp_path,
+        session_factory=lambda: _StubSession(),
+    )
+
+    # Start a job — completes immediately since _StubSession returns "completed".
+    start_response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "codex.delegate.start",
+                "arguments": {"repo_root": str(repo_root), "objective": "Build feature"},
+            },
+        }
+    )
+    start_payload = json.loads(start_response["result"]["content"][0]["text"])
+    assert start_payload["status"] == "completed"
+    job_id = start_payload["job_id"]
+
+    # Create a change in the worktree so artifact materialization produces content.
+    worktree_path = Path(start_payload["worktree_path"])
+    (worktree_path / "new_file.py").write_text("# new\n")
+    subprocess.run(
+        ["git", "-C", str(worktree_path), "add", "new_file.py"],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(worktree_path), "commit", "-m", "add feature"],
+        check=True,
+        capture_output=True,
+    )
+
+    # Poll the completed job.
+    poll_response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {
+                "name": "codex.delegate.poll",
+                "arguments": {"job_id": job_id},
+            },
+        }
+    )
+
+    assert "isError" not in poll_response["result"]
+    poll_payload = json.loads(poll_response["result"]["content"][0]["text"])
+
+    assert poll_payload["job"]["promotion_state"] == "pending"
+    assert poll_payload["inspection"]["artifact_hash"] is not None
+    assert len(poll_payload["inspection"]["artifact_paths"]) == 3
+
+
+def test_delegate_poll_needs_escalation_returns_projected_request(
+    tmp_path: Path,
+) -> None:
+    """Poll a needs_escalation job → returns pending_escalation view without codex_thread_id."""
+    repo_root = tmp_path / "repo"
+    _init_repo(repo_root)
+
+    session = _ConfigurableStubSession(
+        server_requests=[_command_approval_request_msg(request_id=42)],
+    )
+    server, _job_store, _prs, _journal, _plugin_data = _build_e2e_setup(
+        tmp_path,
+        session_factory=lambda: session,
+    )
+
+    # Start a job — escalates due to server request.
+    start_response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "codex.delegate.start",
+                "arguments": {"repo_root": str(repo_root), "objective": "Fix the bug"},
+            },
+        }
+    )
+    start_payload = json.loads(start_response["result"]["content"][0]["text"])
+    assert start_payload["escalated"] is True
+    job_id = start_payload["job"]["job_id"]
+
+    # Poll the escalated job.
+    poll_response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {
+                "name": "codex.delegate.poll",
+                "arguments": {"job_id": job_id},
+            },
+        }
+    )
+
+    assert "isError" not in poll_response["result"]
+    poll_payload = json.loads(poll_response["result"]["content"][0]["text"])
+
+    assert poll_payload["pending_escalation"]["request_id"] == "42"
+    assert poll_payload["pending_escalation"]["available_decisions"] == ["approve", "deny"]
+    # codex_thread_id must NOT be in the response (PendingEscalationView strips it).
+    assert "codex_thread_id" not in json.dumps(poll_payload["pending_escalation"])
 
 
 def test_delegate_decide_approve_end_to_end_through_mcp_dispatch(tmp_path: Path) -> None:

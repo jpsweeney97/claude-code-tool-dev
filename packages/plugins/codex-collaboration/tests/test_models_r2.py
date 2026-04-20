@@ -380,3 +380,71 @@ def test_operation_journal_entry_supports_approval_resolution_fields() -> None:
     assert entry.operation == "approval_resolution"
     assert entry.request_id == "req-1"
     assert entry.decision == "approve"
+
+
+def test_delegation_job_allows_nullable_promotion_state() -> None:
+    from server.models import DelegationJob
+
+    job = DelegationJob(
+        job_id="job-1",
+        runtime_id="rt-1",
+        collaboration_id="collab-1",
+        base_commit="abc123",
+        worktree_path="/tmp/wk",
+        promotion_state=None,
+        status="queued",
+    )
+
+    assert job.promotion_state is None
+
+
+def test_poll_result_shapes() -> None:
+    from server.models import (
+        ArtifactInspectionSnapshot,
+        DelegationJob,
+        DelegationPollResult,
+        PendingEscalationView,
+        PollRejectedResponse,
+    )
+
+    job = DelegationJob(
+        job_id="job-1",
+        runtime_id="rt-1",
+        collaboration_id="collab-1",
+        base_commit="abc123",
+        worktree_path="/tmp/wk",
+        promotion_state="pending",
+        status="completed",
+        artifact_paths=("/tmp/wk/inspection/full.diff",),
+        artifact_hash="abc",
+    )
+    pending = PendingEscalationView(
+        request_id="req-1",
+        kind="command_approval",
+        requested_scope={"command": "make test"},
+        available_decisions=("approve", "deny"),
+    )
+    inspection = ArtifactInspectionSnapshot(
+        artifact_hash="abc",
+        artifact_paths=("/tmp/wk/inspection/full.diff",),
+        changed_files=("README.md",),
+        reviewed_at="2026-04-20T00:00:00Z",
+    )
+
+    result = DelegationPollResult(
+        job=job,
+        pending_escalation=pending,
+        inspection=inspection,
+        detail="Completed and ready for review.",
+    )
+    rejected = PollRejectedResponse(
+        rejected=True,
+        reason="job_not_found",
+        detail="Delegation poll failed: job not found. Got: 'job-404'",
+        job_id="job-404",
+    )
+
+    assert result.job.job_id == "job-1"
+    assert result.pending_escalation is pending
+    assert result.inspection is inspection
+    assert rejected.reason == "job_not_found"
