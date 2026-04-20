@@ -221,6 +221,28 @@ def test_delegate_decide_returns_decide_policy() -> None:
     assert policy is DELEGATE_DECIDE_POLICY
 
 
+def test_delegate_start_returns_start_policy() -> None:
+    from server.consultation_safety import DELEGATE_START_POLICY
+
+    policy = policy_for_tool(
+        "mcp__plugin_codex-collaboration_codex-collaboration__codex.delegate.start"
+    )
+    assert policy is DELEGATE_START_POLICY
+
+
+def test_delegate_start_scans_objective_field() -> None:
+    from server.consultation_safety import DELEGATE_START_POLICY
+
+    verdict = check_tool_input(
+        {
+            "repo_root": "/tmp/repo",
+            "objective": "sk-" + "a" * 40,
+        },
+        DELEGATE_START_POLICY,
+    )
+    assert verdict.action == "block"
+
+
 def test_delegate_poll_returns_poll_policy() -> None:
     policy = policy_for_tool(
         "mcp__plugin_codex-collaboration_codex-collaboration__codex.delegate.poll"
