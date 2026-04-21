@@ -54,15 +54,20 @@ Mirrors dialogue.py::DialogueController.start three-phase discipline. Flow:
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import subprocess
+import tempfile
 import uuid
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
 from .approval_router import parse_pending_server_request
 from .delegation_job_store import DelegationJobStore
-from .execution_prompt_builder import build_execution_resume_turn_text, build_execution_turn_text
+from .execution_prompt_builder import (
+    build_execution_resume_turn_text,
+    build_execution_turn_text,
+)
 from .execution_runtime_registry import ExecutionRuntimeEntry, ExecutionRuntimeRegistry
 from .journal import OperationJournal
 from .lineage_store import LineageStore
@@ -77,12 +82,16 @@ from .models import (
     DelegationEscalation,
     DelegationJob,
     DelegationPollResult,
+    DiscardRejectedResponse,
+    DiscardResult,
     JobBusyResponse,
     JobStatus,
     OperationJournalEntry,
     PendingEscalationView,
     PendingServerRequest,
     PollRejectedResponse,
+    PromotionRejectedResponse,
+    PromotionResult,
     TurnExecutionResult,
 )
 from .pending_request_store import PendingRequestStore
@@ -117,6 +126,20 @@ class _ArtifactStoreLike(Protocol):
     def reconstruct_from_artifacts(
         self, *, job: DelegationJob
     ) -> ArtifactInspectionSnapshot | None: ...
+
+    def generate_canonical_artifacts(
+        self, *, job: DelegationJob, output_dir: Path
+    ) -> Any: ...
+
+
+class _PromotionCallbackLike(Protocol):
+    def on_promotion_verified(
+        self,
+        *,
+        repo_root: Path,
+        artifact_hash: str,
+        job_id: str,
+    ) -> bool: ...
 
 
 def _resolve_head_commit(repo_root: Path) -> str:
@@ -215,6 +238,7 @@ class DelegationController:
         approval_policy: str = "untrusted",
         head_commit_resolver: Callable[[Path], str] | None = None,
         uuid_factory: Callable[[], str] | None = None,
+        promotion_callback: _PromotionCallbackLike | None = None,
     ) -> None:
         self._control_plane = control_plane
         self._worktree_manager = worktree_manager
@@ -229,6 +253,7 @@ class DelegationController:
         self._approval_policy = approval_policy
         self._head_commit_resolver = head_commit_resolver or _resolve_head_commit
         self._uuid_factory = uuid_factory or (lambda: str(uuid.uuid4()))
+        self._promotion_callback = promotion_callback
         self._decided_request_ids: set[str] = set()
 
     def start(
@@ -592,7 +617,9 @@ class DelegationController:
         worktree_path: Path,
         prompt_text: str,
     ) -> DelegationJob | DelegationEscalation:
-        self._job_store.update_status_and_promotion(job_id, status="running", promotion_state=None)
+        self._job_store.update_status_and_promotion(
+            job_id, status="running", promotion_state=None
+        )
 
         captured_request: PendingServerRequest | None = None
         interrupted_by_unknown = False
@@ -608,7 +635,10 @@ class DelegationController:
         def _server_request_handler(
             message: dict[str, Any],
         ) -> dict[str, Any] | None:
-            nonlocal captured_request, interrupted_by_unknown, captured_request_parse_failed
+            nonlocal \
+                captured_request, \
+                interrupted_by_unknown, \
+                captured_request_parse_failed
             try:
                 parsed = parse_pending_server_request(
                     message,
@@ -771,7 +801,9 @@ class DelegationController:
     def _project_pending_escalation(
         self, collaboration_id: str
     ) -> PendingEscalationView | None:
-        requests = self._pending_request_store.list_by_collaboration_id(collaboration_id)
+        requests = self._pending_request_store.list_by_collaboration_id(
+            collaboration_id
+        )
         if not requests:
             return None
         request = requests[-1]
@@ -837,7 +869,9 @@ class DelegationController:
         refreshed = self._job_store.get(job_id) or job
         pending_escalation = None
         if refreshed.status == "needs_escalation":
-            pending_escalation = self._project_pending_escalation(refreshed.collaboration_id)
+            pending_escalation = self._project_pending_escalation(
+                refreshed.collaboration_id
+            )
 
         detail = None
         if refreshed.status == "failed":
@@ -856,6 +890,487 @@ class DelegationController:
             inspection=inspection,
             detail=detail,
         )
+
+    def promote(self, *, job_id: str) -> PromotionResult | PromotionRejectedResponse:
+        """Apply the reviewed diff from a completed delegation to the primary workspace.
+
+        Prechecks:
+          1. Job exists, status == completed, artifact_hash present
+          2. HEAD == base_commit
+          3. git status --porcelain empty (no untracked/modified files)
+          4. git diff --cached clean (no staged changes)
+          5. Regenerated artifact hash matches the reviewed hash
+
+        On success: applies full.diff, verifies, transitions to "verified".
+        On precheck failure: transitions to "prechecks_failed".
+        On verification failure: rolls back and transitions to "rolled_back".
+        """
+        job = self._job_store.get(job_id)
+        if job is None:
+            return PromotionRejectedResponse(
+                rejected=True,
+                reason="job_not_completed",
+                detail=f"Promotion failed: job not found. Got: {job_id!r:.100}",
+                job_id=job_id,
+            )
+        if job.status != "completed":
+            return PromotionRejectedResponse(
+                rejected=True,
+                reason="job_not_completed",
+                detail=(
+                    "Promotion failed: job not in completed status. "
+                    f"Got: status={job.status!r:.100}"
+                ),
+                job_id=job_id,
+            )
+        # State-machine gate: only pending and prechecks_failed accept promote.
+        if job.promotion_state not in ("pending", "prechecks_failed"):
+            return PromotionRejectedResponse(
+                rejected=True,
+                reason="job_not_completed",
+                detail=(
+                    "Promotion failed: job promotion_state is not promotable. "
+                    f"Got: promotion_state={job.promotion_state!r:.100}"
+                ),
+                job_id=job_id,
+            )
+        # Increment promotion_attempt once before all prechecks.
+        new_attempt = (job.promotion_attempt or 0) + 1
+
+        if job.artifact_hash is None:
+            self._job_store.update_promotion_state(
+                job_id,
+                promotion_state="prechecks_failed",
+                promotion_attempt=new_attempt,
+            )
+            return PromotionRejectedResponse(
+                rejected=True,
+                reason="job_not_reviewed",
+                detail="Promotion failed: no reviewed artifact hash present.",
+                job_id=job_id,
+            )
+
+        # Resolve the primary workspace from the lineage store.
+        handle = self._lineage_store.get(job.collaboration_id)
+        if handle is None:
+            self._job_store.update_promotion_state(
+                job_id,
+                promotion_state="prechecks_failed",
+                promotion_attempt=new_attempt,
+            )
+            return PromotionRejectedResponse(
+                rejected=True,
+                reason="job_not_completed",
+                detail="Promotion failed: collaboration handle not found.",
+                job_id=job_id,
+            )
+        primary_repo_root = Path(handle.repo_root)
+
+        # Precheck: HEAD == base_commit.
+        try:
+            current_head = self._head_commit_resolver(primary_repo_root)
+        except RuntimeError:
+            self._job_store.update_promotion_state(
+                job_id,
+                promotion_state="prechecks_failed",
+                promotion_attempt=new_attempt,
+            )
+            return PromotionRejectedResponse(
+                rejected=True,
+                reason="head_mismatch",
+                detail="Promotion failed: could not resolve HEAD.",
+                job_id=job_id,
+                expected=job.base_commit,
+            )
+        if current_head != job.base_commit:
+            self._job_store.update_promotion_state(
+                job_id,
+                promotion_state="prechecks_failed",
+                promotion_attempt=new_attempt,
+            )
+            return PromotionRejectedResponse(
+                rejected=True,
+                reason="head_mismatch",
+                detail=(
+                    "Promotion failed: HEAD does not match base_commit. "
+                    f"Got: HEAD={current_head!r:.40}"
+                ),
+                job_id=job_id,
+                expected=job.base_commit,
+                actual=current_head,
+            )
+
+        # Precheck: git status --porcelain empty.
+        porcelain_result = subprocess.run(
+            ["git", "-C", str(primary_repo_root), "status", "--porcelain"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if porcelain_result.stdout.strip():
+            self._job_store.update_promotion_state(
+                job_id,
+                promotion_state="prechecks_failed",
+                promotion_attempt=new_attempt,
+            )
+            return PromotionRejectedResponse(
+                rejected=True,
+                reason="worktree_dirty",
+                detail="Promotion failed: primary workspace has uncommitted changes.",
+                job_id=job_id,
+            )
+
+        # Precheck: git diff --cached clean.
+        index_result = subprocess.run(
+            ["git", "-C", str(primary_repo_root), "diff", "--cached", "--exit-code"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if index_result.returncode != 0:
+            self._job_store.update_promotion_state(
+                job_id,
+                promotion_state="prechecks_failed",
+                promotion_attempt=new_attempt,
+            )
+            return PromotionRejectedResponse(
+                rejected=True,
+                reason="index_dirty",
+                detail="Promotion failed: primary workspace index is not clean.",
+                job_id=job_id,
+            )
+
+        # Precheck: regenerate artifacts and compare hash.
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            bundle = self._artifact_store.generate_canonical_artifacts(
+                job=job,
+                output_dir=Path(tmp_dir),
+            )
+            if bundle.artifact_hash != job.artifact_hash:
+                self._job_store.update_promotion_state(
+                    job_id,
+                    promotion_state="prechecks_failed",
+                    promotion_attempt=new_attempt,
+                )
+                return PromotionRejectedResponse(
+                    rejected=True,
+                    reason="artifact_hash_mismatch",
+                    detail=(
+                        "Promotion failed: regenerated artifact hash does not match "
+                        "reviewed hash (worktree was modified since review)."
+                    ),
+                    job_id=job_id,
+                    expected=job.artifact_hash,
+                    actual=bundle.artifact_hash,
+                )
+
+        # All prechecks passed. Write journal intent phase FIRST (WAL ordering).
+        # Intent must precede prechecks_passed state so recovery always has a
+        # journal entry to process if a crash strands prechecks_passed.
+        idempotency_key = f"promotion:{job_id}:{new_attempt}"
+        created_at = self._journal.timestamp()
+        self._journal.write_phase(
+            OperationJournalEntry(
+                idempotency_key=idempotency_key,
+                operation="promotion",
+                phase="intent",
+                collaboration_id=job.collaboration_id,
+                created_at=created_at,
+                repo_root=str(primary_repo_root),
+                job_id=job_id,
+            ),
+            session_id=self._session_id,
+        )
+
+        # Record prechecks_passed state (after intent journal entry).
+        self._job_store.update_promotion_state(
+            job_id,
+            promotion_state="prechecks_passed",
+            promotion_attempt=new_attempt,
+        )
+
+        # Identify new paths: files in the reviewed change set not tracked
+        # in the primary workspace. Used for rollback file removal.
+        reviewed_changed_files: list[str] = []
+        for artifact_path_str in job.artifact_paths:
+            artifact_path = Path(artifact_path_str)
+            if artifact_path.name == "changed-files.json" and artifact_path.exists():
+                try:
+                    payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+                    if isinstance(payload, dict):
+                        reviewed_changed_files = list(payload.get("changed_files", []))
+                except (ValueError, KeyError, TypeError):
+                    pass
+                break
+
+        reviewed_paths = set(reviewed_changed_files)
+        new_paths = {
+            path
+            for path in reviewed_paths
+            if not _path_is_tracked(primary_repo_root, path)
+        }
+
+        # Journal dispatched phase BEFORE apply — WAL semantics.
+        # Recovery treats "dispatched" as "mutation may have happened."
+        self._journal.write_phase(
+            OperationJournalEntry(
+                idempotency_key=idempotency_key,
+                operation="promotion",
+                phase="dispatched",
+                collaboration_id=job.collaboration_id,
+                created_at=created_at,
+                repo_root=str(primary_repo_root),
+                job_id=job_id,
+            ),
+            session_id=self._session_id,
+        )
+
+        # Apply the reviewed full.diff.
+        full_diff_path = Path(job.artifact_paths[0])
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(primary_repo_root),
+                "apply",
+                "--binary",
+                str(full_diff_path),
+            ],
+            check=True,
+            capture_output=True,
+            timeout=30,
+        )
+
+        # Record applied state — mutation has occurred.
+        self._job_store.update_promotion_state(
+            job_id,
+            promotion_state="applied",
+            promotion_attempt=new_attempt,
+        )
+
+        # Verify: re-generate artifacts from the primary workspace state
+        # and compare hash to the reviewed hash.
+        verified = self._verify_promotion(
+            job=job,
+            primary_repo_root=primary_repo_root,
+            reviewed_changed_files=reviewed_changed_files,
+        )
+
+        if not verified:
+            # Rollback: revert tracked files and remove new untracked files.
+            self._job_store.update_promotion_state(
+                job_id,
+                promotion_state="rollback_needed",
+                promotion_attempt=new_attempt,
+            )
+            subprocess.run(
+                ["git", "-C", str(primary_repo_root), "checkout", "--", "."],
+                check=True,
+                capture_output=True,
+                timeout=10,
+            )
+            for relative_path in sorted(new_paths):
+                target = primary_repo_root / relative_path
+                if target.exists():
+                    target.unlink()
+
+            self._job_store.update_promotion_state(
+                job_id,
+                promotion_state="rolled_back",
+                promotion_attempt=new_attempt,
+            )
+
+            # Journal completed phase for rollback.
+            self._journal.write_phase(
+                OperationJournalEntry(
+                    idempotency_key=idempotency_key,
+                    operation="promotion",
+                    phase="completed",
+                    collaboration_id=job.collaboration_id,
+                    created_at=created_at,
+                    repo_root=str(primary_repo_root),
+                    job_id=job_id,
+                ),
+                session_id=self._session_id,
+            )
+
+            return PromotionRejectedResponse(
+                rejected=True,
+                reason="artifact_hash_mismatch",
+                detail=(
+                    "Promotion failed: post-apply verification detected workspace "
+                    "mismatch. Rolled back."
+                ),
+                job_id=job_id,
+                expected=job.artifact_hash,
+            )
+
+        # Verified. Update state and invoke callback.
+        self._job_store.update_promotion_state(
+            job_id,
+            promotion_state="verified",
+            promotion_attempt=new_attempt,
+        )
+
+        stale_advisory_context = False
+        if self._promotion_callback is not None:
+            stale_advisory_context = self._promotion_callback.on_promotion_verified(
+                repo_root=primary_repo_root,
+                artifact_hash=job.artifact_hash,
+                job_id=job_id,
+            )
+
+        # Audit event.
+        self._journal.append_audit_event(
+            AuditEvent(
+                event_id=self._uuid_factory(),
+                timestamp=self._journal.timestamp(),
+                actor="claude",
+                action="promote",
+                collaboration_id=job.collaboration_id,
+                runtime_id=job.runtime_id,
+                job_id=job_id,
+                decision="approve",
+            )
+        )
+
+        # Journal completed phase.
+        self._journal.write_phase(
+            OperationJournalEntry(
+                idempotency_key=idempotency_key,
+                operation="promotion",
+                phase="completed",
+                collaboration_id=job.collaboration_id,
+                created_at=created_at,
+                repo_root=str(primary_repo_root),
+                job_id=job_id,
+            ),
+            session_id=self._session_id,
+        )
+
+        # Re-read the job to get the final state.
+        final_job = self._job_store.get(job_id) or job
+        return PromotionResult(
+            job=final_job,
+            artifact_hash=job.artifact_hash,
+            changed_files=tuple(reviewed_changed_files),
+            stale_advisory_context=stale_advisory_context,
+        )
+
+    def _verify_promotion(
+        self,
+        *,
+        job: DelegationJob,
+        primary_repo_root: Path,
+        reviewed_changed_files: list[str],
+    ) -> bool:
+        """Verify the post-apply state matches the reviewed artifacts.
+
+        Three checks per promotion-protocol.md §Post-Apply Verification:
+        1. Byte-compare regenerated full.diff to reviewed full.diff
+        2. Compare regenerated changed-file set to reviewed changed-files.json
+        3. Porcelain shows only the expected modifications
+
+        Uses ``generate_canonical_artifacts`` on the primary workspace to
+        reuse the exact ``_full_diff()`` generation logic (including
+        synthetic no-index sections for new files). Compares only the
+        applyable subset — ignores ``artifact_hash`` and
+        ``test_results_path`` because the canonical review set includes
+        execution-side data not present in the primary workspace.
+        """
+        reviewed_diff = Path(job.artifact_paths[0]).read_text(encoding="utf-8")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            # status="completed" is hardcoded: the only way to reach this
+            # method is through a completed job, and the hash is not used.
+            bundle = self._artifact_store.generate_canonical_artifacts(
+                job=DelegationJob(
+                    job_id=job.job_id,
+                    runtime_id=job.runtime_id,
+                    collaboration_id=job.collaboration_id,
+                    base_commit=job.base_commit,
+                    worktree_path=str(primary_repo_root),
+                    promotion_state=job.promotion_state,
+                    status="completed",
+                    artifact_paths=job.artifact_paths,
+                    artifact_hash=job.artifact_hash,
+                ),
+                output_dir=Path(tmp_dir),
+            )
+
+            # 1. Byte-compare full.diff (reuses _full_diff() for new-file handling).
+            actual_diff = bundle.full_diff_path.read_text(encoding="utf-8")
+            if actual_diff.rstrip() != reviewed_diff.rstrip():
+                return False
+
+            # 2. Compare changed-file set.
+            if sorted(bundle.changed_files) != sorted(reviewed_changed_files):
+                return False
+
+        # 3. Porcelain: only expected modifications.
+        # Use rstrip(), not strip() — the leading space is part of the
+        # XY status format (e.g., " M README.md" for unstaged changes).
+        porcelain_output = subprocess.run(
+            ["git", "-C", str(primary_repo_root), "status", "--porcelain"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        ).stdout.rstrip()
+        if porcelain_output:
+            expected_paths = set(reviewed_changed_files)
+            for entry in porcelain_output.splitlines():
+                # Porcelain format: XY<space>path (or XY<space>path -> renamed)
+                file_path = entry[3:].split(" -> ")[-1]
+                if file_path not in expected_paths:
+                    return False
+        return True
+
+    def discard(self, *, job_id: str) -> DiscardResult | DiscardRejectedResponse:
+        """Discard a completed delegation job without promoting.
+
+        Only jobs in 'pending' or 'prechecks_failed' promotion state can be discarded.
+        """
+        job = self._job_store.get(job_id)
+        if job is None:
+            return DiscardRejectedResponse(
+                rejected=True,
+                reason="job_not_found",
+                detail=f"Discard failed: job not found. Got: {job_id!r:.100}",
+                job_id=job_id,
+            )
+        if job.promotion_state not in ("pending", "prechecks_failed"):
+            return DiscardRejectedResponse(
+                rejected=True,
+                reason="job_not_discardable",
+                detail=(
+                    "Discard failed: job promotion_state is not discardable. "
+                    f"Got: promotion_state={job.promotion_state!r:.100}"
+                ),
+                job_id=job_id,
+            )
+
+        self._job_store.update_promotion_state(
+            job_id,
+            promotion_state="discarded",
+        )
+
+        # Audit event.
+        self._journal.append_audit_event(
+            AuditEvent(
+                event_id=self._uuid_factory(),
+                timestamp=self._journal.timestamp(),
+                actor="claude",
+                action="discard",
+                collaboration_id=job.collaboration_id,
+                runtime_id=job.runtime_id,
+                job_id=job_id,
+            )
+        )
+
+        updated = self._job_store.get(job_id) or job
+        return DiscardResult(job=updated)
 
     def _finalize_turn(
         self,
@@ -1040,7 +1555,11 @@ class DelegationController:
                 job_id=job_id,
                 request_id=request_id,
             )
-        if request.kind == "request_user_input" and decision == "approve" and not answers:
+        if (
+            request.kind == "request_user_input"
+            and decision == "approve"
+            and not answers
+        ):
             return self._reject_decision(
                 reason="answers_required",
                 detail=(
@@ -1274,7 +1793,9 @@ class DelegationController:
         by_key_ar: dict[str, OperationJournalEntry] = {}
         for entry in approval_resolution_entries:
             existing = by_key_ar.get(entry.idempotency_key)
-            if existing is None or _phase_rank(entry.phase) > _phase_rank(existing.phase):
+            if existing is None or _phase_rank(entry.phase) > _phase_rank(
+                existing.phase
+            ):
                 by_key_ar[entry.idempotency_key] = entry
 
         for entry in by_key_ar.values():
@@ -1289,6 +1810,145 @@ class DelegationController:
                     job_id=entry.job_id,
                     request_id=entry.request_id,
                     decision=entry.decision,
+                ),
+                session_id=self._session_id,
+            )
+
+        # --- promotion reconciliation ---
+        # Close unresolved promotion journal entries left by crashes during
+        # the promotion lifecycle.
+        promotion_entries = [e for e in unresolved if e.operation == "promotion"]
+        by_key_pr: dict[str, OperationJournalEntry] = {}
+        for entry in promotion_entries:
+            existing = by_key_pr.get(entry.idempotency_key)
+            if existing is None or _phase_rank(entry.phase) > _phase_rank(
+                existing.phase
+            ):
+                by_key_pr[entry.idempotency_key] = entry
+
+        for entry in by_key_pr.values():
+            if entry.phase == "intent":
+                # No mutation happened — normalize the job back to pending
+                # and close the journal entry. Preserve the attempt counter
+                # so the next promote() does not reuse the same idempotency key.
+                if entry.job_id is not None:
+                    job = self._job_store.get(entry.job_id)
+                    if job is not None and job.promotion_state not in (
+                        "verified",
+                        "discarded",
+                        "rolled_back",
+                    ):
+                        # Parse the attempt from the idempotency key
+                        # (format: "promotion:{job_id}:{attempt}").
+                        recovered_attempt: int | None = None
+                        parts = entry.idempotency_key.rsplit(":", 1)
+                        if len(parts) == 2:
+                            try:
+                                recovered_attempt = int(parts[1])
+                            except ValueError:
+                                pass
+                        self._job_store.update_promotion_state(
+                            entry.job_id,
+                            promotion_state="pending",
+                            **(
+                                {"promotion_attempt": recovered_attempt}
+                                if recovered_attempt is not None
+                                else {}
+                            ),
+                        )
+            elif entry.phase == "dispatched":
+                # Mutation may have happened — re-verify in the primary workspace.
+                if entry.job_id is not None:
+                    job = self._job_store.get(entry.job_id)
+                    if job is not None and job.promotion_state not in (
+                        "verified",
+                        "discarded",
+                        "rolled_back",
+                    ):
+                        primary_repo_root = Path(entry.repo_root)
+                        # Load reviewed changed files for both verify and rollback.
+                        reviewed_changed_files: list[str] = []
+                        for artifact_path_str in job.artifact_paths or ():
+                            artifact_path = Path(artifact_path_str)
+                            if (
+                                artifact_path.name == "changed-files.json"
+                                and artifact_path.exists()
+                            ):
+                                try:
+                                    payload = json.loads(
+                                        artifact_path.read_text(encoding="utf-8")
+                                    )
+                                    if isinstance(payload, dict):
+                                        reviewed_changed_files = list(
+                                            payload.get("changed_files", [])
+                                        )
+                                except (ValueError, KeyError, TypeError):
+                                    pass
+                                break
+                        verified = self._verify_promotion(
+                            job=job,
+                            primary_repo_root=primary_repo_root,
+                            reviewed_changed_files=reviewed_changed_files,
+                        )
+                        if verified:
+                            self._job_store.update_promotion_state(
+                                entry.job_id,
+                                promotion_state="verified",
+                            )
+                        else:
+                            # Mutation happened but verification failed — rollback.
+                            new_paths = {
+                                path
+                                for path in reviewed_changed_files
+                                if not _path_is_tracked(primary_repo_root, path)
+                            }
+                            self._job_store.update_promotion_state(
+                                entry.job_id,
+                                promotion_state="rollback_needed",
+                            )
+                            try:
+                                subprocess.run(
+                                    [
+                                        "git",
+                                        "-C",
+                                        str(primary_repo_root),
+                                        "checkout",
+                                        "--",
+                                        ".",
+                                    ],
+                                    check=True,
+                                    capture_output=True,
+                                    timeout=10,
+                                )
+                                for relative_path in sorted(new_paths):
+                                    target = primary_repo_root / relative_path
+                                    if target.exists():
+                                        target.unlink()
+                            except subprocess.CalledProcessError:
+                                logger.warning(
+                                    "Promotion recovery: rollback git checkout failed "
+                                    "for job %r — leaving journal unresolved for "
+                                    "next recovery attempt",
+                                    entry.job_id,
+                                )
+                                # Do NOT write rolled_back or close the journal.
+                                # Leave unresolved so next startup re-enters recovery.
+                                continue
+                            self._job_store.update_promotion_state(
+                                entry.job_id,
+                                promotion_state="rolled_back",
+                            )
+
+            # Advance journal to completed.
+            self._journal.write_phase(
+                OperationJournalEntry(
+                    idempotency_key=entry.idempotency_key,
+                    operation="promotion",
+                    phase="completed",
+                    collaboration_id=entry.collaboration_id,
+                    created_at=entry.created_at,
+                    repo_root=entry.repo_root,
+                    job_id=entry.job_id,
                 ),
                 session_id=self._session_id,
             )
@@ -1346,6 +2006,16 @@ def _verify_post_turn_signals(
             "D6 signal missing: item/completed not seen for item_id=%r after turn/completed",
             item_id,
         )
+
+
+def _path_is_tracked(repo_root: Path, relative_path: str) -> bool:
+    """Return True if the path is tracked in the git index."""
+    result = subprocess.run(
+        ["git", "-C", str(repo_root), "ls-files", "--error-unmatch", relative_path],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
 
 
 def _phase_rank(phase: str) -> int:

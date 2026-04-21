@@ -25,6 +25,7 @@ from .models import (
     ConsultResult,
     OutcomeRecord,
     RepoIdentity,
+    StaleAdvisoryContextMarker,
 )
 from .prompt_builder import (
     CONSULT_OUTPUT_SCHEMA,
@@ -164,7 +165,8 @@ class ControlPlane:
         if stale_marker is not None:
             stale_summary = (
                 "Workspace changed since the last advisory turn. "
-                f"Most recent promoted HEAD: {stale_marker.promoted_head}. "
+                f"Promoted artifact hash: {stale_marker.promoted_artifact_hash} "
+                f"(job: {stale_marker.job_id}). "
                 f"Current HEAD: {repo_identity.head}. "
                 "Re-ground reasoning in the current repository state."
             )
@@ -319,6 +321,33 @@ class ControlPlane:
 
         runtime_id = self._uuid_factory()
         return runtime_id, session, thread_id
+
+    def on_promotion_verified(
+        self,
+        *,
+        repo_root: Path,
+        artifact_hash: str,
+        job_id: str,
+    ) -> bool:
+        """Write a stale advisory context marker after a verified promotion.
+
+        Returns True if the marker was written (an advisory runtime is cached
+        for this repo root), False if no runtime exists and the call is a no-op.
+        Implements the ``_PromotionCallbackLike`` protocol defined in
+        ``delegation_controller.py``.
+        """
+        resolved_root = repo_root.resolve()
+        if str(resolved_root) not in self._advisory_runtimes:
+            return False
+        self._journal.write_stale_marker(
+            StaleAdvisoryContextMarker(
+                repo_root=str(resolved_root),
+                promoted_artifact_hash=artifact_hash,
+                job_id=job_id,
+                recorded_at=self._journal.timestamp(),
+            )
+        )
+        return True
 
     def invalidate_runtime(self, repo_root: Path) -> None:
         """Drop a cached runtime. Public wrapper for error recovery paths."""

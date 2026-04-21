@@ -19,9 +19,7 @@ _VALID_PROMOTION_STATES: frozenset[str] = frozenset(get_args(PromotionState))
 # Manually curated subset of JobStatus (not derived from get_args): "active"
 # is the complement of terminal (completed | failed | unknown). Adding a new
 # JobStatus should be an explicit decision about whether it counts as active.
-_ACTIVE_STATUSES: frozenset[str] = frozenset(
-    {"queued", "running", "needs_escalation"}
-)
+_ACTIVE_STATUSES: frozenset[str] = frozenset({"queued", "running", "needs_escalation"})
 
 
 def _is_valid_promotion_state(value: str | None) -> bool:
@@ -109,12 +107,41 @@ class DelegationJobStore:
                 f"DelegationJobStore.update_status_and_promotion failed: unknown promotion_state. "
                 f"Got: {promotion_state!r:.100}"
             )
-        self._append({
-            "op": "update_status_and_promotion",
-            "job_id": job_id,
-            "status": status,
-            "promotion_state": promotion_state,
-        })
+        self._append(
+            {
+                "op": "update_status_and_promotion",
+                "job_id": job_id,
+                "status": status,
+                "promotion_state": promotion_state,
+            }
+        )
+
+    def update_promotion_state(
+        self,
+        job_id: str,
+        *,
+        promotion_state: PromotionState,
+        promotion_attempt: int | None = None,
+    ) -> None:
+        """Append a promotion state update record to the log.
+
+        By design this does NOT verify that ``job_id`` exists before
+        appending. Orphan updates are silently dropped on replay.
+        """
+
+        if not _is_valid_promotion_state(promotion_state):
+            raise ValueError(
+                f"DelegationJobStore.update_promotion_state failed: unknown promotion_state. "
+                f"Got: {promotion_state!r:.100}"
+            )
+        self._append(
+            {
+                "op": "update_promotion_state",
+                "job_id": job_id,
+                "promotion_state": promotion_state,
+                "promotion_attempt": promotion_attempt,
+            }
+        )
 
     def update_artifacts(
         self,
@@ -125,12 +152,14 @@ class DelegationJobStore:
     ) -> None:
         """Append an artifact update record to the log."""
 
-        self._append({
-            "op": "update_artifacts",
-            "job_id": job_id,
-            "artifact_paths": list(artifact_paths),
-            "artifact_hash": artifact_hash,
-        })
+        self._append(
+            {
+                "op": "update_artifacts",
+                "job_id": job_id,
+                "artifact_paths": list(artifact_paths),
+                "artifact_hash": artifact_hash,
+            }
+        )
 
     def _append(self, record: dict[str, Any]) -> None:
         with self._store_path.open("a", encoding="utf-8") as handle:
@@ -237,4 +266,22 @@ class DelegationJobStore:
                             "artifact_hash": artifact_hash,
                         }
                     )
+                elif op == "update_promotion_state":
+                    job_id = record.get("job_id")
+                    promotion_state = record.get("promotion_state")
+                    promotion_attempt = record.get("promotion_attempt")
+                    if not isinstance(job_id, str):
+                        continue
+                    if job_id not in jobs:
+                        continue
+                    if not _is_valid_promotion_state(promotion_state):
+                        continue
+                    existing = jobs[job_id]
+                    updates: dict[str, Any] = {
+                        **asdict(existing),
+                        "promotion_state": promotion_state,
+                    }
+                    if promotion_attempt is not None and type(promotion_attempt) is int:
+                        updates["promotion_attempt"] = promotion_attempt
+                    jobs[job_id] = DelegationJob(**updates)
         return jobs

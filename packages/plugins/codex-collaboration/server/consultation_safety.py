@@ -62,6 +62,16 @@ DELEGATE_POLL_POLICY = ToolScanPolicy(
     content_fields=frozenset(),
 )
 
+DELEGATE_PROMOTE_POLICY = ToolScanPolicy(
+    expected_fields=frozenset({"job_id"}),
+    content_fields=frozenset(),
+)
+
+DELEGATE_DISCARD_POLICY = ToolScanPolicy(
+    expected_fields=frozenset({"job_id"}),
+    content_fields=frozenset(),
+)
+
 _TOOL_POLICY_MAP: dict[str, ToolScanPolicy] = {
     "mcp__plugin_codex-collaboration_codex-collaboration__codex.consult": CONSULT_POLICY,
     "mcp__plugin_codex-collaboration_codex-collaboration__codex.dialogue.start": DIALOGUE_START_POLICY,
@@ -69,6 +79,8 @@ _TOOL_POLICY_MAP: dict[str, ToolScanPolicy] = {
     "mcp__plugin_codex-collaboration_codex-collaboration__codex.delegate.start": DELEGATE_START_POLICY,
     "mcp__plugin_codex-collaboration_codex-collaboration__codex.delegate.decide": DELEGATE_DECIDE_POLICY,
     "mcp__plugin_codex-collaboration_codex-collaboration__codex.delegate.poll": DELEGATE_POLL_POLICY,
+    "mcp__plugin_codex-collaboration_codex-collaboration__codex.delegate.promote": DELEGATE_PROMOTE_POLICY,
+    "mcp__plugin_codex-collaboration_codex-collaboration__codex.delegate.discard": DELEGATE_DISCARD_POLICY,
 }
 
 

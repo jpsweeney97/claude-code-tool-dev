@@ -448,3 +448,41 @@ def test_poll_result_shapes() -> None:
     assert result.pending_escalation is pending
     assert result.inspection is inspection
     assert rejected.reason == "job_not_found"
+
+
+def test_delegation_job_persists_promotion_attempt() -> None:
+    from server.models import DelegationJob
+
+    job = DelegationJob(
+        job_id="job-1",
+        runtime_id="rt-1",
+        collaboration_id="collab-1",
+        base_commit="abc123",
+        worktree_path="/tmp/wk",
+        promotion_state="pending",
+        promotion_attempt=0,
+        status="completed",
+    )
+    assert job.promotion_attempt == 0
+
+
+def test_promotion_result_shape() -> None:
+    from server.models import DelegationJob, PromotionResult
+
+    job = DelegationJob(
+        job_id="job-1",
+        runtime_id="rt-1",
+        collaboration_id="collab-1",
+        base_commit="abc123",
+        worktree_path="/tmp/wk",
+        promotion_state="verified",
+        promotion_attempt=1,
+        status="completed",
+    )
+    result = PromotionResult(
+        job=job,
+        artifact_hash="hash-1",
+        changed_files=("README.md",),
+        stale_advisory_context=True,
+    )
+    assert result.stale_advisory_context is True

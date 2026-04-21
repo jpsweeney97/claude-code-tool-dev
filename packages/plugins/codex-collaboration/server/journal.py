@@ -33,7 +33,13 @@ def default_plugin_data_path() -> Path:
 
 
 _VALID_OPERATIONS = frozenset(
-    ("thread_creation", "turn_dispatch", "job_creation", "approval_resolution")
+    (
+        "thread_creation",
+        "turn_dispatch",
+        "job_creation",
+        "approval_resolution",
+        "promotion",
+    )
 )
 _VALID_PHASES = frozenset(("intent", "dispatched", "completed"))
 _JOURNAL_REQUIRED_STR = (
@@ -44,7 +50,13 @@ _JOURNAL_REQUIRED_STR = (
     "created_at",
     "repo_root",
 )
-_JOURNAL_OPTIONAL_STR = ("codex_thread_id", "runtime_id", "job_id", "request_id", "decision")
+_JOURNAL_OPTIONAL_STR = (
+    "codex_thread_id",
+    "runtime_id",
+    "job_id",
+    "request_id",
+    "decision",
+)
 _JOURNAL_OPTIONAL_INT = ("turn_sequence", "context_size")
 
 
@@ -96,14 +108,10 @@ def _journal_callback(
             )
     elif op == "job_creation" and phase == "intent":
         if not isinstance(record.get("job_id"), str):
-            raise SchemaViolation(
-                "job_creation at intent requires job_id (string)"
-            )
+            raise SchemaViolation("job_creation at intent requires job_id (string)")
     elif op == "job_creation" and phase == "dispatched":
         if not isinstance(record.get("job_id"), str):
-            raise SchemaViolation(
-                "job_creation at dispatched requires job_id (string)"
-            )
+            raise SchemaViolation("job_creation at dispatched requires job_id (string)")
         if not isinstance(record.get("runtime_id"), str):
             raise SchemaViolation(
                 "job_creation at dispatched requires runtime_id (string)"
@@ -146,6 +154,9 @@ def _journal_callback(
             raise SchemaViolation(
                 "approval_resolution at dispatched requires codex_thread_id (string)"
             )
+    elif op == "promotion" and phase in ("intent", "dispatched"):
+        if not isinstance(record.get("job_id"), str):
+            raise SchemaViolation(f"promotion at {phase} requires job_id (string)")
     # Compatibility decision: runtime_id on turn_dispatch is NOT required.
     # Missing runtime_id suppresses audit event emission (dialogue.py:592,689)
     # but does not crash recovery. Requiring it would reject records from
@@ -192,8 +203,16 @@ class OperationJournal:
         """Return the persisted stale marker for `repo_root`, if present."""
 
         markers = self._read_markers()
-        record = markers.get(_normalize_repo_root_key(repo_root))
+        key = _normalize_repo_root_key(repo_root)
+        record = markers.get(key)
         if record is None:
+            return None
+        # Defensive: old-schema markers have "promoted_head" instead of
+        # "promoted_artifact_hash" and lack "job_id". Treat as absent and
+        # clear — stale markers are ephemeral session-scoped data.
+        if "promoted_artifact_hash" not in record or "job_id" not in record:
+            del markers[key]
+            self._write_markers(markers)
             return None
         return StaleAdvisoryContextMarker(**record)
 
@@ -204,7 +223,8 @@ class OperationJournal:
         normalized_repo_root = _normalize_repo_root_key(marker.repo_root)
         normalized_marker = StaleAdvisoryContextMarker(
             repo_root=normalized_repo_root,
-            promoted_head=marker.promoted_head,
+            promoted_artifact_hash=marker.promoted_artifact_hash,
+            job_id=marker.job_id,
             recorded_at=marker.recorded_at,
         )
         markers[normalized_repo_root] = asdict(normalized_marker)

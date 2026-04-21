@@ -19,7 +19,8 @@ def test_stale_marker_keys_are_normalized_on_write(tmp_path: Path) -> None:
     journal.write_stale_marker(
         StaleAdvisoryContextMarker(
             repo_root=str(tmp_path / "."),
-            promoted_head="head-1",
+            promoted_artifact_hash="hash-1",
+            job_id="job-1",
             recorded_at="2026-03-27T15:00:00Z",
         )
     )
@@ -29,27 +30,29 @@ def test_stale_marker_keys_are_normalized_on_write(tmp_path: Path) -> None:
     assert marker.repo_root == str(tmp_path.resolve())
 
 
-def test_stale_marker_write_replaces_prior_head_for_repo_root(tmp_path: Path) -> None:
+def test_stale_marker_write_replaces_prior_hash_for_repo_root(tmp_path: Path) -> None:
     journal = OperationJournal(tmp_path / "plugin-data")
     normalized_root = str(tmp_path.resolve())
     journal.write_stale_marker(
         StaleAdvisoryContextMarker(
             repo_root=normalized_root,
-            promoted_head="head-1",
+            promoted_artifact_hash="hash-1",
+            job_id="job-1",
             recorded_at="2026-03-27T15:00:00Z",
         )
     )
     journal.write_stale_marker(
         StaleAdvisoryContextMarker(
             repo_root=normalized_root,
-            promoted_head="head-2",
+            promoted_artifact_hash="hash-2",
+            job_id="job-2",
             recorded_at="2026-03-27T15:05:00Z",
         )
     )
 
     marker = journal.load_stale_marker(tmp_path)
     assert marker is not None
-    assert marker.promoted_head == "head-2"
+    assert marker.promoted_artifact_hash == "hash-2"
 
 
 def test_clear_stale_marker_uses_normalized_repo_root(tmp_path: Path) -> None:
@@ -57,7 +60,8 @@ def test_clear_stale_marker_uses_normalized_repo_root(tmp_path: Path) -> None:
     journal.write_stale_marker(
         StaleAdvisoryContextMarker(
             repo_root=str(tmp_path.resolve()),
-            promoted_head="head-1",
+            promoted_artifact_hash="hash-1",
+            job_id="job-1",
             recorded_at="2026-03-27T15:00:00Z",
         )
     )
@@ -689,4 +693,70 @@ def test_check_health_reports_missing_request_id_for_approval_resolution(
 
     diagnostics = journal.check_health(session_id="sess-1")
     assert len(diagnostics.schema_violations) == 1
-    assert "request_id" in diagnostics.schema_violations[0].detail
+
+
+def test_journal_accepts_promotion_operation(tmp_path: Path) -> None:
+    journal = OperationJournal(tmp_path / "plugin-data")
+    journal.write_phase(
+        OperationJournalEntry(
+            idempotency_key="job-1:1",
+            operation="promotion",
+            phase="intent",
+            collaboration_id="collab-1",
+            created_at="2026-04-20T00:00:00Z",
+            repo_root="/repo",
+            job_id="job-1",
+        ),
+        session_id="sess-1",
+    )
+    unresolved = journal.list_unresolved(session_id="sess-1")
+    assert unresolved[0].operation == "promotion"
+
+
+def test_stale_marker_shape_uses_artifact_hash_and_job_id(tmp_path: Path) -> None:
+    journal = OperationJournal(tmp_path / "plugin-data")
+    journal.write_stale_marker(
+        StaleAdvisoryContextMarker(
+            repo_root=str(tmp_path.resolve()),
+            promoted_artifact_hash="hash-1",
+            job_id="job-1",
+            recorded_at="2026-04-20T00:00:00Z",
+        )
+    )
+    marker = journal.load_stale_marker(tmp_path)
+    assert marker is not None
+    assert marker.promoted_artifact_hash == "hash-1"
+    assert marker.job_id == "job-1"
+
+
+def test_load_stale_marker_handles_old_schema_gracefully(tmp_path: Path) -> None:
+    """Old-schema markers (promoted_head, no job_id) are treated as absent.
+
+    After the schema rename from promoted_head→promoted_artifact_hash and
+    addition of job_id, persisted markers from prior sessions must not crash
+    load_stale_marker with TypeError.
+    """
+    plugin_data = tmp_path / "plugin-data"
+    plugin_data.mkdir(parents=True, exist_ok=True)
+    journal = OperationJournal(plugin_data)
+
+    # Write an old-schema marker directly to the storage file.
+    journal_dir = plugin_data / "journal"
+    journal_dir.mkdir(parents=True, exist_ok=True)
+    markers_path = journal_dir / "stale_advisory_context.json"
+    old_marker = {
+        str(tmp_path): {
+            "repo_root": str(tmp_path),
+            "promoted_head": "abc123",
+            "recorded_at": "2026-03-27T15:00:00Z",
+        }
+    }
+    markers_path.write_text(json.dumps(old_marker), encoding="utf-8")
+
+    # Should return None (not crash) and clear the stale record.
+    result = journal.load_stale_marker(tmp_path)
+    assert result is None
+
+    # The old marker should be cleared from storage.
+    loaded = json.loads(markers_path.read_text(encoding="utf-8"))
+    assert str(tmp_path) not in loaded

@@ -693,7 +693,9 @@ class TestDelegateToolRegistration:
 
     def test_delegate_start_input_schema_requires_repo_root_and_objective(self) -> None:
         schema = next(
-            t["inputSchema"] for t in TOOL_DEFINITIONS if t["name"] == "codex.delegate.start"
+            t["inputSchema"]
+            for t in TOOL_DEFINITIONS
+            if t["name"] == "codex.delegate.start"
         )
         assert schema["type"] == "object"
         assert "repo_root" in schema["required"]
@@ -748,7 +750,11 @@ class TestDelegateDispatch:
         assert payload["job_id"] == "job-x"
         assert payload["status"] == "queued"
         assert controller.start_calls == [
-            {"repo_root": Path("/some/repo"), "base_commit": None, "objective": "Fix bug"}
+            {
+                "repo_root": Path("/some/repo"),
+                "base_commit": None,
+                "objective": "Fix bug",
+            }
         ]
 
     def test_delegate_start_forwards_optional_base_commit(self) -> None:
@@ -887,7 +893,9 @@ class TestDelegationRecoveryWiring:
     (_ensure_delegation_controller). Production deploys via factory, so the
     lazy path is the load-bearing one. Both are tested below."""
 
-    def test_ensure_delegation_controller_runs_recover_startup_on_first_dispatch(self) -> None:
+    def test_ensure_delegation_controller_runs_recover_startup_on_first_dispatch(
+        self,
+    ) -> None:
         """Lazy factory path happy case: ``recover_startup`` runs once on first
         dispatch; subsequent dispatches reuse the pinned controller without
         re-running recovery. The pin-only-after-successful-recovery retry
@@ -932,7 +940,9 @@ class TestDelegationRecoveryWiring:
         assert controller.recover_startup_calls == 1
         assert len(controller.start_calls) == 2
 
-    def test_ensure_delegation_controller_does_not_pin_on_recovery_failure(self) -> None:
+    def test_ensure_delegation_controller_does_not_pin_on_recovery_failure(
+        self,
+    ) -> None:
         """Lazy factory path retry safety: when ``recover_startup`` raises,
         the controller is NOT pinned, ``start()`` is NOT reached, and a
         subsequent dispatch retries by invoking the factory a second time
@@ -980,7 +990,9 @@ class TestDelegationRecoveryWiring:
         assert response1["result"]["isError"] is True
         assert len(factory_controllers) == 1
         assert factory_controllers[0].recover_startup_calls == 1
-        assert factory_controllers[0].start_calls == []  # start not reached on failed recovery
+        assert (
+            factory_controllers[0].start_calls == []
+        )  # start not reached on failed recovery
 
         # Dispatch 2: factory re-invoked (proves no pin on first call);
         # second controller's recovery succeeds; start() runs.
@@ -1243,10 +1255,243 @@ def test_decide_rejects_non_dict_answers() -> None:
 def test_decide_rejects_malformed_answer_entry() -> None:
     response = _decide_with_answers({"q1": "not-an-entry-dict"})
     assert response["result"]["isError"] is True
-    assert 'must have shape' in response["result"]["content"][0]["text"]
+    assert "must have shape" in response["result"]["content"][0]["text"]
 
 
 def test_decide_rejects_non_string_answer_values() -> None:
     response = _decide_with_answers({"q1": {"answers": [123, True]}})
     assert response["result"]["isError"] is True
     assert "must be strings" in response["result"]["content"][0]["text"]
+
+
+# ---------------------------------------------------------------------------
+# codex.delegate.promote and codex.delegate.discard
+# ---------------------------------------------------------------------------
+
+
+def test_delegate_promote_tool_registered() -> None:
+    tool_names = {t["name"] for t in TOOL_DEFINITIONS}
+    assert "codex.delegate.promote" in tool_names
+
+
+def test_delegate_discard_tool_registered() -> None:
+    tool_names = {t["name"] for t in TOOL_DEFINITIONS}
+    assert "codex.delegate.discard" in tool_names
+
+
+class FakeDelegationControllerWithPromoteDiscard:
+    def __init__(self) -> None:
+        self.startup_called = False
+        self.last_promote_job_id: str | None = None
+        self.last_discard_job_id: str | None = None
+
+    def recover_startup(self) -> None:
+        self.startup_called = True
+
+    def promote(self, *, job_id: str) -> object:
+        from server.models import DelegationJob, PromotionResult
+
+        self.last_promote_job_id = job_id
+        return PromotionResult(
+            job=DelegationJob(
+                job_id=job_id,
+                runtime_id="rt-1",
+                collaboration_id="collab-1",
+                base_commit="abc123",
+                worktree_path="/tmp/wk",
+                promotion_state="verified",
+                status="completed",
+            ),
+            artifact_hash="sha256-abc",
+            changed_files=("file_a.py",),
+            stale_advisory_context=False,
+        )
+
+    def discard(self, *, job_id: str) -> object:
+        from server.models import DelegationJob, DiscardResult
+
+        self.last_discard_job_id = job_id
+        return DiscardResult(
+            job=DelegationJob(
+                job_id=job_id,
+                runtime_id="rt-1",
+                collaboration_id="collab-1",
+                base_commit="abc123",
+                worktree_path="/tmp/wk",
+                promotion_state="discarded",
+                status="completed",
+            ),
+        )
+
+
+def test_handle_tools_call_delegate_promote() -> None:
+    controller = FakeDelegationControllerWithPromoteDiscard()
+    server = McpServer(
+        control_plane=FakeControlPlane(),
+        delegation_controller=controller,
+    )
+    server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "clientInfo": {"name": "test"},
+            },
+        }
+    )
+
+    response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "codex.delegate.promote",
+                "arguments": {"job_id": "job-promote-1"},
+            },
+        }
+    )
+
+    assert "isError" not in response["result"]
+    payload = json.loads(response["result"]["content"][0]["text"])
+    assert payload["job"]["job_id"] == "job-promote-1"
+    assert payload["job"]["promotion_state"] == "verified"
+    assert controller.last_promote_job_id == "job-promote-1"
+
+
+def test_handle_tools_call_delegate_discard() -> None:
+    controller = FakeDelegationControllerWithPromoteDiscard()
+    server = McpServer(
+        control_plane=FakeControlPlane(),
+        delegation_controller=controller,
+    )
+    server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "clientInfo": {"name": "test"},
+            },
+        }
+    )
+
+    response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "codex.delegate.discard",
+                "arguments": {"job_id": "job-discard-1"},
+            },
+        }
+    )
+
+    assert "isError" not in response["result"]
+    payload = json.loads(response["result"]["content"][0]["text"])
+    assert payload["job"]["job_id"] == "job-discard-1"
+    assert payload["job"]["promotion_state"] == "discarded"
+    assert controller.last_discard_job_id == "job-discard-1"
+
+
+def test_delegate_promote_returns_promote_policy() -> None:
+    """promote returns PromotionResult or PromotionRejectedResponse, not an error."""
+    from server.models import PromotionRejectedResponse
+
+    class _RejectedController:
+        def recover_startup(self) -> None:
+            pass
+
+        def promote(self, *, job_id: str) -> object:
+            return PromotionRejectedResponse(
+                rejected=True,
+                reason="job_not_completed",
+                detail="Job is not in a promotable state.",
+                job_id=job_id,
+            )
+
+    server = McpServer(
+        control_plane=FakeControlPlane(),
+        delegation_controller=_RejectedController(),
+    )
+    server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "clientInfo": {"name": "test"},
+            },
+        }
+    )
+    response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "codex.delegate.promote",
+                "arguments": {"job_id": "job-rej"},
+            },
+        }
+    )
+
+    # Rejection is a typed response, not an MCP-level error
+    assert "isError" not in response["result"]
+    payload = json.loads(response["result"]["content"][0]["text"])
+    assert payload["rejected"] is True
+    assert payload["job_id"] == "job-rej"
+
+
+def test_delegate_discard_returns_discard_policy() -> None:
+    """discard returns DiscardResult or DiscardRejectedResponse, not an error."""
+    from server.models import DiscardRejectedResponse
+
+    class _RejectedController:
+        def recover_startup(self) -> None:
+            pass
+
+        def discard(self, *, job_id: str) -> object:
+            return DiscardRejectedResponse(
+                rejected=True,
+                reason="job_not_discardable",
+                detail="Job is not in a discardable state.",
+                job_id=job_id,
+            )
+
+    server = McpServer(
+        control_plane=FakeControlPlane(),
+        delegation_controller=_RejectedController(),
+    )
+    server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "clientInfo": {"name": "test"},
+            },
+        }
+    )
+    response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "codex.delegate.discard",
+                "arguments": {"job_id": "job-rej"},
+            },
+        }
+    )
+
+    assert "isError" not in response["result"]
+    payload = json.loads(response["result"]["content"][0]["text"])
+    assert payload["rejected"] is True
+    assert payload["job_id"] == "job-rej"

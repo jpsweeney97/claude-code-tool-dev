@@ -120,19 +120,19 @@ The primary trigger is intentionally conservative: the frozen runtime survives u
 
 A successful promotion can invalidate the advisory runtime's workspace view without changing its policy fingerprint. In v1, this is handled as a coherence event, not a policy-rotation event.
 
-When a promotion changes HEAD for a repo root that currently has an advisory runtime:
+When a promotion applies reviewed workspace content for a repo root that currently has an advisory runtime:
 
 1. The control plane marks the advisory runtime's workspace context as stale.
-2. The stale marker records the promoted HEAD and is persisted per [recovery-and-journal.md §Stale Advisory Context Marker](recovery-and-journal.md#stale-advisory-context-marker).
+2. The stale marker records the promoted artifact hash and job id and is persisted per [recovery-and-journal.md §Stale Advisory Context Marker](recovery-and-journal.md#stale-advisory-context-marker).
 3. On the next advisory turn for that repo root, the control plane reuses the existing advisory runtime unless a separate policy decision requires rotation.
-4. Before dispatching the turn, the control plane injects a workspace-changed summary plus refreshed repository identity/context into the packet.
+4. Before dispatching the turn, the control plane injects a workspace-changed summary plus refreshed repository identity/context into the packet. The summary is anchored in the stale marker plus live repo identity loaded at dispatch time.
 5. After the first successful post-promotion advisory turn is dispatched, the stale marker is cleared.
 
 Additional rules:
 
 - Freshness changes do not mutate advisory policy in place and do not by themselves trigger rotation.
 - v1 does not require automatic post-promotion thread fork or `turn/steer` for coherence.
-- If multiple promotions occur before the next advisory turn, only the most recent promoted HEAD is carried forward.
+- If multiple promotions occur before the next advisory turn, only the most recent promoted artifact hash / job id pair is carried forward.
 - If no advisory runtime exists for the repo root, no stale marker is created.
 
 ## Recovery and Journal Interactions

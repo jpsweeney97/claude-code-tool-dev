@@ -14,12 +14,25 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
 from .models import ArtifactInspectionSnapshot, DelegationJob
 
 TEST_RESULTS_RECORD_RELATIVE_PATH = ".codex-collaboration/test-results.json"
+
+
+@dataclass(frozen=True)
+class CanonicalArtifactBundle:
+    """Output of generate_canonical_artifacts — written files and their computed hash."""
+
+    artifact_paths: tuple[str, ...]
+    artifact_hash: str | None
+    changed_files: tuple[str, ...]
+    full_diff_path: Path
+    changed_files_path: Path
+    test_results_path: Path
 
 
 class ArtifactStore:
@@ -34,24 +47,41 @@ class ArtifactStore:
         self._plugin_data_path = plugin_data_path
         self._timestamp_factory = timestamp_factory
 
-    def materialize_snapshot(self, *, job: DelegationJob) -> ArtifactInspectionSnapshot:
-        """Produce canonical artifacts and return a frozen snapshot."""
-        inspection_dir = self._inspection_dir(job.job_id)
-        inspection_dir.mkdir(parents=True, exist_ok=True)
+    def generate_canonical_artifacts(
+        self,
+        *,
+        job: DelegationJob,
+        output_dir: Path,
+    ) -> CanonicalArtifactBundle:
+        """Write canonical artifact files to output_dir and return a bundle.
+
+        The artifact hash is computed when job.status == "completed"; otherwise
+        artifact_hash is None. output_dir is created if it does not exist.
+
+        This method is the single source of truth for artifact generation and is
+        called by both materialize_snapshot (inspection dir) and promote logic
+        (a temp dir for hash comparison).
+        """
+        output_dir.mkdir(parents=True, exist_ok=True)
 
         changed_files = self._changed_files(job)
-        full_diff_path = inspection_dir / "full.diff"
-        changed_files_path = inspection_dir / "changed-files.json"
-        test_results_path = inspection_dir / "test-results.json"
-        snapshot_path = inspection_dir / "snapshot.json"
+        full_diff_path = output_dir / "full.diff"
+        changed_files_path = output_dir / "changed-files.json"
+        test_results_path = output_dir / "test-results.json"
 
         full_diff_path.write_text(self._full_diff(job, changed_files), encoding="utf-8")
         changed_files_path.write_text(
-            json.dumps({"changed_files": list(changed_files)}, indent=2, sort_keys=True) + "\n",
+            json.dumps({"changed_files": list(changed_files)}, indent=2, sort_keys=True)
+            + "\n",
             encoding="utf-8",
         )
         test_results_path.write_text(
-            json.dumps(self._test_results_record(Path(job.worktree_path)), indent=2, sort_keys=True) + "\n",
+            json.dumps(
+                self._test_results_record(Path(job.worktree_path)),
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
             encoding="utf-8",
         )
 
@@ -60,13 +90,34 @@ class ArtifactStore:
             str(changed_files_path),
             str(test_results_path),
         )
-        artifact_hash = self._review_hash(inspection_dir, artifact_paths) if job.status == "completed" else None
+        artifact_hash = (
+            self._review_hash(output_dir, artifact_paths)
+            if job.status == "completed"
+            else None
+        )
+
+        return CanonicalArtifactBundle(
+            artifact_paths=artifact_paths,
+            artifact_hash=artifact_hash,
+            changed_files=changed_files,
+            full_diff_path=full_diff_path,
+            changed_files_path=changed_files_path,
+            test_results_path=test_results_path,
+        )
+
+    def materialize_snapshot(self, *, job: DelegationJob) -> ArtifactInspectionSnapshot:
+        """Produce canonical artifacts and return a frozen snapshot."""
+        inspection_dir = self._inspection_dir(job.job_id)
+        snapshot_path = inspection_dir / "snapshot.json"
+
+        bundle = self.generate_canonical_artifacts(job=job, output_dir=inspection_dir)
+
         reviewed_at = self._timestamp_factory()
 
         snapshot = ArtifactInspectionSnapshot(
-            artifact_hash=artifact_hash,
-            artifact_paths=artifact_paths,
-            changed_files=changed_files,
+            artifact_hash=bundle.artifact_hash,
+            artifact_paths=bundle.artifact_paths,
+            changed_files=bundle.changed_files,
             reviewed_at=reviewed_at,
         )
         snapshot_path.write_text(
@@ -162,17 +213,34 @@ class ArtifactStore:
             return None
 
     def _inspection_dir(self, job_id: str) -> Path:
-        return self._plugin_data_path / "runtimes" / "delegation" / job_id / "inspection"
+        return (
+            self._plugin_data_path / "runtimes" / "delegation" / job_id / "inspection"
+        )
 
     def _changed_files(self, job: DelegationJob) -> tuple[str, ...]:
         tracked = subprocess.run(
-            ["git", "-C", job.worktree_path, "diff", "--name-only", job.base_commit, "--"],
+            [
+                "git",
+                "-C",
+                job.worktree_path,
+                "diff",
+                "--name-only",
+                job.base_commit,
+                "--",
+            ],
             check=True,
             capture_output=True,
             text=True,
         ).stdout.splitlines()
         untracked = subprocess.run(
-            ["git", "-C", job.worktree_path, "ls-files", "--others", "--exclude-standard"],
+            [
+                "git",
+                "-C",
+                job.worktree_path,
+                "ls-files",
+                "--others",
+                "--exclude-standard",
+            ],
             check=True,
             capture_output=True,
             text=True,
@@ -209,7 +277,15 @@ class ArtifactStore:
         worktree = Path(job.worktree_path)
         tracked_set = set(
             subprocess.run(
-                ["git", "-C", job.worktree_path, "diff", "--name-only", job.base_commit, "--"],
+                [
+                    "git",
+                    "-C",
+                    job.worktree_path,
+                    "diff",
+                    "--name-only",
+                    job.base_commit,
+                    "--",
+                ],
                 check=True,
                 capture_output=True,
                 text=True,
@@ -220,7 +296,16 @@ class ArtifactStore:
                 continue
             file_path = worktree / relative_path
             extra = subprocess.run(
-                ["git", "diff", "--no-index", "--binary", "--no-color", "--", "/dev/null", str(file_path)],
+                [
+                    "git",
+                    "diff",
+                    "--no-index",
+                    "--binary",
+                    "--no-color",
+                    "--",
+                    "/dev/null",
+                    str(file_path),
+                ],
                 check=False,
                 capture_output=True,
                 text=True,
@@ -250,9 +335,13 @@ class ArtifactStore:
                 "source_path": TEST_RESULTS_RECORD_RELATIVE_PATH,
             }
 
-    def _review_hash(self, inspection_dir: Path, artifact_paths: tuple[str, ...]) -> str:
+    def _review_hash(
+        self, inspection_dir: Path, artifact_paths: tuple[str, ...]
+    ) -> str:
         sha = hashlib.sha256()
-        sorted_paths = sorted(artifact_paths, key=lambda p: Path(p).relative_to(inspection_dir).as_posix())
+        sorted_paths = sorted(
+            artifact_paths, key=lambda p: Path(p).relative_to(inspection_dir).as_posix()
+        )
         for artifact_path in sorted_paths:
             path = Path(artifact_path)
             relative_path = path.relative_to(inspection_dir).as_posix().encode("utf-8")

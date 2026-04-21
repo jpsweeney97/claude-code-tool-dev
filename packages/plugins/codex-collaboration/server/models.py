@@ -44,6 +44,15 @@ DecisionRejectedReason = Literal[
     "answers_not_allowed",
 ]
 PollRejectedReason = Literal["job_not_found"]
+PromotionRejectedReason = Literal[
+    "head_mismatch",
+    "index_dirty",
+    "worktree_dirty",
+    "artifact_hash_mismatch",
+    "job_not_completed",
+    "job_not_reviewed",
+]
+DiscardRejectedReason = Literal["job_not_found", "job_not_discardable"]
 
 
 @dataclass(frozen=True)
@@ -166,7 +175,8 @@ class StaleAdvisoryContextMarker:
     """Persisted stale advisory context marker."""
 
     repo_root: str
-    promoted_head: str
+    promoted_artifact_hash: str
+    job_id: str
     recorded_at: str
 
 
@@ -313,6 +323,7 @@ class OperationJournalEntry:
         "turn_dispatch",
         "job_creation",
         "approval_resolution",
+        "promotion",
     ]
     phase: Literal["intent", "dispatched", "completed"]
     collaboration_id: str
@@ -345,7 +356,8 @@ class DelegationJob:
     base_commit: str
     worktree_path: str
     promotion_state: PromotionState | None
-    status: JobStatus
+    promotion_attempt: int = 0
+    status: JobStatus = "queued"
     artifact_paths: tuple[str, ...] = ()
     artifact_hash: str | None = None
 
@@ -447,5 +459,44 @@ class PollRejectedResponse:
 
     rejected: bool
     reason: PollRejectedReason
+    detail: str
+    job_id: str | None = None
+
+
+@dataclass(frozen=True)
+class PromotionResult:
+    """Successful promotion result returned by codex.delegate.promote."""
+
+    job: "DelegationJob"
+    artifact_hash: str
+    changed_files: tuple[str, ...]
+    stale_advisory_context: bool
+
+
+@dataclass(frozen=True)
+class PromotionRejectedResponse:
+    """Typed rejection returned by codex.delegate.promote."""
+
+    rejected: bool
+    reason: PromotionRejectedReason
+    detail: str
+    job_id: str | None = None
+    expected: str | None = None
+    actual: str | None = None
+
+
+@dataclass(frozen=True)
+class DiscardResult:
+    """Successful discard result returned by codex.delegate.discard."""
+
+    job: "DelegationJob"
+
+
+@dataclass(frozen=True)
+class DiscardRejectedResponse:
+    """Typed rejection returned by codex.delegate.discard."""
+
+    rejected: bool
+    reason: DiscardRejectedReason
     detail: str
     job_id: str | None = None

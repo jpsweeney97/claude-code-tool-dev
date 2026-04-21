@@ -261,3 +261,36 @@ def test_delegate_decide_answers_field_is_scanned() -> None:
         DELEGATE_DECIDE_POLICY,
     )
     assert verdict.action == "block"
+
+
+def test_delegate_promote_returns_promote_policy() -> None:
+    from server.consultation_safety import DELEGATE_PROMOTE_POLICY
+
+    policy = policy_for_tool(
+        "mcp__plugin_codex-collaboration_codex-collaboration__codex.delegate.promote"
+    )
+    assert policy is DELEGATE_PROMOTE_POLICY
+
+
+def test_delegate_discard_returns_discard_policy() -> None:
+    from server.consultation_safety import DELEGATE_DISCARD_POLICY
+
+    policy = policy_for_tool(
+        "mcp__plugin_codex-collaboration_codex-collaboration__codex.delegate.discard"
+    )
+    assert policy is DELEGATE_DISCARD_POLICY
+
+
+def test_delegate_promote_guard_blocks_secret_in_job_id_payload() -> None:
+    """job_id is expected (not content), but an unknown field with a secret must be caught."""
+    from server.consultation_safety import DELEGATE_PROMOTE_POLICY
+
+    # Unknown field added to input — scan_unknown_fields=True catches it
+    verdict = check_tool_input(
+        {
+            "job_id": "job-1",
+            "extra": "AKIAIOSFODNN7EXAMPLE",
+        },
+        DELEGATE_PROMOTE_POLICY,
+    )
+    assert verdict.action == "block"

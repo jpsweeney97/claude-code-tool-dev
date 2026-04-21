@@ -26,6 +26,7 @@ The official plugin exposes native app-server methods directly to Claude. This s
 | `codex.delegate.poll` | Poll job progress and pending approvals |
 | `codex.delegate.decide` | Resolve a pending escalation or approval |
 | `codex.delegate.promote` | Apply accepted delegation results to the primary workspace |
+| `codex.delegate.discard` | Discard unpromoted delegation results without mutating the primary workspace |
 | `codex.status` | Health, auth, version, and runtime diagnostics |
 
 The official plugin has no separate promotion-gated equivalent. It executes in the shared checkout without a distinct `codex.delegate.promote` step.
@@ -68,6 +69,7 @@ A unit of autonomous execution work. One job = one execution runtime = one workt
 | `base_commit` | string | Git commit SHA the worktree was created from |
 | `worktree_path` | path | Absolute path to the isolated worktree |
 | `promotion_state` | enum? | Null until promotion lifecycle becomes applicable. Set to `pending` when a job reaches `status=completed` and has not been promoted or discarded. Values: `pending`, `prechecks_passed`, `applied`, `verified`, `prechecks_failed`, `rollback_needed`, `rolled_back`, `discarded` — lifecycle governed by [promotion-protocol.md §Promotion State Machine](promotion-protocol.md#promotion-state-machine). Upgraded implementations must accept legacy records with `promotion_state="pending"` on non-completed jobs and must not interpret them as promotion-eligible solely from that legacy value. |
+| `promotion_attempt` | integer | Controller-owned monotonic counter for promotion journal replay. Starts at `0` when the job is created and increments before each new `codex.delegate.promote` attempt writes its `promotion` journal `intent` phase. |
 | `status` | enum | `queued`, `running`, `needs_escalation`, `completed`, `failed`, `unknown` |
 | `artifact_paths` | list\[path\] | Absolute paths to persisted inspection artifacts materialized by `codex.delegate.poll`. Empty until poll first materializes inspection data. |
 | `artifact_hash` | string? | Hash of the reviewed artifact set for a completed job. Null until `codex.delegate.poll` has materialized a reviewable completed-job snapshot. See [promotion-protocol.md §Artifact Hash Integrity](promotion-protocol.md#artifact-hash-integrity). |
@@ -231,6 +233,36 @@ Returned by `codex.delegate.promote` when preconditions fail. See [promotion-pro
 | `detail` | string | Human-readable explanation |
 | `expected` | string? | Expected value (e.g., expected HEAD SHA) |
 | `actual` | string? | Actual value found |
+
+### Promotion Result
+
+Returned by `codex.delegate.promote` on success.
+
+| Field | Type | Description |
+|---|---|---|
+| `job` | [DelegationJob](#delegationjob) | Updated job after the promote path reached `verified` |
+| `artifact_hash` | string | Reviewed artifact hash that was verified and applied |
+| `changed_files` | list\[path\] | Files whose reviewed changes were applied into the primary workspace |
+| `stale_advisory_context` | boolean | `true` only when post-promotion coherence state was recorded for an existing advisory runtime |
+
+### Discard Rejection
+
+Returned by `codex.delegate.discard` when the requested job cannot be discarded.
+
+| Field | Type | Description |
+|---|---|---|
+| `rejected` | boolean | Always `true` |
+| `reason` | enum | `job_not_found`, `job_not_discardable` |
+| `detail` | string | Human-readable explanation |
+| `job_id` | string? | Rejected job id when known |
+
+### Discard Result
+
+Returned by `codex.delegate.discard` on success.
+
+| Field | Type | Description |
+|---|---|---|
+| `job` | [DelegationJob](#delegationjob) | Updated job after the discard path finished |
 
 ### Job Busy
 

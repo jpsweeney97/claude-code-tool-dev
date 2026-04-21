@@ -131,6 +131,7 @@ def _build_delegation_factory(
             plugin_data_path=plugin_data_path,
             pending_request_store=pending_request_store,
             artifact_store=artifact_store,
+            promotion_callback=control_plane,
         )
 
     return factory
