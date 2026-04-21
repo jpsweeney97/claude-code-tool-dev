@@ -3331,3 +3331,110 @@ def test_bootstrap_factory_wires_promotion_callback(tmp_path: Path) -> None:
         "Bootstrap factory must pass promotion_callback=control_plane "
         "to DelegationController so verified promotes mark advisory context stale"
     )
+
+
+@pytest.mark.parametrize(
+    "terminal_state",
+    ["verified", "rolled_back", "discarded"],
+)
+def test_promote_rejects_job_in_terminal_state(
+    tmp_path: Path, terminal_state: Any
+) -> None:
+    """Promote must reject when promotion_state is terminal.
+
+    A second promote call after success would hit worktree_dirty (workspace is
+    modified) and overwrite the terminal state with prechecks_failed, corrupting
+    the state machine.
+    """
+    controller, job_store, _journal, _repo, job_id, _hash, _cb = (
+        _build_promote_scenario(tmp_path)
+    )
+
+    # Force the job into a terminal state.
+    job_store.update_promotion_state(job_id, promotion_state=terminal_state)
+
+    result = controller.promote(job_id=job_id)
+    assert isinstance(result, PromotionRejectedResponse)
+    assert result.reason == "job_not_completed"
+
+    # Verify the terminal state was NOT overwritten.
+    persisted = job_store.get(job_id)
+    assert persisted is not None
+    assert persisted.promotion_state == terminal_state
+
+
+@pytest.mark.parametrize(
+    "inflight_state",
+    ["prechecks_passed", "applied", "rollback_needed"],
+)
+def test_promote_rejects_job_in_inflight_state(
+    tmp_path: Path, inflight_state: Any
+) -> None:
+    """Promote must reject when promotion_state indicates an in-flight operation."""
+    controller, job_store, _journal, _repo, job_id, _hash, _cb = (
+        _build_promote_scenario(tmp_path)
+    )
+
+    # Force the job into an in-flight state.
+    job_store.update_promotion_state(job_id, promotion_state=inflight_state)
+
+    result = controller.promote(job_id=job_id)
+    assert isinstance(result, PromotionRejectedResponse)
+    assert result.reason == "job_not_completed"
+
+    # Verify the in-flight state was NOT overwritten.
+    persisted = job_store.get(job_id)
+    assert persisted is not None
+    assert persisted.promotion_state == inflight_state
+
+
+def test_promote_prechecks_passed_not_stranded_on_crash_before_intent(
+    tmp_path: Path,
+) -> None:
+    """If prechecks_passed is written before intent, a crash strands the state.
+
+    This test verifies the ordering: intent journal must be written BEFORE
+    prechecks_passed state, so recovery always has a journal entry to process.
+    Alternatively, prechecks_passed must not be written until after intent.
+    """
+    controller, job_store, journal, _repo, job_id, _hash, _cb = _build_promote_scenario(
+        tmp_path
+    )
+
+    # Track when prechecks_passed is written relative to the intent journal.
+    write_order: list[str] = []
+    original_update = job_store.update_promotion_state
+    original_write_phase = journal.write_phase
+
+    def _tracking_update(jid: str, *, promotion_state: str, **kwargs: Any) -> None:
+        if promotion_state == "prechecks_passed":
+            write_order.append("prechecks_passed")
+        return original_update(jid, promotion_state=promotion_state, **kwargs)
+
+    def _tracking_write_phase(entry: Any, **kwargs: Any) -> None:
+        if (
+            hasattr(entry, "operation")
+            and entry.operation == "promotion"
+            and entry.phase == "intent"
+        ):
+            write_order.append("intent")
+        return original_write_phase(entry, **kwargs)
+
+    job_store.update_promotion_state = _tracking_update  # type: ignore[assignment]
+    journal.write_phase = _tracking_write_phase  # type: ignore[assignment]
+
+    result = controller.promote(job_id=job_id)
+    assert isinstance(result, PromotionResult)
+
+    # Intent must be written BEFORE prechecks_passed (or prechecks_passed must
+    # not exist at all before intent). The key invariant: no persisted state
+    # exists that recovery cannot find via journal entry.
+    assert "intent" in write_order, "Intent journal phase was never written"
+    assert "prechecks_passed" in write_order, "prechecks_passed was never written"
+    intent_idx = write_order.index("intent")
+    prechecks_idx = write_order.index("prechecks_passed")
+    assert intent_idx < prechecks_idx, (
+        f"prechecks_passed (idx={prechecks_idx}) was written before intent "
+        f"(idx={intent_idx}). A crash in that gap strands the job at "
+        "prechecks_passed with no journal entry for recovery to process."
+    )

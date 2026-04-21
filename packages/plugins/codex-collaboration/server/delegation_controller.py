@@ -923,6 +923,17 @@ class DelegationController:
                 ),
                 job_id=job_id,
             )
+        # State-machine gate: only pending and prechecks_failed accept promote.
+        if job.promotion_state not in ("pending", "prechecks_failed"):
+            return PromotionRejectedResponse(
+                rejected=True,
+                reason="job_not_completed",
+                detail=(
+                    "Promotion failed: job promotion_state is not promotable. "
+                    f"Got: promotion_state={job.promotion_state!r:.100}"
+                ),
+                job_id=job_id,
+            )
         # Increment promotion_attempt once before all prechecks.
         new_attempt = (job.promotion_attempt or 0) + 1
 
@@ -1054,14 +1065,9 @@ class DelegationController:
                     actual=bundle.artifact_hash,
                 )
 
-        # All prechecks passed. Record prechecks_passed state.
-        self._job_store.update_promotion_state(
-            job_id,
-            promotion_state="prechecks_passed",
-            promotion_attempt=new_attempt,
-        )
-
-        # Write journal intent phase.
+        # All prechecks passed. Write journal intent phase FIRST (WAL ordering).
+        # Intent must precede prechecks_passed state so recovery always has a
+        # journal entry to process if a crash strands prechecks_passed.
         idempotency_key = f"promotion:{job_id}:{new_attempt}"
         created_at = self._journal.timestamp()
         self._journal.write_phase(
@@ -1075,6 +1081,13 @@ class DelegationController:
                 job_id=job_id,
             ),
             session_id=self._session_id,
+        )
+
+        # Record prechecks_passed state (after intent journal entry).
+        self._job_store.update_promotion_state(
+            job_id,
+            promotion_state="prechecks_passed",
+            promotion_attempt=new_attempt,
         )
 
         # Identify new paths: files in the reviewed change set not tracked
