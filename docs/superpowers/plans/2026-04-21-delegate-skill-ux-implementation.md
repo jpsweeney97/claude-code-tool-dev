@@ -36,6 +36,7 @@
 | `tests/test_delegate_start_integration.py` | Integration tests for status enrichment and widened busy (Task 4) |
 | `docs/superpowers/specs/codex-collaboration/contracts.md` | Update `active_delegation` description and discard eligibility (Task 5) |
 | `docs/superpowers/specs/codex-collaboration/promotion-protocol.md` | Update discard allowed states (Task 5) |
+| `docs/superpowers/specs/codex-collaboration/recovery-and-journal.md` | Update concurrency text for widened busy gate (Task 5) |
 
 All paths are relative to `packages/plugins/codex-collaboration/` except doc paths which are repo-relative.
 
@@ -47,7 +48,9 @@ All paths are relative to `packages/plugins/codex-collaboration/` except doc pat
 - Modify: `packages/plugins/codex-collaboration/server/delegation_job_store.py`
 - Test: `packages/plugins/codex-collaboration/tests/test_delegation_job_store.py`
 
-This is the foundation query for the singleton invariant. "User-attention-required" includes all non-terminal jobs: in-flight, completed awaiting review, failed/unknown with pre-mutation state, and partial/recovery promotion states. Terminal promotion states (`verified`, `discarded`, `rolled_back`) are excluded.
+This is the foundation query for the singleton invariant. "User-attention-required" includes all non-terminal jobs: in-flight, completed awaiting review, failed/unknown with pre-mutation state, and partial/recovery promotion states. Terminal promotion states (`verified`, `discarded`, `rolled_back`) are excluded. Additionally, `completed + promotion_state=None` is excluded — this is an impossible state (the atomic `update_status_and_promotion` call always sets both), and if it ever appears via corruption/legacy, it cannot be promoted or discarded, so it must not poison the busy gate.
+
+**Important:** The existing `_make_job()` helper in `test_delegation_job_store.py` defaults `promotion_state="pending"`, not `None`. Tests that need null promotion_state must pass `promotion_state=None` explicitly.
 
 - [ ] **Step 1: Write failing tests for `list_user_attention_required()`**
 
@@ -60,7 +63,7 @@ Add to `tests/test_delegation_job_store.py`:
 def test_list_user_attention_required_returns_running_job(tmp_path: Path) -> None:
     """Running jobs are user-attention-required (in progress)."""
     store = DelegationJobStore(tmp_path, "sess-1")
-    job = _make_job("job-1", status="running")
+    job = _make_job("job-1", status="running", promotion_state=None)
     store.create(job)
 
     result = store.list_user_attention_required()
@@ -73,7 +76,7 @@ def test_list_user_attention_required_returns_needs_escalation_job(
 ) -> None:
     """Needs-escalation jobs are user-attention-required (waiting for decision)."""
     store = DelegationJobStore(tmp_path, "sess-1")
-    job = _make_job("job-1", status="needs_escalation")
+    job = _make_job("job-1", status="needs_escalation", promotion_state=None)
     store.create(job)
 
     result = store.list_user_attention_required()
@@ -112,7 +115,7 @@ def test_list_user_attention_required_returns_failed_null_promotion(
 ) -> None:
     """Failed jobs with null promotion_state are user-attention-required."""
     store = DelegationJobStore(tmp_path, "sess-1")
-    job = _make_job("job-1", status="failed")
+    job = _make_job("job-1", status="failed", promotion_state=None)
     store.create(job)
 
     result = store.list_user_attention_required()
@@ -125,7 +128,7 @@ def test_list_user_attention_required_returns_unknown_null_promotion(
 ) -> None:
     """Unknown jobs with null promotion_state are user-attention-required."""
     store = DelegationJobStore(tmp_path, "sess-1")
-    job = _make_job("job-1", status="unknown")
+    job = _make_job("job-1", status="unknown", promotion_state=None)
     store.create(job)
 
     result = store.list_user_attention_required()
@@ -144,6 +147,19 @@ def test_list_user_attention_required_returns_rollback_needed(
     result = store.list_user_attention_required()
     assert len(result) == 1
     assert result[0].promotion_state == "rollback_needed"
+
+
+def test_list_user_attention_required_excludes_completed_null_promotion(
+    tmp_path: Path,
+) -> None:
+    """Completed + null promotion_state is an impossible state — excluded to prevent
+    poisoning the busy gate (cannot be promoted or discarded)."""
+    store = DelegationJobStore(tmp_path, "sess-1")
+    job = _make_job("job-1", status="completed", promotion_state=None)
+    store.create(job)
+
+    result = store.list_user_attention_required()
+    assert len(result) == 0
 
 
 def test_list_user_attention_required_excludes_verified(tmp_path: Path) -> None:
@@ -203,7 +219,7 @@ def _make_job(
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `uv run --package codex-collaboration pytest packages/plugins/codex-collaboration/tests/test_delegation_job_store.py -k "list_user_attention" -v`
-Expected: All 10 tests FAIL with `AttributeError: 'DelegationJobStore' object has no attribute 'list_user_attention_required'`
+Expected: All 11 tests FAIL with `AttributeError: 'DelegationJobStore' object has no attribute 'list_user_attention_required'`
 
 - [ ] **Step 3: Implement `list_user_attention_required()`**
 
@@ -231,18 +247,23 @@ def list_user_attention_required(self) -> list[DelegationJob]:
         j
         for j in self._replay().values()
         if j.promotion_state not in _TERMINAL_PROMOTION_STATES
+        # Exclude completed + null promotion_state: impossible state
+        # (update_status_and_promotion always sets both atomically).
+        # If it appears via corruption/legacy, it cannot be promoted or
+        # discarded, so it must not poison the busy gate.
+        and not (j.status == "completed" and j.promotion_state is None)
     ]
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `uv run --package codex-collaboration pytest packages/plugins/codex-collaboration/tests/test_delegation_job_store.py -k "list_user_attention" -v`
-Expected: All 10 tests PASS.
+Expected: All 11 tests PASS.
 
 - [ ] **Step 5: Run full suite to confirm no regressions**
 
 Run: `uv run --package codex-collaboration pytest packages/plugins/codex-collaboration/tests/ -v`
-Expected: All 828 tests PASS (818 baseline + 10 new).
+Expected: All 829 tests PASS (818 baseline + 11 new).
 
 - [ ] **Step 6: Commit**
 
@@ -375,7 +396,7 @@ Expected: All 6 discard tests PASS (2 existing + 4 new).
 - [ ] **Step 5: Run full suite to confirm no regressions**
 
 Run: `uv run --package codex-collaboration pytest packages/plugins/codex-collaboration/tests/ -v`
-Expected: All 832 tests PASS (828 + 4 new).
+Expected: All 833 tests PASS (829 + 4 new).
 
 - [ ] **Step 6: Commit**
 
@@ -476,8 +497,7 @@ def test_start_succeeds_after_discard_clears_attention_job(
     discard_result = controller.discard(job_id=first_job_id)
     assert isinstance(discard_result, DiscardResult)
 
-    # Now start should succeed.
-    control_plane._next_uuid_index = 1  # Ensure unique IDs.
+    # Now start should succeed (discarded job is terminal, no longer attention-active).
     second = controller.start(repo_root=repo_root)
     assert not isinstance(second, JobBusyResponse)
 ```
@@ -547,9 +567,12 @@ The MCP dispatch path for `codex.status` currently returns `control_plane.codex_
 
 - [ ] **Step 1: Write failing tests for status enrichment**
 
-Add to `tests/test_delegate_start_integration.py`:
+Add to `tests/test_delegate_start_integration.py`. Adapt fixture names to match the existing test patterns in that file (check for `_call_tool` helper, `mcp_server`/`repo_root` fixtures, etc.).
 
 ```python
+# --- codex.status active_delegation enrichment ---
+
+
 def test_status_active_delegation_null_when_no_jobs(
     mcp_server: McpServer,
     repo_root: Path,
@@ -564,7 +587,6 @@ def test_status_active_delegation_populated_after_start(
     repo_root: Path,
 ) -> None:
     """codex.status returns active_delegation after a delegation job starts."""
-    # Start a delegation.
     start_result = _call_tool(
         mcp_server,
         "codex.delegate.start",
@@ -572,7 +594,6 @@ def test_status_active_delegation_populated_after_start(
     )
     job_id = start_result["job"]["job_id"] if "job" in start_result else start_result["job_id"]
 
-    # Status should now show active_delegation.
     status = _call_tool(mcp_server, "codex.status", {"repo_root": str(repo_root)})
     assert status["active_delegation"] is not None
     assert status["active_delegation"]["job_id"] == job_id
@@ -590,10 +611,8 @@ def test_status_active_delegation_null_after_discard(
     )
     job_id = start_result["job"]["job_id"] if "job" in start_result else start_result["job_id"]
 
-    # Discard the job.
     _call_tool(mcp_server, "codex.delegate.discard", {"job_id": job_id})
 
-    # Status should now show null.
     status = _call_tool(mcp_server, "codex.status", {"repo_root": str(repo_root)})
     assert status["active_delegation"] is None
 
@@ -602,8 +621,8 @@ def test_status_active_delegation_includes_required_fields(
     mcp_server: McpServer,
     repo_root: Path,
 ) -> None:
-    """active_delegation contains job_id, status, promotion_state, base_commit, artifact_hash, artifact_paths."""
-    start_result = _call_tool(
+    """active_delegation contains the required shape fields."""
+    _call_tool(
         mcp_server,
         "codex.delegate.start",
         {"repo_root": str(repo_root), "objective": "test objective"},
@@ -612,15 +631,29 @@ def test_status_active_delegation_includes_required_fields(
     status = _call_tool(mcp_server, "codex.status", {"repo_root": str(repo_root)})
     ad = status["active_delegation"]
     assert ad is not None
-    assert "job_id" in ad
-    assert "status" in ad
-    assert "promotion_state" in ad
-    assert "base_commit" in ad
-    assert "artifact_hash" in ad
-    assert "artifact_paths" in ad
+    for field in ("job_id", "status", "promotion_state", "base_commit", "artifact_hash", "artifact_paths"):
+        assert field in ad, f"active_delegation missing field: {field}"
+
+
+def test_status_active_delegation_null_when_factory_fails(
+    tmp_path: Path,
+) -> None:
+    """When _ensure_delegation_controller() fails, active_delegation is null
+    and a diagnostic is appended to errors."""
+    # Build an McpServer with a delegation factory that raises.
+    def failing_factory():
+        raise RuntimeError("factory recovery failed")
+
+    server = _build_mcp_server_with_delegation_factory(tmp_path, failing_factory)
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    result = _call_tool(server, "codex.status", {"repo_root": str(repo_root)})
+    assert result["active_delegation"] is None
+    assert any("Delegation status" in e for e in result["errors"])
 ```
 
-Check that the integration test file has a `_call_tool` helper and `mcp_server`/`repo_root` fixtures. If not, adapt to match the existing test patterns in that file.
+The `test_status_active_delegation_null_when_factory_fails` test requires a helper `_build_mcp_server_with_delegation_factory` that creates an McpServer with a custom delegation factory. If no such helper exists, write one that mirrors the existing MCP server construction pattern but injects the factory. The key assertion: `active_delegation` is null AND `errors` contains a delegation diagnostic string.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -629,67 +662,60 @@ Expected: Tests that check `active_delegation is not None` FAIL (current code al
 
 - [ ] **Step 3: Implement MCP-side status enrichment**
 
-Edit `packages/plugins/codex-collaboration/server/mcp_server.py`. In `_dispatch_tool()`, replace the `codex.status` branch (around line 350-351):
+First, add a public method on `DelegationController` (in `delegation_controller.py`):
+
+```python
+def get_active_delegation_summary(self) -> DelegationJob | None:
+    """Return the most recent user-attention-required job, or None.
+
+    Used by codex.status enrichment. Preserves encapsulation —
+    callers do not reach into the private job store.
+    """
+    attention = self._job_store.list_user_attention_required()
+    return attention[0] if attention else None
+```
+
+Then edit `packages/plugins/codex-collaboration/server/mcp_server.py`. In `_dispatch_tool()`, replace the `codex.status` branch (around line 350-351):
 
 ```python
 if name == "codex.status":
     return self._control_plane.codex_status(Path(arguments["repo_root"]))
 ```
 
-With:
+With inline enrichment that appends diagnostics to `errors` on failure:
 
 ```python
 if name == "codex.status":
     result = self._control_plane.codex_status(Path(arguments["repo_root"]))
-    result["active_delegation"] = self._get_active_delegation_summary()
+    # MCP-side delegation enrichment. Recovery-capable: calls
+    # _ensure_delegation_controller() which initializes/recovers
+    # from durable state if needed. Suppresses all errors —
+    # status must never fail because delegation recovery failed.
+    try:
+        controller = self._ensure_delegation_controller()
+        job = controller.get_active_delegation_summary()
+        if job is not None:
+            result["active_delegation"] = {
+                "job_id": job.job_id,
+                "status": job.status,
+                "promotion_state": job.promotion_state,
+                "base_commit": job.base_commit,
+                "artifact_hash": job.artifact_hash,
+                "artifact_paths": list(job.artifact_paths),
+            }
+    except Exception as exc:
+        # Delegation recovery or query failed. Append diagnostic
+        # to errors list; active_delegation stays at None (from
+        # control_plane.codex_status default).
+        errors = list(result.get("errors", ()))
+        errors.append(
+            f"Delegation status query failed: {exc!r:.200}"
+        )
+        result["errors"] = tuple(dict.fromkeys(errors))
     return result
 ```
 
-Add the recovery-capable helper method to `McpServer`:
-
-```python
-def _get_active_delegation_summary(self) -> dict[str, Any] | None:
-    """Return the active delegation summary for codex.status enrichment.
-
-    Uses _ensure_delegation_controller() for recovery-capable access.
-    Suppresses all errors — status must never fail because delegation
-    recovery failed.
-    """
-    try:
-        controller = self._ensure_delegation_controller()
-    except Exception:
-        return None
-    try:
-        job = controller.get_active_delegation_summary()
-    except Exception:
-        return None
-    if job is None:
-    return {
-        "job_id": job.job_id,
-        "status": job.status,
-        "promotion_state": job.promotion_state,
-        "base_commit": job.base_commit,
-        "artifact_hash": job.artifact_hash,
-        "artifact_paths": list(job.artifact_paths),
-    }
-```
-
-The controller's `_job_store` is private (no property exposed). Add a public method on `DelegationController`:
-
-```python
-def get_active_delegation_summary(self) -> DelegationJob | None:
-    """Return the most recent user-attention-required job, or None."""
-    attention = self._job_store.list_user_attention_required()
-    return attention[0] if attention else None
-```
-
-Then use it in `_get_active_delegation_summary`:
-
-```python
-job = controller.get_active_delegation_summary()
-```
-
-This preserves encapsulation — the MCP server does not reach into the controller's private store.
+No separate helper method needed. The inline try/except handles both the `_ensure_delegation_controller()` failure (factory/recovery error) and the `get_active_delegation_summary()` failure (query error) in one block. Diagnostics go to `errors`, making delegation failure distinguishable from "no active delegation."
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -826,7 +852,30 @@ Expected: Clean, no violations.
 
 Check if `packages/plugins/codex-collaboration/plugin.json` auto-discovers skills or needs an explicit entry. If explicit, add the delegate skill.
 
-- [ ] **Step 4: Verify design spec coverage**
+- [ ] **Step 4: Bounded skill behavior verification**
+
+The ticket requires "Run the delegate skill through a full execution and promotion cycle." Full live verification requires a running Codex App Server, which is out of scope for unit/integration tests. Instead, verify the skill behavior through the MCP integration test surface:
+
+**4a. Verify the delegate lifecycle is exercisable through MCP tools:**
+- Call `codex.delegate.start` → confirm job created
+- Call `codex.status` → confirm `active_delegation` populated with correct job_id
+- Call `codex.delegate.poll` → confirm state returned
+- Call `codex.delegate.discard` → confirm `active_delegation` returns null
+
+**4b. Verify the widened busy gate blocks correctly:**
+- Start a job, confirm it completes
+- Attempt second start → confirm `busy` response
+- Discard → confirm second start now succeeds
+
+**4c. Verify the SKILL.md is structurally valid:**
+- Confirm frontmatter parses as valid YAML
+- Confirm `allowed-tools` lists all 8 required tools (Bash, Read, 6 MCP tools)
+- Confirm all grammar verbs (start, poll, approve, deny, promote, discard) are documented
+- Confirm all state router tiers are present (terminal, recovery, user-decision, runtime)
+
+**Residual risk:** The skill's rendering behavior (diff display, escalation formatting, ceremony gates) cannot be tested without a live Claude session invoking `/delegate`. This is a product-level acceptance test, not an implementation verification. The server-side behavior (the safety-bearing part) IS tested.
+
+- [ ] **Step 5: Verify design spec coverage**
 
 Cross-check the design spec sections against implementation:
 
