@@ -727,3 +727,36 @@ def test_stale_marker_shape_uses_artifact_hash_and_job_id(tmp_path: Path) -> Non
     assert marker is not None
     assert marker.promoted_artifact_hash == "hash-1"
     assert marker.job_id == "job-1"
+
+
+def test_load_stale_marker_handles_old_schema_gracefully(tmp_path: Path) -> None:
+    """Old-schema markers (promoted_head, no job_id) are treated as absent.
+
+    After the schema rename from promoted_head→promoted_artifact_hash and
+    addition of job_id, persisted markers from prior sessions must not crash
+    load_stale_marker with TypeError.
+    """
+    plugin_data = tmp_path / "plugin-data"
+    plugin_data.mkdir(parents=True, exist_ok=True)
+    journal = OperationJournal(plugin_data)
+
+    # Write an old-schema marker directly to the storage file.
+    journal_dir = plugin_data / "journal"
+    journal_dir.mkdir(parents=True, exist_ok=True)
+    markers_path = journal_dir / "stale_advisory_context.json"
+    old_marker = {
+        str(tmp_path): {
+            "repo_root": str(tmp_path),
+            "promoted_head": "abc123",
+            "recorded_at": "2026-03-27T15:00:00Z",
+        }
+    }
+    markers_path.write_text(json.dumps(old_marker), encoding="utf-8")
+
+    # Should return None (not crash) and clear the stale record.
+    result = journal.load_stale_marker(tmp_path)
+    assert result is None
+
+    # The old marker should be cleared from storage.
+    loaded = json.loads(markers_path.read_text(encoding="utf-8"))
+    assert str(tmp_path) not in loaded

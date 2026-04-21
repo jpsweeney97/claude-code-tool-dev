@@ -203,8 +203,16 @@ class OperationJournal:
         """Return the persisted stale marker for `repo_root`, if present."""
 
         markers = self._read_markers()
-        record = markers.get(_normalize_repo_root_key(repo_root))
+        key = _normalize_repo_root_key(repo_root)
+        record = markers.get(key)
         if record is None:
+            return None
+        # Defensive: old-schema markers have "promoted_head" instead of
+        # "promoted_artifact_hash" and lack "job_id". Treat as absent and
+        # clear — stale markers are ephemeral session-scoped data.
+        if "promoted_artifact_hash" not in record or "job_id" not in record:
+            del markers[key]
+            self._write_markers(markers)
             return None
         return StaleAdvisoryContextMarker(**record)
 

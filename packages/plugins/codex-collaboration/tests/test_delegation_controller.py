@@ -3438,3 +3438,83 @@ def test_promote_prechecks_passed_not_stranded_on_crash_before_intent(
         f"(idx={intent_idx}). A crash in that gap strands the job at "
         "prechecks_passed with no journal entry for recovery to process."
     )
+
+
+def test_recover_startup_preserves_promotion_attempt_from_intent(
+    tmp_path: Path,
+) -> None:
+    """Recovery of intent-only normalizes to pending AND preserves the attempt counter.
+
+    Without preserving the attempt, the next promote() reuses the same
+    idempotency key, violating the monotonic promotion_attempt contract.
+    """
+    controller, job_store, journal, primary_repo, job_id, _hash, _cb = (
+        _build_promote_scenario(tmp_path)
+    )
+    session_id = "sess-recover-attempt"
+    created_at = journal.timestamp()
+    repo_root_str = str(primary_repo.resolve())
+
+    # Simulate: promote() ran, wrote intent with attempt=3, then crashed.
+    job_store.update_promotion_state(
+        job_id, promotion_state="prechecks_passed", promotion_attempt=3
+    )
+    idempotency_key = f"promotion:{job_id}:3"
+    journal.write_phase(
+        OperationJournalEntry(
+            idempotency_key=idempotency_key,
+            operation="promotion",
+            phase="intent",
+            collaboration_id="collab-promote-1",
+            created_at=created_at,
+            repo_root=repo_root_str,
+            job_id=job_id,
+        ),
+        session_id=session_id,
+    )
+
+    # Rebuild controller with the recovery session_id.
+    plugin_data = tmp_path / "plugin-data"
+    plugin_data.mkdir(parents=True, exist_ok=True)
+    registry = ExecutionRuntimeRegistry()
+    pending_request_store = PendingRequestStore(plugin_data, session_id)
+    lineage_store = LineageStore(plugin_data, session_id)
+    lineage_store.create(
+        CollaborationHandle(
+            collaboration_id="collab-promote-1",
+            capability_class="execution",
+            runtime_id="rt-promote-1",
+            codex_thread_id="thr-1",
+            claude_session_id=session_id,
+            repo_root=repo_root_str,
+            created_at=created_at,
+            status="active",
+        )
+    )
+    artifact_store = ArtifactStore(plugin_data, timestamp_factory=journal.timestamp)
+    recovery_controller = DelegationController(
+        control_plane=_FakeControlPlane(),
+        worktree_manager=_FakeWorktreeManager(),
+        job_store=job_store,
+        lineage_store=lineage_store,
+        runtime_registry=registry,
+        journal=journal,
+        session_id=session_id,
+        plugin_data_path=plugin_data,
+        pending_request_store=pending_request_store,
+        artifact_store=artifact_store,
+        head_commit_resolver=lambda repo_root: "abc123",
+        uuid_factory=iter([f"evt-{i}" for i in range(100)]).__next__,
+    )
+
+    recovery_controller.recover_startup()
+
+    # Job should be normalized to pending with attempt=3 preserved.
+    recovered = job_store.get(job_id)
+    assert recovered is not None
+    assert recovered.promotion_state == "pending"
+    assert recovered.promotion_attempt == 3, (
+        f"Expected promotion_attempt=3 (from crashed intent) but got "
+        f"{recovered.promotion_attempt}. Recovery must preserve the attempt "
+        "counter to avoid idempotency key reuse."
+    )

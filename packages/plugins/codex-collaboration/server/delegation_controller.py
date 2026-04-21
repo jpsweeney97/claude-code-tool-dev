@@ -1829,7 +1829,8 @@ class DelegationController:
         for entry in by_key_pr.values():
             if entry.phase == "intent":
                 # No mutation happened — normalize the job back to pending
-                # and close the journal entry.
+                # and close the journal entry. Preserve the attempt counter
+                # so the next promote() does not reuse the same idempotency key.
                 if entry.job_id is not None:
                     job = self._job_store.get(entry.job_id)
                     if job is not None and job.promotion_state not in (
@@ -1837,9 +1838,23 @@ class DelegationController:
                         "discarded",
                         "rolled_back",
                     ):
+                        # Parse the attempt from the idempotency key
+                        # (format: "promotion:{job_id}:{attempt}").
+                        recovered_attempt: int | None = None
+                        parts = entry.idempotency_key.rsplit(":", 1)
+                        if len(parts) == 2:
+                            try:
+                                recovered_attempt = int(parts[1])
+                            except ValueError:
+                                pass
                         self._job_store.update_promotion_state(
                             entry.job_id,
                             promotion_state="pending",
+                            **(
+                                {"promotion_attempt": recovered_attempt}
+                                if recovered_attempt is not None
+                                else {}
+                            ),
                         )
             elif entry.phase == "dispatched":
                 # Mutation may have happened — re-verify in the primary workspace.
