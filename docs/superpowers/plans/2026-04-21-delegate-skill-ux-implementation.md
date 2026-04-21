@@ -640,7 +640,7 @@ def test_status_active_delegation_null_when_factory_fails(
     tmp_path: Path,
 ) -> None:
     """When _ensure_delegation_controller() fails, active_delegation is null
-    and a diagnostic is appended to errors."""
+    and delegation_status_error contains a diagnostic."""
     # Build an McpServer with a delegation factory that raises.
     def failing_factory():
         raise RuntimeError("factory recovery failed")
@@ -657,7 +657,7 @@ def test_status_active_delegation_null_when_factory_fails(
     assert "factory recovery failed" in result["delegation_status_error"]
 ```
 
-The `test_status_active_delegation_null_when_factory_fails` test requires a helper `_build_mcp_server_with_delegation_factory` that creates an McpServer with a custom delegation factory. If no such helper exists, write one that mirrors the existing MCP server construction pattern but injects the factory. The key assertion: `active_delegation` is null AND `errors` contains a delegation diagnostic string.
+The `test_status_active_delegation_null_when_factory_fails` test requires a helper `_build_mcp_server_with_delegation_factory` that creates an McpServer with a custom delegation factory. If no such helper exists, write one that mirrors the existing MCP server construction pattern but injects the factory. The key assertion: `active_delegation` is null AND `delegation_status_error` contains a delegation diagnostic string.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -695,7 +695,7 @@ if name == "codex.status":
     return self._control_plane.codex_status(Path(arguments["repo_root"]))
 ```
 
-With inline enrichment that appends diagnostics to `errors` on failure:
+With inline enrichment that sets `delegation_status_error` on failure:
 
 ```python
 if name == "codex.status":
@@ -728,12 +728,12 @@ if name == "codex.status":
     return result
 ```
 
-No separate helper method needed. The inline try/except handles both the `_ensure_delegation_controller()` failure (factory/recovery error) and the `get_active_delegation_summary()` failure (query error) in one block. Diagnostics go to `errors`, making delegation failure distinguishable from "no active delegation."
+No separate helper method needed. The inline try/except handles both the `_ensure_delegation_controller()` failure (factory/recovery error) and the `get_active_delegation_summary()` failure (query error) in one block. Diagnostics go to the dedicated `delegation_status_error` field — NOT global `errors` — making delegation failure distinguishable from "no active delegation" without blocking consult/dialogue preflights.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `uv run --package codex-collaboration pytest packages/plugins/codex-collaboration/tests/test_delegate_start_integration.py -k "status_active_delegation" -v`
-Expected: All 4 tests PASS.
+Expected: All 5 tests PASS.
 
 - [ ] **Step 5: Run full suite to confirm no regressions**
 
@@ -757,7 +757,7 @@ git commit -m "feat(t20260330-06): populate active_delegation in codex.status vi
 
 These are normative doc updates to reflect the widened semantics from Tasks 1-4.
 
-- [ ] **Step 1: Update `active_delegation` description in contracts.md**
+- [ ] **Step 1: Update `active_delegation` and add `delegation_status_error` in contracts.md**
 
 In `docs/superpowers/specs/codex-collaboration/contracts.md`, find the Runtime Health table row:
 
@@ -769,6 +769,12 @@ Replace with:
 
 ```
 | `active_delegation` | object? | Current delegation requiring user attention (in-flight, completed awaiting review, failed/unknown needing inspection, or partial promotion states needing recovery). Null when no job requires attention. Excluded: terminal promotion states (`verified`, `discarded`, `rolled_back`). |
+```
+
+Also add a new row after `active_delegation`:
+
+```
+| `delegation_status_error` | string? | Diagnostic when delegation status enrichment fails (factory recovery error, query error). Present only on failure. The delegate skill must check this field and stop — do NOT treat null `active_delegation` as "no active delegation" when this field is set. NOT appended to global `errors` to avoid blocking consult/dialogue preflights. |
 ```
 
 - [ ] **Step 2: Update discard eligibility in promotion-protocol.md**
@@ -822,7 +828,7 @@ Create `packages/plugins/codex-collaboration/skills/delegate/SKILL.md` with:
 1. Frontmatter: name, description, argument-hint, user-invocable, allowed-tools (from design spec Skill Frontmatter section).
 2. Body sections transcribed from the design spec:
    - Overview (stateless state router)
-   - Procedure entry: repo root, status preflight (auth, errors), parse arguments
+   - Procedure entry: repo root, status preflight (auth, errors, `delegation_status_error`), parse arguments
    - Grammar: parse order, disambiguation, verb escapes
    - Start routing: call `codex.delegate.start`, handle normal/escalation/busy
    - Resume routing: call `codex.status`, extract `active_delegation`, poll, state router

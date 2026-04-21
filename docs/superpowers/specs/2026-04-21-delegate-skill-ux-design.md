@@ -125,6 +125,7 @@ When `poll` or `discard` have no `job_id` argument, the skill uses `active_deleg
 2. Call `codex.status(repo_root)`.
    - If `auth_status` is not `authenticated`: report auth remediation steps and stop.
    - If `errors` is non-empty: report errors and stop.
+   - If `delegation_status_error` is present: report the delegation diagnostic and stop. Do NOT treat null `active_delegation` as "no active delegation" when this field is set — the null is caused by a recovery/query failure, not by absence of jobs.
 3. Extract `active_delegation` (or use explicit `job_id` from verb argument).
 4. Call `poll(job_id)`.
 5. Route on poll result using tiered precedence.
@@ -165,7 +166,7 @@ Terminal states are excluded from `active_delegation`. These are only reachable 
 | `queued` / `running` | Render job id, status, base_commit. "Run `/delegate` to check progress." |
 | `needs_escalation` | **Escalation rendering** (see [Escalation Display](#escalation-display)). |
 | `failed` / `unknown` | Render `poll.detail` and inspection snapshot if available. If `promotion_state is None`: "Inspect artifacts. `/delegate discard` to clear, then start a new delegation if needed." If `promotion_state` is a post-mutation state (`applied`, `rollback_needed`): "Recovery required. Workspace may have been mutated." Do not offer discard for post-mutation states. If `promotion_state` is terminal: excluded from `active_delegation`, only reachable via explicit `poll`. |
-| `completed` with null `promotion_state` | Treat as `pending` (should not occur in practice -- `promotion_state` is set to `pending` on completion). |
+| `completed` with null `promotion_state` | Inconsistent state (should not occur — `update_status_and_promotion` sets both atomically). Report: "Job completed but promotion state is missing. This is a legacy or corrupted state that cannot be promoted or discarded. Inspect artifacts manually via `/delegate poll {job_id}`. To clear, the job store entry must be resolved outside the skill." Do NOT render promote/discard choices. |
 
 ### Start Routing
 
@@ -334,6 +335,7 @@ Generic `/delegate` (no args) routes through the state router up to rendering th
 | `start` returns `busy` | Adopt `active_job_id`. Call `poll`. Route via state router. With the widened busy gate, this may be a runtime-active or attention-active job. |
 | `codex.status` reports `auth_status` not `authenticated` | Report auth remediation steps. Stop. |
 | `codex.status` reports non-empty `errors` | Report errors. Stop. |
+| `codex.status` reports `delegation_status_error` | Report delegation diagnostic. Stop. Do not treat null `active_delegation` as "no active delegation" — the null is from a recovery/query failure. |
 | Artifact file unreadable (`Read` fails on path from `artifact_paths`) | Warn that artifacts exist but could not be read. Show available metadata. Do not block review -- partial information is better than none. |
 | `promote` returns typed rejection | Render rejection (reason, detail, expected/actual). Guide user to resolve. |
 | `decide` returns typed rejection | Render rejection reason. Guide based on reason code. |
