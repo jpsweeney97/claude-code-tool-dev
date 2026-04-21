@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 from pathlib import Path
 from typing import Any, Callable
 
 import pytest
 
+from server.artifact_store import ArtifactStore
 from server.delegation_controller import DelegationController
 from server.delegation_job_store import DelegationJobStore
 from server.execution_runtime_registry import ExecutionRuntimeRegistry
@@ -25,10 +27,14 @@ from server.models import (
     DelegationEscalation,
     DelegationJob,
     DelegationPollResult,
+    DiscardRejectedResponse,
+    DiscardResult,
     JobBusyResponse,
     OperationJournalEntry,
     PendingServerRequest,
     PollRejectedResponse,
+    PromotionRejectedResponse,
+    PromotionResult,
     RuntimeHandshake,
     TurnExecutionResult,
 )
@@ -154,9 +160,7 @@ class _FakeArtifactStore:
     def __init__(self) -> None:
         self._snapshots: dict[str, ArtifactInspectionSnapshot] = {}
 
-    def materialize_snapshot(
-        self, *, job: DelegationJob
-    ) -> ArtifactInspectionSnapshot:
+    def materialize_snapshot(self, *, job: DelegationJob) -> ArtifactInspectionSnapshot:
         snapshot = ArtifactInspectionSnapshot(
             artifact_hash=f"hash-{job.job_id}" if job.status == "completed" else None,
             artifact_paths=(
@@ -170,9 +174,7 @@ class _FakeArtifactStore:
         self._snapshots[job.job_id] = snapshot
         return snapshot
 
-    def load_snapshot(
-        self, *, job: DelegationJob
-    ) -> ArtifactInspectionSnapshot | None:
+    def load_snapshot(self, *, job: DelegationJob) -> ArtifactInspectionSnapshot | None:
         return self._snapshots.get(job.job_id)
 
     def reconstruct_from_artifacts(
@@ -186,6 +188,12 @@ class _FakeArtifactStore:
             changed_files=("README.md",),
             reviewed_at="2026-04-20T10:00:00Z",
         )
+
+    def generate_canonical_artifacts(
+        self, *, job: DelegationJob, output_dir: Path
+    ) -> Any:
+        """Fake — not used by promote tests that use a real ArtifactStore."""
+        return None
 
 
 def _build_controller(
@@ -1514,8 +1522,8 @@ def test_later_parse_failure_does_not_prevent_captured_request_resolution(
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, control_plane, _wm, _js, _ls, _j, registry, prs = (
-        _build_controller(tmp_path)
+    controller, control_plane, _wm, _js, _ls, _j, registry, prs = _build_controller(
+        tmp_path
     )
 
     # First message: parseable command_approval. Second: unparseable.
@@ -1593,8 +1601,8 @@ def test_decide_approve_resumes_runtime_and_returns_completed_result(
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, control_plane, _wm, _js, lineage, _j, registry, _prs = _build_controller(
-        tmp_path
+    controller, control_plane, _wm, _js, lineage, _j, registry, _prs = (
+        _build_controller(tmp_path)
     )
     control_plane._next_session_requests = [_command_approval_request()]
     start_result = controller.start(repo_root=repo_root, objective="Fix it")
@@ -1737,9 +1745,7 @@ def test_decide_rejects_invalid_decision_value(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, control_plane, _wm, _js, _ls, _j, _r, _prs = _build_controller(
-        tmp_path
-    )
+    controller, control_plane, _wm, _js, _ls, _j, _r, _prs = _build_controller(tmp_path)
     control_plane._next_session_requests = [_command_approval_request()]
     start_result = controller.start(repo_root=repo_root, objective="Fix it")
     assert isinstance(start_result, DelegationEscalation)
@@ -1761,9 +1767,7 @@ def test_decide_request_user_input_requires_answers(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, control_plane, _wm, _js, _ls, _j, _r, _prs = _build_controller(
-        tmp_path
-    )
+    controller, control_plane, _wm, _js, _ls, _j, _r, _prs = _build_controller(tmp_path)
     control_plane._next_session_requests = [_request_user_input_request()]
     control_plane._next_turn_result = TurnExecutionResult(
         turn_id="turn-1",
@@ -1807,9 +1811,7 @@ def test_decide_rejects_job_not_awaiting_decision(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, control_plane, _wm, _js, _ls, _j, _r, _prs = _build_controller(
-        tmp_path
-    )
+    controller, control_plane, _wm, _js, _ls, _j, _r, _prs = _build_controller(tmp_path)
     # Start with no server requests → turn completes without escalation
     start_result = controller.start(repo_root=repo_root, objective="Fix it")
     assert isinstance(start_result, DelegationJob)
@@ -1831,9 +1833,7 @@ def test_decide_rejects_request_not_found(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, control_plane, _wm, _js, _ls, _j, _r, _prs = _build_controller(
-        tmp_path
-    )
+    controller, control_plane, _wm, _js, _ls, _j, _r, _prs = _build_controller(tmp_path)
     control_plane._next_session_requests = [_command_approval_request()]
     start_result = controller.start(repo_root=repo_root, objective="Fix it")
     assert isinstance(start_result, DelegationEscalation)
@@ -1854,9 +1854,7 @@ def test_decide_rejects_request_job_mismatch(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, control_plane, _wm, _js, _ls, _j, _r, prs = _build_controller(
-        tmp_path
-    )
+    controller, control_plane, _wm, _js, _ls, _j, _r, prs = _build_controller(tmp_path)
     control_plane._next_session_requests = [_command_approval_request()]
     start_result = controller.start(repo_root=repo_root, objective="Fix it")
     assert isinstance(start_result, DelegationEscalation)
@@ -1892,9 +1890,7 @@ def test_decide_rejects_deny_with_answers(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, control_plane, _wm, _js, _ls, _j, _r, _prs = _build_controller(
-        tmp_path
-    )
+    controller, control_plane, _wm, _js, _ls, _j, _r, _prs = _build_controller(tmp_path)
     control_plane._next_session_requests = [_command_approval_request()]
     start_result = controller.start(repo_root=repo_root, objective="Fix it")
     assert isinstance(start_result, DelegationEscalation)
@@ -1916,9 +1912,7 @@ def test_decide_rejects_answers_for_non_request_user_input(tmp_path: Path) -> No
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, control_plane, _wm, _js, _ls, _j, _r, _prs = _build_controller(
-        tmp_path
-    )
+    controller, control_plane, _wm, _js, _ls, _j, _r, _prs = _build_controller(tmp_path)
     # command_approval is not request_user_input — answers not allowed
     control_plane._next_session_requests = [_command_approval_request()]
     start_result = controller.start(repo_root=repo_root, objective="Fix it")
@@ -2028,8 +2022,8 @@ def test_recover_startup_marks_intent_only_approval_resolution_unknown(
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, _cp, _wm, job_store, lineage_store, journal, _r, _prs = _build_controller(
-        tmp_path
+    controller, _cp, _wm, job_store, lineage_store, journal, _r, _prs = (
+        _build_controller(tmp_path)
     )
 
     job_store.create(
@@ -2085,8 +2079,8 @@ def test_recover_startup_marks_dispatched_approval_resolution_unknown(
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, _cp, _wm, job_store, lineage_store, journal, _r, _prs = _build_controller(
-        tmp_path
+    controller, _cp, _wm, job_store, lineage_store, journal, _r, _prs = (
+        _build_controller(tmp_path)
     )
 
     job_store.create(
@@ -2285,7 +2279,9 @@ def test_decide_deny_post_commit_failure_raises_committed_decision_finalization_
 def test_start_completed_job_sets_promotion_state_pending(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
-    controller, _cp, _wm, job_store, _lineage, _journal, _registry, _prs = _build_controller(tmp_path)
+    controller, _cp, _wm, job_store, _lineage, _journal, _registry, _prs = (
+        _build_controller(tmp_path)
+    )
     result = controller.start(repo_root=repo_root)
     assert isinstance(result, DelegationJob)
     assert result.status == "completed"
@@ -2298,7 +2294,9 @@ def test_start_completed_job_sets_promotion_state_pending(tmp_path: Path) -> Non
 def test_start_escalation_keeps_promotion_state_none(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
-    controller, control_plane, _wm, job_store, _lineage, _journal, _registry, _prs = _build_controller(tmp_path)
+    controller, control_plane, _wm, job_store, _lineage, _journal, _registry, _prs = (
+        _build_controller(tmp_path)
+    )
     control_plane._next_session_requests = [_command_approval_request()]
     result = controller.start(repo_root=repo_root)
     assert isinstance(result, DelegationEscalation)
@@ -2312,7 +2310,9 @@ def test_start_escalation_keeps_promotion_state_none(tmp_path: Path) -> None:
 def test_poll_completed_job_materializes_snapshot_and_reuses_it(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
-    controller, _cp, _wm, job_store, _lineage, _journal, _registry, _prs = _build_controller(tmp_path)
+    controller, _cp, _wm, job_store, _lineage, _journal, _registry, _prs = (
+        _build_controller(tmp_path)
+    )
     start_result = controller.start(repo_root=repo_root)
     assert isinstance(start_result, DelegationJob)
     first = controller.poll(job_id=start_result.job_id)
@@ -2328,13 +2328,17 @@ def test_poll_rehydrates_store_from_cached_snapshot_when_artifacts_are_missing(
 ) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
-    controller, _cp, _wm, job_store, _lineage, _journal, _registry, _prs = _build_controller(tmp_path)
+    controller, _cp, _wm, job_store, _lineage, _journal, _registry, _prs = (
+        _build_controller(tmp_path)
+    )
     start_result = controller.start(repo_root=repo_root)
     assert isinstance(start_result, DelegationJob)
     first = controller.poll(job_id=start_result.job_id)
     assert isinstance(first, DelegationPollResult)
     assert first.inspection is not None
-    job_store.update_artifacts(start_result.job_id, artifact_paths=(), artifact_hash=None)
+    job_store.update_artifacts(
+        start_result.job_id, artifact_paths=(), artifact_hash=None
+    )
     second = controller.poll(job_id=start_result.job_id)
     persisted = job_store.get(start_result.job_id)
     assert isinstance(second, DelegationPollResult)
@@ -2349,7 +2353,9 @@ def test_poll_needs_escalation_projects_pending_request_without_raw_ids(
 ) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
-    controller, control_plane, _wm, _job_store, _lineage, _journal, _registry, _prs = _build_controller(tmp_path)
+    controller, control_plane, _wm, _job_store, _lineage, _journal, _registry, _prs = (
+        _build_controller(tmp_path)
+    )
     control_plane._next_session_requests = [_command_approval_request()]
     start_result = controller.start(repo_root=repo_root)
     assert isinstance(start_result, DelegationEscalation)
@@ -2372,7 +2378,9 @@ def test_poll_reconstructs_from_artifacts_when_cache_is_corrupt(
     """
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
-    controller, _cp, _wm, job_store, _lineage, _journal, _registry, _prs = _build_controller(tmp_path)
+    controller, _cp, _wm, job_store, _lineage, _journal, _registry, _prs = (
+        _build_controller(tmp_path)
+    )
 
     start_result = controller.start(repo_root=repo_root)
     assert isinstance(start_result, DelegationJob)
@@ -2408,7 +2416,9 @@ def test_poll_returns_structured_result_when_materialization_raises(
     explaining that materialization failed."""
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
-    controller, _cp, _wm, job_store, _lineage, _journal, _registry, _prs = _build_controller(tmp_path)
+    controller, _cp, _wm, job_store, _lineage, _journal, _registry, _prs = (
+        _build_controller(tmp_path)
+    )
     start_result = controller.start(repo_root=repo_root)
     assert isinstance(start_result, DelegationJob)
 
@@ -2416,7 +2426,9 @@ def test_poll_returns_structured_result_when_materialization_raises(
     import subprocess as _sp
 
     def _raise_on_materialize(*, job: DelegationJob) -> ArtifactInspectionSnapshot:
-        raise _sp.CalledProcessError(128, ["git", "diff"], stderr="fatal: not a git repository")
+        raise _sp.CalledProcessError(
+            128, ["git", "diff"], stderr="fatal: not a git repository"
+        )
 
     controller._artifact_store.materialize_snapshot = _raise_on_materialize  # type: ignore[assignment]
 
@@ -2433,7 +2445,9 @@ def test_poll_sets_detail_when_artifacts_unavailable_for_reviewed_job(
     """A completed job with artifact_hash but no loadable inspection gets a diagnostic detail."""
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
-    controller, _cp, _wm, job_store, _lineage, _journal, _registry, _prs = _build_controller(tmp_path)
+    controller, _cp, _wm, job_store, _lineage, _journal, _registry, _prs = (
+        _build_controller(tmp_path)
+    )
     start_result = controller.start(repo_root=repo_root)
     assert isinstance(start_result, DelegationJob)
 
@@ -2460,7 +2474,690 @@ def test_poll_sets_detail_when_artifacts_unavailable_for_reviewed_job(
 
 
 def test_poll_returns_job_not_found_rejection(tmp_path: Path) -> None:
-    controller, _cp, _wm, _js, _lineage, _journal, _registry, _prs = _build_controller(tmp_path)
+    controller, _cp, _wm, _js, _lineage, _journal, _registry, _prs = _build_controller(
+        tmp_path
+    )
     result = controller.poll(job_id="job-missing")
     assert isinstance(result, PollRejectedResponse)
     assert result.reason == "job_not_found"
+
+
+# --- Promote / Discard tests ---
+
+
+def _init_git_repo(path: Path) -> str:
+    """Create a git repo with an initial commit, return the HEAD sha."""
+    path.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", str(path)], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(path), "config", "user.email", "test@test.com"],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(path), "config", "user.name", "Test"],
+        check=True,
+        capture_output=True,
+    )
+    (path / "README.md").write_text("# Initial\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "-C", str(path), "add", "."], check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "-C", str(path), "commit", "-m", "init"],
+        check=True,
+        capture_output=True,
+    )
+    result = subprocess.run(
+        ["git", "-C", str(path), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
+
+
+class _FakePromotionCallback:
+    """Records invocations of on_promotion_verified."""
+
+    def __init__(self, *, stale: bool = False) -> None:
+        self.calls: list[dict[str, Any]] = []
+        self._stale = stale
+
+    def on_promotion_verified(
+        self, *, repo_root: Path, artifact_hash: str, job_id: str
+    ) -> bool:
+        self.calls.append(
+            {"repo_root": repo_root, "artifact_hash": artifact_hash, "job_id": job_id}
+        )
+        return self._stale
+
+
+def _build_promote_scenario(
+    tmp_path: Path,
+    *,
+    modify_file: str = "README.md",
+    new_content: str = "# Modified\n",
+    add_new_file: bool = False,
+    new_file_name: str = "new_file.txt",
+    new_file_content: str = "new content\n",
+    stale_callback: bool = False,
+) -> tuple[
+    DelegationController,
+    DelegationJobStore,
+    OperationJournal,
+    Path,
+    str,
+    str,
+    _FakePromotionCallback,
+]:
+    """Set up a completed delegation job with real git repos for promote testing.
+
+    Creates:
+    - primary_repo: the "real" repo that promote targets
+    - worktree: a separate clone where the delegation work happened
+    - A completed DelegationJob with materialized artifacts
+
+    Returns controller, job_store, journal, primary_repo, job_id, artifact_hash, callback.
+    """
+    primary_repo = tmp_path / "primary"
+    head_sha = _init_git_repo(primary_repo)
+
+    # Create the "worktree" as a clone (simulates the delegation sandbox).
+    worktree = tmp_path / "worktree"
+    subprocess.run(
+        ["git", "clone", str(primary_repo), str(worktree)],
+        check=True,
+        capture_output=True,
+    )
+
+    # Make changes in the worktree.
+    (worktree / modify_file).write_text(new_content, encoding="utf-8")
+    subprocess.run(
+        ["git", "-C", str(worktree), "add", modify_file],
+        check=True,
+        capture_output=True,
+    )
+    if add_new_file:
+        (worktree / new_file_name).write_text(new_file_content, encoding="utf-8")
+        subprocess.run(
+            ["git", "-C", str(worktree), "add", new_file_name],
+            check=True,
+            capture_output=True,
+        )
+    subprocess.run(
+        ["git", "-C", str(worktree), "commit", "-m", "delegation work"],
+        check=True,
+        capture_output=True,
+    )
+
+    # Set up stores.
+    plugin_data = tmp_path / "data"
+    plugin_data.mkdir(parents=True, exist_ok=True)
+    session_id = "sess-promote"
+    job_store = DelegationJobStore(plugin_data, session_id)
+    lineage_store = LineageStore(plugin_data, session_id)
+    journal = OperationJournal(plugin_data)
+    pending_request_store = PendingRequestStore(plugin_data, session_id)
+    registry = ExecutionRuntimeRegistry()
+    artifact_store = ArtifactStore(plugin_data, timestamp_factory=journal.timestamp)
+
+    # Create a completed job.
+    job_id = "job-promote-1"
+    collaboration_id = "collab-promote-1"
+    job = DelegationJob(
+        job_id=job_id,
+        runtime_id="rt-promote-1",
+        collaboration_id=collaboration_id,
+        base_commit=head_sha,
+        worktree_path=str(worktree),
+        promotion_state="pending",
+        status="completed",
+    )
+    job_store.create(job)
+
+    # Materialize artifacts using the real ArtifactStore.
+    snapshot = artifact_store.materialize_snapshot(job=job)
+    job_store.update_artifacts(
+        job_id,
+        artifact_paths=snapshot.artifact_paths,
+        artifact_hash=snapshot.artifact_hash,
+    )
+
+    # Create the lineage handle.
+    handle = CollaborationHandle(
+        collaboration_id=collaboration_id,
+        capability_class="execution",
+        runtime_id="rt-promote-1",
+        codex_thread_id="thr-promote-1",
+        claude_session_id=session_id,
+        repo_root=str(primary_repo),
+        created_at=journal.timestamp(),
+        status="completed",
+    )
+    lineage_store.create(handle)
+
+    callback = _FakePromotionCallback(stale=stale_callback)
+    uuid_counter = iter([f"evt-{i}" for i in range(100)])
+    controller = DelegationController(
+        control_plane=_FakeControlPlane(),
+        worktree_manager=_FakeWorktreeManager(),
+        job_store=job_store,
+        lineage_store=lineage_store,
+        runtime_registry=registry,
+        journal=journal,
+        session_id=session_id,
+        plugin_data_path=plugin_data,
+        pending_request_store=pending_request_store,
+        artifact_store=artifact_store,
+        head_commit_resolver=lambda repo_root: head_sha,
+        uuid_factory=lambda: next(uuid_counter),
+        promotion_callback=callback,
+    )
+
+    return (
+        controller,
+        job_store,
+        journal,
+        primary_repo,
+        job_id,
+        snapshot.artifact_hash,
+        callback,
+    )
+
+
+def test_promote_rejects_dirty_primary_workspace(tmp_path: Path) -> None:
+    """Promote rejects when the primary workspace has uncommitted changes."""
+    controller, job_store, _journal, primary_repo, job_id, _hash, _cb = (
+        _build_promote_scenario(tmp_path)
+    )
+
+    # Dirty the primary workspace.
+    (primary_repo / "README.md").write_text("# Dirty\n", encoding="utf-8")
+
+    result = controller.promote(job_id=job_id)
+    assert isinstance(result, PromotionRejectedResponse)
+    assert result.reason == "worktree_dirty"
+
+    # Job should be in prechecks_failed state.
+    persisted = job_store.get(job_id)
+    assert persisted is not None
+    assert persisted.promotion_state == "prechecks_failed"
+
+
+def test_promote_rejects_job_without_reviewed_hash(tmp_path: Path) -> None:
+    """Promote rejects when the job has no artifact_hash (not yet reviewed)."""
+    controller, job_store, _journal, _repo, job_id, _hash, _cb = (
+        _build_promote_scenario(tmp_path)
+    )
+
+    # Clear the artifact hash to simulate an un-reviewed job.
+    job_store.update_artifacts(job_id, artifact_paths=(), artifact_hash=None)
+
+    result = controller.promote(job_id=job_id)
+    assert isinstance(result, PromotionRejectedResponse)
+    assert result.reason == "job_not_reviewed"
+
+    persisted = job_store.get(job_id)
+    assert persisted is not None
+    assert persisted.promotion_state == "prechecks_failed"
+
+
+def test_promote_applies_reviewed_diff_and_sets_verified(tmp_path: Path) -> None:
+    """Happy path: promote applies the diff, verifies, and returns PromotionResult."""
+    controller, job_store, _journal, primary_repo, job_id, artifact_hash, callback = (
+        _build_promote_scenario(tmp_path)
+    )
+
+    result = controller.promote(job_id=job_id)
+    assert isinstance(result, PromotionResult)
+    assert result.artifact_hash == artifact_hash
+    assert "README.md" in result.changed_files
+    assert result.stale_advisory_context is False
+
+    # Verify the file was actually modified in the primary workspace.
+    assert (primary_repo / "README.md").read_text(encoding="utf-8") == "# Modified\n"
+
+    # Verify the job is in verified state.
+    persisted = job_store.get(job_id)
+    assert persisted is not None
+    assert persisted.promotion_state == "verified"
+
+    # Callback was invoked.
+    assert len(callback.calls) == 1
+    assert callback.calls[0]["artifact_hash"] == artifact_hash
+    assert callback.calls[0]["job_id"] == job_id
+
+
+def test_promote_rolls_back_when_primary_workspace_verification_fails(
+    tmp_path: Path,
+) -> None:
+    """Promote rolls back when post-apply verification detects a mismatch."""
+    primary_repo = tmp_path / "primary"
+    head_sha = _init_git_repo(primary_repo)
+
+    worktree = tmp_path / "worktree"
+    subprocess.run(
+        ["git", "clone", str(primary_repo), str(worktree)],
+        check=True,
+        capture_output=True,
+    )
+    (worktree / "README.md").write_text("# Modified\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "-C", str(worktree), "add", "README.md"],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(worktree), "commit", "-m", "delegation work"],
+        check=True,
+        capture_output=True,
+    )
+
+    plugin_data = tmp_path / "data"
+    plugin_data.mkdir(parents=True, exist_ok=True)
+    session_id = "sess-promote"
+    job_store = DelegationJobStore(plugin_data, session_id)
+    lineage_store = LineageStore(plugin_data, session_id)
+    journal = OperationJournal(plugin_data)
+    pending_request_store = PendingRequestStore(plugin_data, session_id)
+    registry = ExecutionRuntimeRegistry()
+    artifact_store = ArtifactStore(plugin_data, timestamp_factory=journal.timestamp)
+
+    job_id = "job-rollback-1"
+    collaboration_id = "collab-rollback-1"
+    job = DelegationJob(
+        job_id=job_id,
+        runtime_id="rt-rollback-1",
+        collaboration_id=collaboration_id,
+        base_commit=head_sha,
+        worktree_path=str(worktree),
+        promotion_state="pending",
+        status="completed",
+    )
+    job_store.create(job)
+    snapshot = artifact_store.materialize_snapshot(job=job)
+    job_store.update_artifacts(
+        job_id,
+        artifact_paths=snapshot.artifact_paths,
+        artifact_hash=snapshot.artifact_hash,
+    )
+    handle = CollaborationHandle(
+        collaboration_id=collaboration_id,
+        capability_class="execution",
+        runtime_id="rt-rollback-1",
+        codex_thread_id="thr-rollback-1",
+        claude_session_id=session_id,
+        repo_root=str(primary_repo),
+        created_at=journal.timestamp(),
+        status="completed",
+    )
+    lineage_store.create(handle)
+
+    # Create a controller that tampers ONLY during post-apply verification,
+    # not during precheck regeneration. We track call count: the first call
+    # (precheck) passes through cleanly; the second call (verification)
+    # tampers to simulate a workspace mismatch.
+    class _VerifyTamperingArtifactStore(ArtifactStore):
+        """Tampers only on the second generate_canonical_artifacts call (verify)."""
+
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            self._call_count = 0
+
+        def generate_canonical_artifacts(
+            self, *, job: DelegationJob, output_dir: Path
+        ) -> Any:
+            self._call_count += 1
+            bundle = super().generate_canonical_artifacts(
+                job=job, output_dir=output_dir
+            )
+            if self._call_count <= 1:
+                return bundle
+            # Second call (verify): tamper with the diff to change the hash.
+            diff_path = output_dir / "full.diff"
+            original = diff_path.read_text(encoding="utf-8")
+            diff_path.write_text(original + "\n# tampered\n", encoding="utf-8")
+            from server.artifact_store import ArtifactStore as _AS
+
+            tampered_hash = _AS._review_hash(self, output_dir, bundle.artifact_paths)
+            from server.artifact_store import CanonicalArtifactBundle
+
+            return CanonicalArtifactBundle(
+                artifact_paths=bundle.artifact_paths,
+                artifact_hash=tampered_hash,
+                changed_files=bundle.changed_files,
+                full_diff_path=bundle.full_diff_path,
+                changed_files_path=bundle.changed_files_path,
+                test_results_path=bundle.test_results_path,
+            )
+
+    tampered_store = _VerifyTamperingArtifactStore(
+        plugin_data, timestamp_factory=journal.timestamp
+    )
+    uuid_counter = iter([f"evt-{i}" for i in range(100)])
+    controller = DelegationController(
+        control_plane=_FakeControlPlane(),
+        worktree_manager=_FakeWorktreeManager(),
+        job_store=job_store,
+        lineage_store=lineage_store,
+        runtime_registry=registry,
+        journal=journal,
+        session_id=session_id,
+        plugin_data_path=plugin_data,
+        pending_request_store=pending_request_store,
+        artifact_store=tampered_store,
+        head_commit_resolver=lambda repo_root: head_sha,
+        uuid_factory=lambda: next(uuid_counter),
+    )
+
+    result = controller.promote(job_id=job_id)
+    assert isinstance(result, PromotionRejectedResponse)
+    assert result.reason == "artifact_hash_mismatch"
+
+    # Primary workspace should be rolled back to its original state.
+    assert (primary_repo / "README.md").read_text(encoding="utf-8") == "# Initial\n"
+
+    persisted = job_store.get(job_id)
+    assert persisted is not None
+    assert persisted.promotion_state == "rolled_back"
+
+
+def test_promote_rollback_removes_new_files_created_by_reviewed_diff(
+    tmp_path: Path,
+) -> None:
+    """Rollback removes files that were newly created by the diff (not previously tracked)."""
+    primary_repo = tmp_path / "primary"
+    head_sha = _init_git_repo(primary_repo)
+
+    worktree = tmp_path / "worktree"
+    subprocess.run(
+        ["git", "clone", str(primary_repo), str(worktree)],
+        check=True,
+        capture_output=True,
+    )
+    # Add a new file in the worktree.
+    (worktree / "README.md").write_text("# Modified\n", encoding="utf-8")
+    (worktree / "new_file.txt").write_text("new content\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "-C", str(worktree), "add", "."],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(worktree), "commit", "-m", "delegation work"],
+        check=True,
+        capture_output=True,
+    )
+
+    plugin_data = tmp_path / "data"
+    plugin_data.mkdir(parents=True, exist_ok=True)
+    session_id = "sess-promote"
+    job_store = DelegationJobStore(plugin_data, session_id)
+    lineage_store = LineageStore(plugin_data, session_id)
+    journal = OperationJournal(plugin_data)
+    pending_request_store = PendingRequestStore(plugin_data, session_id)
+    registry = ExecutionRuntimeRegistry()
+    artifact_store = ArtifactStore(plugin_data, timestamp_factory=journal.timestamp)
+
+    job_id = "job-newfile-1"
+    collaboration_id = "collab-newfile-1"
+    job = DelegationJob(
+        job_id=job_id,
+        runtime_id="rt-newfile-1",
+        collaboration_id=collaboration_id,
+        base_commit=head_sha,
+        worktree_path=str(worktree),
+        promotion_state="pending",
+        status="completed",
+    )
+    job_store.create(job)
+    snapshot = artifact_store.materialize_snapshot(job=job)
+    job_store.update_artifacts(
+        job_id,
+        artifact_paths=snapshot.artifact_paths,
+        artifact_hash=snapshot.artifact_hash,
+    )
+    handle = CollaborationHandle(
+        collaboration_id=collaboration_id,
+        capability_class="execution",
+        runtime_id="rt-newfile-1",
+        codex_thread_id="thr-newfile-1",
+        claude_session_id=session_id,
+        repo_root=str(primary_repo),
+        created_at=journal.timestamp(),
+        status="completed",
+    )
+    lineage_store.create(handle)
+
+    # Use a tampering store to force verification failure (only on verify, not precheck).
+    class _VerifyTamperingArtifactStore2(ArtifactStore):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            self._call_count = 0
+
+        def generate_canonical_artifacts(
+            self, *, job: DelegationJob, output_dir: Path
+        ) -> Any:
+            self._call_count += 1
+            bundle = super().generate_canonical_artifacts(
+                job=job, output_dir=output_dir
+            )
+            if self._call_count <= 1:
+                return bundle
+            diff_path = output_dir / "full.diff"
+            original = diff_path.read_text(encoding="utf-8")
+            diff_path.write_text(original + "\n# tampered\n", encoding="utf-8")
+            from server.artifact_store import ArtifactStore as _AS
+
+            tampered_hash = _AS._review_hash(self, output_dir, bundle.artifact_paths)
+            from server.artifact_store import CanonicalArtifactBundle
+
+            return CanonicalArtifactBundle(
+                artifact_paths=bundle.artifact_paths,
+                artifact_hash=tampered_hash,
+                changed_files=bundle.changed_files,
+                full_diff_path=bundle.full_diff_path,
+                changed_files_path=bundle.changed_files_path,
+                test_results_path=bundle.test_results_path,
+            )
+
+    tampered_store = _VerifyTamperingArtifactStore2(
+        plugin_data, timestamp_factory=journal.timestamp
+    )
+    uuid_counter = iter([f"evt-{i}" for i in range(100)])
+    controller = DelegationController(
+        control_plane=_FakeControlPlane(),
+        worktree_manager=_FakeWorktreeManager(),
+        job_store=job_store,
+        lineage_store=lineage_store,
+        runtime_registry=registry,
+        journal=journal,
+        session_id=session_id,
+        plugin_data_path=plugin_data,
+        pending_request_store=pending_request_store,
+        artifact_store=tampered_store,
+        head_commit_resolver=lambda repo_root: head_sha,
+        uuid_factory=lambda: next(uuid_counter),
+    )
+
+    result = controller.promote(job_id=job_id)
+    assert isinstance(result, PromotionRejectedResponse)
+
+    # The new file should be removed after rollback.
+    assert not (primary_repo / "new_file.txt").exists()
+    # Original tracked file should be restored.
+    assert (primary_repo / "README.md").read_text(encoding="utf-8") == "# Initial\n"
+
+
+def test_discard_accepts_pending_job(tmp_path: Path) -> None:
+    """Discard accepts a job in 'pending' promotion state."""
+    controller, job_store, _journal, _repo, job_id, _hash, _cb = (
+        _build_promote_scenario(tmp_path)
+    )
+
+    result = controller.discard(job_id=job_id)
+    assert isinstance(result, DiscardResult)
+    assert result.job.promotion_state == "discarded"
+
+    persisted = job_store.get(job_id)
+    assert persisted is not None
+    assert persisted.promotion_state == "discarded"
+
+
+def test_discard_rejects_applied_job(tmp_path: Path) -> None:
+    """Discard rejects a job that has already been promoted (verified state)."""
+    controller, job_store, _journal, _repo, job_id, _hash, _cb = (
+        _build_promote_scenario(tmp_path)
+    )
+
+    # Promote the job first.
+    result = controller.promote(job_id=job_id)
+    assert isinstance(result, PromotionResult)
+
+    # Now try to discard — should be rejected.
+    discard_result = controller.discard(job_id=job_id)
+    assert isinstance(discard_result, DiscardRejectedResponse)
+    assert discard_result.reason == "job_not_discardable"
+
+
+def test_recover_startup_replays_promotion_dispatched_state(tmp_path: Path) -> None:
+    """recover_startup reconciles an unresolved promotion:dispatched journal entry."""
+    controller, job_store, journal, primary_repo, job_id, artifact_hash, _cb = (
+        _build_promote_scenario(tmp_path)
+    )
+
+    # Manually simulate a crash after promotion:dispatched was written
+    # but before completion. Write the intent and dispatched phases directly.
+    session_id = "sess-promote"
+    idempotency_key = f"promotion:{job_id}:1"
+    created_at = journal.timestamp()
+    repo_root_str = str(primary_repo)
+
+    journal.write_phase(
+        OperationJournalEntry(
+            idempotency_key=idempotency_key,
+            operation="promotion",
+            phase="intent",
+            collaboration_id="collab-promote-1",
+            created_at=created_at,
+            repo_root=repo_root_str,
+            job_id=job_id,
+        ),
+        session_id=session_id,
+    )
+    journal.write_phase(
+        OperationJournalEntry(
+            idempotency_key=idempotency_key,
+            operation="promotion",
+            phase="dispatched",
+            collaboration_id="collab-promote-1",
+            created_at=created_at,
+            repo_root=repo_root_str,
+            job_id=job_id,
+        ),
+        session_id=session_id,
+    )
+
+    # Apply the diff to the primary repo to simulate the apply having happened.
+    persisted = job_store.get(job_id)
+    assert persisted is not None
+    diff_path = persisted.artifact_paths[0]
+    subprocess.run(
+        ["git", "-C", str(primary_repo), "apply", "--binary", diff_path],
+        check=True,
+        capture_output=True,
+    )
+
+    # Now run recover_startup — should detect the dispatched state and re-verify.
+    controller.recover_startup()
+
+    # The journal entry should now be resolved (completed).
+    unresolved = journal.list_unresolved(session_id=session_id)
+    promotion_unresolved = [e for e in unresolved if e.operation == "promotion"]
+    assert len(promotion_unresolved) == 0
+
+    # Job should be in verified state (the diff was valid).
+    recovered = job_store.get(job_id)
+    assert recovered is not None
+    assert recovered.promotion_state == "verified"
+
+
+def test_recover_startup_normalizes_promotion_intent_to_pending(
+    tmp_path: Path,
+) -> None:
+    """Recovery with only promotion:intent (no dispatched) normalizes to pending.
+
+    This means no workspace mutation occurred — the process crashed between
+    prechecks passing and git apply.
+    """
+    controller, job_store, journal, primary_repo, job_id, _hash, _cb = (
+        _build_promote_scenario(tmp_path)
+    )
+    session_id = "sess-recover-intent"
+    created_at = journal.timestamp()
+    repo_root_str = str(primary_repo.resolve())
+    idempotency_key = f"{job_id}:1"
+
+    # Write only the intent phase — simulates crash before apply.
+    journal.write_phase(
+        OperationJournalEntry(
+            idempotency_key=idempotency_key,
+            operation="promotion",
+            phase="intent",
+            collaboration_id="collab-promote-1",
+            created_at=created_at,
+            repo_root=repo_root_str,
+            job_id=job_id,
+        ),
+        session_id=session_id,
+    )
+
+    # Manually set prechecks_passed to simulate the state before apply.
+    job_store.update_promotion_state(job_id, promotion_state="prechecks_passed")
+
+    # Rebuild controller with the recovery session_id.
+    plugin_data = tmp_path / "plugin-data"
+    registry = ExecutionRuntimeRegistry()
+    pending_request_store = PendingRequestStore(plugin_data, session_id)
+    lineage_store = LineageStore(plugin_data, session_id)
+    # Re-create the lineage handle for recovery.
+    lineage_store.create(
+        CollaborationHandle(
+            collaboration_id="collab-promote-1",
+            capability_class="execution",
+            runtime_id="rt-promote-1",
+            codex_thread_id="thr-1",
+            claude_session_id=session_id,
+            repo_root=repo_root_str,
+            created_at=created_at,
+            status="active",
+        )
+    )
+    artifact_store = ArtifactStore(plugin_data, timestamp_factory=journal.timestamp)
+    recovery_controller = DelegationController(
+        control_plane=_FakeControlPlane(),
+        worktree_manager=_FakeWorktreeManager(),
+        job_store=job_store,
+        lineage_store=lineage_store,
+        runtime_registry=registry,
+        journal=journal,
+        session_id=session_id,
+        plugin_data_path=plugin_data,
+        pending_request_store=pending_request_store,
+        artifact_store=artifact_store,
+        head_commit_resolver=lambda repo_root: "abc123",
+        uuid_factory=iter([f"evt-{i}" for i in range(100)]).__next__,
+    )
+
+    recovery_controller.recover_startup()
+
+    # The journal entry should now be resolved.
+    unresolved = journal.list_unresolved(session_id=session_id)
+    promotion_unresolved = [e for e in unresolved if e.operation == "promotion"]
+    assert len(promotion_unresolved) == 0
+
+    # Job should be normalized back to pending (not prechecks_passed).
+    recovered = job_store.get(job_id)
+    assert recovered is not None
+    assert recovered.promotion_state == "pending"
