@@ -38,11 +38,12 @@ Integration mechanism: MCP-side enrichment. `McpServer` enriches the `codex.stat
   "promotion_state": "...",
   "base_commit": "...",
   "artifact_hash": "...",
-  "artifact_paths": ["..."]
+  "artifact_paths": ["..."],
+  "attention_job_count": 1
 }
 ```
 
-Null when no job requires user attention.
+Null when no job requires user attention. `attention_job_count` is normally 1 (guaranteed by the singleton invariant for new sessions). Values > 1 indicate a pre-migration anomaly from sessions started before the widened busy gate -- the skill should warn but still operate on the returned job (last created by store replay order).
 
 ### Singleton Invariant
 
@@ -378,7 +379,7 @@ allowed-tools: Bash, Read, mcp__plugin_codex-collaboration_codex-collaboration__
    - The helper calls `_ensure_delegation_controller()` (which initializes/recovers the controller from durable job state if needed), then queries `list_user_attention_required()`.
    - If the query returns a job: populate `active_delegation` with the job summary.
    - If the query returns no job: `active_delegation` remains null.
-   - If `_ensure_delegation_controller()` or the query raises an error: suppress the error, leave `active_delegation` null, append a diagnostic to the status `errors` list. Status must never fail because delegation recovery failed.
+   - If `_ensure_delegation_controller()` or the query raises an error: suppress the error, leave `active_delegation` null, set `delegation_status_error` to a diagnostic string. Do NOT append to global `errors` -- existing status consumers (consult, dialogue) treat non-empty `errors` as blocking. Status must never fail because delegation recovery failed.
 
    Recovery-capability is required because after a server restart within the same Claude session, the delegation controller may not be initialized even though durable job state exists on disk. Status is the skill's resume source -- if status cannot recover/load delegation state, bare `/delegate` would incorrectly report "no active delegation" after a restart.
 

@@ -631,8 +631,9 @@ def test_status_active_delegation_includes_required_fields(
     status = _call_tool(mcp_server, "codex.status", {"repo_root": str(repo_root)})
     ad = status["active_delegation"]
     assert ad is not None
-    for field in ("job_id", "status", "promotion_state", "base_commit", "artifact_hash", "artifact_paths"):
+    for field in ("job_id", "status", "promotion_state", "base_commit", "artifact_hash", "artifact_paths", "attention_job_count"):
         assert field in ad, f"active_delegation missing field: {field}"
+    assert ad["attention_job_count"] == 1
 
 
 def test_status_active_delegation_null_when_factory_fails(
@@ -650,7 +651,10 @@ def test_status_active_delegation_null_when_factory_fails(
 
     result = _call_tool(server, "codex.status", {"repo_root": str(repo_root)})
     assert result["active_delegation"] is None
-    assert any("Delegation status" in e for e in result["errors"])
+    # Diagnostic goes to dedicated field, NOT global errors
+    # (global errors would block consult/dialogue status preflights).
+    assert "delegation_status_error" in result
+    assert "factory recovery failed" in result["delegation_status_error"]
 ```
 
 The `test_status_active_delegation_null_when_factory_fails` test requires a helper `_build_mcp_server_with_delegation_factory` that creates an McpServer with a custom delegation factory. If no such helper exists, write one that mirrors the existing MCP server construction pattern but injects the factory. The key assertion: `active_delegation` is null AND `errors` contains a delegation diagnostic string.
@@ -665,14 +669,23 @@ Expected: Tests that check `active_delegation is not None` FAIL (current code al
 First, add a public method on `DelegationController` (in `delegation_controller.py`):
 
 ```python
-def get_active_delegation_summary(self) -> DelegationJob | None:
-    """Return the most recent user-attention-required job, or None.
+def get_active_delegation_summary(self) -> tuple[DelegationJob | None, int]:
+    """Return the active user-attention-required job and total count.
+
+    Returns (job, count). job is the last in store replay order
+    (most recently created). count > 1 is a pre-migration anomaly
+    — the widened busy gate prevents new multi-attention states,
+    but sessions started before the gate was widened may have
+    multiple attention-active jobs.
 
     Used by codex.status enrichment. Preserves encapsulation —
     callers do not reach into the private job store.
     """
     attention = self._job_store.list_user_attention_required()
-    return attention[0] if attention else None
+    if not attention:
+        return None, 0
+    # Last in replay order = most recently created (JSONL append order).
+    return attention[-1], len(attention)
 ```
 
 Then edit `packages/plugins/codex-collaboration/server/mcp_server.py`. In `_dispatch_tool()`, replace the `codex.status` branch (around line 350-351):
@@ -693,7 +706,7 @@ if name == "codex.status":
     # status must never fail because delegation recovery failed.
     try:
         controller = self._ensure_delegation_controller()
-        job = controller.get_active_delegation_summary()
+        job, count = controller.get_active_delegation_summary()
         if job is not None:
             result["active_delegation"] = {
                 "job_id": job.job_id,
@@ -702,16 +715,16 @@ if name == "codex.status":
                 "base_commit": job.base_commit,
                 "artifact_hash": job.artifact_hash,
                 "artifact_paths": list(job.artifact_paths),
+                "attention_job_count": count,
             }
     except Exception as exc:
-        # Delegation recovery or query failed. Append diagnostic
-        # to errors list; active_delegation stays at None (from
-        # control_plane.codex_status default).
-        errors = list(result.get("errors", ()))
-        errors.append(
+        # Delegation recovery or query failed. Use a dedicated
+        # non-blocking field — do NOT append to global `errors`,
+        # because existing status consumers (consult, dialogue)
+        # treat non-empty `errors` as blocking.
+        result["delegation_status_error"] = (
             f"Delegation status query failed: {exc!r:.200}"
         )
-        result["errors"] = tuple(dict.fromkeys(errors))
     return result
 ```
 
@@ -772,15 +785,19 @@ Replace with:
 - **Allowed states:** `promotion_state in {pending, prechecks_failed}`, or `status in {failed, unknown}` with `promotion_state is None` (pre-mutation). Rejected for `prechecks_passed`, `applied`, `rollback_needed`, `verified`, `rolled_back`, and `discarded`.
 ```
 
-- [ ] **Step 3: Update concurrency text in recovery-and-journal.md**
+- [ ] **Step 3: Update Job Busy section in contracts.md**
+
+In `docs/superpowers/specs/codex-collaboration/contracts.md`, find the Job Busy response shape. Update the description to reflect that `busy` can now be returned for attention-active jobs (completed awaiting review, failed/unknown needing discard), not just runtime-active (running/queued/needs_escalation) jobs. Update the `active_job_status` description accordingly — it now covers all `JobStatus` values, not just runtime-active ones.
+
+- [ ] **Step 4: Update concurrency text in recovery-and-journal.md**
 
 In `docs/superpowers/specs/codex-collaboration/recovery-and-journal.md`, find the Concurrency Limits section. Update text that describes the busy gate as blocking only when "a job is already running" or similar runtime-active language. Replace with language that reflects the widened gate: the busy gate blocks when any user-attention-required job exists (in-flight, completed awaiting review, failed/unknown needing inspection), not just runtime-active jobs.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add docs/superpowers/specs/codex-collaboration/contracts.md docs/superpowers/specs/codex-collaboration/promotion-protocol.md docs/superpowers/specs/codex-collaboration/recovery-and-journal.md
-git commit -m "docs(t20260330-06): update contracts, promotion protocol, and recovery docs for widened discard and active_delegation"
+git commit -m "docs(t20260330-06): update contracts, promotion protocol, and recovery docs for widened discard, active_delegation, and busy gate"
 ```
 
 ---
