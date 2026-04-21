@@ -334,7 +334,11 @@ class DelegationController:
         # an operation parameter; we filter on entry.operation == "job_creation".
         active = self._job_store.list_user_attention_required()
         if active:
-            existing = active[0]
+            # Last in replay order = most recently created. Matches
+            # get_active_delegation_summary() so /delegate (resume via
+            # status) and /delegate <objective> (blocked by busy) route
+            # the user to the same job in the pre-migration anomaly case.
+            existing = active[-1]
             return JobBusyResponse(
                 busy=True,
                 active_job_id=existing.job_id,

@@ -49,11 +49,11 @@ Parse `$ARGUMENTS` using this grammar, evaluated in this exact order:
 | 4 | First token is `poll` | **Poll** | Optional second token is `job_id`. Go to step 7 (poll verb) |
 | 5 | First token is `approve` | **Approve** | Go to step 8 (approve verb) |
 | 6 | First token is `deny` | **Deny** | Go to step 9 (deny verb) |
-| 7 | First token is `promote` | **Promote** | Go to step 10 (promote verb) |
+| 7 | First token is `promote` | **Promote** | Optional second token is `job_id`. Go to step 10 (promote verb) |
 | 8 | First token is `discard` | **Discard** | Optional second token is `job_id`. Go to step 11 (discard verb) |
 | 9 | Anything else | **Start** | Entire input is `objective`. Go to step 4 (start routing) |
 
-**Disambiguation rule:** If a reserved subcommand (`poll`, `approve`, `deny`, `promote`, `discard`) has unexpected trailing text beyond an optional `job_id` (for `poll` and `discard`), **reject** with escape guidance:
+**Disambiguation rule:** If a reserved subcommand has unexpected trailing text beyond an optional `job_id` (for `poll`, `promote`, and `discard`), or any trailing text at all (for `approve` and `deny`), **reject** with escape guidance:
 
 > "`{word}` is a control command. To delegate an objective starting with "{word}", use `/delegate start {word} {rest}` or `/delegate -- {word} {rest}`."
 
@@ -124,7 +124,7 @@ Terminal states are excluded from `active_delegation`. Reachable only via explic
 
 | `promotion_state` | Rendering |
 |---|---|
-| `pending` | Render full review (step 6e). Exit with `/delegate promote` and `/delegate discard` choices. Do NOT call promote. |
+| `pending` | If `status == "completed"`: render full review (step 6e). Exit with `/delegate promote` and `/delegate discard` choices. Do NOT call promote. If `status != "completed"` (legacy/corrupt state — `promotion_state` defaults to `"pending"` in legacy records): route by runtime status (Tier 4) instead. Do NOT render review ceremony for non-completed jobs. |
 | `prechecks_failed` | "Previous promotion prechecks failed. Resolve the blocking condition, then retry `/delegate promote`, or `/delegate discard`." Do NOT render a specific rejection reason -- it was returned at failure time and is not persisted on the job model. |
 
 #### 6d. Tier 4 -- Job runtime status (promotion_state is null)
@@ -272,9 +272,9 @@ Poll is the only verb that allows inspecting arbitrary jobs outside the active d
 2. Call `mcp__plugin_codex-collaboration_codex-collaboration__codex.delegate.decide` with `job_id`, `request_id`, `"deny"`.
 3. Handle escalation continuation (step 6f).
 
-### Promote (`/delegate promote`)
+### Promote (`/delegate promote [job_id]`)
 
-Execute Gate 1 (review-before-promote). The gate handles all routing.
+If `job_id` provided: pass it to Gate 1 as the target. If not: Gate 1 uses `active_delegation.job_id`. Execute Gate 1 (review-before-promote). The gate handles all routing — including the read-only path for non-active job_ids.
 
 ### Discard (`/delegate discard [job_id]`)
 

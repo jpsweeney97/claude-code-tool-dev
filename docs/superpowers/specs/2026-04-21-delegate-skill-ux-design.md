@@ -103,15 +103,15 @@ Deterministic, evaluated in this order:
 
 ### Disambiguation
 
-If a reserved subcommand has unexpected trailing text, **reject with escape guidance**:
+If a reserved subcommand has unexpected trailing text beyond an optional `job_id` (for `poll`, `promote`, and `discard`), or any trailing text at all (for `approve` and `deny`), **reject with escape guidance**:
 
 > `promote` is a control command. To delegate an objective starting with "promote", use `/delegate start promote better error handling`.
 
-Do not silently reinterpret ambiguous input. The most dangerous verbs (`promote`, `approve`) must never be context-sensitive.
+Do not silently reinterpret ambiguous input. `approve` and `deny` must never be context-sensitive. A single token after `poll`, `promote`, or `discard` is a valid `job_id` argument, not unexpected text.
 
 ### Optional job_id on Verbs
 
-When `poll` or `discard` have no `job_id` argument, the skill uses `active_delegation.job_id` from `codex.status`. If no active delegation exists: error "No active delegation found."
+When `poll`, `promote`, or `discard` have no `job_id` argument, the skill uses `active_delegation.job_id` from `codex.status`. If no active delegation exists: error "No active delegation found."
 
 `/delegate promote` always uses `active_delegation.job_id`. An explicit job_id on promote (e.g., `/delegate promote <job_id>`) is treated as a read-only inspection if it doesn't match `active_delegation` -- see [Gate 1](#gate-1-review-before-promote).
 
@@ -156,7 +156,7 @@ Terminal states are excluded from `active_delegation`. These are only reachable 
 
 | `promotion_state` | Action |
 |---|---|
-| `pending` | **Review rendering** (see [Completed Job Review](#completed-job-review)). Exit with `/delegate promote` and `/delegate discard` choices. |
+| `pending` | If `status == "completed"`: **Review rendering** (see [Completed Job Review](#completed-job-review)). Exit with `/delegate promote` and `/delegate discard` choices. If `status != "completed"` (legacy/corrupt — `promotion_state` defaults to `"pending"` in legacy records): fall through to Tier 4 (route by runtime status). Do not render review ceremony for non-completed jobs. |
 | `prechecks_failed` | "Previous promotion prechecks failed. Resolve the blocking condition, then retry `/delegate promote`, or `/delegate discard`." Do not render a specific rejection reason -- it was returned by `promote` at failure time and is not persisted on the job model. |
 
 **Tier 4 -- Job runtime status (promotion_state is null).**
