@@ -836,6 +836,85 @@ def test_start_returns_busy_when_unresolved_journal_entry_present(
     assert _cp.calls == []
 
 
+def test_start_returns_busy_when_completed_pending_job_exists(
+    tmp_path: Path,
+) -> None:
+    """Start rejects when a completed job with pending promotion exists."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, job_store, _ls, _j, _r, _prs = _build_controller(
+        tmp_path
+    )
+
+    # First start succeeds (complete immediately, no server request).
+    first = controller.start(repo_root=repo_root)
+    assert isinstance(first, DelegationJob)
+    first_job_id = first.job_id
+
+    # The job completed normally — status=completed, promotion_state=pending.
+    persisted = job_store.get(first_job_id)
+    assert persisted is not None
+    assert persisted.status == "completed"
+    assert persisted.promotion_state == "pending"
+
+    # Second start should be rejected.
+    second = controller.start(repo_root=repo_root)
+    assert isinstance(second, JobBusyResponse)
+    assert second.busy is True
+    assert second.active_job_id == first_job_id
+
+
+def test_start_returns_busy_when_failed_null_promotion_job_exists(
+    tmp_path: Path,
+) -> None:
+    """Start rejects when a failed job with null promotion_state exists."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, job_store, _ls, _j, _r, _prs = _build_controller(
+        tmp_path
+    )
+
+    first = controller.start(repo_root=repo_root)
+    assert isinstance(first, DelegationJob)
+    first_job_id = first.job_id
+
+    # Override to failed with null promotion.
+    job_store.update_status_and_promotion(
+        first_job_id, status="failed", promotion_state=None
+    )
+
+    second = controller.start(repo_root=repo_root)
+    assert isinstance(second, JobBusyResponse)
+    assert second.busy is True
+    assert second.active_job_id == first_job_id
+
+
+def test_start_succeeds_after_discard_clears_attention_job(
+    tmp_path: Path,
+) -> None:
+    """Start succeeds once the user discards the attention-active job."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, job_store, _ls, _j, _r, _prs = _build_controller(
+        tmp_path
+    )
+
+    first = controller.start(repo_root=repo_root)
+    assert isinstance(first, DelegationJob)
+    first_job_id = first.job_id
+
+    # Discard the completed job.
+    discard_result = controller.discard(job_id=first_job_id)
+    assert isinstance(discard_result, DiscardResult)
+
+    # Now start should succeed (discarded job is terminal, no longer attention-active).
+    second = controller.start(repo_root=repo_root)
+    assert not isinstance(second, JobBusyResponse)
+
+
 # -----------------------------------------------------------------------------
 # Startup reconciliation — DelegationController.recover_startup() consumes
 # unresolved job_creation journal entries and closes them into durable state.

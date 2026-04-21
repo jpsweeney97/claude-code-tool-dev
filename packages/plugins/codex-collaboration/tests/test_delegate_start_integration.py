@@ -482,9 +482,11 @@ def test_delegate_start_end_to_end_through_mcp_dispatch(tmp_path: Path) -> None:
     assert seeded_terminal is not None
     assert seeded_terminal.phase == "completed"
 
-    # After a clean completion, the job is terminal — second call succeeds
-    # (no busy gate trip). This verifies that terminal cleanup (release +
-    # close) properly clears all three busy-gate sources.
+    # After a clean completion, the job is attention-active (completed/pending)
+    # — a second start is rejected until the user promotes or discards. This
+    # verifies the singleton user-attention invariant: runtime and journal
+    # sources are cleared (the runtime was released and journal resolved), but
+    # the job store retains the completed job until the user acts on it.
     second_response = server.handle_request(
         {
             "jsonrpc": "2.0",
@@ -498,8 +500,8 @@ def test_delegate_start_end_to_end_through_mcp_dispatch(tmp_path: Path) -> None:
     )
     assert "isError" not in second_response["result"]
     second_payload = json.loads(second_response["result"]["content"][0]["text"])
-    assert second_payload["status"] == "completed"
-    assert second_payload["job_id"] != payload["job_id"]
+    assert second_payload["busy"] is True
+    assert second_payload["active_job_id"] == payload["job_id"]
 
 
 # -----------------------------------------------------------------------------

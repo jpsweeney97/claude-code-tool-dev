@@ -317,8 +317,11 @@ class DelegationController:
           next session init for the durable side.
         """
 
-        # Busy check — max-1 concurrent job per session. Consults THREE sources:
-        #   (a) job_store.list_active(): healthy queued/running/needs_escalation jobs
+        # Busy check — max-1 user-attention job per session. Consults THREE sources:
+        #   (a) job_store.list_user_attention_required(): any non-terminal job
+        #       (in-flight, completed awaiting review, failed/unknown needing
+        #       inspection). Wider than list_active() to enforce the singleton
+        #       user-attention invariant.
         #   (b) registry.active_runtime_ids(): in-process live ownership; catches
         #       same-session retry after a committed-start failure that left a
         #       registered runtime without a queued job (e.g., lineage_store.create
@@ -329,7 +332,7 @@ class DelegationController:
         #       has a dispatched record awaiting recover_startup() reconciliation.
         # Filter (c) in the controller — journal.list_unresolved() does not take
         # an operation parameter; we filter on entry.operation == "job_creation".
-        active = self._job_store.list_active()
+        active = self._job_store.list_user_attention_required()
         if active:
             existing = active[0]
             return JobBusyResponse(
