@@ -109,7 +109,9 @@ def test_replay_tolerates_truncated_trailing_record(tmp_path: Path) -> None:
 
     store_path = tmp_path / "delegation_jobs" / "sess-1" / "jobs.jsonl"
     with store_path.open("a", encoding="utf-8") as handle:
-        handle.write('{"op": "create", "job_id": "job-3"')  # truncated, no closing brace
+        handle.write(
+            '{"op": "create", "job_id": "job-3"'
+        )  # truncated, no closing brace
 
     replay = DelegationJobStore(tmp_path, "sess-1")
     assert {j.job_id for j in replay.list()} == {"job-1", "job-2"}
@@ -214,11 +216,16 @@ def test_update_status_and_promotion_last_write_wins(tmp_path: Path) -> None:
 
 def test_update_artifacts_last_write_wins(tmp_path: Path) -> None:
     store = DelegationJobStore(tmp_path, "sess-1")
-    store.create(_make_job(job_id="job-1", status="completed", promotion_state="pending"))
+    store.create(
+        _make_job(job_id="job-1", status="completed", promotion_state="pending")
+    )
 
     store.update_artifacts(
         "job-1",
-        artifact_paths=("/tmp/inspection/full.diff", "/tmp/inspection/test-results.json"),
+        artifact_paths=(
+            "/tmp/inspection/full.diff",
+            "/tmp/inspection/test-results.json",
+        ),
         artifact_hash="sha-1",
     )
 
@@ -295,7 +302,9 @@ def test_update_promotion_state_increments_attempt(tmp_path: Path) -> None:
             status="completed",
         )
     )
-    store.update_promotion_state("job-2", promotion_state="applied", promotion_attempt=3)
+    store.update_promotion_state(
+        "job-2", promotion_state="applied", promotion_attempt=3
+    )
 
     job = store.get("job-2")
     assert job is not None
