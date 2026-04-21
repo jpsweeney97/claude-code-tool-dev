@@ -348,7 +348,33 @@ class McpServer:
         # chokepoint. Any concurrent dispatch model must revisit advisory
         # locking and turn sequencing.
         if name == "codex.status":
-            return self._control_plane.codex_status(Path(arguments["repo_root"]))
+            result = self._control_plane.codex_status(Path(arguments["repo_root"]))
+            # MCP-side delegation enrichment. Recovery-capable: calls
+            # _ensure_delegation_controller() which initializes/recovers
+            # from durable state if needed. Suppresses all errors —
+            # status must never fail because delegation recovery failed.
+            try:
+                controller = self._ensure_delegation_controller()
+                job, count = controller.get_active_delegation_summary()
+                if job is not None:
+                    result["active_delegation"] = {
+                        "job_id": job.job_id,
+                        "status": job.status,
+                        "promotion_state": job.promotion_state,
+                        "base_commit": job.base_commit,
+                        "artifact_hash": job.artifact_hash,
+                        "artifact_paths": list(job.artifact_paths),
+                        "attention_job_count": count,
+                    }
+            except Exception as exc:
+                # Delegation recovery or query failed. Use a dedicated
+                # non-blocking field — do NOT append to global `errors`,
+                # because existing status consumers (consult, dialogue)
+                # treat non-empty `errors` as blocking.
+                result["delegation_status_error"] = (
+                    f"Delegation status query failed: {exc!r:.200}"
+                )
+            return result
         if name == "codex.consult":
             from .models import ConsultRequest
 

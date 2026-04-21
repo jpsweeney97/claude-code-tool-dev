@@ -1989,6 +1989,24 @@ class DelegationController:
                         "unknown",
                     )
 
+    def get_active_delegation_summary(self) -> tuple[DelegationJob | None, int]:
+        """Return the active user-attention-required job and total count.
+
+        Returns (job, count). job is the last in store replay order
+        (most recently created). count > 1 is a pre-migration anomaly
+        — the widened busy gate prevents new multi-attention states,
+        but sessions started before the gate was widened may have
+        multiple attention-active jobs.
+
+        Used by codex.status enrichment. Preserves encapsulation —
+        callers do not reach into the private job store.
+        """
+        attention = self._job_store.list_user_attention_required()
+        if not attention:
+            return None, 0
+        # Last in replay order = most recently created (JSONL append order).
+        return attention[-1], len(attention)
+
 
 def _verify_post_turn_signals(
     *,

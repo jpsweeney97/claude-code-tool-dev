@@ -1071,3 +1071,208 @@ def test_decide_reescalation_uses_pending_escalation_key(tmp_path: Path) -> None
 
     # No internal IDs leaked.
     _assert_no_internal_ids(decide_payload, "pending_escalation")
+
+
+# -----------------------------------------------------------------------------
+# codex.status active_delegation enrichment tests
+# -----------------------------------------------------------------------------
+
+
+def _build_status_test_server(
+    tmp_path: Path,
+) -> tuple[McpServer, DelegationController, DelegationJobStore, Path]:
+    """Build an McpServer wired through the delegation factory path for status enrichment tests."""
+    repo_root = tmp_path / "repo"
+    _init_repo(repo_root)
+
+    plugin_data = tmp_path / "pd"
+    plugin_data.mkdir()
+
+    journal = OperationJournal(plugin_data)
+    control_plane = ControlPlane(
+        plugin_data_path=plugin_data,
+        journal=journal,
+        runtime_factory=lambda _: _StubSession(),  # type: ignore[arg-type]
+        compat_checker=_make_compat_result,
+    )
+    job_store = DelegationJobStore(plugin_data, "sess-status")
+    lineage_store = LineageStore(plugin_data, "sess-status")
+    pending_request_store = PendingRequestStore(plugin_data, "sess-status")
+    runtime_registry = ExecutionRuntimeRegistry()
+    artifact_store = ArtifactStore(plugin_data, timestamp_factory=journal.timestamp)
+    controller = DelegationController(
+        control_plane=control_plane,
+        worktree_manager=WorktreeManager(),
+        job_store=job_store,
+        lineage_store=lineage_store,
+        runtime_registry=runtime_registry,
+        journal=journal,
+        session_id="sess-status",
+        plugin_data_path=plugin_data,
+        pending_request_store=pending_request_store,
+        artifact_store=artifact_store,
+    )
+
+    class _StatusCP:
+        def codex_status(self, repo_root: Path) -> dict:
+            return {"auth_status": "authenticated", "errors": [], "active_delegation": None}
+
+        def codex_consult(self, request: object) -> object:
+            raise NotImplementedError
+
+    server = McpServer(
+        control_plane=_StatusCP(),
+        delegation_factory=lambda: controller,
+    )
+    return server, controller, job_store, repo_root
+
+
+def _status_call(server: McpServer, repo_root: Path) -> dict:
+    """Call codex.status through the MCP server and return the parsed result."""
+    response = server.handle_request({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "codex.status", "arguments": {"repo_root": str(repo_root)}},
+    })
+    return json.loads(response["result"]["content"][0]["text"])
+
+
+def _start_call(server: McpServer, repo_root: Path, objective: str = "test") -> dict:
+    """Call codex.delegate.start through the MCP server and return the parsed result."""
+    response = server.handle_request({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "codex.delegate.start", "arguments": {"repo_root": str(repo_root), "objective": objective}},
+    })
+    return json.loads(response["result"]["content"][0]["text"])
+
+
+def _discard_call(server: McpServer, job_id: str) -> dict:
+    """Call codex.delegate.discard through the MCP server and return the parsed result."""
+    response = server.handle_request({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "codex.delegate.discard", "arguments": {"job_id": job_id}},
+    })
+    return json.loads(response["result"]["content"][0]["text"])
+
+
+def test_status_active_delegation_null_when_no_jobs(tmp_path: Path) -> None:
+    """codex.status returns active_delegation=null when no delegation exists."""
+    server, _ctrl, _store, repo_root = _build_status_test_server(tmp_path)
+    result = _status_call(server, repo_root)
+    assert result["active_delegation"] is None
+
+
+def test_status_active_delegation_populated_after_start(tmp_path: Path) -> None:
+    """codex.status returns active_delegation after a delegation job starts."""
+    server, _ctrl, _store, repo_root = _build_status_test_server(tmp_path)
+    start_result = _start_call(server, repo_root, "test objective")
+    job_id = start_result["job_id"]
+
+    status = _status_call(server, repo_root)
+    assert status["active_delegation"] is not None
+    assert status["active_delegation"]["job_id"] == job_id
+
+
+def test_status_active_delegation_null_after_discard(tmp_path: Path) -> None:
+    """codex.status returns active_delegation=null after job is discarded."""
+    server, _ctrl, _store, repo_root = _build_status_test_server(tmp_path)
+    start_result = _start_call(server, repo_root, "test objective")
+    job_id = start_result["job_id"]
+
+    _discard_call(server, job_id)
+
+    status = _status_call(server, repo_root)
+    assert status["active_delegation"] is None
+
+
+def test_status_active_delegation_includes_required_fields(tmp_path: Path) -> None:
+    """active_delegation contains the required shape fields."""
+    server, _ctrl, _store, repo_root = _build_status_test_server(tmp_path)
+    _start_call(server, repo_root, "test objective")
+
+    status = _status_call(server, repo_root)
+    ad = status["active_delegation"]
+    assert ad is not None
+    for field in (
+        "job_id",
+        "status",
+        "promotion_state",
+        "base_commit",
+        "artifact_hash",
+        "artifact_paths",
+        "attention_job_count",
+    ):
+        assert field in ad, f"active_delegation missing field: {field}"
+    assert ad["attention_job_count"] == 1
+
+
+def test_status_delegation_status_error_when_factory_fails(tmp_path: Path) -> None:
+    """When _ensure_delegation_controller() fails, active_delegation is null
+    and delegation_status_error contains a diagnostic."""
+
+    def failing_factory():
+        raise RuntimeError("factory recovery failed")
+
+    class _StatusCP:
+        def codex_status(self, repo_root: Path) -> dict:
+            return {"auth_status": "authenticated", "errors": [], "active_delegation": None}
+
+        def codex_consult(self, request: object) -> object:
+            raise NotImplementedError
+
+    server = McpServer(
+        control_plane=_StatusCP(),
+        delegation_factory=failing_factory,
+    )
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    response = server.handle_request({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "codex.status", "arguments": {"repo_root": str(repo_root)}},
+    })
+    result = json.loads(response["result"]["content"][0]["text"])
+    assert result["active_delegation"] is None
+    assert "delegation_status_error" in result
+    assert "factory recovery failed" in result["delegation_status_error"]
+    # CRITICAL: global errors must NOT be polluted — existing status consumers
+    # (consult, dialogue) treat non-empty errors as blocking.
+    assert result["errors"] == []
+
+
+def test_status_active_delegation_attention_count_gt_1(tmp_path: Path) -> None:
+    """When multiple attention-active jobs exist (pre-migration anomaly),
+    attention_job_count > 1 is surfaced in active_delegation."""
+    server, _ctrl, job_store, repo_root = _build_status_test_server(tmp_path)
+
+    # Start a job normally (it completes with promotion_state=pending).
+    _start_call(server, repo_root, "first objective")
+
+    # Simulate pre-migration anomaly: manually create a second attention-active
+    # job in the store (bypassing the busy gate which would reject it).
+    from server.models import DelegationJob
+
+    second_job = DelegationJob(
+        job_id="anomaly-job",
+        runtime_id="rt-anomaly",
+        collaboration_id="collab-anomaly",
+        base_commit="abc123",
+        worktree_path="/tmp/anomaly",
+        status="completed",
+        promotion_state="pending",
+    )
+    job_store.create(second_job)
+
+    status = _status_call(server, repo_root)
+    ad = status["active_delegation"]
+    assert ad is not None
+    assert ad["attention_job_count"] == 2
+    # Last in replay order should be the anomaly job (most recently created).
+    assert ad["job_id"] == "anomaly-job"
