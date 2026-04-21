@@ -1054,7 +1054,14 @@ class DelegationController:
                     actual=bundle.artifact_hash,
                 )
 
-        # All prechecks passed. Write journal intent phase.
+        # All prechecks passed. Record prechecks_passed state.
+        self._job_store.update_promotion_state(
+            job_id,
+            promotion_state="prechecks_passed",
+            promotion_attempt=new_attempt,
+        )
+
+        # Write journal intent phase.
         idempotency_key = f"promotion:{job_id}:{new_attempt}"
         created_at = self._journal.timestamp()
         self._journal.write_phase(
@@ -1091,6 +1098,21 @@ class DelegationController:
             if not _path_is_tracked(primary_repo_root, path)
         }
 
+        # Journal dispatched phase BEFORE apply — WAL semantics.
+        # Recovery treats "dispatched" as "mutation may have happened."
+        self._journal.write_phase(
+            OperationJournalEntry(
+                idempotency_key=idempotency_key,
+                operation="promotion",
+                phase="dispatched",
+                collaboration_id=job.collaboration_id,
+                created_at=created_at,
+                repo_root=str(primary_repo_root),
+                job_id=job_id,
+            ),
+            session_id=self._session_id,
+        )
+
         # Apply the reviewed full.diff.
         full_diff_path = Path(job.artifact_paths[0])
         subprocess.run(
@@ -1107,18 +1129,11 @@ class DelegationController:
             timeout=30,
         )
 
-        # Journal dispatched phase — mutation has occurred.
-        self._journal.write_phase(
-            OperationJournalEntry(
-                idempotency_key=idempotency_key,
-                operation="promotion",
-                phase="dispatched",
-                collaboration_id=job.collaboration_id,
-                created_at=created_at,
-                repo_root=str(primary_repo_root),
-                job_id=job_id,
-            ),
-            session_id=self._session_id,
+        # Record applied state — mutation has occurred.
+        self._job_store.update_promotion_state(
+            job_id,
+            promotion_state="applied",
+            promotion_attempt=new_attempt,
         )
 
         # Verify: re-generate artifacts from the primary workspace state
@@ -1859,6 +1874,10 @@ class DelegationController:
                                 for path in reviewed_changed_files
                                 if not _path_is_tracked(primary_repo_root, path)
                             }
+                            self._job_store.update_promotion_state(
+                                entry.job_id,
+                                promotion_state="rollback_needed",
+                            )
                             try:
                                 subprocess.run(
                                     [
@@ -1880,9 +1899,13 @@ class DelegationController:
                             except subprocess.CalledProcessError:
                                 logger.warning(
                                     "Promotion recovery: rollback git checkout failed "
-                                    "for job %r",
+                                    "for job %r — leaving journal unresolved for "
+                                    "next recovery attempt",
                                     entry.job_id,
                                 )
+                                # Do NOT write rolled_back or close the journal.
+                                # Leave unresolved so next startup re-enters recovery.
+                                continue
                             self._job_store.update_promotion_state(
                                 entry.job_id,
                                 promotion_state="rolled_back",

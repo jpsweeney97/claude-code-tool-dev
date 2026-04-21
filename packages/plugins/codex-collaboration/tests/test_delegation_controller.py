@@ -3161,3 +3161,173 @@ def test_recover_startup_normalizes_promotion_intent_to_pending(
     recovered = job_store.get(job_id)
     assert recovered is not None
     assert recovered.promotion_state == "pending"
+
+
+def test_promote_writes_dispatched_before_apply(tmp_path: Path) -> None:
+    """The journal 'dispatched' phase must be written BEFORE git apply.
+
+    This ensures crash recovery correctly identifies workspace mutation risk.
+    If the process crashes after git apply but before dispatched, recovery
+    would incorrectly treat the workspace as unmodified.
+    """
+    controller, job_store, journal, primary_repo, job_id, _hash, _cb = (
+        _build_promote_scenario(tmp_path)
+    )
+
+    # Track the order of operations by monkey-patching git apply.
+    call_order: list[str] = []
+    original_run = subprocess.run
+
+    def _tracking_run(args: Any, **kwargs: Any) -> Any:
+        if isinstance(args, list) and "apply" in args:
+            # At the moment git apply is called, check if dispatched was written.
+            session_id = "sess-promote"
+            unresolved = journal.list_unresolved(session_id=session_id)
+            dispatched_entries = [
+                e
+                for e in unresolved
+                if e.operation == "promotion" and e.phase == "dispatched"
+            ]
+            if dispatched_entries:
+                call_order.append("dispatched_before_apply")
+            else:
+                call_order.append("apply_before_dispatched")
+        return original_run(args, **kwargs)
+
+    # Patch subprocess.run at the module level where it's imported.
+    import server.delegation_controller as ctrl_module
+
+    old_run = ctrl_module.subprocess.run
+    ctrl_module.subprocess.run = _tracking_run
+    try:
+        result = controller.promote(job_id=job_id)
+    finally:
+        ctrl_module.subprocess.run = old_run
+
+    assert isinstance(result, PromotionResult)
+    assert "dispatched_before_apply" in call_order, (
+        "Journal 'dispatched' phase must be written before git apply to "
+        "maintain WAL semantics for crash recovery"
+    )
+
+
+def test_recover_startup_leaves_unresolved_when_rollback_fails(
+    tmp_path: Path,
+) -> None:
+    """Recovery must NOT claim rolled_back if rollback actually failed.
+
+    If git checkout fails during recovery rollback, the journal entry must
+    remain unresolved and promotion_state must stay at rollback_needed so
+    the next startup re-enters recovery.
+    """
+    controller, job_store, journal, primary_repo, job_id, artifact_hash, _cb = (
+        _build_promote_scenario(tmp_path)
+    )
+
+    # Simulate a crash after dispatched was written and apply happened.
+    session_id = "sess-promote"
+    idempotency_key = f"promotion:{job_id}:1"
+    created_at = journal.timestamp()
+    repo_root_str = str(primary_repo)
+
+    journal.write_phase(
+        OperationJournalEntry(
+            idempotency_key=idempotency_key,
+            operation="promotion",
+            phase="intent",
+            collaboration_id="collab-promote-1",
+            created_at=created_at,
+            repo_root=repo_root_str,
+            job_id=job_id,
+        ),
+        session_id=session_id,
+    )
+    journal.write_phase(
+        OperationJournalEntry(
+            idempotency_key=idempotency_key,
+            operation="promotion",
+            phase="dispatched",
+            collaboration_id="collab-promote-1",
+            created_at=created_at,
+            repo_root=repo_root_str,
+            job_id=job_id,
+        ),
+        session_id=session_id,
+    )
+
+    # Apply the diff to simulate the mutation having happened.
+    persisted = job_store.get(job_id)
+    assert persisted is not None
+    diff_path = persisted.artifact_paths[0]
+    subprocess.run(
+        ["git", "-C", str(primary_repo), "apply", "--binary", diff_path],
+        check=True,
+        capture_output=True,
+    )
+
+    # Now tamper with the workspace so verification fails (triggering rollback).
+    (primary_repo / "README.md").write_text("# Tampered\n", encoding="utf-8")
+
+    # Make git checkout fail by monkey-patching subprocess.run.
+    import server.delegation_controller as ctrl_module
+
+    original_run = subprocess.run
+
+    def _failing_checkout(args: Any, **kwargs: Any) -> Any:
+        if isinstance(args, list) and "checkout" in args and "--" in args:
+            raise subprocess.CalledProcessError(1, args)
+        return original_run(args, **kwargs)
+
+    old_run = ctrl_module.subprocess.run
+    ctrl_module.subprocess.run = _failing_checkout
+    try:
+        controller.recover_startup()
+    finally:
+        ctrl_module.subprocess.run = old_run
+
+    # The journal entry must remain UNRESOLVED (not closed as completed).
+    unresolved = journal.list_unresolved(session_id=session_id)
+    promotion_unresolved = [e for e in unresolved if e.operation == "promotion"]
+    assert len(promotion_unresolved) > 0, (
+        "Journal entry must remain unresolved when rollback fails — "
+        "do not falsely close it as completed"
+    )
+
+    # promotion_state must NOT be "rolled_back" — it should stay at rollback_needed.
+    recovered = job_store.get(job_id)
+    assert recovered is not None
+    assert recovered.promotion_state == "rollback_needed", (
+        f"Expected 'rollback_needed' but got {recovered.promotion_state!r}. "
+        "Failed rollback must not claim success."
+    )
+
+
+def test_bootstrap_factory_wires_promotion_callback(tmp_path: Path) -> None:
+    """The production bootstrap factory must pass promotion_callback to the controller."""
+    from scripts.codex_runtime_bootstrap import _build_delegation_factory
+
+    from server.control_plane import ControlPlane
+
+    plugin_data = tmp_path / "plugin-data"
+    plugin_data.mkdir(parents=True, exist_ok=True)
+
+    # Write the required session ID file.
+    (plugin_data / "session_id").write_text("test-session-123", encoding="utf-8")
+
+    journal = OperationJournal(plugin_data)
+    control_plane = ControlPlane(plugin_data_path=plugin_data, journal=journal)
+    registry = ExecutionRuntimeRegistry()
+
+    factory = _build_delegation_factory(
+        control_plane=control_plane,
+        runtime_registry=registry,
+        journal=journal,
+        plugin_data_path=plugin_data,
+    )
+    controller = factory()
+
+    # Verify the promotion_callback was wired.
+    assert controller._promotion_callback is not None, (
+        "Bootstrap factory must pass promotion_callback=control_plane "
+        "to DelegationController so verified promotes mark advisory context stale"
+    )

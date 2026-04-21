@@ -69,13 +69,13 @@ Promotion is the only operation journaled in v1 that mutates the primary workspa
 | Phase | Meaning | Workspace mutation may already have happened? |
 |---|---|---|
 | `intent` | All promotion prechecks passed; no primary-workspace mutation yet | No |
-| `dispatched` | Reviewed diff applied to the primary workspace | Yes |
+| `dispatched` | Crossed the mutation boundary; `git apply` may have run | Yes |
 | `completed` | Promote reached `verified` or `rolled_back` | Already happened |
 
 Replay rules:
 
 - If recovery finds `promotion:intent` with no later `dispatched`, no primary-workspace mutation occurred. The job normalizes back to `promotion_state="pending"`.
-- If recovery finds `promotion:dispatched` with no later `completed`, the journal is authoritative that workspace mutation may have happened. Recovery re-runs post-apply verification, then repairs the job store to `verified`, `rollback_needed`, or `rolled_back` as appropriate.
+- If recovery finds `promotion:dispatched` with no later `completed`, the journal is authoritative that workspace mutation may have happened. Recovery re-runs post-apply verification, then repairs the job store to `verified` or `rolled_back` as appropriate. If rollback itself fails, recovery leaves the journal entry unresolved and the job at `rollback_needed` so the next startup re-enters recovery.
 - If the journal and job store disagree, the journal wins for the "has workspace mutation occurred?" question. A `dispatched` record outranks stale job-store state such as `prechecks_passed`.
 
 `promotion:completed` is a resolution marker, not a terminal-state payload. By write ordering, the controller writes `promotion:completed` only after the job store has already been updated to terminal `promotion_state="verified"` or `promotion_state="rolled_back"`. Recovery reads the job store to learn which terminal state was reached. If a `completed` journal record exists but the job store still reports a pre-terminal promotion state, treat that as inconsistency to surface and repair explicitly rather than guessing from the journal alone.
