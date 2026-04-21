@@ -793,8 +793,10 @@ class TestStartExecutionRuntime:
 
             def initialize(self) -> RuntimeHandshake:
                 return RuntimeHandshake(
-                    codex_home="/h", platform_family="u",
-                    platform_os="d", user_agent="ua",
+                    codex_home="/h",
+                    platform_family="u",
+                    platform_os="d",
+                    user_agent="ua",
                 )
 
             def read_account(self) -> AccountState:
@@ -833,8 +835,10 @@ class TestStartExecutionRuntime:
         class _FakeSession:
             def initialize(self) -> RuntimeHandshake:
                 return RuntimeHandshake(
-                    codex_home="/h", platform_family="u",
-                    platform_os="d", user_agent="ua",
+                    codex_home="/h",
+                    platform_family="u",
+                    platform_os="d",
+                    user_agent="ua",
                 )
 
             def read_account(self) -> AccountState:
@@ -910,8 +914,10 @@ class TestStartExecutionRuntime:
 
             def initialize(self) -> RuntimeHandshake:
                 return RuntimeHandshake(
-                    codex_home="/h", platform_family="u",
-                    platform_os="d", user_agent="ua",
+                    codex_home="/h",
+                    platform_family="u",
+                    platform_os="d",
+                    user_agent="ua",
                 )
 
             def read_account(self) -> object:
@@ -950,8 +956,10 @@ class TestStartExecutionRuntime:
 
             def initialize(self) -> RuntimeHandshake:
                 return RuntimeHandshake(
-                    codex_home="/h", platform_family="u",
-                    platform_os="d", user_agent="ua",
+                    codex_home="/h",
+                    platform_family="u",
+                    platform_os="d",
+                    user_agent="ua",
                 )
 
             def read_account(self) -> AccountState:
@@ -978,3 +986,94 @@ class TestStartExecutionRuntime:
         with pytest.raises(RuntimeError, match="thread/start failed"):
             plane.start_execution_runtime(worktree)
         assert fake_session.closed is True
+
+
+def test_on_promotion_verified_writes_marker_only_when_runtime_exists(
+    tmp_path: Path,
+) -> None:
+    """on_promotion_verified writes a stale marker iff an advisory runtime is cached."""
+    session = FakeRuntimeSession()
+    plugin_data = tmp_path / "plugin-data"
+    journal = OperationJournal(plugin_data)
+    plane = ControlPlane(
+        plugin_data_path=plugin_data,
+        runtime_factory=lambda _repo_root: session,
+        compat_checker=_compat_result,
+        repo_identity_loader=_repo_identity,
+        clock=lambda: 100.0,
+        uuid_factory=lambda: "uuid-1",
+        journal=journal,
+    )
+
+    # Bootstrap an advisory runtime so the repo root is registered.
+    plane.codex_status(tmp_path)
+
+    # With a known runtime, the callback writes the marker and returns True.
+    wrote = plane.on_promotion_verified(
+        repo_root=tmp_path,
+        artifact_hash="artifact-abc123",
+        job_id="job-xyz",
+    )
+
+    assert wrote is True
+    marker = journal.load_stale_marker(tmp_path)
+    assert marker is not None
+    assert marker.promoted_artifact_hash == "artifact-abc123"
+    assert marker.job_id == "job-xyz"
+    assert marker.repo_root == str(tmp_path.resolve())
+
+    # With no advisory runtime cached, the callback is a no-op and returns False.
+    other_root = tmp_path / "other-repo"
+    other_root.mkdir()
+    did_not_write = plane.on_promotion_verified(
+        repo_root=other_root,
+        artifact_hash="artifact-xyz",
+        job_id="job-nope",
+    )
+
+    assert did_not_write is False
+    assert journal.load_stale_marker(other_root) is None
+
+
+def test_codex_consult_injects_workspace_changed_summary_from_artifact_hash_marker(
+    tmp_path: Path,
+) -> None:
+    """After on_promotion_verified, the next consult picks up the stale marker."""
+    focus = tmp_path / "focus.py"
+    focus.write_text("print('focus')\n", encoding="utf-8")
+    session = FakeRuntimeSession()
+    plugin_data = tmp_path / "plugin-data"
+    journal = OperationJournal(plugin_data)
+    plane = ControlPlane(
+        plugin_data_path=plugin_data,
+        runtime_factory=lambda _repo_root: session,
+        compat_checker=_compat_result,
+        repo_identity_loader=_repo_identity,
+        clock=lambda: 100.0,
+        uuid_factory=iter(("uuid-1", "collab-1", "event-1", "outcome-1")).__next__,
+        journal=journal,
+    )
+
+    # Bootstrap the runtime then fire the promotion callback.
+    plane.codex_status(tmp_path)
+    plane.on_promotion_verified(
+        repo_root=tmp_path,
+        artifact_hash="promo-hash-42",
+        job_id="job-99",
+    )
+
+    # The subsequent consult should embed the stale summary in the prompt.
+    result = plane.codex_consult(
+        ConsultRequest(
+            repo_root=tmp_path,
+            objective="Review focus.py after promotion",
+            explicit_paths=(Path("focus.py"),),
+        )
+    )
+
+    assert result.collaboration_id == "collab-1"
+    assert session.last_prompt_text is not None
+    assert "Promoted artifact hash: promo-hash-42" in session.last_prompt_text
+    assert "job: job-99" in session.last_prompt_text
+    # Marker must be consumed after a successful consult.
+    assert journal.load_stale_marker(tmp_path) is None
