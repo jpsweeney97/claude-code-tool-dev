@@ -7,10 +7,13 @@ at a time (serialization invariant per delivery.md §R2 in-scope).
 from __future__ import annotations
 
 import json
+import logging
 import sys
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Callable
+
+logger = logging.getLogger(__name__)
 
 TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
@@ -348,7 +351,38 @@ class McpServer:
         # chokepoint. Any concurrent dispatch model must revisit advisory
         # locking and turn sequencing.
         if name == "codex.status":
-            return self._control_plane.codex_status(Path(arguments["repo_root"]))
+            result = self._control_plane.codex_status(Path(arguments["repo_root"]))
+            # MCP-side delegation enrichment. Recovery-capable: calls
+            # _ensure_delegation_controller() which initializes/recovers
+            # from durable state if needed. Suppresses all errors —
+            # status must never fail because delegation recovery failed.
+            try:
+                controller = self._ensure_delegation_controller()
+                job, count = controller.get_active_delegation_summary()
+                if job is not None:
+                    result["active_delegation"] = {
+                        "job_id": job.job_id,
+                        "status": job.status,
+                        "promotion_state": job.promotion_state,
+                        "base_commit": job.base_commit,
+                        "artifact_hash": job.artifact_hash,
+                        "artifact_paths": list(job.artifact_paths),
+                        "attention_job_count": count,
+                    }
+            except Exception as exc:
+                # Delegation recovery or query failed. Use a dedicated
+                # non-blocking field — do NOT append to global `errors`,
+                # because existing status consumers (consult, dialogue)
+                # treat non-empty `errors` as blocking.
+                logger.warning(
+                    "Delegation status enrichment failed: %s",
+                    exc,
+                    exc_info=True,
+                )
+                result["delegation_status_error"] = (
+                    f"Delegation status query failed: {exc!r:.200}"
+                )
+            return result
         if name == "codex.consult":
             from .models import ConsultRequest
 
@@ -397,7 +431,7 @@ class McpServer:
             if isinstance(result, DelegationEscalation):
                 return {
                     "job": asdict(result.job),
-                    "pending_request": asdict(result.pending_request),
+                    "pending_escalation": asdict(result.pending_escalation),
                     "agent_context": result.agent_context,
                     "escalated": True,
                 }
@@ -462,8 +496,8 @@ class McpServer:
                     "decision": result.decision,
                     "resumed": result.resumed,
                 }
-                if result.pending_request is not None:
-                    payload["pending_request"] = asdict(result.pending_request)
+                if result.pending_escalation is not None:
+                    payload["pending_escalation"] = asdict(result.pending_escalation)
                 if result.agent_context is not None:
                     payload["agent_context"] = result.agent_context
                 return payload

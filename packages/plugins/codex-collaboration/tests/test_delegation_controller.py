@@ -836,6 +836,85 @@ def test_start_returns_busy_when_unresolved_journal_entry_present(
     assert _cp.calls == []
 
 
+def test_start_returns_busy_when_completed_pending_job_exists(
+    tmp_path: Path,
+) -> None:
+    """Start rejects when a completed job with pending promotion exists."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, job_store, _ls, _j, _r, _prs = _build_controller(
+        tmp_path
+    )
+
+    # First start succeeds (complete immediately, no server request).
+    first = controller.start(repo_root=repo_root)
+    assert isinstance(first, DelegationJob)
+    first_job_id = first.job_id
+
+    # The job completed normally — status=completed, promotion_state=pending.
+    persisted = job_store.get(first_job_id)
+    assert persisted is not None
+    assert persisted.status == "completed"
+    assert persisted.promotion_state == "pending"
+
+    # Second start should be rejected.
+    second = controller.start(repo_root=repo_root)
+    assert isinstance(second, JobBusyResponse)
+    assert second.busy is True
+    assert second.active_job_id == first_job_id
+
+
+def test_start_returns_busy_when_failed_null_promotion_job_exists(
+    tmp_path: Path,
+) -> None:
+    """Start rejects when a failed job with null promotion_state exists."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, job_store, _ls, _j, _r, _prs = _build_controller(
+        tmp_path
+    )
+
+    first = controller.start(repo_root=repo_root)
+    assert isinstance(first, DelegationJob)
+    first_job_id = first.job_id
+
+    # Override to failed with null promotion.
+    job_store.update_status_and_promotion(
+        first_job_id, status="failed", promotion_state=None
+    )
+
+    second = controller.start(repo_root=repo_root)
+    assert isinstance(second, JobBusyResponse)
+    assert second.busy is True
+    assert second.active_job_id == first_job_id
+
+
+def test_start_succeeds_after_discard_clears_attention_job(
+    tmp_path: Path,
+) -> None:
+    """Start succeeds once the user discards the attention-active job."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, job_store, _ls, _j, _r, _prs = _build_controller(
+        tmp_path
+    )
+
+    first = controller.start(repo_root=repo_root)
+    assert isinstance(first, DelegationJob)
+    first_job_id = first.job_id
+
+    # Discard the completed job.
+    discard_result = controller.discard(job_id=first_job_id)
+    assert isinstance(discard_result, DiscardResult)
+
+    # Now start should succeed (discarded job is terminal, no longer attention-active).
+    second = controller.start(repo_root=repo_root)
+    assert not isinstance(second, JobBusyResponse)
+
+
 # -----------------------------------------------------------------------------
 # Startup reconciliation — DelegationController.recover_startup() consumes
 # unresolved job_creation journal entries and closes them into durable state.
@@ -1253,8 +1332,8 @@ def test_start_with_command_approval_returns_escalation(tmp_path: Path) -> None:
 
     assert isinstance(result, DelegationEscalation)
     assert result.job.status == "needs_escalation"
-    assert result.pending_request.kind == "command_approval"
-    assert result.pending_request.request_id == "42"
+    assert result.pending_escalation.kind == "command_approval"
+    assert result.pending_escalation.request_id == "42"
     assert result.agent_context is not None
 
     # Pending request was persisted and resolved (D4).
@@ -1293,8 +1372,8 @@ def test_start_with_unknown_request_interrupts_and_escalates(tmp_path: Path) -> 
 
     assert isinstance(result, DelegationEscalation)
     assert result.job.status == "needs_escalation"
-    assert result.pending_request.kind == "unknown"
-    assert result.pending_request.request_id == "99"
+    assert result.pending_escalation.kind == "unknown"
+    assert result.pending_escalation.request_id == "99"
 
     # Pending request persisted and resolved (D4 — parse succeeded, kind unknown).
     stored = prs.get("99")
@@ -1324,7 +1403,7 @@ def test_start_with_two_requests_responds_to_both(tmp_path: Path) -> None:
     assert prs.get("1") is not None
     assert prs.get("2") is None
     # The escalation refers to the first request.
-    assert result.pending_request.request_id == "1"
+    assert result.pending_escalation.request_id == "1"
 
 
 def test_start_with_unparseable_request_creates_minimal_causal_record(
@@ -1345,9 +1424,9 @@ def test_start_with_unparseable_request_creates_minimal_causal_record(
 
     assert isinstance(result, DelegationEscalation)
     assert result.job.status == "needs_escalation"
-    assert result.pending_request.kind == "unknown"
-    assert result.pending_request.request_id == "77"
-    assert result.pending_request.requested_scope == {
+    assert result.pending_escalation.kind == "unknown"
+    assert result.pending_escalation.request_id == "77"
+    assert result.pending_escalation.requested_scope == {
         "raw_method": "item/unknown/broken"
     }
 
@@ -1626,7 +1705,7 @@ def test_decide_approve_resumes_runtime_and_returns_completed_result(
     assert isinstance(result, DelegationDecisionResult)
     assert result.decision == "approve"
     assert result.resumed is True
-    assert result.pending_request is None
+    assert result.pending_escalation is None
     assert result.job.status == "completed"
     assert registry.lookup("rt-1") is None
     handle = lineage.get("collab-1")
@@ -1664,8 +1743,8 @@ def test_decide_approve_can_reescalate_with_new_pending_request(tmp_path: Path) 
     assert isinstance(result, DelegationDecisionResult)
     assert result.decision == "approve"
     assert result.resumed is True
-    assert result.pending_request is not None
-    assert result.pending_request.request_id == "99"
+    assert result.pending_escalation is not None
+    assert result.pending_escalation.request_id == "99"
     assert result.job.status == "needs_escalation"
     assert registry.lookup("rt-1") is not None
     stored = prs.get("99")
@@ -1694,7 +1773,7 @@ def test_decide_deny_marks_job_failed_and_closes_runtime(tmp_path: Path) -> None
     assert isinstance(result, DelegationDecisionResult)
     assert result.decision == "deny"
     assert result.resumed is False
-    assert result.pending_request is None
+    assert result.pending_escalation is None
     assert result.job.status == "failed"
     assert job_store.get("job-1") is not None
     assert registry.lookup("rt-1") is None
@@ -2176,8 +2255,8 @@ def test_decide_rejects_stale_request_id_after_reescalation(tmp_path: Path) -> N
         decision="approve",
     )
     assert isinstance(approve_result, DelegationDecisionResult)
-    assert approve_result.pending_request is not None
-    assert approve_result.pending_request.request_id == "99"
+    assert approve_result.pending_escalation is not None
+    assert approve_result.pending_escalation.request_id == "99"
 
     # Now try to use the stale request_id "42" to decide the new escalation
     result = controller.decide(
@@ -3019,6 +3098,63 @@ def test_discard_rejects_applied_job(tmp_path: Path) -> None:
     discard_result = controller.discard(job_id=job_id)
     assert isinstance(discard_result, DiscardRejectedResponse)
     assert discard_result.reason == "job_not_discardable"
+
+
+def test_discard_accepts_failed_null_promotion(tmp_path: Path) -> None:
+    """Discard accepts a failed job with null promotion_state (pre-mutation)."""
+    controller, job_store, _journal, _repo, job_id, _hash, _cb = (
+        _build_promote_scenario(tmp_path)
+    )
+    # Override to failed with null promotion_state.
+    job_store.update_status_and_promotion(
+        job_id, status="failed", promotion_state=None
+    )
+
+    result = controller.discard(job_id=job_id)
+    assert isinstance(result, DiscardResult)
+    assert result.job.promotion_state == "discarded"
+
+
+def test_discard_accepts_unknown_null_promotion(tmp_path: Path) -> None:
+    """Discard accepts an unknown job with null promotion_state (pre-mutation)."""
+    controller, job_store, _journal, _repo, job_id, _hash, _cb = (
+        _build_promote_scenario(tmp_path)
+    )
+    job_store.update_status_and_promotion(
+        job_id, status="unknown", promotion_state=None
+    )
+
+    result = controller.discard(job_id=job_id)
+    assert isinstance(result, DiscardResult)
+    assert result.job.promotion_state == "discarded"
+
+
+def test_discard_rejects_failed_with_applied_promotion(tmp_path: Path) -> None:
+    """Discard rejects a failed job with applied promotion_state (post-mutation)."""
+    controller, job_store, _journal, _repo, job_id, _hash, _cb = (
+        _build_promote_scenario(tmp_path)
+    )
+    job_store.update_status_and_promotion(
+        job_id, status="failed", promotion_state="applied"
+    )
+
+    result = controller.discard(job_id=job_id)
+    assert isinstance(result, DiscardRejectedResponse)
+    assert result.reason == "job_not_discardable"
+
+
+def test_discard_rejects_failed_with_rollback_needed(tmp_path: Path) -> None:
+    """Discard rejects a failed job with rollback_needed promotion (post-mutation)."""
+    controller, job_store, _journal, _repo, job_id, _hash, _cb = (
+        _build_promote_scenario(tmp_path)
+    )
+    job_store.update_status_and_promotion(
+        job_id, status="failed", promotion_state="rollback_needed"
+    )
+
+    result = controller.discard(job_id=job_id)
+    assert isinstance(result, DiscardRejectedResponse)
+    assert result.reason == "job_not_discardable"
 
 
 def test_recover_startup_replays_promotion_dispatched_state(tmp_path: Path) -> None:

@@ -20,6 +20,9 @@ _VALID_PROMOTION_STATES: frozenset[str] = frozenset(get_args(PromotionState))
 # is the complement of terminal (completed | failed | unknown). Adding a new
 # JobStatus should be an explicit decision about whether it counts as active.
 _ACTIVE_STATUSES: frozenset[str] = frozenset({"queued", "running", "needs_escalation"})
+_TERMINAL_PROMOTION_STATES: frozenset[str] = frozenset(
+    {"verified", "discarded", "rolled_back"}
+)
 
 
 def _is_valid_promotion_state(value: str | None) -> bool:
@@ -64,6 +67,26 @@ class DelegationJobStore:
         """Return jobs whose status is not terminal (queued/running/needs_escalation)."""
 
         return [j for j in self._replay().values() if j.status in _ACTIVE_STATUSES]
+
+    def list_user_attention_required(self) -> list[DelegationJob]:
+        """Return jobs requiring user attention for the delegate skill UX.
+
+        Broader than list_active() which covers only runtime-active states
+        for the busy gate. This includes completed jobs awaiting review,
+        failed/unknown jobs needing inspection, and partial promotion states
+        needing recovery. Excludes terminal promotion states (verified,
+        discarded, rolled_back).
+        """
+        return [
+            j
+            for j in self._replay().values()
+            if j.promotion_state not in _TERMINAL_PROMOTION_STATES
+            # Exclude completed + null promotion_state: impossible state
+            # (update_status_and_promotion always sets both atomically).
+            # If it appears via corruption/legacy, it cannot be promoted or
+            # discarded, so it must not poison the busy gate.
+            and not (j.status == "completed" and j.promotion_state is None)
+        ]
 
     def update_status(self, job_id: str, status: JobStatus) -> None:
         """Append a status update record to the log.

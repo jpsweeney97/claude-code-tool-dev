@@ -288,6 +288,7 @@ def test_delegation_decision_result_shape() -> None:
     from server.models import (
         DelegationDecisionResult,
         DelegationJob,
+        PendingEscalationView,
         PendingServerRequest,
     )
 
@@ -312,18 +313,24 @@ def test_delegation_decision_result_shape() -> None:
         status="resolved",
     )
 
+    view = PendingEscalationView(
+        request_id=request.request_id,
+        kind=request.kind,
+        requested_scope=request.requested_scope,
+        available_decisions=("approve", "deny"),
+    )
     result = DelegationDecisionResult(
         job=job,
         decision="approve",
         resumed=True,
-        pending_request=request,
+        pending_escalation=view,
         agent_context="Need approval",
     )
 
     assert result.job.job_id == "job-1"
     assert result.decision == "approve"
     assert result.resumed is True
-    assert result.pending_request is request
+    assert result.pending_escalation is view
 
 
 def test_decision_rejected_response_shape() -> None:

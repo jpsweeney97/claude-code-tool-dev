@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import subprocess
 from pathlib import Path
-
 from typing import Any, Callable
+
+import pytest
 
 from server.artifact_store import ArtifactStore
 from server.control_plane import ControlPlane
@@ -482,9 +484,11 @@ def test_delegate_start_end_to_end_through_mcp_dispatch(tmp_path: Path) -> None:
     assert seeded_terminal is not None
     assert seeded_terminal.phase == "completed"
 
-    # After a clean completion, the job is terminal — second call succeeds
-    # (no busy gate trip). This verifies that terminal cleanup (release +
-    # close) properly clears all three busy-gate sources.
+    # After a clean completion, the job is attention-active (completed/pending)
+    # — a second start is rejected until the user promotes or discards. This
+    # verifies the singleton user-attention invariant: runtime and journal
+    # sources are cleared (the runtime was released and journal resolved), but
+    # the job store retains the completed job until the user acts on it.
     second_response = server.handle_request(
         {
             "jsonrpc": "2.0",
@@ -498,8 +502,8 @@ def test_delegate_start_end_to_end_through_mcp_dispatch(tmp_path: Path) -> None:
     )
     assert "isError" not in second_response["result"]
     second_payload = json.loads(second_response["result"]["content"][0]["text"])
-    assert second_payload["status"] == "completed"
-    assert second_payload["job_id"] != payload["job_id"]
+    assert second_payload["busy"] is True
+    assert second_payload["active_job_id"] == payload["job_id"]
 
 
 # -----------------------------------------------------------------------------
@@ -581,10 +585,9 @@ def test_e2e_command_approval_produces_escalation(tmp_path: Path) -> None:
     # Job landed in needs_escalation.
     assert payload["job"]["status"] == "needs_escalation"
 
-    # Pending request captured with correct kind and resolved status (D4).
-    assert payload["pending_request"]["kind"] == "command_approval"
-    assert payload["pending_request"]["request_id"] == "42"
-    assert payload["pending_request"]["status"] == "resolved"
+    # Pending escalation projected with correct kind (internal IDs stripped).
+    assert payload["pending_escalation"]["kind"] == "command_approval"
+    assert payload["pending_escalation"]["request_id"] == "42"
 
     # agent_context captured (may be None but key must be present).
     assert "agent_context" in payload
@@ -641,8 +644,8 @@ def test_e2e_unknown_request_kind_interrupts_and_escalates(tmp_path: Path) -> No
 
     assert payload["escalated"] is True
     assert payload["job"]["status"] == "needs_escalation"
-    assert payload["pending_request"]["kind"] == "unknown"
-    assert payload["pending_request"]["request_id"] == "99"
+    assert payload["pending_escalation"]["kind"] == "unknown"
+    assert payload["pending_escalation"]["request_id"] == "99"
 
     # Pending request persisted (unknown kind → status resolved, D4 rule for
     # successful parse with unknown kind).
@@ -733,7 +736,10 @@ def test_delegate_poll_completed_job_materializes_snapshot_through_mcp(
             "method": "tools/call",
             "params": {
                 "name": "codex.delegate.start",
-                "arguments": {"repo_root": str(repo_root), "objective": "Build feature"},
+                "arguments": {
+                    "repo_root": str(repo_root),
+                    "objective": "Build feature",
+                },
             },
         }
     )
@@ -824,12 +830,17 @@ def test_delegate_poll_needs_escalation_returns_projected_request(
     poll_payload = json.loads(poll_response["result"]["content"][0]["text"])
 
     assert poll_payload["pending_escalation"]["request_id"] == "42"
-    assert poll_payload["pending_escalation"]["available_decisions"] == ["approve", "deny"]
+    assert poll_payload["pending_escalation"]["available_decisions"] == [
+        "approve",
+        "deny",
+    ]
     # codex_thread_id must NOT be in the response (PendingEscalationView strips it).
     assert "codex_thread_id" not in json.dumps(poll_payload["pending_escalation"])
 
 
-def test_delegate_decide_approve_end_to_end_through_mcp_dispatch(tmp_path: Path) -> None:
+def test_delegate_decide_approve_end_to_end_through_mcp_dispatch(
+    tmp_path: Path,
+) -> None:
     repo_root = tmp_path / "repo"
     _init_repo(repo_root)
 
@@ -875,7 +886,7 @@ def test_delegate_decide_approve_end_to_end_through_mcp_dispatch(tmp_path: Path)
                 "name": "codex.delegate.decide",
                 "arguments": {
                     "job_id": start_payload["job"]["job_id"],
-                    "request_id": start_payload["pending_request"]["request_id"],
+                    "request_id": start_payload["pending_escalation"]["request_id"],
                     "decision": "approve",
                 },
             },
@@ -921,7 +932,7 @@ def test_delegate_decide_deny_end_to_end_through_mcp_dispatch(tmp_path: Path) ->
                 "name": "codex.delegate.decide",
                 "arguments": {
                     "job_id": start_payload["job"]["job_id"],
-                    "request_id": start_payload["pending_request"]["request_id"],
+                    "request_id": start_payload["pending_escalation"]["request_id"],
                     "decision": "deny",
                 },
             },
@@ -932,3 +943,400 @@ def test_delegate_decide_deny_end_to_end_through_mcp_dispatch(tmp_path: Path) ->
     assert decide_payload["decision"] == "deny"
     assert decide_payload["resumed"] is False
     assert decide_payload["job"]["status"] == "failed"
+
+
+# ---------------------------------------------------------------------------
+# MCP-boundary contract: pending_escalation projection
+# ---------------------------------------------------------------------------
+
+# Internal IDs that must NEVER appear in caller-visible escalation payloads.
+_INTERNAL_IDS = frozenset(
+    {
+        "codex_thread_id",
+        "codex_turn_id",
+        "item_id",
+        "runtime_id",
+        "collaboration_id",
+        "status",
+    }
+)
+
+
+def _assert_no_internal_ids(payload: dict[str, Any], key: str) -> None:
+    """Assert that payload[key] contains no internal PendingServerRequest fields."""
+    serialized = json.dumps(payload[key])
+    for field in _INTERNAL_IDS:
+        assert field not in serialized, (
+            f"Internal field {field!r} leaked into caller-visible {key!r} payload"
+        )
+
+
+def test_start_escalation_uses_pending_escalation_key(tmp_path: Path) -> None:
+    """codex.delegate.start escalation must use 'pending_escalation', not 'pending_request'."""
+    repo_root = tmp_path / "repo"
+    _init_repo(repo_root)
+
+    session = _ConfigurableStubSession(
+        server_requests=[_command_approval_request_msg()],
+    )
+    server, _job_store, _prs, _journal, _plugin_data = _build_e2e_setup(
+        tmp_path,
+        session_factory=lambda: session,
+    )
+
+    response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "codex.delegate.start",
+                "arguments": {"repo_root": str(repo_root), "objective": "Fix the bug"},
+            },
+        }
+    )
+
+    payload = json.loads(response["result"]["content"][0]["text"])
+    assert payload["escalated"] is True
+
+    # New contract: caller-visible key is "pending_escalation".
+    assert "pending_escalation" in payload, "start must use 'pending_escalation' key"
+    assert "pending_request" not in payload, "start must not use 'pending_request' key"
+
+    # Projected fields present.
+    esc = payload["pending_escalation"]
+    assert esc["request_id"] == "42"
+    assert esc["kind"] == "command_approval"
+    assert "available_decisions" in esc
+
+    # No internal IDs leaked.
+    _assert_no_internal_ids(payload, "pending_escalation")
+
+
+def test_decide_reescalation_uses_pending_escalation_key(tmp_path: Path) -> None:
+    """codex.delegate.decide re-escalation must use 'pending_escalation', not 'pending_request'."""
+    repo_root = tmp_path / "repo"
+    _init_repo(repo_root)
+
+    server, _job_store, _prs, _journal, _plugin_data = _build_e2e_setup(
+        tmp_path,
+        session_factory=lambda: _ConfigurableStubSession(
+            server_requests=[_command_approval_request_msg()],
+        ),
+    )
+
+    # Start → escalation.
+    start_response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "codex.delegate.start",
+                "arguments": {"repo_root": str(repo_root), "objective": "Fix the bug"},
+            },
+        }
+    )
+    start_payload = json.loads(start_response["result"]["content"][0]["text"])
+    job_id = start_payload["job"]["job_id"]
+
+    # Wire up re-escalation on the resume turn.
+    controller = server._ensure_delegation_controller()
+    entry = controller._runtime_registry.lookup(start_payload["job"]["runtime_id"])
+    assert entry is not None
+    stub = entry.session
+    stub._server_requests = [_permissions_request_msg(request_id=99)]
+    stub._turn_result = TurnExecutionResult(
+        turn_id="turn-stub-2",
+        status="interrupted",
+        agent_message="Need another approval.",
+        notifications=(),
+    )
+
+    # Extract request_id from the start escalation payload.
+    # After projection, this comes from pending_escalation (not pending_request).
+    start_esc = start_payload.get("pending_escalation") or start_payload.get(
+        "pending_request"
+    )
+    assert start_esc is not None
+
+    decide_response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {
+                "name": "codex.delegate.decide",
+                "arguments": {
+                    "job_id": job_id,
+                    "request_id": start_esc["request_id"],
+                    "decision": "approve",
+                },
+            },
+        }
+    )
+
+    decide_payload = json.loads(decide_response["result"]["content"][0]["text"])
+    assert decide_payload["resumed"] is True
+
+    # New contract: re-escalation uses "pending_escalation".
+    assert "pending_escalation" in decide_payload, (
+        "decide must use 'pending_escalation' key"
+    )
+    assert "pending_request" not in decide_payload, (
+        "decide must not use 'pending_request' key"
+    )
+
+    esc = decide_payload["pending_escalation"]
+    assert esc["request_id"] == "99"
+    assert esc["kind"] == "unknown"
+    assert "available_decisions" in esc
+
+    # No internal IDs leaked.
+    _assert_no_internal_ids(decide_payload, "pending_escalation")
+
+
+# -----------------------------------------------------------------------------
+# codex.status active_delegation enrichment tests
+# -----------------------------------------------------------------------------
+
+
+def _build_status_test_server(
+    tmp_path: Path,
+) -> tuple[McpServer, DelegationController, DelegationJobStore, Path]:
+    """Build an McpServer wired through the delegation factory path for status enrichment tests."""
+    repo_root = tmp_path / "repo"
+    _init_repo(repo_root)
+
+    plugin_data = tmp_path / "pd"
+    plugin_data.mkdir()
+
+    journal = OperationJournal(plugin_data)
+    control_plane = ControlPlane(
+        plugin_data_path=plugin_data,
+        journal=journal,
+        runtime_factory=lambda _: _StubSession(),  # type: ignore[arg-type]
+        compat_checker=_make_compat_result,
+    )
+    job_store = DelegationJobStore(plugin_data, "sess-status")
+    lineage_store = LineageStore(plugin_data, "sess-status")
+    pending_request_store = PendingRequestStore(plugin_data, "sess-status")
+    runtime_registry = ExecutionRuntimeRegistry()
+    artifact_store = ArtifactStore(plugin_data, timestamp_factory=journal.timestamp)
+    controller = DelegationController(
+        control_plane=control_plane,
+        worktree_manager=WorktreeManager(),
+        job_store=job_store,
+        lineage_store=lineage_store,
+        runtime_registry=runtime_registry,
+        journal=journal,
+        session_id="sess-status",
+        plugin_data_path=plugin_data,
+        pending_request_store=pending_request_store,
+        artifact_store=artifact_store,
+    )
+
+    class _StatusCP:
+        def codex_status(self, repo_root: Path) -> dict:
+            return {
+                "auth_status": "authenticated",
+                "errors": [],
+                "active_delegation": None,
+            }
+
+        def codex_consult(self, request: object) -> object:
+            raise NotImplementedError
+
+    server = McpServer(
+        control_plane=_StatusCP(),
+        delegation_factory=lambda: controller,
+    )
+    return server, controller, job_store, repo_root
+
+
+def _status_call(server: McpServer, repo_root: Path) -> dict:
+    """Call codex.status through the MCP server and return the parsed result."""
+    response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "codex.status",
+                "arguments": {"repo_root": str(repo_root)},
+            },
+        }
+    )
+    return json.loads(response["result"]["content"][0]["text"])
+
+
+def _start_call(server: McpServer, repo_root: Path, objective: str = "test") -> dict:
+    """Call codex.delegate.start through the MCP server and return the parsed result."""
+    response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "codex.delegate.start",
+                "arguments": {"repo_root": str(repo_root), "objective": objective},
+            },
+        }
+    )
+    return json.loads(response["result"]["content"][0]["text"])
+
+
+def _discard_call(server: McpServer, job_id: str) -> dict:
+    """Call codex.delegate.discard through the MCP server and return the parsed result."""
+    response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "codex.delegate.discard",
+                "arguments": {"job_id": job_id},
+            },
+        }
+    )
+    return json.loads(response["result"]["content"][0]["text"])
+
+
+def test_status_active_delegation_null_when_no_jobs(tmp_path: Path) -> None:
+    """codex.status returns active_delegation=null when no delegation exists."""
+    server, _ctrl, _store, repo_root = _build_status_test_server(tmp_path)
+    result = _status_call(server, repo_root)
+    assert result["active_delegation"] is None
+
+
+def test_status_active_delegation_populated_after_start(tmp_path: Path) -> None:
+    """codex.status returns active_delegation after a delegation job starts."""
+    server, _ctrl, _store, repo_root = _build_status_test_server(tmp_path)
+    start_result = _start_call(server, repo_root, "test objective")
+    job_id = start_result["job_id"]
+
+    status = _status_call(server, repo_root)
+    assert status["active_delegation"] is not None
+    assert status["active_delegation"]["job_id"] == job_id
+
+
+def test_status_active_delegation_null_after_discard(tmp_path: Path) -> None:
+    """codex.status returns active_delegation=null after job is discarded."""
+    server, _ctrl, _store, repo_root = _build_status_test_server(tmp_path)
+    start_result = _start_call(server, repo_root, "test objective")
+    job_id = start_result["job_id"]
+
+    _discard_call(server, job_id)
+
+    status = _status_call(server, repo_root)
+    assert status["active_delegation"] is None
+
+
+def test_status_active_delegation_includes_required_fields(tmp_path: Path) -> None:
+    """active_delegation contains the required shape fields."""
+    server, _ctrl, _store, repo_root = _build_status_test_server(tmp_path)
+    _start_call(server, repo_root, "test objective")
+
+    status = _status_call(server, repo_root)
+    ad = status["active_delegation"]
+    assert ad is not None
+    for field in (
+        "job_id",
+        "status",
+        "promotion_state",
+        "base_commit",
+        "artifact_hash",
+        "artifact_paths",
+        "attention_job_count",
+    ):
+        assert field in ad, f"active_delegation missing field: {field}"
+    assert ad["attention_job_count"] == 1
+
+
+def test_status_delegation_status_error_when_factory_fails(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """When _ensure_delegation_controller() fails, active_delegation is null,
+    delegation_status_error contains a diagnostic, and the full traceback is
+    logged server-side."""
+
+    def failing_factory():
+        raise RuntimeError("factory recovery failed")
+
+    class _StatusCP:
+        def codex_status(self, repo_root: Path) -> dict:
+            return {
+                "auth_status": "authenticated",
+                "errors": [],
+                "active_delegation": None,
+            }
+
+        def codex_consult(self, request: object) -> object:
+            raise NotImplementedError
+
+    server = McpServer(
+        control_plane=_StatusCP(),
+        delegation_factory=failing_factory,
+    )
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    with caplog.at_level(
+        logging.WARNING, logger="codex_collaboration.server.mcp_server"
+    ):
+        response = server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "codex.status",
+                    "arguments": {"repo_root": str(repo_root)},
+                },
+            }
+        )
+    result = json.loads(response["result"]["content"][0]["text"])
+    assert result["active_delegation"] is None
+    assert "delegation_status_error" in result
+    assert "factory recovery failed" in result["delegation_status_error"]
+    # CRITICAL: global errors must NOT be polluted — existing status consumers
+    # (consult, dialogue) treat non-empty errors as blocking.
+    assert result["errors"] == []
+    # Verify server-side logging captures the full exception for debuggability.
+    assert any("factory recovery failed" in r.message for r in caplog.records)
+    assert any(
+        r.exc_info is not None
+        for r in caplog.records
+        if "factory recovery" in r.message
+    )
+
+
+def test_status_active_delegation_attention_count_gt_1(tmp_path: Path) -> None:
+    """When multiple attention-active jobs exist (pre-migration anomaly),
+    attention_job_count > 1 is surfaced in active_delegation."""
+    server, _ctrl, job_store, repo_root = _build_status_test_server(tmp_path)
+
+    # Start a job normally (it completes with promotion_state=pending).
+    _start_call(server, repo_root, "first objective")
+
+    # Simulate pre-migration anomaly: manually create a second attention-active
+    # job in the store (bypassing the busy gate which would reject it).
+    from server.models import DelegationJob
+
+    second_job = DelegationJob(
+        job_id="anomaly-job",
+        runtime_id="rt-anomaly",
+        collaboration_id="collab-anomaly",
+        base_commit="abc123",
+        worktree_path="/tmp/anomaly",
+        status="completed",
+        promotion_state="pending",
+    )
+    job_store.create(second_job)
+
+    status = _status_call(server, repo_root)
+    ad = status["active_delegation"]
+    assert ad is not None
+    assert ad["attention_job_count"] == 2
+    # Last in replay order should be the anomaly job (most recently created).
+    assert ad["job_id"] == "anomaly-job"

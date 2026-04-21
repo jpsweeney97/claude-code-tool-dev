@@ -266,14 +266,25 @@ Returned by `codex.delegate.discard` on success.
 
 ### Job Busy
 
-Returned by `codex.delegate.start` when a delegation job is already running. See [recovery-and-journal.md §Concurrency Limits](recovery-and-journal.md#concurrency-limits).
+Returned by `codex.delegate.start` when a user-attention-required job exists. The widened busy gate blocks when any non-terminal job requires user attention — not just runtime-active (running/queued/needs_escalation) jobs. This includes completed jobs awaiting review, failed/unknown jobs needing inspection, and partial promotion states. See [recovery-and-journal.md §Concurrency Limits](recovery-and-journal.md#concurrency-limits).
 
 | Field | Type | Description |
 |---|---|---|
 | `busy` | boolean | Always `true` |
-| `active_job_id` | string | The currently running job |
-| `active_job_status` | enum | Current status of the active job |
+| `active_job_id` | string | The job requiring user attention |
+| `active_job_status` | enum | Current status of the attention-active job (any `JobStatus` value) |
 | `detail` | string | Human-readable explanation |
+
+### Start Escalation
+
+Returned by `codex.delegate.start` when the first execution turn triggers a server request that requires caller resolution.
+
+| Field | Type | Description |
+|---|---|---|
+| `job` | [DelegationJob](#delegationjob) | Created job in `needs_escalation` status |
+| `pending_escalation` | [Pending Escalation View](#pending-escalation-view) | Projected escalation for caller rendering |
+| `agent_context` | string? | Best-effort agent message from the interrupted turn |
+| `escalated` | boolean | Always `true` |
 
 ### Decision Rejection
 
@@ -297,7 +308,7 @@ Returned by `codex.delegate.decide` on success.
 | `job` | [DelegationJob](#delegationjob) | Updated job after the decision path finished |
 | `decision` | enum | `approve` or `deny` |
 | `resumed` | boolean | `true` only when approve dispatched a follow-up turn |
-| `pending_request` | [PendingServerRequest](#pendingserverrequest)? | Present only when the resumed turn hit another escalation |
+| `pending_escalation` | [Pending Escalation View](#pending-escalation-view)? | Present only when the resumed turn hit another escalation |
 | `agent_context` | string? | Best-effort agent message from the resumed turn when present |
 
 ### Poll Rejection
@@ -313,9 +324,7 @@ Returned by `codex.delegate.poll` when the requested job cannot be found.
 
 ### Pending Escalation View
 
-Projection returned by `codex.delegate.poll` and serialized by `codex.delegate.start` and `codex.delegate.decide` when a job is awaiting caller action. Raw Codex IDs (`codex_thread_id`, `codex_turn_id`, `item_id`) remain internal to the control plane per [§Logical Data Model](#logical-data-model).
-
-**Note:** `codex.delegate.start` and `codex.delegate.decide` currently serialize the full [PendingServerRequest](#pendingserverrequest) via `asdict()`, leaking internal Codex IDs. Projection of start/decide responses to use this view is tracked as a hardening sidecar item.
+Caller-visible projection returned by `codex.delegate.start`, `codex.delegate.poll`, and `codex.delegate.decide` when a job is awaiting caller action. Raw Codex IDs (`codex_thread_id`, `codex_turn_id`, `item_id`) remain internal to the control plane per [§Logical Data Model](#logical-data-model). The controller projects `PendingServerRequest` to this view before constructing any response type.
 
 | Field | Type | Description |
 |---|---|---|
@@ -356,8 +365,23 @@ Returned by `codex.status`.
 | `app_server_version` | string | App Server protocol version |
 | `auth_status` | enum | `authenticated`, `expired`, `missing` |
 | `advisory_runtime` | object? | Advisory runtime state (id, policy\_fingerprint, thread\_count, uptime) |
-| `active_delegation` | object? | Active delegation job summary |
+| `active_delegation` | object? | Current delegation requiring user attention. Null when no job requires attention. See field table below. |
+| `delegation_status_error` | string? | Diagnostic when delegation status enrichment fails (factory recovery error, query error). Present only on failure. Do NOT treat null `active_delegation` as "no active delegation" when this field is set. NOT appended to global `errors` to avoid blocking consult/dialogue preflights. |
 | `plugin_data_path` | path | `${CLAUDE_PLUGIN_DATA}` location |
+
+#### `active_delegation` Fields
+
+Present when a delegation job requires user attention (in-flight, completed awaiting review, failed/unknown needing inspection, or partial promotion states needing recovery). Excluded: terminal promotion states (`verified`, `discarded`, `rolled_back`).
+
+| Field | Type | Description |
+|---|---|---|
+| `job_id` | string | Unique job identifier |
+| `status` | enum | Job runtime status: `queued`, `running`, `needs_escalation`, `completed`, `failed`, `unknown` |
+| `promotion_state` | enum? | Promotion lifecycle state: `pending`, `prechecks_passed`, `prechecks_failed`, `applied`, `rollback_needed`, `verified`, `discarded`, `rolled_back`. Null for pre-completion jobs. Legacy/corrupt records may have `pending` on non-completed jobs (the skill's state router falls through to Tier 4 for these). |
+| `base_commit` | string | Git commit the delegation branched from |
+| `artifact_hash` | string? | SHA-256 of inspection artifacts. Null until first poll after completion materializes them. |
+| `artifact_paths` | string[] | Paths to inspection artifacts (`full.diff`, `changed-files.json`, `test-results.json`). Empty until first poll after completion materializes them. |
+| `attention_job_count` | int | Number of jobs requiring attention. Normally 1 (singleton invariant). Values > 1 indicate a pre-migration anomaly. |
 
 ### Dialogue Start
 

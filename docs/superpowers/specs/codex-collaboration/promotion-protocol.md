@@ -137,9 +137,9 @@ If post-application verification fails:
 
 `codex.delegate.discard` is a separate low-risk operation from promotion.
 
-- **Allowed states:** `pending`, `prechecks_failed`
-- **Rejected states:** `prechecks_passed`, `applied`, `verified`, `rollback_needed`, `rolled_back`
-- **Rationale:** discard is only valid before any primary-workspace mutation has occurred
+- **Allowed states:** `promotion_state in {pending, prechecks_failed}`, or `status in {failed, unknown}` with `promotion_state is None` (pre-mutation)
+- **Rejected states:** `prechecks_passed`, `applied`, `verified`, `rollback_needed`, `rolled_back`, and `discarded`
+- **Rationale:** discard is only valid before any primary-workspace mutation has occurred. Failed/unknown jobs with null promotion state are pre-mutation by definition and must be discardable to prevent permanently blocking new delegations via the widened busy gate.
 
 Discard emits an [audit event](contracts.md#auditevent) with `action: discard`, transitions the job to `promotion_state="discarded"`, and schedules the execution worktree for normal discard-time cleanup.
 

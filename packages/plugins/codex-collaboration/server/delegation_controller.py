@@ -317,8 +317,11 @@ class DelegationController:
           next session init for the durable side.
         """
 
-        # Busy check — max-1 concurrent job per session. Consults THREE sources:
-        #   (a) job_store.list_active(): healthy queued/running/needs_escalation jobs
+        # Busy check — max-1 user-attention job per session. Consults THREE sources:
+        #   (a) job_store.list_user_attention_required(): any non-terminal job
+        #       (in-flight, completed awaiting review, failed/unknown needing
+        #       inspection). Wider than list_active() to enforce the singleton
+        #       user-attention invariant.
         #   (b) registry.active_runtime_ids(): in-process live ownership; catches
         #       same-session retry after a committed-start failure that left a
         #       registered runtime without a queued job (e.g., lineage_store.create
@@ -329,9 +332,13 @@ class DelegationController:
         #       has a dispatched record awaiting recover_startup() reconciliation.
         # Filter (c) in the controller — journal.list_unresolved() does not take
         # an operation parameter; we filter on entry.operation == "job_creation".
-        active = self._job_store.list_active()
+        active = self._job_store.list_user_attention_required()
         if active:
-            existing = active[0]
+            # Last in replay order = most recently created. Matches
+            # get_active_delegation_summary() so /delegate (resume via
+            # status) and /delegate <objective> (blocked by busy) route
+            # the user to the same job in the pre-migration anomaly case.
+            existing = active[-1]
             return JobBusyResponse(
                 busy=True,
                 active_job_id=existing.job_id,
@@ -798,6 +805,17 @@ class DelegationController:
     # Plugin-level decisions exposed by codex.delegate.decide.
     _PLUGIN_DECISIONS: tuple[str, ...] = ("approve", "deny")
 
+    def _project_request_to_view(
+        self, request: PendingServerRequest
+    ) -> PendingEscalationView:
+        """Project a PendingServerRequest to the caller-visible PendingEscalationView."""
+        return PendingEscalationView(
+            request_id=request.request_id,
+            kind=request.kind,
+            requested_scope=request.requested_scope,
+            available_decisions=self._PLUGIN_DECISIONS,
+        )
+
     def _project_pending_escalation(
         self, collaboration_id: str
     ) -> PendingEscalationView | None:
@@ -806,13 +824,7 @@ class DelegationController:
         )
         if not requests:
             return None
-        request = requests[-1]
-        return PendingEscalationView(
-            request_id=request.request_id,
-            kind=request.kind,
-            requested_scope=request.requested_scope,
-            available_decisions=self._PLUGIN_DECISIONS,
-        )
+        return self._project_request_to_view(requests[-1])
 
     def _load_or_materialize_inspection(
         self, job: DelegationJob
@@ -894,12 +906,18 @@ class DelegationController:
     def promote(self, *, job_id: str) -> PromotionResult | PromotionRejectedResponse:
         """Apply the reviewed diff from a completed delegation to the primary workspace.
 
-        Prechecks:
-          1. Job exists, status == completed, artifact_hash present
-          2. HEAD == base_commit
-          3. git status --porcelain empty (no untracked/modified files)
-          4. git diff --cached clean (no staged changes)
-          5. Regenerated artifact hash matches the reviewed hash
+        Entry gates (before numbered prechecks):
+          - Job exists
+          - status == "completed"
+          - promotion_state in {"pending", "prechecks_failed"}
+          - artifact_hash present (reviewed)
+          - Collaboration handle exists in lineage store
+
+        Prechecks (after entry gates pass):
+          1. HEAD == base_commit
+          2. git status --porcelain empty (no untracked/modified files)
+          3. git diff --cached clean (no staged changes)
+          4. Regenerated artifact hash matches the reviewed hash
 
         On success: applies full.diff, verifies, transitions to "verified".
         On precheck failure: transitions to "prechecks_failed".
@@ -1328,9 +1346,11 @@ class DelegationController:
         return True
 
     def discard(self, *, job_id: str) -> DiscardResult | DiscardRejectedResponse:
-        """Discard a completed delegation job without promoting.
+        """Discard a delegation job without promoting.
 
-        Only jobs in 'pending' or 'prechecks_failed' promotion state can be discarded.
+        Allowed when promotion_state in (pending, prechecks_failed), or when
+        status in (failed, unknown) and promotion_state is None (pre-mutation).
+        Post-mutation states (applied, rollback_needed) are never discardable.
         """
         job = self._job_store.get(job_id)
         if job is None:
@@ -1340,7 +1360,10 @@ class DelegationController:
                 detail=f"Discard failed: job not found. Got: {job_id!r:.100}",
                 job_id=job_id,
             )
-        if job.promotion_state not in ("pending", "prechecks_failed"):
+        _discardable = job.promotion_state in ("pending", "prechecks_failed") or (
+            job.status in ("failed", "unknown") and job.promotion_state is None
+        )
+        if not _discardable:
             return DiscardRejectedResponse(
                 rejected=True,
                 reason="job_not_discardable",
@@ -1439,7 +1462,9 @@ class DelegationController:
                 # Keep runtime live — decide will reuse it.
                 return DelegationEscalation(
                     job=updated_job,
-                    pending_request=resolved_request or captured_request,
+                    pending_escalation=self._project_request_to_view(
+                        resolved_request or captured_request
+                    ),
                     agent_context=turn_result.agent_message or None,
                 )
 
@@ -1703,7 +1728,7 @@ class DelegationController:
                     job=follow_up.job,
                     decision="approve",
                     resumed=True,
-                    pending_request=follow_up.pending_request,
+                    pending_escalation=follow_up.pending_escalation,
                     agent_context=follow_up.agent_context,
                 )
             return DelegationDecisionResult(
@@ -1973,6 +1998,24 @@ class DelegationController:
                         job.collaboration_id,
                         "unknown",
                     )
+
+    def get_active_delegation_summary(self) -> tuple[DelegationJob | None, int]:
+        """Return the active user-attention-required job and total count.
+
+        Returns (job, count). job is the last in store replay order
+        (most recently created). count > 1 is a pre-migration anomaly
+        — the widened busy gate prevents new multi-attention states,
+        but sessions started before the gate was widened may have
+        multiple attention-active jobs.
+
+        Used by codex.status enrichment. Preserves encapsulation —
+        callers do not reach into the private job store.
+        """
+        attention = self._job_store.list_user_attention_required()
+        if not attention:
+            return None, 0
+        # Last in replay order = most recently created (JSONL append order).
+        return attention[-1], len(attention)
 
 
 def _verify_post_turn_signals(

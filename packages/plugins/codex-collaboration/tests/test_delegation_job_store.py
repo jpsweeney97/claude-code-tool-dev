@@ -310,3 +310,187 @@ def test_update_promotion_state_increments_attempt(tmp_path: Path) -> None:
     assert job is not None
     assert job.promotion_attempt == 3
     assert job.promotion_state == "applied"
+
+
+# --- list_user_attention_required tests ---
+
+
+def test_list_user_attention_required_returns_running_job(tmp_path: Path) -> None:
+    """Running jobs are user-attention-required (in progress)."""
+    store = DelegationJobStore(tmp_path, "sess-1")
+    job = _make_job("job-1", status="running", promotion_state=None)
+    store.create(job)
+
+    result = store.list_user_attention_required()
+    assert len(result) == 1
+    assert result[0].job_id == "job-1"
+
+
+def test_list_user_attention_required_returns_needs_escalation_job(
+    tmp_path: Path,
+) -> None:
+    """Needs-escalation jobs are user-attention-required (waiting for decision)."""
+    store = DelegationJobStore(tmp_path, "sess-1")
+    job = _make_job("job-1", status="needs_escalation", promotion_state=None)
+    store.create(job)
+
+    result = store.list_user_attention_required()
+    assert len(result) == 1
+    assert result[0].status == "needs_escalation"
+
+
+def test_list_user_attention_required_returns_completed_pending_promotion(
+    tmp_path: Path,
+) -> None:
+    """Completed jobs with pending promotion are user-attention-required."""
+    store = DelegationJobStore(tmp_path, "sess-1")
+    job = _make_job("job-1", status="completed", promotion_state="pending")
+    store.create(job)
+
+    result = store.list_user_attention_required()
+    assert len(result) == 1
+    assert result[0].promotion_state == "pending"
+
+
+def test_list_user_attention_required_returns_completed_prechecks_failed(
+    tmp_path: Path,
+) -> None:
+    """Completed jobs with prechecks_failed are user-attention-required."""
+    store = DelegationJobStore(tmp_path, "sess-1")
+    job = _make_job("job-1", status="completed", promotion_state="prechecks_failed")
+    store.create(job)
+
+    result = store.list_user_attention_required()
+    assert len(result) == 1
+    assert result[0].promotion_state == "prechecks_failed"
+
+
+def test_list_user_attention_required_returns_failed_null_promotion(
+    tmp_path: Path,
+) -> None:
+    """Failed jobs with null promotion_state are user-attention-required."""
+    store = DelegationJobStore(tmp_path, "sess-1")
+    job = _make_job("job-1", status="failed", promotion_state=None)
+    store.create(job)
+
+    result = store.list_user_attention_required()
+    assert len(result) == 1
+    assert result[0].status == "failed"
+
+
+def test_list_user_attention_required_returns_unknown_null_promotion(
+    tmp_path: Path,
+) -> None:
+    """Unknown jobs with null promotion_state are user-attention-required."""
+    store = DelegationJobStore(tmp_path, "sess-1")
+    job = _make_job("job-1", status="unknown", promotion_state=None)
+    store.create(job)
+
+    result = store.list_user_attention_required()
+    assert len(result) == 1
+    assert result[0].status == "unknown"
+
+
+def test_list_user_attention_required_returns_rollback_needed(
+    tmp_path: Path,
+) -> None:
+    """Jobs with rollback_needed promotion state are user-attention-required."""
+    store = DelegationJobStore(tmp_path, "sess-1")
+    job = _make_job("job-1", status="completed", promotion_state="rollback_needed")
+    store.create(job)
+
+    result = store.list_user_attention_required()
+    assert len(result) == 1
+    assert result[0].promotion_state == "rollback_needed"
+
+
+def test_list_user_attention_required_returns_queued_null_promotion(
+    tmp_path: Path,
+) -> None:
+    """Queued jobs with null promotion_state are user-attention-required.
+
+    This is the initial job shape after start() commits a new delegation —
+    the job is queued but the execution turn has not yet begun.
+    """
+    store = DelegationJobStore(tmp_path, "sess-1")
+    job = _make_job("job-1", status="queued", promotion_state=None)
+    store.create(job)
+
+    result = store.list_user_attention_required()
+    assert len(result) == 1
+    assert result[0].status == "queued"
+
+
+def test_list_user_attention_required_returns_applied(
+    tmp_path: Path,
+) -> None:
+    """Jobs with applied promotion state are user-attention-required.
+
+    Crash recovery state: diff applied but not yet verified.
+    """
+    store = DelegationJobStore(tmp_path, "sess-1")
+    job = _make_job("job-1", status="completed", promotion_state="applied")
+    store.create(job)
+
+    result = store.list_user_attention_required()
+    assert len(result) == 1
+    assert result[0].promotion_state == "applied"
+
+
+def test_list_user_attention_required_returns_prechecks_passed(
+    tmp_path: Path,
+) -> None:
+    """Jobs with prechecks_passed promotion state are user-attention-required.
+
+    Crash recovery state: prechecks passed but apply not yet completed.
+    """
+    store = DelegationJobStore(tmp_path, "sess-1")
+    job = _make_job("job-1", status="completed", promotion_state="prechecks_passed")
+    store.create(job)
+
+    result = store.list_user_attention_required()
+    assert len(result) == 1
+    assert result[0].promotion_state == "prechecks_passed"
+
+
+def test_list_user_attention_required_excludes_completed_null_promotion(
+    tmp_path: Path,
+) -> None:
+    """Completed + null promotion_state is an impossible state — excluded to prevent
+    poisoning the busy gate (cannot be promoted or discarded)."""
+    store = DelegationJobStore(tmp_path, "sess-1")
+    job = _make_job("job-1", status="completed", promotion_state=None)
+    store.create(job)
+
+    result = store.list_user_attention_required()
+    assert len(result) == 0
+
+
+def test_list_user_attention_required_excludes_verified(tmp_path: Path) -> None:
+    """Verified promotion is terminal — excluded from attention set."""
+    store = DelegationJobStore(tmp_path, "sess-1")
+    job = _make_job("job-1", status="completed", promotion_state="verified")
+    store.create(job)
+
+    result = store.list_user_attention_required()
+    assert len(result) == 0
+
+
+def test_list_user_attention_required_excludes_discarded(tmp_path: Path) -> None:
+    """Discarded promotion is terminal — excluded from attention set."""
+    store = DelegationJobStore(tmp_path, "sess-1")
+    job = _make_job("job-1", status="completed", promotion_state="discarded")
+    store.create(job)
+
+    result = store.list_user_attention_required()
+    assert len(result) == 0
+
+
+def test_list_user_attention_required_excludes_rolled_back(tmp_path: Path) -> None:
+    """Rolled-back promotion is terminal — excluded from attention set."""
+    store = DelegationJobStore(tmp_path, "sess-1")
+    job = _make_job("job-1", status="completed", promotion_state="rolled_back")
+    store.create(job)
+
+    result = store.list_user_attention_required()
+    assert len(result) == 0
