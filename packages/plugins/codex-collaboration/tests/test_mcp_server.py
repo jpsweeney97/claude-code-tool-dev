@@ -1299,7 +1299,7 @@ class FakeDelegationControllerWithPromoteDiscard:
                 collaboration_id="collab-1",
                 base_commit="abc123",
                 worktree_path="/tmp/wk",
-                promotion_state="promoted",
+                promotion_state="verified",
                 status="completed",
             ),
             artifact_hash="sha256-abc",
@@ -1357,7 +1357,7 @@ def test_handle_tools_call_delegate_promote() -> None:
     assert "isError" not in response["result"]
     payload = json.loads(response["result"]["content"][0]["text"])
     assert payload["job"]["job_id"] == "job-promote-1"
-    assert payload["job"]["promotion_state"] == "promoted"
+    assert payload["job"]["promotion_state"] == "verified"
     assert controller.last_promote_job_id == "job-promote-1"
 
 
@@ -1409,7 +1409,7 @@ def test_delegate_promote_returns_promote_policy() -> None:
         def promote(self, *, job_id: str) -> object:
             return PromotionRejectedResponse(
                 rejected=True,
-                reason="not_promotable",
+                reason="job_not_completed",
                 detail="Job is not in a promotable state.",
                 job_id=job_id,
             )
@@ -1459,7 +1459,7 @@ def test_delegate_discard_returns_discard_policy() -> None:
         def discard(self, *, job_id: str) -> object:
             return DiscardRejectedResponse(
                 rejected=True,
-                reason="not_discardable",
+                reason="job_not_discardable",
                 detail="Job is not in a discardable state.",
                 job_id=job_id,
             )
