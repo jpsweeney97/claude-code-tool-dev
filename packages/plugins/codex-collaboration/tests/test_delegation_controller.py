@@ -1253,8 +1253,8 @@ def test_start_with_command_approval_returns_escalation(tmp_path: Path) -> None:
 
     assert isinstance(result, DelegationEscalation)
     assert result.job.status == "needs_escalation"
-    assert result.pending_request.kind == "command_approval"
-    assert result.pending_request.request_id == "42"
+    assert result.pending_escalation.kind == "command_approval"
+    assert result.pending_escalation.request_id == "42"
     assert result.agent_context is not None
 
     # Pending request was persisted and resolved (D4).
@@ -1293,8 +1293,8 @@ def test_start_with_unknown_request_interrupts_and_escalates(tmp_path: Path) -> 
 
     assert isinstance(result, DelegationEscalation)
     assert result.job.status == "needs_escalation"
-    assert result.pending_request.kind == "unknown"
-    assert result.pending_request.request_id == "99"
+    assert result.pending_escalation.kind == "unknown"
+    assert result.pending_escalation.request_id == "99"
 
     # Pending request persisted and resolved (D4 — parse succeeded, kind unknown).
     stored = prs.get("99")
@@ -1324,7 +1324,7 @@ def test_start_with_two_requests_responds_to_both(tmp_path: Path) -> None:
     assert prs.get("1") is not None
     assert prs.get("2") is None
     # The escalation refers to the first request.
-    assert result.pending_request.request_id == "1"
+    assert result.pending_escalation.request_id == "1"
 
 
 def test_start_with_unparseable_request_creates_minimal_causal_record(
@@ -1345,9 +1345,9 @@ def test_start_with_unparseable_request_creates_minimal_causal_record(
 
     assert isinstance(result, DelegationEscalation)
     assert result.job.status == "needs_escalation"
-    assert result.pending_request.kind == "unknown"
-    assert result.pending_request.request_id == "77"
-    assert result.pending_request.requested_scope == {
+    assert result.pending_escalation.kind == "unknown"
+    assert result.pending_escalation.request_id == "77"
+    assert result.pending_escalation.requested_scope == {
         "raw_method": "item/unknown/broken"
     }
 
@@ -1626,7 +1626,7 @@ def test_decide_approve_resumes_runtime_and_returns_completed_result(
     assert isinstance(result, DelegationDecisionResult)
     assert result.decision == "approve"
     assert result.resumed is True
-    assert result.pending_request is None
+    assert result.pending_escalation is None
     assert result.job.status == "completed"
     assert registry.lookup("rt-1") is None
     handle = lineage.get("collab-1")
@@ -1664,8 +1664,8 @@ def test_decide_approve_can_reescalate_with_new_pending_request(tmp_path: Path) 
     assert isinstance(result, DelegationDecisionResult)
     assert result.decision == "approve"
     assert result.resumed is True
-    assert result.pending_request is not None
-    assert result.pending_request.request_id == "99"
+    assert result.pending_escalation is not None
+    assert result.pending_escalation.request_id == "99"
     assert result.job.status == "needs_escalation"
     assert registry.lookup("rt-1") is not None
     stored = prs.get("99")
@@ -1694,7 +1694,7 @@ def test_decide_deny_marks_job_failed_and_closes_runtime(tmp_path: Path) -> None
     assert isinstance(result, DelegationDecisionResult)
     assert result.decision == "deny"
     assert result.resumed is False
-    assert result.pending_request is None
+    assert result.pending_escalation is None
     assert result.job.status == "failed"
     assert job_store.get("job-1") is not None
     assert registry.lookup("rt-1") is None
@@ -2176,8 +2176,8 @@ def test_decide_rejects_stale_request_id_after_reescalation(tmp_path: Path) -> N
         decision="approve",
     )
     assert isinstance(approve_result, DelegationDecisionResult)
-    assert approve_result.pending_request is not None
-    assert approve_result.pending_request.request_id == "99"
+    assert approve_result.pending_escalation is not None
+    assert approve_result.pending_escalation.request_id == "99"
 
     # Now try to use the stale request_id "42" to decide the new escalation
     result = controller.decide(

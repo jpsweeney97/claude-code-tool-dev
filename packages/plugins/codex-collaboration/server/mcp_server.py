@@ -397,7 +397,7 @@ class McpServer:
             if isinstance(result, DelegationEscalation):
                 return {
                     "job": asdict(result.job),
-                    "pending_request": asdict(result.pending_request),
+                    "pending_escalation": asdict(result.pending_escalation),
                     "agent_context": result.agent_context,
                     "escalated": True,
                 }
@@ -462,8 +462,8 @@ class McpServer:
                     "decision": result.decision,
                     "resumed": result.resumed,
                 }
-                if result.pending_request is not None:
-                    payload["pending_request"] = asdict(result.pending_request)
+                if result.pending_escalation is not None:
+                    payload["pending_escalation"] = asdict(result.pending_escalation)
                 if result.agent_context is not None:
                     payload["agent_context"] = result.agent_context
                 return payload

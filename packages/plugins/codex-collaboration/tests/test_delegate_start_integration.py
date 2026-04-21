@@ -581,10 +581,9 @@ def test_e2e_command_approval_produces_escalation(tmp_path: Path) -> None:
     # Job landed in needs_escalation.
     assert payload["job"]["status"] == "needs_escalation"
 
-    # Pending request captured with correct kind and resolved status (D4).
-    assert payload["pending_request"]["kind"] == "command_approval"
-    assert payload["pending_request"]["request_id"] == "42"
-    assert payload["pending_request"]["status"] == "resolved"
+    # Pending escalation projected with correct kind (internal IDs stripped).
+    assert payload["pending_escalation"]["kind"] == "command_approval"
+    assert payload["pending_escalation"]["request_id"] == "42"
 
     # agent_context captured (may be None but key must be present).
     assert "agent_context" in payload
@@ -641,8 +640,8 @@ def test_e2e_unknown_request_kind_interrupts_and_escalates(tmp_path: Path) -> No
 
     assert payload["escalated"] is True
     assert payload["job"]["status"] == "needs_escalation"
-    assert payload["pending_request"]["kind"] == "unknown"
-    assert payload["pending_request"]["request_id"] == "99"
+    assert payload["pending_escalation"]["kind"] == "unknown"
+    assert payload["pending_escalation"]["request_id"] == "99"
 
     # Pending request persisted (unknown kind → status resolved, D4 rule for
     # successful parse with unknown kind).
@@ -875,7 +874,7 @@ def test_delegate_decide_approve_end_to_end_through_mcp_dispatch(tmp_path: Path)
                 "name": "codex.delegate.decide",
                 "arguments": {
                     "job_id": start_payload["job"]["job_id"],
-                    "request_id": start_payload["pending_request"]["request_id"],
+                    "request_id": start_payload["pending_escalation"]["request_id"],
                     "decision": "approve",
                 },
             },
@@ -921,7 +920,7 @@ def test_delegate_decide_deny_end_to_end_through_mcp_dispatch(tmp_path: Path) ->
                 "name": "codex.delegate.decide",
                 "arguments": {
                     "job_id": start_payload["job"]["job_id"],
-                    "request_id": start_payload["pending_request"]["request_id"],
+                    "request_id": start_payload["pending_escalation"]["request_id"],
                     "decision": "deny",
                 },
             },
@@ -932,3 +931,141 @@ def test_delegate_decide_deny_end_to_end_through_mcp_dispatch(tmp_path: Path) ->
     assert decide_payload["decision"] == "deny"
     assert decide_payload["resumed"] is False
     assert decide_payload["job"]["status"] == "failed"
+
+
+# ---------------------------------------------------------------------------
+# MCP-boundary contract: pending_escalation projection
+# ---------------------------------------------------------------------------
+
+# Internal IDs that must NEVER appear in caller-visible escalation payloads.
+_INTERNAL_IDS = frozenset(
+    {"codex_thread_id", "codex_turn_id", "item_id", "runtime_id", "collaboration_id", "status"}
+)
+
+
+def _assert_no_internal_ids(payload: dict[str, Any], key: str) -> None:
+    """Assert that payload[key] contains no internal PendingServerRequest fields."""
+    serialized = json.dumps(payload[key])
+    for field in _INTERNAL_IDS:
+        assert field not in serialized, (
+            f"Internal field {field!r} leaked into caller-visible {key!r} payload"
+        )
+
+
+def test_start_escalation_uses_pending_escalation_key(tmp_path: Path) -> None:
+    """codex.delegate.start escalation must use 'pending_escalation', not 'pending_request'."""
+    repo_root = tmp_path / "repo"
+    _init_repo(repo_root)
+
+    session = _ConfigurableStubSession(
+        server_requests=[_command_approval_request_msg()],
+    )
+    server, _job_store, _prs, _journal, _plugin_data = _build_e2e_setup(
+        tmp_path,
+        session_factory=lambda: session,
+    )
+
+    response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "codex.delegate.start",
+                "arguments": {"repo_root": str(repo_root), "objective": "Fix the bug"},
+            },
+        }
+    )
+
+    payload = json.loads(response["result"]["content"][0]["text"])
+    assert payload["escalated"] is True
+
+    # New contract: caller-visible key is "pending_escalation".
+    assert "pending_escalation" in payload, "start must use 'pending_escalation' key"
+    assert "pending_request" not in payload, "start must not use 'pending_request' key"
+
+    # Projected fields present.
+    esc = payload["pending_escalation"]
+    assert esc["request_id"] == "42"
+    assert esc["kind"] == "command_approval"
+    assert "available_decisions" in esc
+
+    # No internal IDs leaked.
+    _assert_no_internal_ids(payload, "pending_escalation")
+
+
+def test_decide_reescalation_uses_pending_escalation_key(tmp_path: Path) -> None:
+    """codex.delegate.decide re-escalation must use 'pending_escalation', not 'pending_request'."""
+    repo_root = tmp_path / "repo"
+    _init_repo(repo_root)
+
+    server, _job_store, _prs, _journal, _plugin_data = _build_e2e_setup(
+        tmp_path,
+        session_factory=lambda: _ConfigurableStubSession(
+            server_requests=[_command_approval_request_msg()],
+        ),
+    )
+
+    # Start → escalation.
+    start_response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "codex.delegate.start",
+                "arguments": {"repo_root": str(repo_root), "objective": "Fix the bug"},
+            },
+        }
+    )
+    start_payload = json.loads(start_response["result"]["content"][0]["text"])
+    job_id = start_payload["job"]["job_id"]
+
+    # Wire up re-escalation on the resume turn.
+    controller = server._ensure_delegation_controller()
+    entry = controller._runtime_registry.lookup(start_payload["job"]["runtime_id"])
+    assert entry is not None
+    stub = entry.session
+    stub._server_requests = [_permissions_request_msg(request_id=99)]
+    stub._turn_result = TurnExecutionResult(
+        turn_id="turn-stub-2",
+        status="interrupted",
+        agent_message="Need another approval.",
+        notifications=(),
+    )
+
+    # Extract request_id from the start escalation payload.
+    # After projection, this comes from pending_escalation (not pending_request).
+    start_esc = start_payload.get("pending_escalation") or start_payload.get("pending_request")
+    assert start_esc is not None
+
+    decide_response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {
+                "name": "codex.delegate.decide",
+                "arguments": {
+                    "job_id": job_id,
+                    "request_id": start_esc["request_id"],
+                    "decision": "approve",
+                },
+            },
+        }
+    )
+
+    decide_payload = json.loads(decide_response["result"]["content"][0]["text"])
+    assert decide_payload["resumed"] is True
+
+    # New contract: re-escalation uses "pending_escalation".
+    assert "pending_escalation" in decide_payload, "decide must use 'pending_escalation' key"
+    assert "pending_request" not in decide_payload, "decide must not use 'pending_request' key"
+
+    esc = decide_payload["pending_escalation"]
+    assert esc["request_id"] == "99"
+    assert esc["kind"] == "unknown"
+    assert "available_decisions" in esc
+
+    # No internal IDs leaked.
+    _assert_no_internal_ids(decide_payload, "pending_escalation")

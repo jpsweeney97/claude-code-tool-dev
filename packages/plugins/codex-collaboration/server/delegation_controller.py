@@ -798,6 +798,17 @@ class DelegationController:
     # Plugin-level decisions exposed by codex.delegate.decide.
     _PLUGIN_DECISIONS: tuple[str, ...] = ("approve", "deny")
 
+    def _project_request_to_view(
+        self, request: PendingServerRequest
+    ) -> PendingEscalationView:
+        """Project a PendingServerRequest to the caller-visible PendingEscalationView."""
+        return PendingEscalationView(
+            request_id=request.request_id,
+            kind=request.kind,
+            requested_scope=request.requested_scope,
+            available_decisions=self._PLUGIN_DECISIONS,
+        )
+
     def _project_pending_escalation(
         self, collaboration_id: str
     ) -> PendingEscalationView | None:
@@ -806,13 +817,7 @@ class DelegationController:
         )
         if not requests:
             return None
-        request = requests[-1]
-        return PendingEscalationView(
-            request_id=request.request_id,
-            kind=request.kind,
-            requested_scope=request.requested_scope,
-            available_decisions=self._PLUGIN_DECISIONS,
-        )
+        return self._project_request_to_view(requests[-1])
 
     def _load_or_materialize_inspection(
         self, job: DelegationJob
@@ -1439,7 +1444,9 @@ class DelegationController:
                 # Keep runtime live — decide will reuse it.
                 return DelegationEscalation(
                     job=updated_job,
-                    pending_request=resolved_request or captured_request,
+                    pending_escalation=self._project_request_to_view(
+                        resolved_request or captured_request
+                    ),
                     agent_context=turn_result.agent_message or None,
                 )
 
@@ -1703,7 +1710,7 @@ class DelegationController:
                     job=follow_up.job,
                     decision="approve",
                     resumed=True,
-                    pending_request=follow_up.pending_request,
+                    pending_escalation=follow_up.pending_escalation,
                     agent_context=follow_up.agent_context,
                 )
             return DelegationDecisionResult(

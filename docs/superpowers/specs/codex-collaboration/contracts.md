@@ -275,6 +275,17 @@ Returned by `codex.delegate.start` when a delegation job is already running. See
 | `active_job_status` | enum | Current status of the active job |
 | `detail` | string | Human-readable explanation |
 
+### Start Escalation
+
+Returned by `codex.delegate.start` when the first execution turn triggers a server request that requires caller resolution.
+
+| Field | Type | Description |
+|---|---|---|
+| `job` | [DelegationJob](#delegationjob) | Created job in `needs_escalation` status |
+| `pending_escalation` | [Pending Escalation View](#pending-escalation-view) | Projected escalation for caller rendering |
+| `agent_context` | string? | Best-effort agent message from the interrupted turn |
+| `escalated` | boolean | Always `true` |
+
 ### Decision Rejection
 
 Returned by `codex.delegate.decide` when the caller asks to resolve an escalation
@@ -297,7 +308,7 @@ Returned by `codex.delegate.decide` on success.
 | `job` | [DelegationJob](#delegationjob) | Updated job after the decision path finished |
 | `decision` | enum | `approve` or `deny` |
 | `resumed` | boolean | `true` only when approve dispatched a follow-up turn |
-| `pending_request` | [PendingServerRequest](#pendingserverrequest)? | Present only when the resumed turn hit another escalation |
+| `pending_escalation` | [Pending Escalation View](#pending-escalation-view)? | Present only when the resumed turn hit another escalation |
 | `agent_context` | string? | Best-effort agent message from the resumed turn when present |
 
 ### Poll Rejection
@@ -313,9 +324,7 @@ Returned by `codex.delegate.poll` when the requested job cannot be found.
 
 ### Pending Escalation View
 
-Projection returned by `codex.delegate.poll` and serialized by `codex.delegate.start` and `codex.delegate.decide` when a job is awaiting caller action. Raw Codex IDs (`codex_thread_id`, `codex_turn_id`, `item_id`) remain internal to the control plane per [§Logical Data Model](#logical-data-model).
-
-**Note:** `codex.delegate.start` and `codex.delegate.decide` currently serialize the full [PendingServerRequest](#pendingserverrequest) via `asdict()`, leaking internal Codex IDs. Projection of start/decide responses to use this view is tracked as a hardening sidecar item.
+Caller-visible projection returned by `codex.delegate.start`, `codex.delegate.poll`, and `codex.delegate.decide` when a job is awaiting caller action. Raw Codex IDs (`codex_thread_id`, `codex_turn_id`, `item_id`) remain internal to the control plane per [§Logical Data Model](#logical-data-model). The controller projects `PendingServerRequest` to this view before constructing any response type.
 
 | Field | Type | Description |
 |---|---|---|

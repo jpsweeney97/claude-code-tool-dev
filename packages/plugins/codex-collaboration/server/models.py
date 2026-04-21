@@ -380,15 +380,13 @@ class DelegationEscalation:
     """Returned when codex.delegate.start dispatched a turn that needs escalation.
 
     Separates persisted job lifecycle state from transient escalation state.
-    For successfully parsed requests, ``pending_request.status`` is
-    ``"resolved"`` (D4). For parse failures, ``pending_request`` is a
-    minimal causal record with ``kind="unknown"`` and ``status="pending"``
-    (D4 carve-out: parse failures are not marked resolved).
+    ``pending_escalation`` is the caller-visible projection — internal Codex
+    IDs are stripped before the response leaves the controller.
     Plugin escalation lifecycle is tracked by ``DelegationJob.status``.
     """
 
     job: DelegationJob
-    pending_request: PendingServerRequest
+    pending_escalation: PendingEscalationView
     agent_context: str | None = None
 
 
@@ -399,7 +397,7 @@ class DelegationDecisionResult:
     job: DelegationJob
     decision: DecisionAction
     resumed: bool
-    pending_request: PendingServerRequest | None = None
+    pending_escalation: PendingEscalationView | None = None
     agent_context: str | None = None
 
 
