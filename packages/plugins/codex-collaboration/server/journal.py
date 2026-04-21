@@ -33,7 +33,7 @@ def default_plugin_data_path() -> Path:
 
 
 _VALID_OPERATIONS = frozenset(
-    ("thread_creation", "turn_dispatch", "job_creation", "approval_resolution")
+    ("thread_creation", "turn_dispatch", "job_creation", "approval_resolution", "promotion")
 )
 _VALID_PHASES = frozenset(("intent", "dispatched", "completed"))
 _JOURNAL_REQUIRED_STR = (
@@ -146,6 +146,11 @@ def _journal_callback(
             raise SchemaViolation(
                 "approval_resolution at dispatched requires codex_thread_id (string)"
             )
+    elif op == "promotion" and phase in ("intent", "dispatched"):
+        if not isinstance(record.get("job_id"), str):
+            raise SchemaViolation(
+                f"promotion at {phase} requires job_id (string)"
+            )
     # Compatibility decision: runtime_id on turn_dispatch is NOT required.
     # Missing runtime_id suppresses audit event emission (dialogue.py:592,689)
     # but does not crash recovery. Requiring it would reject records from
@@ -204,7 +209,8 @@ class OperationJournal:
         normalized_repo_root = _normalize_repo_root_key(marker.repo_root)
         normalized_marker = StaleAdvisoryContextMarker(
             repo_root=normalized_repo_root,
-            promoted_head=marker.promoted_head,
+            promoted_artifact_hash=marker.promoted_artifact_hash,
+            job_id=marker.job_id,
             recorded_at=marker.recorded_at,
         )
         markers[normalized_repo_root] = asdict(normalized_marker)

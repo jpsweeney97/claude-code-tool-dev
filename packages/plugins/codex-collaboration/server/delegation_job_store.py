@@ -116,6 +116,33 @@ class DelegationJobStore:
             "promotion_state": promotion_state,
         })
 
+    def update_promotion_state(
+        self,
+        job_id: str,
+        *,
+        promotion_state: PromotionState,
+        promotion_attempt: int | None = None,
+    ) -> None:
+        """Append a promotion state update record to the log.
+
+        By design this does NOT verify that ``job_id`` exists before
+        appending. Orphan updates are silently dropped on replay.
+        """
+
+        if not _is_valid_promotion_state(promotion_state):
+            raise ValueError(
+                f"DelegationJobStore.update_promotion_state failed: unknown promotion_state. "
+                f"Got: {promotion_state!r:.100}"
+            )
+        self._append(
+            {
+                "op": "update_promotion_state",
+                "job_id": job_id,
+                "promotion_state": promotion_state,
+                "promotion_attempt": promotion_attempt,
+            }
+        )
+
     def update_artifacts(
         self,
         job_id: str,
@@ -237,4 +264,22 @@ class DelegationJobStore:
                             "artifact_hash": artifact_hash,
                         }
                     )
+                elif op == "update_promotion_state":
+                    job_id = record.get("job_id")
+                    promotion_state = record.get("promotion_state")
+                    promotion_attempt = record.get("promotion_attempt")
+                    if not isinstance(job_id, str):
+                        continue
+                    if job_id not in jobs:
+                        continue
+                    if not _is_valid_promotion_state(promotion_state):
+                        continue
+                    existing = jobs[job_id]
+                    updates: dict[str, Any] = {
+                        **asdict(existing),
+                        "promotion_state": promotion_state,
+                    }
+                    if promotion_attempt is not None and type(promotion_attempt) is int:
+                        updates["promotion_attempt"] = promotion_attempt
+                    jobs[job_id] = DelegationJob(**updates)
         return jobs

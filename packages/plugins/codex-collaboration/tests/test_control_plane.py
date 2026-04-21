@@ -357,7 +357,8 @@ def test_codex_consult_consumes_stale_marker_on_success(tmp_path: Path) -> None:
     journal.write_stale_marker(
         StaleAdvisoryContextMarker(
             repo_root=str(tmp_path.resolve()),
-            promoted_head="old-head",
+            promoted_artifact_hash="old-artifact-hash",
+            job_id="job-stale",
             recorded_at="2026-03-27T15:00:00Z",
         )
     )
@@ -379,7 +380,8 @@ def test_codex_consult_consumes_stale_marker_on_success(tmp_path: Path) -> None:
     )
 
     assert session.last_prompt_text is not None
-    assert "Most recent promoted HEAD: old-head" in session.last_prompt_text
+    assert "Promoted artifact hash: old-artifact-hash" in session.last_prompt_text
+    assert "job: job-stale" in session.last_prompt_text
     assert journal.load_stale_marker(tmp_path) is None
 
 

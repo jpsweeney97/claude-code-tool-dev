@@ -164,7 +164,8 @@ class ControlPlane:
         if stale_marker is not None:
             stale_summary = (
                 "Workspace changed since the last advisory turn. "
-                f"Most recent promoted HEAD: {stale_marker.promoted_head}. "
+                f"Promoted artifact hash: {stale_marker.promoted_artifact_hash} "
+                f"(job: {stale_marker.job_id}). "
                 f"Current HEAD: {repo_identity.head}. "
                 "Re-ground reasoning in the current repository state."
             )

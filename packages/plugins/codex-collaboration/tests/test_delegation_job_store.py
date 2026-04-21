@@ -259,4 +259,45 @@ def test_replay_accepts_legacy_pending_on_non_completed_job(tmp_path: Path) -> N
     job = replay.get("job-legacy")
     assert job is not None
     assert job.status == "queued"
-    assert job.promotion_state == "pending"
+
+
+def test_update_promotion_state_persists_and_replays(tmp_path: Path) -> None:
+    store = DelegationJobStore(tmp_path, "sess-1")
+    store.create(
+        DelegationJob(
+            job_id="job-1",
+            runtime_id="rt-1",
+            collaboration_id="collab-1",
+            base_commit="abc",
+            worktree_path="/tmp/wk",
+            promotion_state="pending",
+            status="completed",
+        )
+    )
+    store.update_promotion_state("job-1", promotion_state="prechecks_passed")
+
+    job = store.get("job-1")
+    assert job is not None
+    assert job.promotion_state == "prechecks_passed"
+    assert job.promotion_attempt == 0
+
+
+def test_update_promotion_state_increments_attempt(tmp_path: Path) -> None:
+    store = DelegationJobStore(tmp_path, "sess-1")
+    store.create(
+        DelegationJob(
+            job_id="job-2",
+            runtime_id="rt-1",
+            collaboration_id="collab-1",
+            base_commit="abc",
+            worktree_path="/tmp/wk",
+            promotion_state="pending",
+            status="completed",
+        )
+    )
+    store.update_promotion_state("job-2", promotion_state="applied", promotion_attempt=3)
+
+    job = store.get("job-2")
+    assert job is not None
+    assert job.promotion_attempt == 3
+    assert job.promotion_state == "applied"
