@@ -3021,6 +3021,63 @@ def test_discard_rejects_applied_job(tmp_path: Path) -> None:
     assert discard_result.reason == "job_not_discardable"
 
 
+def test_discard_accepts_failed_null_promotion(tmp_path: Path) -> None:
+    """Discard accepts a failed job with null promotion_state (pre-mutation)."""
+    controller, job_store, _journal, _repo, job_id, _hash, _cb = (
+        _build_promote_scenario(tmp_path)
+    )
+    # Override to failed with null promotion_state.
+    job_store.update_status_and_promotion(
+        job_id, status="failed", promotion_state=None
+    )
+
+    result = controller.discard(job_id=job_id)
+    assert isinstance(result, DiscardResult)
+    assert result.job.promotion_state == "discarded"
+
+
+def test_discard_accepts_unknown_null_promotion(tmp_path: Path) -> None:
+    """Discard accepts an unknown job with null promotion_state (pre-mutation)."""
+    controller, job_store, _journal, _repo, job_id, _hash, _cb = (
+        _build_promote_scenario(tmp_path)
+    )
+    job_store.update_status_and_promotion(
+        job_id, status="unknown", promotion_state=None
+    )
+
+    result = controller.discard(job_id=job_id)
+    assert isinstance(result, DiscardResult)
+    assert result.job.promotion_state == "discarded"
+
+
+def test_discard_rejects_failed_with_applied_promotion(tmp_path: Path) -> None:
+    """Discard rejects a failed job with applied promotion_state (post-mutation)."""
+    controller, job_store, _journal, _repo, job_id, _hash, _cb = (
+        _build_promote_scenario(tmp_path)
+    )
+    job_store.update_status_and_promotion(
+        job_id, status="failed", promotion_state="applied"
+    )
+
+    result = controller.discard(job_id=job_id)
+    assert isinstance(result, DiscardRejectedResponse)
+    assert result.reason == "job_not_discardable"
+
+
+def test_discard_rejects_failed_with_rollback_needed(tmp_path: Path) -> None:
+    """Discard rejects a failed job with rollback_needed promotion (post-mutation)."""
+    controller, job_store, _journal, _repo, job_id, _hash, _cb = (
+        _build_promote_scenario(tmp_path)
+    )
+    job_store.update_status_and_promotion(
+        job_id, status="failed", promotion_state="rollback_needed"
+    )
+
+    result = controller.discard(job_id=job_id)
+    assert isinstance(result, DiscardRejectedResponse)
+    assert result.reason == "job_not_discardable"
+
+
 def test_recover_startup_replays_promotion_dispatched_state(tmp_path: Path) -> None:
     """recover_startup reconciles an unresolved promotion:dispatched journal entry."""
     controller, job_store, journal, primary_repo, job_id, artifact_hash, _cb = (
