@@ -19,9 +19,7 @@ _VALID_PROMOTION_STATES: frozenset[str] = frozenset(get_args(PromotionState))
 # Manually curated subset of JobStatus (not derived from get_args): "active"
 # is the complement of terminal (completed | failed | unknown). Adding a new
 # JobStatus should be an explicit decision about whether it counts as active.
-_ACTIVE_STATUSES: frozenset[str] = frozenset(
-    {"queued", "running", "needs_escalation"}
-)
+_ACTIVE_STATUSES: frozenset[str] = frozenset({"queued", "running", "needs_escalation"})
 
 
 def _is_valid_promotion_state(value: str | None) -> bool:
@@ -109,12 +107,14 @@ class DelegationJobStore:
                 f"DelegationJobStore.update_status_and_promotion failed: unknown promotion_state. "
                 f"Got: {promotion_state!r:.100}"
             )
-        self._append({
-            "op": "update_status_and_promotion",
-            "job_id": job_id,
-            "status": status,
-            "promotion_state": promotion_state,
-        })
+        self._append(
+            {
+                "op": "update_status_and_promotion",
+                "job_id": job_id,
+                "status": status,
+                "promotion_state": promotion_state,
+            }
+        )
 
     def update_promotion_state(
         self,
@@ -152,12 +152,14 @@ class DelegationJobStore:
     ) -> None:
         """Append an artifact update record to the log."""
 
-        self._append({
-            "op": "update_artifacts",
-            "job_id": job_id,
-            "artifact_paths": list(artifact_paths),
-            "artifact_hash": artifact_hash,
-        })
+        self._append(
+            {
+                "op": "update_artifacts",
+                "job_id": job_id,
+                "artifact_paths": list(artifact_paths),
+                "artifact_hash": artifact_hash,
+            }
+        )
 
     def _append(self, record: dict[str, Any]) -> None:
         with self._store_path.open("a", encoding="utf-8") as handle:

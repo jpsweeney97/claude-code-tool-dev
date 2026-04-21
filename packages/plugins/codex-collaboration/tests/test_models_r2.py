@@ -447,6 +447,7 @@ def test_poll_result_shapes() -> None:
     assert result.job.job_id == "job-1"
     assert result.pending_escalation is pending
     assert result.inspection is inspection
+    assert rejected.reason == "job_not_found"
 
 
 def test_delegation_job_persists_promotion_attempt() -> None:

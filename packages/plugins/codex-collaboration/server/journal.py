@@ -33,7 +33,13 @@ def default_plugin_data_path() -> Path:
 
 
 _VALID_OPERATIONS = frozenset(
-    ("thread_creation", "turn_dispatch", "job_creation", "approval_resolution", "promotion")
+    (
+        "thread_creation",
+        "turn_dispatch",
+        "job_creation",
+        "approval_resolution",
+        "promotion",
+    )
 )
 _VALID_PHASES = frozenset(("intent", "dispatched", "completed"))
 _JOURNAL_REQUIRED_STR = (
@@ -44,7 +50,13 @@ _JOURNAL_REQUIRED_STR = (
     "created_at",
     "repo_root",
 )
-_JOURNAL_OPTIONAL_STR = ("codex_thread_id", "runtime_id", "job_id", "request_id", "decision")
+_JOURNAL_OPTIONAL_STR = (
+    "codex_thread_id",
+    "runtime_id",
+    "job_id",
+    "request_id",
+    "decision",
+)
 _JOURNAL_OPTIONAL_INT = ("turn_sequence", "context_size")
 
 
@@ -96,14 +108,10 @@ def _journal_callback(
             )
     elif op == "job_creation" and phase == "intent":
         if not isinstance(record.get("job_id"), str):
-            raise SchemaViolation(
-                "job_creation at intent requires job_id (string)"
-            )
+            raise SchemaViolation("job_creation at intent requires job_id (string)")
     elif op == "job_creation" and phase == "dispatched":
         if not isinstance(record.get("job_id"), str):
-            raise SchemaViolation(
-                "job_creation at dispatched requires job_id (string)"
-            )
+            raise SchemaViolation("job_creation at dispatched requires job_id (string)")
         if not isinstance(record.get("runtime_id"), str):
             raise SchemaViolation(
                 "job_creation at dispatched requires runtime_id (string)"
@@ -148,9 +156,7 @@ def _journal_callback(
             )
     elif op == "promotion" and phase in ("intent", "dispatched"):
         if not isinstance(record.get("job_id"), str):
-            raise SchemaViolation(
-                f"promotion at {phase} requires job_id (string)"
-            )
+            raise SchemaViolation(f"promotion at {phase} requires job_id (string)")
     # Compatibility decision: runtime_id on turn_dispatch is NOT required.
     # Missing runtime_id suppresses audit event emission (dialogue.py:592,689)
     # but does not crash recovery. Requiring it would reject records from
