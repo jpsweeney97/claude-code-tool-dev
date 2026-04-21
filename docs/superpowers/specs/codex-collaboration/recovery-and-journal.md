@@ -50,6 +50,8 @@ Each journaled operation carries a unique idempotency key. If the same key is re
 | Approval resolution | `request_id` + `decision` | Check if already resolved |
 | Promotion | `job_id` + `promotion_attempt` | Check promotion state |
 
+`promotion_attempt` is a controller-owned monotonic counter persisted on the [DelegationJob](contracts.md#delegationjob). It increments before each new promote attempt writes its `promotion` journal `intent` phase.
+
 ### Session Scope
 
 In v1, the operation journal is session-bounded. It does not survive across Claude sessions.
@@ -60,13 +62,36 @@ In v1, the operation journal is session-bounded. It does not survive across Clau
 
 Completed operations are trimmed from the journal after their outcome is confirmed. The journal should be near-empty during normal operation and only accumulate records for in-flight operations.
 
+### Promotion Replay
+
+Promotion is the only operation journaled in v1 that mutates the primary workspace directly rather than dispatching an App Server request. The phase meanings are therefore workspace-centric:
+
+| Phase | Meaning | Workspace mutation may already have happened? |
+|---|---|---|
+| `intent` | All promotion prechecks passed; no primary-workspace mutation yet | No |
+| `dispatched` | Reviewed diff applied to the primary workspace | Yes |
+| `completed` | Promote reached `verified` or `rolled_back` | Already happened |
+
+Replay rules:
+
+- If recovery finds `promotion:intent` with no later `dispatched`, no primary-workspace mutation occurred. The job normalizes back to `promotion_state="pending"`.
+- If recovery finds `promotion:dispatched` with no later `completed`, the journal is authoritative that workspace mutation may have happened. Recovery re-runs post-apply verification, then repairs the job store to `verified`, `rollback_needed`, or `rolled_back` as appropriate.
+- If the journal and job store disagree, the journal wins for the "has workspace mutation occurred?" question. A `dispatched` record outranks stale job-store state such as `prechecks_passed`.
+
+`promotion:completed` is a resolution marker, not a terminal-state payload. By write ordering, the controller writes `promotion:completed` only after the job store has already been updated to terminal `promotion_state="verified"` or `promotion_state="rolled_back"`. Recovery reads the job store to learn which terminal state was reached. If a `completed` journal record exists but the job store still reports a pre-terminal promotion state, treat that as inconsistency to surface and repair explicitly rather than guessing from the journal alone.
+
 ### Stale Advisory Context Marker
 
-When a successful promotion changes HEAD and an advisory runtime exists for the same repo root, the control plane writes a session-scoped `stale_advisory_context` marker to the operation journal before acknowledging promotion success. The marker stores at least the repo root and the promoted HEAD.
+When a successful promotion changes primary-workspace content and an advisory runtime exists for the same repo root, the control plane writes a session-scoped `stale_advisory_context` marker to the operation journal before acknowledging promotion success. The marker stores:
+
+- `repo_root`
+- `promoted_artifact_hash`
+- `job_id`
+- `recorded_at`
 
 The marker is crash-recovery state, not a dispatchable App Server operation. It guarantees that the next advisory turn for that repo root applies the post-promotion coherence protocol in [advisory-runtime-policy.md §Post-Promotion Coherence](advisory-runtime-policy.md#post-promotion-coherence).
 
-If multiple promotions occur before the next advisory turn, the marker is replaced with the newest promoted HEAD for that repo root.
+If multiple promotions occur before the next advisory turn, the marker is replaced with the newest promoted artifact hash / job id pair for that repo root.
 
 The marker is trimmed after the first successful advisory turn dispatched with the required workspace-changed injection, or when the Claude session ends.
 
@@ -154,7 +179,7 @@ Advisory turns and promotion checks can race with workspace drift:
 
 1. Advisory consult reads workspace state.
 2. Delegation runs and produces artifacts.
-3. Promotion changes HEAD.
+3. Promotion applies reviewed workspace content.
 4. Next advisory turn has stale context.
 
 This does not break safety — the advisory runtime's read-only sandbox prevents writes. It breaks **coherence**: Codex's advisory responses are grounded in a workspace state that no longer exists.
