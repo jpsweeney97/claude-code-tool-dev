@@ -132,7 +132,7 @@ When `poll`, `promote`, or `discard` have no `job_id` argument, the skill uses `
 
 ### Router Precedence
 
-Evaluate promotion state first when non-null, then fall through to job runtime status. This avoids unexpected behavior when status and promotion state combine in recovery or legacy shapes.
+Evaluate promotion state first when non-null, then fall through to job runtime status. Exception: `pending` with `status != "completed"` (legacy/corrupt records where `promotion_state` defaults to `"pending"`) falls through to Tier 4 (runtime status) instead of being handled in Tier 3. This avoids unexpected behavior when status and promotion state combine in recovery or legacy shapes.
 
 **Tier 1 -- Terminal promotion states.**
 

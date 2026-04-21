@@ -100,7 +100,7 @@ Extract `active_delegation` from the status result (step 3).
 
 ### 6. State router
 
-Evaluate `promotion_state` first when non-null. Fall through to job `status` only when `promotion_state` is null.
+Evaluate `promotion_state` first when non-null, except: `pending` with `status != "completed"` (legacy/corrupt records where `promotion_state` defaults to `"pending"`) falls through to Tier 4 (runtime status). All other non-null `promotion_state` values are handled in their tier. Fall through to job `status` when `promotion_state` is null.
 
 #### 6a. Tier 1 -- Terminal promotion states
 
