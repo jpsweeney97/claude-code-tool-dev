@@ -266,13 +266,13 @@ Returned by `codex.delegate.discard` on success.
 
 ### Job Busy
 
-Returned by `codex.delegate.start` when a delegation job is already running. See [recovery-and-journal.md §Concurrency Limits](recovery-and-journal.md#concurrency-limits).
+Returned by `codex.delegate.start` when a user-attention-required job exists. The widened busy gate blocks when any non-terminal job requires user attention — not just runtime-active (running/queued/needs_escalation) jobs. This includes completed jobs awaiting review, failed/unknown jobs needing inspection, and partial promotion states. See [recovery-and-journal.md §Concurrency Limits](recovery-and-journal.md#concurrency-limits).
 
 | Field | Type | Description |
 |---|---|---|
 | `busy` | boolean | Always `true` |
-| `active_job_id` | string | The currently running job |
-| `active_job_status` | enum | Current status of the active job |
+| `active_job_id` | string | The job requiring user attention |
+| `active_job_status` | enum | Current status of the attention-active job (any `JobStatus` value) |
 | `detail` | string | Human-readable explanation |
 
 ### Start Escalation
@@ -365,7 +365,8 @@ Returned by `codex.status`.
 | `app_server_version` | string | App Server protocol version |
 | `auth_status` | enum | `authenticated`, `expired`, `missing` |
 | `advisory_runtime` | object? | Advisory runtime state (id, policy\_fingerprint, thread\_count, uptime) |
-| `active_delegation` | object? | Active delegation job summary |
+| `active_delegation` | object? | Current delegation requiring user attention (in-flight, completed awaiting review, failed/unknown needing inspection, or partial promotion states needing recovery). Null when no job requires attention. Excluded: terminal promotion states (`verified`, `discarded`, `rolled_back`). |
+| `delegation_status_error` | string? | Diagnostic when delegation status enrichment fails (factory recovery error, query error). Present only on failure. Do NOT treat null `active_delegation` as "no active delegation" when this field is set. NOT appended to global `errors` to avoid blocking consult/dialogue preflights. |
 | `plugin_data_path` | path | `${CLAUDE_PLUGIN_DATA}` location |
 
 ### Dialogue Start

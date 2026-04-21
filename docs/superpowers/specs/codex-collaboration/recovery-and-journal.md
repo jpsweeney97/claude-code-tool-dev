@@ -169,9 +169,9 @@ An [audit event](contracts.md#auditevent) with `action: escalate` is emitted for
 
 ### Max Concurrent Delegation Jobs
 
-**v1: exactly 1.** If Claude calls `codex.delegate.start` while a delegation job is already running, the control plane returns a [Job Busy](contracts.md#job-busy) response with the active job's ID and status.
+**v1: exactly 1 user-attention job.** If Claude calls `codex.delegate.start` while any user-attention-required job exists, the controller returns a [Job Busy](contracts.md#job-busy) response with the attention-active job's ID and status. The busy gate covers not just runtime-active jobs (queued/running/needs_escalation) but also completed jobs awaiting review, failed/unknown jobs needing inspection, and partial promotion states needing recovery. A user must promote, discard, or otherwise terminalize the current job before starting a new delegation.
 
-This eliminates queueing, admission control, and contention management for v1. The delegation flow is strictly sequential.
+This eliminates queueing, admission control, and contention management for v1. The delegation flow is strictly sequential — one job requiring user attention at a time.
 
 ### Advisory-Delegation Race
 
