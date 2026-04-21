@@ -7,7 +7,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from server.artifact_store import ArtifactStore
+from server.artifact_store import ArtifactStore, CanonicalArtifactBundle
 from server.models import DelegationJob
 
 
@@ -85,7 +85,14 @@ def test_materialize_completed_snapshot_writes_canonical_files_and_hash(
     cc_dir = repo / ".codex-collaboration"
     cc_dir.mkdir()
     (cc_dir / "test-results.json").write_text(
-        json.dumps({"schema_version": 1, "status": "passed", "commands": ["pytest"], "summary": "ok"}),
+        json.dumps(
+            {
+                "schema_version": 1,
+                "status": "passed",
+                "commands": ["pytest"],
+                "summary": "ok",
+            }
+        ),
         encoding="utf-8",
     )
 
@@ -128,7 +135,14 @@ def test_materialize_completed_snapshot_hash_matches_spec_recipe(
     cc_dir = repo / ".codex-collaboration"
     cc_dir.mkdir()
     (cc_dir / "test-results.json").write_text(
-        json.dumps({"schema_version": 1, "status": "passed", "commands": ["pytest"], "summary": "all pass"}),
+        json.dumps(
+            {
+                "schema_version": 1,
+                "status": "passed",
+                "commands": ["pytest"],
+                "summary": "all pass",
+            }
+        ),
         encoding="utf-8",
     )
 
@@ -217,9 +231,13 @@ def test_load_snapshot_returns_none_for_corrupt_json(tmp_path: Path) -> None:
         status="completed",
     )
     # Write a truncated snapshot.json
-    inspection_dir = plugin_data / "runtimes" / "delegation" / "job-corrupt" / "inspection"
+    inspection_dir = (
+        plugin_data / "runtimes" / "delegation" / "job-corrupt" / "inspection"
+    )
     inspection_dir.mkdir(parents=True)
-    (inspection_dir / "snapshot.json").write_text('{"artifact_hash": "abc', encoding="utf-8")
+    (inspection_dir / "snapshot.json").write_text(
+        '{"artifact_hash": "abc', encoding="utf-8"
+    )
 
     result = store.load_snapshot(job=job)
     assert result is None
@@ -329,13 +347,19 @@ def test_reconstruct_handles_malformed_manifest(tmp_path: Path) -> None:
     """Malformed changed-files.json (valid JSON, wrong shape) must not crash."""
     plugin_data = tmp_path / "plugin-data"
     store = ArtifactStore(plugin_data, timestamp_factory=lambda: "2026-04-20T07:00:00Z")
-    inspection_dir = plugin_data / "runtimes" / "delegation" / "job-bad-manifest" / "inspection"
+    inspection_dir = (
+        plugin_data / "runtimes" / "delegation" / "job-bad-manifest" / "inspection"
+    )
     inspection_dir.mkdir(parents=True)
 
     # Write artifact files — manifest is valid JSON but wrong shape (list, not dict)
     (inspection_dir / "full.diff").write_text("diff content\n", encoding="utf-8")
-    (inspection_dir / "changed-files.json").write_text('["not", "a", "dict"]', encoding="utf-8")
-    (inspection_dir / "test-results.json").write_text('{"status": "passed"}', encoding="utf-8")
+    (inspection_dir / "changed-files.json").write_text(
+        '["not", "a", "dict"]', encoding="utf-8"
+    )
+    (inspection_dir / "test-results.json").write_text(
+        '{"status": "passed"}', encoding="utf-8"
+    )
 
     job = DelegationJob(
         job_id="job-bad-manifest",
@@ -356,3 +380,102 @@ def test_reconstruct_handles_malformed_manifest(tmp_path: Path) -> None:
     assert result is not None
     assert result.artifact_hash == "abc123"
     assert result.changed_files == ()  # Gracefully empty, not crashed
+
+
+# ---------------------------------------------------------------------------
+# Tests for generate_canonical_artifacts() and CanonicalArtifactBundle
+# ---------------------------------------------------------------------------
+
+
+def test_generate_canonical_artifacts_returns_bundle_with_hash(tmp_path: Path) -> None:
+    """generate_canonical_artifacts returns a CanonicalArtifactBundle with hash and metadata."""
+    store = ArtifactStore(
+        tmp_path / "plugin-data", timestamp_factory=lambda: "2026-04-20T00:00:00Z"
+    )
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    base_commit = _init_repo(repo)
+    (repo / "README.md").write_text("# Changed\n", encoding="utf-8")
+
+    bundle = store.generate_canonical_artifacts(
+        job=_make_job(worktree_path=str(repo), base_commit=base_commit),
+        output_dir=tmp_path / "bundle",
+    )
+
+    assert isinstance(bundle, CanonicalArtifactBundle)
+    assert bundle.artifact_hash is not None
+    assert bundle.changed_files == ("README.md",)
+    assert bundle.full_diff_path.name == "full.diff"
+
+
+def test_generate_canonical_artifacts_creates_output_dir(tmp_path: Path) -> None:
+    """generate_canonical_artifacts creates output_dir if it does not exist."""
+    store = ArtifactStore(
+        tmp_path / "plugin-data", timestamp_factory=lambda: "2026-04-20T00:00:00Z"
+    )
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    base_commit = _init_repo(repo)
+    (repo / "README.md").write_text("# Changed\n", encoding="utf-8")
+
+    output_dir = tmp_path / "nested" / "does" / "not" / "exist"
+    assert not output_dir.exists()
+
+    bundle = store.generate_canonical_artifacts(
+        job=_make_job(worktree_path=str(repo), base_commit=base_commit),
+        output_dir=output_dir,
+    )
+
+    assert output_dir.exists()
+    assert bundle.full_diff_path.parent == output_dir
+
+
+def test_generate_canonical_artifacts_omits_hash_for_non_completed_job(
+    tmp_path: Path,
+) -> None:
+    """generate_canonical_artifacts returns artifact_hash=None for non-completed jobs."""
+    store = ArtifactStore(
+        tmp_path / "plugin-data", timestamp_factory=lambda: "2026-04-20T00:00:00Z"
+    )
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    base_commit = _init_repo(repo)
+    (repo / "README.md").write_text("# Changed\n", encoding="utf-8")
+
+    bundle = store.generate_canonical_artifacts(
+        job=_make_job(
+            worktree_path=str(repo),
+            base_commit=base_commit,
+            status="unknown",
+            promotion_state=None,
+        ),
+        output_dir=tmp_path / "bundle",
+    )
+
+    assert bundle.artifact_hash is None
+    assert bundle.changed_files == ("README.md",)
+
+
+def test_generate_canonical_artifacts_parity_with_materialize_snapshot(
+    tmp_path: Path,
+) -> None:
+    """Artifacts produced by generate_canonical_artifacts to a temp dir have the same hash as materialize_snapshot."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    base_commit = _init_repo(repo)
+    (repo / "README.md").write_text("# Parity check\n", encoding="utf-8")
+
+    plugin_data = tmp_path / "plugin-data"
+    store = ArtifactStore(plugin_data, timestamp_factory=lambda: "2026-04-20T00:00:00Z")
+    job = _make_job(worktree_path=str(repo), base_commit=base_commit)
+
+    snapshot = store.materialize_snapshot(job=job)
+    bundle = store.generate_canonical_artifacts(
+        job=job,
+        output_dir=tmp_path / "temp-bundle",
+    )
+
+    # Both paths must produce the same artifact hash, even though artifacts
+    # live in different directories.
+    assert bundle.artifact_hash is not None
+    assert bundle.artifact_hash == snapshot.artifact_hash
