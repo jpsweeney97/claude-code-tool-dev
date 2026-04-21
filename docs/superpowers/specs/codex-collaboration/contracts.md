@@ -377,10 +377,10 @@ Present when a delegation job requires user attention (in-flight, completed awai
 |---|---|---|
 | `job_id` | string | Unique job identifier |
 | `status` | enum | Job runtime status: `queued`, `running`, `needs_escalation`, `completed`, `failed`, `unknown` |
-| `promotion_state` | enum? | Promotion lifecycle state: `pending`, `prechecks_passed`, `prechecks_failed`, `applied`, `rollback_needed`, `verified`, `discarded`, `rolled_back`. Null for pre-completion jobs. |
+| `promotion_state` | enum? | Promotion lifecycle state: `pending`, `prechecks_passed`, `prechecks_failed`, `applied`, `rollback_needed`, `verified`, `discarded`, `rolled_back`. Null for pre-completion jobs. Legacy/corrupt records may have `pending` on non-completed jobs (the skill's state router falls through to Tier 4 for these). |
 | `base_commit` | string | Git commit the delegation branched from |
 | `artifact_hash` | string? | SHA-256 of inspection artifacts. Null until first poll after completion materializes them. |
-| `artifact_paths` | string[] | Paths to inspection artifacts (diff, patch, summary). Empty until materialized. |
+| `artifact_paths` | string[] | Paths to inspection artifacts (`full.diff`, `changed-files.json`, `test-results.json`). Empty until first poll after completion materializes them. |
 | `attention_job_count` | int | Number of jobs requiring attention. Normally 1 (singleton invariant). Values > 1 indicate a pre-migration anomaly. |
 
 ### Dialogue Start
