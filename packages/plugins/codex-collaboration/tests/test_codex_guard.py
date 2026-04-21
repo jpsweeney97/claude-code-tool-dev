@@ -233,6 +233,30 @@ class TestDelegatePollGuard:
         assert result.returncode == 0
 
 
+class TestDelegatePromoteDiscardGuard:
+    def test_delegate_promote_clean(self) -> None:
+        result = _run_hook(
+            "mcp__plugin_codex-collaboration_codex-collaboration__codex.delegate.promote",
+            {"job_id": "job-1"},
+        )
+        assert result.returncode == 0
+
+    def test_delegate_discard_clean(self) -> None:
+        result = _run_hook(
+            "mcp__plugin_codex-collaboration_codex-collaboration__codex.delegate.discard",
+            {"job_id": "job-1"},
+        )
+        assert result.returncode == 0
+
+    def test_delegate_promote_guard_blocks_secret_in_job_id_payload(self) -> None:
+        """Unknown field carrying a secret in a promote payload is caught."""
+        result = _run_hook(
+            "mcp__plugin_codex-collaboration_codex-collaboration__codex.delegate.promote",
+            {"job_id": "job-1", "extra": "AKIAIOSFODNN7EXAMPLE"},
+        )
+        assert result.returncode == 2
+
+
 class TestHookEntrypoint:
     def test_keyboard_interrupt_exits_fail_closed(self, monkeypatch, capsys) -> None:
         module = _load_guard_module()

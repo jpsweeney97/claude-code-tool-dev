@@ -131,6 +131,24 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "codex.delegate.promote",
+        "description": "Apply reviewed delegation results to the primary workspace.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"job_id": {"type": "string"}},
+            "required": ["job_id"],
+        },
+    },
+    {
+        "name": "codex.delegate.discard",
+        "description": "Discard unpromoted delegation results.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"job_id": {"type": "string"}},
+            "required": ["job_id"],
+        },
+    },
+    {
         "name": "codex.delegate.decide",
         "description": "Resolve a live same-session delegation escalation.",
         "inputSchema": {
@@ -387,6 +405,12 @@ class McpServer:
         if name == "codex.delegate.poll":
             controller = self._ensure_delegation_controller()
             return asdict(controller.poll(job_id=arguments["job_id"]))
+        if name == "codex.delegate.promote":
+            controller = self._ensure_delegation_controller()
+            return asdict(controller.promote(job_id=arguments["job_id"]))
+        if name == "codex.delegate.discard":
+            controller = self._ensure_delegation_controller()
+            return asdict(controller.discard(job_id=arguments["job_id"]))
         if name == "codex.delegate.decide":
             from .models import DelegationDecisionResult
 
