@@ -906,12 +906,18 @@ class DelegationController:
     def promote(self, *, job_id: str) -> PromotionResult | PromotionRejectedResponse:
         """Apply the reviewed diff from a completed delegation to the primary workspace.
 
-        Prechecks:
-          1. Job exists, status == completed, artifact_hash present
-          2. HEAD == base_commit
-          3. git status --porcelain empty (no untracked/modified files)
-          4. git diff --cached clean (no staged changes)
-          5. Regenerated artifact hash matches the reviewed hash
+        Entry gates (before numbered prechecks):
+          - Job exists
+          - status == "completed"
+          - promotion_state in {"pending", "prechecks_failed"}
+          - artifact_hash present (reviewed)
+          - Collaboration handle exists in lineage store
+
+        Prechecks (after entry gates pass):
+          1. HEAD == base_commit
+          2. git status --porcelain empty (no untracked/modified files)
+          3. git diff --cached clean (no staged changes)
+          4. Regenerated artifact hash matches the reviewed hash
 
         On success: applies full.diff, verifies, transitions to "verified".
         On precheck failure: transitions to "prechecks_failed".

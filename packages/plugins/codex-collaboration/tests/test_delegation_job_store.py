@@ -404,6 +404,55 @@ def test_list_user_attention_required_returns_rollback_needed(
     assert result[0].promotion_state == "rollback_needed"
 
 
+def test_list_user_attention_required_returns_queued_null_promotion(
+    tmp_path: Path,
+) -> None:
+    """Queued jobs with null promotion_state are user-attention-required.
+
+    This is the initial job shape after start() commits a new delegation —
+    the job is queued but the execution turn has not yet begun.
+    """
+    store = DelegationJobStore(tmp_path, "sess-1")
+    job = _make_job("job-1", status="queued", promotion_state=None)
+    store.create(job)
+
+    result = store.list_user_attention_required()
+    assert len(result) == 1
+    assert result[0].status == "queued"
+
+
+def test_list_user_attention_required_returns_applied(
+    tmp_path: Path,
+) -> None:
+    """Jobs with applied promotion state are user-attention-required.
+
+    Crash recovery state: diff applied but not yet verified.
+    """
+    store = DelegationJobStore(tmp_path, "sess-1")
+    job = _make_job("job-1", status="completed", promotion_state="applied")
+    store.create(job)
+
+    result = store.list_user_attention_required()
+    assert len(result) == 1
+    assert result[0].promotion_state == "applied"
+
+
+def test_list_user_attention_required_returns_prechecks_passed(
+    tmp_path: Path,
+) -> None:
+    """Jobs with prechecks_passed promotion state are user-attention-required.
+
+    Crash recovery state: prechecks passed but apply not yet completed.
+    """
+    store = DelegationJobStore(tmp_path, "sess-1")
+    job = _make_job("job-1", status="completed", promotion_state="prechecks_passed")
+    store.create(job)
+
+    result = store.list_user_attention_required()
+    assert len(result) == 1
+    assert result[0].promotion_state == "prechecks_passed"
+
+
 def test_list_user_attention_required_excludes_completed_null_promotion(
     tmp_path: Path,
 ) -> None:

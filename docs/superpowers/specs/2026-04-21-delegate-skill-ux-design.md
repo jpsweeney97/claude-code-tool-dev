@@ -159,14 +159,16 @@ Terminal states are excluded from `active_delegation`. These are only reachable 
 | `pending` | If `status == "completed"`: **Review rendering** (see [Completed Job Review](#completed-job-review)). Exit with `/delegate promote` and `/delegate discard` choices. If `status != "completed"` (legacy/corrupt — `promotion_state` defaults to `"pending"` in legacy records): fall through to Tier 4 (route by runtime status). Do not render review ceremony for non-completed jobs. |
 | `prechecks_failed` | "Previous promotion prechecks failed. Resolve the blocking condition, then retry `/delegate promote`, or `/delegate discard`." Do not render a specific rejection reason -- it was returned by `promote` at failure time and is not persisted on the job model. |
 
-**Tier 4 -- Job runtime status (promotion_state is null).**
+**Tier 4 -- Job runtime status.**
+
+Reached when `promotion_state` is null, or when `pending` with `status != "completed"` falls through from Tier 3.
 
 | `status` | Action |
 |---|---|
 | `queued` / `running` | Render job id, status, base_commit. "Run `/delegate` to check progress." |
 | `needs_escalation` | **Escalation rendering** (see [Escalation Display](#escalation-display)). |
-| `failed` / `unknown` | Render `poll.detail` and inspection snapshot if available. If `promotion_state is None`: "Inspect artifacts. `/delegate discard` to clear, then start a new delegation if needed." If `promotion_state` is a post-mutation state (`applied`, `rollback_needed`): "Recovery required. Workspace may have been mutated." Do not offer discard for post-mutation states. If `promotion_state` is terminal: excluded from `active_delegation`, only reachable via explicit `poll`. |
-| `completed` with null `promotion_state` | Inconsistent state (should not occur — `update_status_and_promotion` sets both atomically). Report: "Job completed but promotion state is missing. This is a legacy or corrupted state that cannot be promoted or discarded. Inspect artifacts manually via `/delegate poll {job_id}`. To clear, the job store entry must be resolved outside the skill." Do NOT render promote/discard choices. |
+| `failed` / `unknown` | Render `poll.detail` and inspection snapshot if available. "Inspect artifacts. `/delegate discard` to clear, then start a new delegation if needed." (Discard is allowed because Tier 4 implies `promotion_state` is null or `pending` — post-mutation states like `applied`/`rollback_needed` are handled in Tier 2, never here.) |
+| `completed` with null `promotion_state` | Inconsistent state (should not occur — `update_status_and_promotion` sets both atomically). Excluded from `active_delegation` and the busy gate — reachable only via explicit `poll`. Report: "Job completed but promotion state is missing. This is a legacy or corrupted state that cannot be promoted or discarded. Inspect artifacts manually via `/delegate poll {job_id}`. To clear, the job store entry must be resolved outside the skill." Do NOT render promote/discard choices. |
 
 ### Start Routing
 

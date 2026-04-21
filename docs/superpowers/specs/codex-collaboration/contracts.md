@@ -365,9 +365,23 @@ Returned by `codex.status`.
 | `app_server_version` | string | App Server protocol version |
 | `auth_status` | enum | `authenticated`, `expired`, `missing` |
 | `advisory_runtime` | object? | Advisory runtime state (id, policy\_fingerprint, thread\_count, uptime) |
-| `active_delegation` | object? | Current delegation requiring user attention (in-flight, completed awaiting review, failed/unknown needing inspection, or partial promotion states needing recovery). Null when no job requires attention. Excluded: terminal promotion states (`verified`, `discarded`, `rolled_back`). |
+| `active_delegation` | object? | Current delegation requiring user attention. Null when no job requires attention. See field table below. |
 | `delegation_status_error` | string? | Diagnostic when delegation status enrichment fails (factory recovery error, query error). Present only on failure. Do NOT treat null `active_delegation` as "no active delegation" when this field is set. NOT appended to global `errors` to avoid blocking consult/dialogue preflights. |
 | `plugin_data_path` | path | `${CLAUDE_PLUGIN_DATA}` location |
+
+#### `active_delegation` Fields
+
+Present when a delegation job requires user attention (in-flight, completed awaiting review, failed/unknown needing inspection, or partial promotion states needing recovery). Excluded: terminal promotion states (`verified`, `discarded`, `rolled_back`).
+
+| Field | Type | Description |
+|---|---|---|
+| `job_id` | string | Unique job identifier |
+| `status` | enum | Job runtime status: `queued`, `running`, `needs_escalation`, `completed`, `failed`, `unknown` |
+| `promotion_state` | enum? | Promotion lifecycle state: `pending`, `prechecks_passed`, `prechecks_failed`, `applied`, `rollback_needed`, `verified`, `discarded`, `rolled_back`. Null for pre-completion jobs. |
+| `base_commit` | string | Git commit the delegation branched from |
+| `artifact_hash` | string? | SHA-256 of inspection artifacts. Null until first poll after completion materializes them. |
+| `artifact_paths` | string[] | Paths to inspection artifacts (diff, patch, summary). Empty until materialized. |
+| `attention_job_count` | int | Number of jobs requiring attention. Normally 1 (singleton invariant). Values > 1 indicate a pre-migration anomaly. |
 
 ### Dialogue Start
 

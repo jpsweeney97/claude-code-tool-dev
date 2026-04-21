@@ -7,10 +7,13 @@ at a time (serialization invariant per delivery.md §R2 in-scope).
 from __future__ import annotations
 
 import json
+import logging
 import sys
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Callable
+
+logger = logging.getLogger(__name__)
 
 TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
@@ -371,6 +374,11 @@ class McpServer:
                 # non-blocking field — do NOT append to global `errors`,
                 # because existing status consumers (consult, dialogue)
                 # treat non-empty `errors` as blocking.
+                logger.warning(
+                    "Delegation status enrichment failed: %s",
+                    exc,
+                    exc_info=True,
+                )
                 result["delegation_status_error"] = (
                     f"Delegation status query failed: {exc!r:.200}"
                 )
