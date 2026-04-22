@@ -1077,3 +1077,57 @@ def test_codex_consult_injects_workspace_changed_summary_from_artifact_hash_mark
     assert "job: job-99" in session.last_prompt_text
     # Marker must be consumed after a successful consult.
     assert journal.load_stale_marker(tmp_path) is None
+
+
+def test_codex_consult_threads_workflow_to_outcome_record(tmp_path: Path) -> None:
+    focus = tmp_path / "focus.py"
+    focus.write_text("print('focus')\n", encoding="utf-8")
+    session = FakeRuntimeSession()
+    plugin_data = tmp_path / "plugin-data"
+    journal = OperationJournal(plugin_data)
+    plane = ControlPlane(
+        plugin_data_path=plugin_data,
+        runtime_factory=lambda _repo_root: session,
+        compat_checker=_compat_result,
+        repo_identity_loader=_repo_identity,
+        clock=lambda: 100.0,
+        uuid_factory=iter(("runtime-1", "collab-1", "event-1", "outcome-1")).__next__,
+        journal=journal,
+    )
+
+    plane.codex_consult(
+        ConsultRequest(
+            repo_root=tmp_path,
+            objective="Review focus.py",
+            workflow="review",
+        )
+    )
+
+    outcomes_path = plugin_data / "analytics" / "outcomes.jsonl"
+    record = json.loads(outcomes_path.read_text(encoding="utf-8").strip())
+    assert record["workflow"] == "review"
+
+
+def test_codex_consult_default_workflow_in_outcome(tmp_path: Path) -> None:
+    focus = tmp_path / "focus.py"
+    focus.write_text("print('focus')\n", encoding="utf-8")
+    session = FakeRuntimeSession()
+    plugin_data = tmp_path / "plugin-data"
+    journal = OperationJournal(plugin_data)
+    plane = ControlPlane(
+        plugin_data_path=plugin_data,
+        runtime_factory=lambda _repo_root: session,
+        compat_checker=_compat_result,
+        repo_identity_loader=_repo_identity,
+        clock=lambda: 100.0,
+        uuid_factory=iter(("runtime-1", "collab-1", "event-1", "outcome-1")).__next__,
+        journal=journal,
+    )
+
+    plane.codex_consult(
+        ConsultRequest(repo_root=tmp_path, objective="Review focus.py")
+    )
+
+    outcomes_path = plugin_data / "analytics" / "outcomes.jsonl"
+    record = json.loads(outcomes_path.read_text(encoding="utf-8").strip())
+    assert record["workflow"] == "consult"

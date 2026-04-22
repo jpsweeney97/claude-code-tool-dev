@@ -238,6 +238,7 @@ class ControlPlane:
                     turn_id=turn_result.turn_id,
                     policy_fingerprint=runtime.policy_fingerprint,
                     repo_root=str(resolved_root),
+                    workflow=request.workflow,
                 )
             )
         except Exception as exc:

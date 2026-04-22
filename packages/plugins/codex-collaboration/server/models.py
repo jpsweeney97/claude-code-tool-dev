@@ -91,6 +91,7 @@ class ConsultRequest:
     parent_thread_id: str | None = None
     network_access: bool = False
     profile: str | None = None
+    workflow: ConsultWorkflow = "consult"
 
 
 @dataclass(frozen=True)

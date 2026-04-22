@@ -40,6 +40,11 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "type": "string",
                     "description": "Named consultation profile (e.g., quick-check, deep-review)",
                 },
+                "workflow": {
+                    "type": "string",
+                    "enum": ["consult", "review"],
+                    "description": "Consultation workflow discriminator for analytics",
+                },
             },
             "required": ["repo_root", "objective"],
         },
@@ -393,6 +398,7 @@ class McpServer:
                     Path(p) for p in arguments.get("explicit_paths", ())
                 ),
                 profile=arguments.get("profile"),
+                workflow=arguments.get("workflow", "consult"),
             )
             result = self._control_plane.codex_consult(request)
             return asdict(result)

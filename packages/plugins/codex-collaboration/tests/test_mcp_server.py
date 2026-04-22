@@ -1495,3 +1495,55 @@ def test_delegate_discard_returns_discard_policy() -> None:
     payload = json.loads(response["result"]["content"][0]["text"])
     assert payload["rejected"] is True
     assert payload["job_id"] == "job-rej"
+
+
+def test_codex_consult_schema_includes_workflow() -> None:
+    from server.mcp_server import TOOL_DEFINITIONS
+
+    consult_tool = next(t for t in TOOL_DEFINITIONS if t["name"] == "codex.consult")
+    props = consult_tool["inputSchema"]["properties"]
+    assert "workflow" in props
+    assert props["workflow"]["enum"] == ["consult", "review"]
+    assert "workflow" not in consult_tool["inputSchema"].get("required", [])
+
+
+def test_codex_consult_dispatch_passes_workflow_to_control_plane(
+    tmp_path: Path,
+) -> None:
+    """Verify MCP dispatch threads workflow argument to ConsultRequest.
+
+    Uses a real ConsultResult dataclass because _dispatch_tool calls
+    asdict() on the return value — a MagicMock would raise TypeError.
+    """
+    from unittest.mock import MagicMock
+    from server.mcp_server import McpServer
+    from server.models import ConsultResult
+
+    mock_cp = MagicMock()
+    mock_cp.codex_consult.return_value = ConsultResult(
+        collaboration_id="c-1",
+        runtime_id="r-1",
+        position="ok",
+        evidence=(),
+        uncertainties=(),
+        follow_up_branches=(),
+        context_size=100,
+    )
+    server = McpServer(control_plane=mock_cp)
+
+    # Call with explicit workflow="review"
+    server._dispatch_tool(
+        "codex.consult",
+        {"repo_root": str(tmp_path), "objective": "test", "workflow": "review"},
+    )
+    request = mock_cp.codex_consult.call_args[0][0]
+    assert request.workflow == "review"
+
+    # Call without workflow — should default to "consult"
+    mock_cp.reset_mock()
+    server._dispatch_tool(
+        "codex.consult",
+        {"repo_root": str(tmp_path), "objective": "test"},
+    )
+    request = mock_cp.codex_consult.call_args[0][0]
+    assert request.workflow == "consult"

@@ -183,3 +183,15 @@ class TestOutcomeRecordWorkflow:
         )
         d = asdict(record)
         assert d["workflow"] == "consult"
+
+    def test_consult_request_default_workflow(self) -> None:
+        from server.models import ConsultRequest
+        request = ConsultRequest(repo_root=Path("/tmp"), objective="test")
+        assert request.workflow == "consult"
+
+    def test_consult_request_explicit_workflow(self) -> None:
+        from server.models import ConsultRequest
+        request = ConsultRequest(
+            repo_root=Path("/tmp"), objective="test", workflow="review",
+        )
+        assert request.workflow == "review"
