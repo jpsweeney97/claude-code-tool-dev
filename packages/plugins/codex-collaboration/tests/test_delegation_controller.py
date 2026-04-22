@@ -3760,3 +3760,176 @@ class TestTerminalOutcomeEmission:
             if json.loads(line).get("outcome_type") == "delegation_terminal"
         ]
         assert len(terminal_records) == 1
+
+
+class TestRecoveryCatchup:
+    """Verify same-session terminal outcome catch-up during recover_startup."""
+
+    def test_recover_startup_emits_for_completed_jobs_missing_outcome(
+        self, tmp_path: Path
+    ) -> None:
+        """Simulate a same-session job that completed but crashed before outcome emission."""
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+        (
+            controller, _cp, _wm, job_store, lineage, journal,
+            _registry, _prs,
+        ) = _build_controller(tmp_path)
+
+        from server.models import CollaborationHandle, DelegationJob
+        lineage.create(
+            CollaborationHandle(
+                collaboration_id="collab-pre",
+                capability_class="execution",
+                runtime_id="rt-pre",
+                codex_thread_id="thr-pre",
+                claude_session_id="sess-1",
+                repo_root=str(repo_root),
+                created_at="2026-04-21T00:00:00Z",
+                status="completed",
+            )
+        )
+        job_store.create(
+            DelegationJob(
+                job_id="job-pre",
+                runtime_id="rt-pre",
+                collaboration_id="collab-pre",
+                base_commit="abc123",
+                worktree_path=str(tmp_path / "wt"),
+                promotion_state="pending",
+                status="completed",
+            )
+        )
+
+        outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
+        assert not outcomes_path.exists() or outcomes_path.read_text().strip() == ""
+
+        controller.recover_startup()
+
+        assert outcomes_path.exists()
+        lines = [
+            l for l in outcomes_path.read_text(encoding="utf-8").strip().split("\n")
+            if l.strip()
+        ]
+        terminal_records = [
+            json.loads(line) for line in lines
+            if json.loads(line).get("outcome_type") == "delegation_terminal"
+        ]
+        assert len(terminal_records) == 1
+        assert terminal_records[0]["job_id"] == "job-pre"
+        assert terminal_records[0]["terminal_status"] == "completed"
+
+    def test_recover_startup_catches_up_verified_promoted_jobs(
+        self, tmp_path: Path
+    ) -> None:
+        """Jobs with terminal promotion states (verified, discarded) must still
+        be swept — list_user_attention_required() would miss these."""
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+        (
+            controller, _cp, _wm, job_store, lineage, journal,
+            _registry, _prs,
+        ) = _build_controller(tmp_path)
+
+        from server.models import CollaborationHandle, DelegationJob
+        lineage.create(
+            CollaborationHandle(
+                collaboration_id="collab-promoted",
+                capability_class="execution",
+                runtime_id="rt-promoted",
+                codex_thread_id="thr-promoted",
+                claude_session_id="sess-1",
+                repo_root=str(repo_root),
+                created_at="2026-04-21T00:00:00Z",
+                status="completed",
+            )
+        )
+        job_store.create(
+            DelegationJob(
+                job_id="job-promoted",
+                runtime_id="rt-promoted",
+                collaboration_id="collab-promoted",
+                base_commit="abc123",
+                worktree_path=str(tmp_path / "wt"),
+                promotion_state="verified",
+                status="completed",
+            )
+        )
+
+        controller.recover_startup()
+
+        outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
+        assert outcomes_path.exists(), (
+            "Terminal outcome must be emitted even for verified/discarded jobs"
+        )
+        lines = [
+            l for l in outcomes_path.read_text(encoding="utf-8").strip().split("\n")
+            if l.strip()
+        ]
+        terminal_records = [
+            json.loads(line) for line in lines
+            if json.loads(line).get("outcome_type") == "delegation_terminal"
+        ]
+        assert len(terminal_records) == 1
+        assert terminal_records[0]["job_id"] == "job-promoted"
+
+    def test_recover_startup_skips_already_emitted_outcomes(
+        self, tmp_path: Path
+    ) -> None:
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+        (
+            controller, _cp, _wm, job_store, lineage, journal,
+            _registry, _prs,
+        ) = _build_controller(tmp_path)
+
+        from server.models import CollaborationHandle, DelegationJob, DelegationOutcomeRecord
+        lineage.create(
+            CollaborationHandle(
+                collaboration_id="collab-pre",
+                capability_class="execution",
+                runtime_id="rt-pre",
+                codex_thread_id="thr-pre",
+                claude_session_id="sess-1",
+                repo_root=str(repo_root),
+                created_at="2026-04-21T00:00:00Z",
+                status="completed",
+            )
+        )
+        job_store.create(
+            DelegationJob(
+                job_id="job-pre",
+                runtime_id="rt-pre",
+                collaboration_id="collab-pre",
+                base_commit="abc123",
+                worktree_path=str(tmp_path / "wt"),
+                promotion_state="pending",
+                status="completed",
+            )
+        )
+
+        journal.append_delegation_outcome(
+            DelegationOutcomeRecord(
+                outcome_id="do-existing",
+                timestamp="2026-04-21T00:00:00Z",
+                outcome_type="delegation_terminal",
+                collaboration_id="collab-pre",
+                runtime_id="rt-pre",
+                job_id="job-pre",
+                terminal_status="completed",
+                base_commit="abc123",
+            )
+        )
+
+        controller.recover_startup()
+
+        outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
+        lines = [
+            l for l in outcomes_path.read_text(encoding="utf-8").strip().split("\n")
+            if l.strip()
+        ]
+        terminal_records = [
+            json.loads(line) for line in lines
+            if json.loads(line).get("outcome_type") == "delegation_terminal"
+        ]
+        assert len(terminal_records) == 1  # No duplicate

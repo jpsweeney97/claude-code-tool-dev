@@ -2040,6 +2040,19 @@ class DelegationController:
                         "unknown",
                     )
 
+        # --- Terminal outcome catch-up (same-session only) ---
+        # Sweep all same-session jobs for terminal statuses missing their
+        # analytics outcome. Uses list() (all session jobs), NOT
+        # list_user_attention_required() — the latter excludes terminal
+        # promotion states (verified/discarded/rolled_back) which are
+        # still terminal from an outcome-emission perspective.
+        # Cross-session abandoned outcomes are structurally unreachable
+        # (DelegationJobStore is session-scoped). This is a documented
+        # T-07 limitation, not a bug.
+        for job in self._job_store.list():
+            if job.status in ("completed", "failed", "unknown"):
+                self._emit_terminal_outcome_if_needed(job.job_id)
+
     def get_active_delegation_summary(self) -> tuple[DelegationJob | None, int]:
         """Return the active user-attention-required job and total count.
 
