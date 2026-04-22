@@ -1708,6 +1708,7 @@ class DelegationController:
         if decision == "deny":
             try:
                 updated_job = self._persist_job_transition(job_id, "failed")
+                self._emit_terminal_outcome_if_needed(job_id)
                 self._lineage_store.update_status(job.collaboration_id, "completed")
                 self._runtime_registry.release(job.runtime_id)
                 entry.session.close()

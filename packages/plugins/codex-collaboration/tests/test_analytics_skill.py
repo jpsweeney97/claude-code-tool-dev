@@ -1,6 +1,6 @@
-"""Tests for the analytics aggregation recipe in the codex-analytics skill.
+"""Tests for the analytics aggregation script in the codex-analytics skill.
 
-Generates fixture data, runs the skill's Python recipe, and asserts
+Generates fixture data, runs the standalone analytics script, and asserts
 the five views produce correct counts.
 """
 
@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-from dataclasses import asdict
 from pathlib import Path
 
 from server.journal import OperationJournal
@@ -16,6 +15,14 @@ from server.models import (
     AuditEvent,
     DelegationOutcomeRecord,
     OutcomeRecord,
+)
+
+ANALYTICS_SCRIPT = (
+    Path(__file__).parent.parent
+    / "skills"
+    / "codex-analytics"
+    / "scripts"
+    / "analytics.py"
 )
 
 
@@ -137,46 +144,25 @@ def _write_fixtures(plugin_data: Path) -> None:
         )
 
 
-def _read_recipe_from_skill() -> str:
-    """Extract the Python recipe from the skill markdown."""
-    skill_path = (
-        Path(__file__).parent.parent
-        / "skills"
-        / "codex-analytics"
-        / "SKILL.md"
-    )
-    text = skill_path.read_text()
-    # Find the python3 -c block
-    start = text.index('python3 -c "')
-    end = text.index('\n```\n', start)
-    # Extract just the Python code (between the quotes)
-    block = text[start:end]
-    code_start = block.index('"') + 1
-    code_end = block.rindex('"')
-    return block[code_start:code_end]
-
-
-def _run_recipe(tmp_path: Path) -> str:
-    """Generate fixtures, extract recipe, run it, return stdout."""
+def _run_analytics(tmp_path: Path) -> str:
+    """Generate fixtures, run the analytics script, return stdout."""
     plugin_data = tmp_path / "data"
     _write_fixtures(plugin_data)
-    recipe = _read_recipe_from_skill()
     outcomes = str(plugin_data / "analytics" / "outcomes.jsonl")
     audit = str(plugin_data / "audit" / "events.jsonl")
-    code = recipe.replace("{outcomes}", outcomes).replace("{audit}", audit)
     result = subprocess.run(
-        ["python3", "-c", code],
+        ["python3", str(ANALYTICS_SCRIPT), outcomes, audit],
         capture_output=True,
         text=True,
         timeout=10,
     )
-    assert result.returncode == 0, f"Recipe failed:\n{result.stderr}"
+    assert result.returncode == 0, f"Script failed:\n{result.stderr}"
     return result.stdout
 
 
 class TestAnalyticsRecipe:
     def test_data_header_with_paths_and_counts(self, tmp_path: Path) -> None:
-        output = _run_recipe(tmp_path)
+        output = _run_analytics(tmp_path)
         # 10 outcome records: 3 consult + 2 dialogue + 3 delegation + 1 unknown + 1 legacy
         assert "## Data Sources" in output
         assert "outcomes.jsonl" in output
@@ -184,7 +170,7 @@ class TestAnalyticsRecipe:
         assert "10 records" in output  # total outcome records (also matches audit)
 
     def test_usage_view_counts(self, tmp_path: Path) -> None:
-        output = _run_recipe(tmp_path)
+        output = _run_analytics(tmp_path)
         # Usage: 4 consults (3 explicit + 1 legacy), 2 dialogue, 3 delegation, 2 delegate_start, 1 review
         assert "| consult | 4 |" in output
         assert "| dialogue_turn | 2 |" in output
@@ -193,12 +179,12 @@ class TestAnalyticsRecipe:
         assert "| reviews | 1 |" in output
 
     def test_unknown_type_metadata_counting(self, tmp_path: Path) -> None:
-        output = _run_recipe(tmp_path)
+        output = _run_analytics(tmp_path)
         assert "Skipped 1 records with unknown outcome_type" in output
         assert "future_shape" in output
 
     def test_reliability_and_security_view(self, tmp_path: Path) -> None:
-        output = _run_recipe(tmp_path)
+        output = _run_analytics(tmp_path)
         assert "## Reliability and Security" in output
         # 2 completed out of 3 total = 66%
         assert "2/3" in output
@@ -211,7 +197,7 @@ class TestAnalyticsRecipe:
         assert "| Promotion rejections | unavailable" in output
 
     def test_delegation_lifecycle_view(self, tmp_path: Path) -> None:
-        output = _run_recipe(tmp_path)
+        output = _run_analytics(tmp_path)
         section = _extract_section(output, "Delegation Lifecycle")
         assert "| started | 2 |" in section
         assert "| promoted | 1 |" in section
@@ -219,7 +205,7 @@ class TestAnalyticsRecipe:
         assert "| escalations | 1 |" in section
 
     def test_review_view(self, tmp_path: Path) -> None:
-        output = _run_recipe(tmp_path)
+        output = _run_analytics(tmp_path)
         section = _extract_section(output, "Review")
         assert "| Review consultations | 1 |" in section
         # Workflow source distribution (ticket: Review view must show this)
@@ -228,7 +214,7 @@ class TestAnalyticsRecipe:
         assert "| Review:consult ratio | 1:3 |" in section
 
     def test_policy_fingerprint_distribution(self, tmp_path: Path) -> None:
-        output = _run_recipe(tmp_path)
+        output = _run_analytics(tmp_path)
         assert "### Policy Fingerprints" in output
         # fp-alpha: 2 consult + 2 dialogue = 4; fp-beta: 1 review consult
         # Legacy row has no fingerprint — not counted

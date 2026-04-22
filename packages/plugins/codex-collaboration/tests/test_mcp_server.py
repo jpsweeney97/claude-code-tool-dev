@@ -1547,3 +1547,20 @@ def test_codex_consult_dispatch_passes_workflow_to_control_plane(
     )
     request = mock_cp.codex_consult.call_args[0][0]
     assert request.workflow == "consult"
+
+
+def test_codex_consult_rejects_invalid_workflow(tmp_path: Path) -> None:
+    """Invalid workflow values are rejected at the MCP dispatch boundary."""
+    from unittest.mock import MagicMock
+
+    import pytest
+
+    from server.mcp_server import McpServer
+
+    server = McpServer(control_plane=MagicMock())
+
+    with pytest.raises(ValueError, match="codex.consult validation failed"):
+        server._dispatch_tool(
+            "codex.consult",
+            {"repo_root": str(tmp_path), "objective": "test", "workflow": "typo"},
+        )

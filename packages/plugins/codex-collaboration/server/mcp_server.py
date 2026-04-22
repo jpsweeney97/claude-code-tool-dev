@@ -391,6 +391,12 @@ class McpServer:
         if name == "codex.consult":
             from .models import ConsultRequest
 
+            raw_workflow = arguments.get("workflow", "consult")
+            if raw_workflow not in ("consult", "review"):
+                raise ValueError(
+                    f"codex.consult validation failed: 'workflow' must be "
+                    f"'consult' or 'review'. Got: {raw_workflow!r:.100}"
+                )
             request = ConsultRequest(
                 repo_root=Path(arguments["repo_root"]),
                 objective=arguments["objective"],
@@ -398,7 +404,7 @@ class McpServer:
                     Path(p) for p in arguments.get("explicit_paths", ())
                 ),
                 profile=arguments.get("profile"),
-                workflow=arguments.get("workflow", "consult"),
+                workflow=raw_workflow,
             )
             result = self._control_plane.codex_consult(request)
             return asdict(result)

@@ -1792,6 +1792,35 @@ def test_decide_deny_marks_job_failed_and_closes_runtime(tmp_path: Path) -> None
     assert approval_events[0]["request_id"] == "42"
 
 
+def test_decide_deny_emits_terminal_outcome(tmp_path: Path) -> None:
+    """Deny decisions must write a delegation_terminal record to outcomes.jsonl."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, journal, _r, _prs = _build_controller(
+        tmp_path
+    )
+    control_plane._next_session_requests = [_command_approval_request()]
+    start_result = controller.start(repo_root=repo_root, objective="Fix it")
+    assert isinstance(start_result, DelegationEscalation)
+
+    controller.decide(job_id="job-1", request_id="42", decision="deny")
+
+    outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
+    assert outcomes_path.exists(), "Terminal outcome file must exist after deny"
+    lines = [
+        line for line in outcomes_path.read_text(encoding="utf-8").strip().split("\n")
+        if line.strip()
+    ]
+    terminal_records = [
+        json.loads(line) for line in lines
+        if json.loads(line).get("outcome_type") == "delegation_terminal"
+    ]
+    assert len(terminal_records) == 1
+    assert terminal_records[0]["job_id"] == "job-1"
+    assert terminal_records[0]["terminal_status"] == "failed"
+
+
 def test_decide_rejects_when_runtime_is_missing(tmp_path: Path) -> None:
     from server.models import DecisionRejectedResponse
 
@@ -3729,8 +3758,8 @@ class TestTerminalOutcomeEmission:
         outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
         assert outcomes_path.exists(), "Terminal outcome file must exist after unknown cleanup"
         lines = [
-            l for l in outcomes_path.read_text(encoding="utf-8").strip().split("\n")
-            if l.strip()
+            line for line in outcomes_path.read_text(encoding="utf-8").strip().split("\n")
+            if line.strip()
         ]
         terminal_records = [
             json.loads(line) for line in lines
@@ -3808,8 +3837,8 @@ class TestRecoveryCatchup:
 
         assert outcomes_path.exists()
         lines = [
-            l for l in outcomes_path.read_text(encoding="utf-8").strip().split("\n")
-            if l.strip()
+            line for line in outcomes_path.read_text(encoding="utf-8").strip().split("\n")
+            if line.strip()
         ]
         terminal_records = [
             json.loads(line) for line in lines
@@ -3863,8 +3892,8 @@ class TestRecoveryCatchup:
             "Terminal outcome must be emitted even for verified/discarded jobs"
         )
         lines = [
-            l for l in outcomes_path.read_text(encoding="utf-8").strip().split("\n")
-            if l.strip()
+            line for line in outcomes_path.read_text(encoding="utf-8").strip().split("\n")
+            if line.strip()
         ]
         terminal_records = [
             json.loads(line) for line in lines
@@ -3925,8 +3954,8 @@ class TestRecoveryCatchup:
 
         outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
         lines = [
-            l for l in outcomes_path.read_text(encoding="utf-8").strip().split("\n")
-            if l.strip()
+            line for line in outcomes_path.read_text(encoding="utf-8").strip().split("\n")
+            if line.strip()
         ]
         terminal_records = [
             json.loads(line) for line in lines
