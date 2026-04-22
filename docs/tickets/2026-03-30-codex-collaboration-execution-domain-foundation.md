@@ -3,7 +3,10 @@
 ```yaml
 id: T-20260330-05
 date: 2026-03-30
-status: open
+status: closed
+closed_date: 2026-04-19
+resolution: completed
+resolution_ref: "T-05 commit sequence (6ed5f731..271f23aa), PR #108 final"
 priority: high
 tags: [codex-collaboration, delegation, execution-runtime, worktree, supersession]
 blocked_by: [T-20260330-03]
@@ -302,9 +305,9 @@ execution-wiring slice lands.
 
 ## Acceptance Criteria
 
-- [ ] The codex-collaboration server can start an isolated execution runtime for
+- [x] The codex-collaboration server can start an isolated execution runtime for
       a delegation job
-- [ ] The execution runtime starts with `SandboxPolicy` of type
+- [x] The execution runtime starts with `SandboxPolicy` of type
       `workspaceWrite` restricted to the job's `worktree_path` for both writes
       and reads: `writableRoots: [worktree_path]`, `readOnlyAccess: {type:
       "restricted", readableRoots: [worktree_path], includePlatformDefaults:
@@ -315,17 +318,17 @@ execution-wiring slice lands.
       true` default, and both `excludeSlashTmp: false` and
       `excludeTmpdirEnvVar: false` defaults (which would otherwise leave
       `/tmp` and `$TMPDIR` writable)
-- [ ] Each delegation job owns exactly one worktree and one execution runtime
-- [ ] Job state is persisted strongly enough for the later promotion flow to
+- [x] Each delegation job owns exactly one worktree and one execution runtime
+- [x] Job state is persisted strongly enough for the later promotion flow to
       inspect it
-- [ ] The control plane rejects a second concurrent delegation with the typed
+- [x] The control plane rejects a second concurrent delegation with the typed
       `Job Busy` response
-- [ ] Execution-domain server requests are surfaced through an approval-routing
+- [x] Execution-domain server requests are surfaced through an approval-routing
       layer rather than being silently auto-approved — in v1, the
       request-relevant approval payload is preserved opaquely through
       `PendingServerRequest.requested_scope`; no normalized request-scope
       comparison against job scope is performed
-- [ ] Tests cover worktree creation, busy rejection, execution runtime
+- [x] Tests cover worktree creation, busy rejection, execution runtime
       lifecycle boundaries, and sandbox-policy construction
 
 ## Verification
@@ -350,3 +353,33 @@ before `T-20260330-06`.
 | Promotion protocol | `docs/superpowers/specs/codex-collaboration/promotion-protocol.md` | Follow-on dependency |
 | Recovery and journal | `docs/superpowers/specs/codex-collaboration/recovery-and-journal.md` | Concurrency and pending-request semantics |
 | Delivery step 6 | `docs/superpowers/specs/codex-collaboration/delivery.md` | Normative staging target |
+
+## Resolution
+
+Closed 2026-04-19 (retroactive hygiene closeout during T-07 reconciliation on
+2026-04-21). All 7 ACs met across 51 commits on main (`6ed5f731..271f23aa`)
+and 9 merge boundaries. PR #108 was the final slice (pending-request capture,
+AC 6).
+
+This ticket's status was stale: the execution-domain foundation was fully
+consumed by T-06, which closed at `541bb45f` and records 845 tests at
+`85afab6b` (merge commit). T-06's resolution explicitly treats T-05 as
+complete.
+
+### AC Evidence
+
+| AC | Evidence | Key commit/merge |
+|----|----------|------------------|
+| 1. Isolated execution runtime | `runtime.py:run_execution_turn`, `delegation_controller.py` execution wiring | `feature/t05-execution-start` (`7714870b`) |
+| 2. Sandbox policy | `runtime.py:build_workspace_write_sandbox_policy` with all 6 fields | `feature/t05-runtime-sandbox-plumbing` (`4902c429`), tmp restore (`cced8727`) |
+| 3. Worktree + runtime ownership | `worktree_manager.py`, `execution_runtime_registry.py` | `feature/t05-execution-start` (`7714870b`) |
+| 4. Job persistence | `delegation_job_store.py` with JSONL persistence | `feature/t05-execution-start` (`7714870b`) |
+| 5. Busy rejection | `delegation_controller.py` max-1 enforcement | `feature/t05-execution-start` (`7714870b`) |
+| 6. Approval routing | `approval_router.py`, `pending_request_store.py`, `PendingServerRequest.requested_scope` | PR #108 (`271f23aa`) |
+| 7. Tests | `test_worktree_manager.py`, `test_delegation_job_store.py`, `test_execution_runtime_registry.py`, `test_approval_router.py`, `test_pending_request_store.py`, `test_delegate_start_integration.py`, `test_runtime.py` | Across all slices, 698 tests at T-05 completion |
+
+### Successor Concerns
+
+Live `/delegate` smoke and reviewer/analytics cutover are T-06/T-07
+successor concerns, not T-05 blockers. T-05 delivered the execution-domain
+*foundation*; the product surface built on it was T-06's scope.

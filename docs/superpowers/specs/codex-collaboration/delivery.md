@@ -256,7 +256,7 @@ Post-R2 work is decomposed into the following execution packets:
 | 3 | `T-20260330-04` | Dialogue parity and context-injection retirement decision |
 | 4 | `T-20260330-05` | Execution-domain foundation |
 | 5 | `T-20260330-06` | Promotion flow and delegate UX |
-| 6/7 | `T-20260330-07` | Analytics dashboard, reviewer, migration, and cutover |
+| 6/7 | `T-20260330-07` | Analytics skill, review skill, migration, and cutover |
 
 After packet `2b` is stable, packets `3` and `4` may proceed in parallel.
 Dialogue is the adoption gate. The execution domain is the completion gate.

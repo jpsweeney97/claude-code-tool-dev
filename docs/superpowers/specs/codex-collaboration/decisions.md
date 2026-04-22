@@ -82,6 +82,41 @@ Four architectures were evaluated in the original [design document](../2026-03-2
 | D | Remote broker service | Deferred | Overkill for v1; too much operational surface |
 | E | Thin bridge to official plugin | Rejected | Would split the product into upstream baseline plus local extensions instead of preserving one coherent control-plane architecture |
 
+## Analytics and Review Cutover Model
+
+**Resolved (2026-04-21).** Analytics are computed from codex-collaboration's
+existing audit and outcome streams, not from cross-model's flat event log. The
+cross-model `codex-reviewer` agent is replaced by a `codex-review` skill over
+`codex.consult`.
+
+**Key decisions:**
+
+- **Analytics source:** `analytics/outcomes.jsonl` (advisory and delegation
+  terminal outcomes) plus `audit/events.jsonl` (lifecycle and security). No new
+  cross-model-style flat emitter. No raw-store walking as the primary analytics
+  contract.
+- **Outcome shape split:** Advisory outcomes (`OutcomeRecord`) and delegation
+  terminal outcomes (`DelegationOutcomeRecord`) are separate typed records in a
+  union stream. Delegation execution terminal state and user disposition
+  (promote/discard) are recorded separately because they have different
+  authorities and timing — the Codex runtime owns terminal status; the user
+  owns disposition.
+- **Review discrimination:** First-class `workflow` discriminator on
+  `OutcomeRecord` and `codex.consult` tool input. `codex-review` sets
+  `workflow="review"`. Analytics interprets; the control plane persists without
+  branching.
+- **Delegate review integration:** Advisory only. `codex-review` can review
+  delegate artifacts but is not a hard promotion precondition.
+
+**Driver:** T-07 reconciliation session. Cross-model's analytics and reviewer
+are semantic sources only — the codex-collaboration architecture has a
+different data topology (session-partitioned journals, typed audit/outcome
+split) that requires fresh design, not a port.
+
+**Change trigger:** Revisit if the analytics consumer interface
+(Open Questions §Audit Consumer Interface) specifies requirements that the
+outcome/audit split cannot serve.
+
 ## Open Questions
 
 ### Unknown Request Kinds
