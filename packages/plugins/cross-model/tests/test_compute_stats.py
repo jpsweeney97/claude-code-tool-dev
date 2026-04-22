@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -217,8 +218,9 @@ class TestComputeDelegation:
 
     def test_period_filtering_reduces_events(self) -> None:
         """B5: Period filtering with shared `now` reduces delegation_outcomes."""
+        recent_ts = (datetime.now(timezone.utc) - timedelta(days=5)).isoformat()
         old_event = _make_delegation_event(ts="2025-01-01T00:00:00Z")
-        recent_event = _make_delegation_event(ts="2026-03-06T12:00:00Z")
+        recent_event = _make_delegation_event(ts=recent_ts)
         events = [old_event, recent_event]
         result = compute(events, 0, 30, "delegation")
         assert result["delegation"]["sample_size"] == 1

@@ -5,7 +5,6 @@ requires-python = ">=3.11"
 
 [tool.uv.workspace]
 members = [
-    "packages/plugins/cross-model/context-injection",
     "packages/plugins/context-metrics",
     "packages/plugins/cross-model",
     "packages/plugins/handoff",

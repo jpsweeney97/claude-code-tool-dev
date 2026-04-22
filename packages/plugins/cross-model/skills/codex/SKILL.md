@@ -113,51 +113,13 @@ Before building a briefing:
 - Codex's response will immediately inform your next action
 - Conversation context matters for interpreting the response
 
-**Subagent delegation** (for extended sessions):
-- 3+ expected turns of back-and-forth
-- Topic is self-contained — main conversation context isn't needed turn-by-turn
-- A summary of the outcome is sufficient
+**Extended multi-turn consultations:**
+For 3+ expected turns of back-and-forth, use codex-collaboration
+`/dialogue` instead. It provides orchestrated multi-turn Codex dialogue
+with pre-dialogue context gathering, parallel codebase exploration, and
+structured briefing assembly.
 
-If uncertain whether to use direct or delegated, default to direct invocation.
-
-> **Tip:** The `/dialogue` skill provides an orchestrated multi-turn path with pre-dialogue context gathering. It launches parallel codebase explorers, assembles a structured briefing, and delegates to `codex-dialogue` automatically. Use `/dialogue` when you want thorough, evidence-backed consultations without manually assembling context.
-
-For subagent delegation:
-1. Spawn a `codex-dialogue` subagent (purpose-built for multi-turn Codex conversations)
-2. Pass the enriched briefing, goal, and optionally a posture (adversarial, collaborative, exploratory, evaluative, comparative) and turn budget
-3. The subagent manages the conversation, detects convergence, and returns a synthesis + the Codex `threadId`
-4. To continue later, resume the subagent via its `agentId` (preserves richer context than raw `threadId`)
-
-**Delegation example:**
-
-User asks: `/codex I need a deep review of our caching strategy — challenge my assumptions`
-
-This likely needs 3+ adversarial turns — delegate to codex-dialogue:
-
-```
-Task(
-  subagent_type: "cross-model:codex-dialogue",
-  prompt: """
-    Goal: Challenge the caching strategy assumptions.
-    Posture: adversarial
-    Budget: 5
-    scope_envelope:
-      allowed_roots: [src/, docs/, tests/]
-      source_classes: [repo_code, repo_doc]
-
-    ## Context
-    [Current caching approach, decisions made, trade-offs considered]
-
-    ## Material
-    [Key cache implementation files, config, performance data]
-
-    ## Question
-    What are the weakest assumptions in this caching strategy?
-  """
-)
-```
-
-The subagent returns a confidence-annotated synthesis with convergence points, divergence points, and the Codex `threadId`. Present this synthesis to the user with your own assessment.
+If uncertain, default to direct invocation via `/codex`.
 
 ## Step 3: Invoke Codex
 
