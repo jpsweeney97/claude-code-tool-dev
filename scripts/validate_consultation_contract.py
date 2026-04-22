@@ -291,6 +291,8 @@ def validate(repo_root: Path | None = None) -> list[str]:
 
     try:
         agent_text = read_file(agent_path)
+        if "[RETIRED]" in agent_text:
+            agent_text = None
     except OSError as e:
         errors.append(f"validate failed: cannot read agent. Got: {str(e)!r:.100}")
 

@@ -77,12 +77,6 @@ class TestToolNameConsistency:
             prefix in s.read_text() for s in _SURFACES if s.exists()
         ), f"No surface references codex tools with prefix {prefix}"
 
-    def test_context_injection_server_tools_referenced(self):
-        """At least one surface references the context-injection server tools."""
-        prefix = _derive_tool_names()["context-injection"]
-        assert any(
-            prefix in s.read_text() for s in _SURFACES if s.exists()
-        ), f"No surface references context-injection tools with prefix {prefix}"
 
 
 class TestRawCodexExecGuardrail:

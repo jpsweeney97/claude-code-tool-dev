@@ -243,6 +243,9 @@ def _count_governance_rules(agent_path: Path) -> int:
 
 def test_codex_dialogue_has_governance_section() -> None:
     """codex-dialogue.md must have a Governance section with 7 rules."""
+    text = (AGENTS_DIR / "codex-dialogue.md").read_text()
+    if "[RETIRED]" in text:
+        pytest.skip("codex-dialogue is retired; governance check not applicable")
     count = _count_governance_rules(AGENTS_DIR / "codex-dialogue.md")
     assert count == 7, f"expected 7 governance rules, got {count}"
 
