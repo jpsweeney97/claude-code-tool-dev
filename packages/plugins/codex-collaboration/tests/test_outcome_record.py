@@ -143,3 +143,43 @@ class TestOutcomeJournalPersistence:
         plugin_data = tmp_path / "plugin-data"
         OperationJournal(plugin_data)
         assert (plugin_data / "analytics").is_dir()
+
+
+class TestOutcomeRecordWorkflow:
+    def test_outcome_record_default_workflow(self) -> None:
+        record = OutcomeRecord(
+            outcome_id="o-wf1",
+            timestamp="2026-04-01T00:00:00Z",
+            outcome_type="consult",
+            collaboration_id="collab-1",
+            runtime_id="rt-1",
+            context_size=4096,
+            turn_id="turn-1",
+        )
+        assert record.workflow == "consult"
+
+    def test_outcome_record_explicit_review_workflow(self) -> None:
+        record = OutcomeRecord(
+            outcome_id="o-wf2",
+            timestamp="2026-04-01T00:00:00Z",
+            outcome_type="consult",
+            collaboration_id="collab-1",
+            runtime_id="rt-1",
+            context_size=4096,
+            turn_id="turn-1",
+            workflow="review",
+        )
+        assert record.workflow == "review"
+
+    def test_outcome_record_workflow_in_asdict(self) -> None:
+        record = OutcomeRecord(
+            outcome_id="o-wf3",
+            timestamp="2026-04-01T00:00:00Z",
+            outcome_type="consult",
+            collaboration_id="collab-1",
+            runtime_id="rt-1",
+            context_size=4096,
+            turn_id="turn-1",
+        )
+        d = asdict(record)
+        assert d["workflow"] == "consult"

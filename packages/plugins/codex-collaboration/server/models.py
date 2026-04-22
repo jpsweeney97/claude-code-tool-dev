@@ -32,6 +32,7 @@ PromotionState = Literal[
     "discarded",
 ]
 DecisionAction = Literal["approve", "deny"]
+ConsultWorkflow = Literal["consult", "review"]
 DecisionRejectedReason = Literal[
     "invalid_decision",
     "job_not_found",
@@ -217,6 +218,7 @@ class OutcomeRecord:
     turn_sequence: int | None = None
     policy_fingerprint: str | None = None
     repo_root: str | None = None
+    workflow: ConsultWorkflow = "consult"
 
 
 @dataclass(frozen=True)
