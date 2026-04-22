@@ -81,7 +81,9 @@ from .models import (
     DelegationDecisionResult,
     DelegationEscalation,
     DelegationJob,
+    DelegationOutcomeRecord,
     DelegationPollResult,
+    DelegationTerminalStatus,
     DiscardRejectedResponse,
     DiscardResult,
     JobBusyResponse,
@@ -98,6 +100,12 @@ from .pending_request_store import PendingRequestStore
 from .runtime import AppServerRuntimeSession, build_workspace_write_sandbox_policy
 
 logger = logging.getLogger(__name__)
+
+_TERMINAL_STATUS_MAP: dict[str, DelegationTerminalStatus] = {
+    "completed": "completed",
+    "failed": "failed",
+    "unknown": "unknown",
+}
 
 
 class _ControlPlaneLike(Protocol):
@@ -764,6 +772,7 @@ class DelegationController:
                 job_id,
                 exc_info=True,
             )
+        self._emit_terminal_outcome_if_needed(job_id)
         try:
             self._lineage_store.update_status(collaboration_id, "unknown")
         except Exception:
@@ -786,6 +795,38 @@ class DelegationController:
             logger.error(
                 "Execution cleanup: failed to close runtime %r",
                 runtime_id,
+                exc_info=True,
+            )
+
+    def _emit_terminal_outcome_if_needed(self, job_id: str) -> None:
+        """Best-effort emit DelegationOutcomeRecord for a terminal job."""
+        try:
+            job = self._job_store.get(job_id)
+            if job is None:
+                return
+            terminal = _TERMINAL_STATUS_MAP.get(job.status)
+            if terminal is None:
+                return
+            handle = self._lineage_store.get(job.collaboration_id)
+            self._journal.append_delegation_outcome_once(
+                DelegationOutcomeRecord(
+                    outcome_id=self._uuid_factory(),
+                    timestamp=self._journal.timestamp(),
+                    outcome_type="delegation_terminal",
+                    collaboration_id=job.collaboration_id,
+                    runtime_id=job.runtime_id,
+                    job_id=job_id,
+                    terminal_status=terminal,
+                    base_commit=job.base_commit,
+                    repo_root=handle.repo_root if handle is not None else None,
+                )
+            )
+        except Exception as exc:
+            logger.warning(
+                "Terminal outcome emission failed for job %r: %s: %s",
+                job_id,
+                type(exc).__name__,
+                exc,
                 exc_info=True,
             )
 
@@ -1472,6 +1513,7 @@ class DelegationController:
             self._lineage_store.update_status(collaboration_id, "completed")
             self._runtime_registry.release(runtime_id)
             entry.session.close()
+            self._emit_terminal_outcome_if_needed(job_id)
             return updated_job
 
         # No server request captured — clean completion or failure.
@@ -1486,6 +1528,7 @@ class DelegationController:
         self._lineage_store.update_status(collaboration_id, "completed")
         self._runtime_registry.release(runtime_id)
         entry.session.close()
+        self._emit_terminal_outcome_if_needed(job_id)
 
         return updated_job
 
@@ -1667,6 +1710,7 @@ class DelegationController:
         if decision == "deny":
             try:
                 updated_job = self._persist_job_transition(job_id, "failed")
+                self._emit_terminal_outcome_if_needed(job_id)
                 self._lineage_store.update_status(job.collaboration_id, "completed")
                 self._runtime_registry.release(job.runtime_id)
                 entry.session.close()
@@ -1998,6 +2042,19 @@ class DelegationController:
                         job.collaboration_id,
                         "unknown",
                     )
+
+        # --- Terminal outcome catch-up (same-session only) ---
+        # Sweep all same-session jobs for terminal statuses missing their
+        # analytics outcome. Uses list() (all session jobs), NOT
+        # list_user_attention_required() — the latter excludes terminal
+        # promotion states (verified/discarded/rolled_back) which are
+        # still terminal from an outcome-emission perspective.
+        # Cross-session abandoned outcomes are structurally unreachable
+        # (DelegationJobStore is session-scoped). This is a documented
+        # T-07 limitation, not a bug.
+        for job in self._job_store.list():
+            if job.status in ("completed", "failed", "unknown"):
+                self._emit_terminal_outcome_if_needed(job.job_id)
 
     def get_active_delegation_summary(self) -> tuple[DelegationJob | None, int]:
         """Return the active user-attention-required job and total count.

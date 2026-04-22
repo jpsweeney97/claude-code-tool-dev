@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from pathlib import Path
 
 from server.control_plane import ControlPlane
 from server.dialogue import DialogueController
 from server.journal import OperationJournal
 from server.lineage_store import LineageStore
-from server.models import ConsultRequest, OperationJournalEntry
+from server.models import ConsultRequest, DelegationOutcomeRecord, OperationJournalEntry
 from server.turn_store import TurnStore
 
 from tests.test_control_plane import FakeRuntimeSession, _compat_result, _repo_identity
@@ -187,13 +188,42 @@ def test_all_outcome_records_share_same_keys(tmp_path: Path) -> None:
     journal.write_phase(intent_entry_rp, session_id="sess-repair")
     controller_rp._best_effort_repair_turn(intent_entry_rp)
 
-    # Collect all outcomes and verify key consistency
+    # 5. Delegation terminal outcome (direct write — journal helper added in Task 4)
+    outcomes_path = plugin_data / "analytics" / "outcomes.jsonl"
+    with outcomes_path.open("a", encoding="utf-8") as f:
+        f.write(
+            json.dumps(
+                asdict(
+                    DelegationOutcomeRecord(
+                        outcome_id="del-outcome-1",
+                        timestamp="2026-04-01T00:00:00Z",
+                        outcome_type="delegation_terminal",
+                        collaboration_id="collab-del",
+                        runtime_id="rt-del",
+                        job_id="job-del",
+                        terminal_status="completed",
+                        base_commit="abc123",
+                        repo_root=str(tmp_path),
+                    )
+                ),
+                sort_keys=True,
+            )
+            + "\n"
+        )
+
+    # Collect all outcomes and verify key consistency within each outcome_type.
+    # Advisory outcomes (consult, dialogue_turn) and delegation terminal
+    # outcomes have deliberately different schemas — dispatch by outcome_type.
     outcomes = _collect_outcomes(plugin_data)
     assert len(outcomes) >= 4, f"Expected at least 4 outcomes, got {len(outcomes)}"
 
-    # All records must have exactly the same set of keys
-    key_sets = [frozenset(r.keys()) for r in outcomes]
-    assert len(set(key_sets)) == 1, (
-        f"Outcome records have inconsistent keys. "
-        f"Key sets: {[sorted(ks) for ks in key_sets]}"
-    )
+    by_type: dict[str, list[frozenset[str]]] = {}
+    for record in outcomes:
+        ot = record.get("outcome_type", "unknown")
+        by_type.setdefault(ot, []).append(frozenset(record.keys()))
+
+    for ot, key_sets in by_type.items():
+        assert len(set(key_sets)) == 1, (
+            f"Outcome records of type {ot!r} have inconsistent keys. "
+            f"Key sets: {[sorted(ks) for ks in key_sets]}"
+        )

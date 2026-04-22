@@ -6,7 +6,7 @@ import json
 from dataclasses import asdict
 from pathlib import Path
 
-from server.models import OutcomeRecord
+from server.models import OutcomeRecord, DelegationOutcomeRecord
 from server.journal import OperationJournal
 
 
@@ -143,3 +143,130 @@ class TestOutcomeJournalPersistence:
         plugin_data = tmp_path / "plugin-data"
         OperationJournal(plugin_data)
         assert (plugin_data / "analytics").is_dir()
+
+
+class TestOutcomeRecordWorkflow:
+    def test_outcome_record_default_workflow(self) -> None:
+        record = OutcomeRecord(
+            outcome_id="o-wf1",
+            timestamp="2026-04-01T00:00:00Z",
+            outcome_type="consult",
+            collaboration_id="collab-1",
+            runtime_id="rt-1",
+            context_size=4096,
+            turn_id="turn-1",
+        )
+        assert record.workflow == "consult"
+
+    def test_outcome_record_explicit_review_workflow(self) -> None:
+        record = OutcomeRecord(
+            outcome_id="o-wf2",
+            timestamp="2026-04-01T00:00:00Z",
+            outcome_type="consult",
+            collaboration_id="collab-1",
+            runtime_id="rt-1",
+            context_size=4096,
+            turn_id="turn-1",
+            workflow="review",
+        )
+        assert record.workflow == "review"
+
+    def test_outcome_record_workflow_in_asdict(self) -> None:
+        record = OutcomeRecord(
+            outcome_id="o-wf3",
+            timestamp="2026-04-01T00:00:00Z",
+            outcome_type="consult",
+            collaboration_id="collab-1",
+            runtime_id="rt-1",
+            context_size=4096,
+            turn_id="turn-1",
+        )
+        d = asdict(record)
+        assert d["workflow"] == "consult"
+
+    def test_consult_request_default_workflow(self) -> None:
+        from server.models import ConsultRequest
+
+        request = ConsultRequest(repo_root=Path("/tmp"), objective="test")
+        assert request.workflow == "consult"
+
+    def test_consult_request_explicit_workflow(self) -> None:
+        from server.models import ConsultRequest
+
+        request = ConsultRequest(
+            repo_root=Path("/tmp"),
+            objective="test",
+            workflow="review",
+        )
+        assert request.workflow == "review"
+
+
+class TestDelegationOutcomeRecord:
+    def test_delegation_terminal_fields(self) -> None:
+        record = DelegationOutcomeRecord(
+            outcome_id="do-1",
+            timestamp="2026-04-01T00:00:00Z",
+            outcome_type="delegation_terminal",
+            collaboration_id="collab-1",
+            runtime_id="rt-1",
+            job_id="job-1",
+            terminal_status="completed",
+            base_commit="abc123",
+            repo_root="/tmp/repo",
+        )
+        assert record.outcome_type == "delegation_terminal"
+        assert record.terminal_status == "completed"
+        assert record.job_id == "job-1"
+        assert record.base_commit == "abc123"
+        assert record.repo_root == "/tmp/repo"
+
+    def test_delegation_terminal_repo_root_defaults_none(self) -> None:
+        record = DelegationOutcomeRecord(
+            outcome_id="do-2",
+            timestamp="2026-04-01T00:00:00Z",
+            outcome_type="delegation_terminal",
+            collaboration_id="collab-1",
+            runtime_id="rt-1",
+            job_id="job-2",
+            terminal_status="failed",
+            base_commit="def456",
+        )
+        assert record.repo_root is None
+
+    def test_delegation_terminal_frozen(self) -> None:
+        record = DelegationOutcomeRecord(
+            outcome_id="do-3",
+            timestamp="2026-04-01T00:00:00Z",
+            outcome_type="delegation_terminal",
+            collaboration_id="collab-1",
+            runtime_id="rt-1",
+            job_id="job-3",
+            terminal_status="unknown",
+            base_commit="ghi789",
+        )
+        import pytest
+
+        with pytest.raises(AttributeError):
+            record.terminal_status = "completed"  # type: ignore[misc]
+
+    def test_delegation_terminal_asdict_roundtrip(self) -> None:
+        record = DelegationOutcomeRecord(
+            outcome_id="do-4",
+            timestamp="2026-04-01T00:00:00Z",
+            outcome_type="delegation_terminal",
+            collaboration_id="collab-1",
+            runtime_id="rt-1",
+            job_id="job-4",
+            terminal_status="completed",
+            base_commit="abc123",
+            repo_root="/tmp/repo",
+        )
+        d = asdict(record)
+        assert d["outcome_type"] == "delegation_terminal"
+        assert d["job_id"] == "job-4"
+        assert d["terminal_status"] == "completed"
+        assert d["base_commit"] == "abc123"
+        assert d["repo_root"] == "/tmp/repo"
+        # Fields NOT present (by design decision)
+        assert "promotion_state" not in d
+        assert "artifact_hash" not in d

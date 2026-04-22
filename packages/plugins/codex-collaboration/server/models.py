@@ -32,6 +32,8 @@ PromotionState = Literal[
     "discarded",
 ]
 DecisionAction = Literal["approve", "deny"]
+ConsultWorkflow = Literal["consult", "review"]
+DelegationTerminalStatus = Literal["completed", "failed", "unknown"]
 DecisionRejectedReason = Literal[
     "invalid_decision",
     "job_not_found",
@@ -90,6 +92,7 @@ class ConsultRequest:
     parent_thread_id: str | None = None
     network_access: bool = False
     profile: str | None = None
+    workflow: ConsultWorkflow = "consult"
 
 
 @dataclass(frozen=True)
@@ -216,6 +219,28 @@ class OutcomeRecord:
     turn_id: str
     turn_sequence: int | None = None
     policy_fingerprint: str | None = None
+    repo_root: str | None = None
+    workflow: ConsultWorkflow = "consult"
+
+
+@dataclass(frozen=True)
+class DelegationOutcomeRecord:
+    """Terminal delegation outcome record.
+
+    Separate from OutcomeRecord: execution terminal state and user
+    disposition have different authorities and timing. Persisted to
+    analytics/outcomes.jsonl via OperationJournal. Reader dispatches
+    on outcome_type.
+    """
+
+    outcome_id: str
+    timestamp: str
+    outcome_type: Literal["delegation_terminal"]
+    collaboration_id: str
+    runtime_id: str
+    job_id: str
+    terminal_status: DelegationTerminalStatus
+    base_commit: str
     repo_root: str | None = None
 
 

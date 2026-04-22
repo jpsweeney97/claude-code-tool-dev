@@ -197,6 +197,14 @@ full delegation lifecycle through the skill. If App Server is not available at
 - [ ] An analytics skill exists and can compute usage, reliability/security,
       context/runtime, delegation, and review views from
       `analytics/outcomes.jsonl` and `audit/events.jsonl`
+
+      **Deferred metrics (7a):** Credential blocks/shadows and promotion
+      rejections require new audit emission points in the credential
+      interception path and promotion precondition checks, respectively.
+      These are not satisfied by the analytics skill — the recipe surfaces
+      them as `unavailable (not emitted to audit stream)`. Tracked as a
+      follow-up enhancement; does not block 7a closure.
+
 - [ ] A `codex-review` skill exists in the codex-collaboration package, can
       review a real diff through `codex.consult` with `workflow="review"`,
       synthesizes Codex findings with Claude-side review judgment, and records

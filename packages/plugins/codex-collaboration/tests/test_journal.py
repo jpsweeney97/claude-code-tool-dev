@@ -8,6 +8,7 @@ import pytest
 from server.journal import OperationJournal
 from server.models import (
     AuditEvent,
+    DelegationOutcomeRecord,
     OperationJournalEntry,
     OutcomeRecord,
     StaleAdvisoryContextMarker,
@@ -760,3 +761,105 @@ def test_load_stale_marker_handles_old_schema_gracefully(tmp_path: Path) -> None
     # The old marker should be cleared from storage.
     loaded = json.loads(markers_path.read_text(encoding="utf-8"))
     assert str(tmp_path) not in loaded
+
+
+class TestDelegationOutcomeJournal:
+    def test_append_delegation_outcome_writes_to_outcomes_jsonl(
+        self, tmp_path: Path
+    ) -> None:
+        journal = OperationJournal(tmp_path / "data")
+        record = DelegationOutcomeRecord(
+            outcome_id="do-1",
+            timestamp="2026-04-21T00:00:00Z",
+            outcome_type="delegation_terminal",
+            collaboration_id="collab-1",
+            runtime_id="rt-1",
+            job_id="job-1",
+            terminal_status="completed",
+            base_commit="abc123",
+            repo_root="/tmp/repo",
+        )
+        journal.append_delegation_outcome(record)
+
+        outcomes_path = tmp_path / "data" / "analytics" / "outcomes.jsonl"
+        assert outcomes_path.exists()
+        line = json.loads(outcomes_path.read_text(encoding="utf-8").strip())
+        assert line["outcome_type"] == "delegation_terminal"
+        assert line["job_id"] == "job-1"
+        assert line["terminal_status"] == "completed"
+
+    def test_append_delegation_outcome_once_skips_duplicate(
+        self, tmp_path: Path
+    ) -> None:
+        journal = OperationJournal(tmp_path / "data")
+        record = DelegationOutcomeRecord(
+            outcome_id="do-1",
+            timestamp="2026-04-21T00:00:00Z",
+            outcome_type="delegation_terminal",
+            collaboration_id="collab-1",
+            runtime_id="rt-1",
+            job_id="job-1",
+            terminal_status="completed",
+            base_commit="abc123",
+        )
+        journal.append_delegation_outcome_once(record)
+        journal.append_delegation_outcome_once(record)
+
+        outcomes_path = tmp_path / "data" / "analytics" / "outcomes.jsonl"
+        lines = outcomes_path.read_text(encoding="utf-8").strip().split("\n")
+        assert len(lines) == 1
+
+    def test_append_delegation_outcome_once_allows_different_jobs(
+        self, tmp_path: Path
+    ) -> None:
+        journal = OperationJournal(tmp_path / "data")
+        for jid in ("job-1", "job-2"):
+            journal.append_delegation_outcome_once(
+                DelegationOutcomeRecord(
+                    outcome_id=f"do-{jid}",
+                    timestamp="2026-04-21T00:00:00Z",
+                    outcome_type="delegation_terminal",
+                    collaboration_id=f"collab-{jid}",
+                    runtime_id="rt-1",
+                    job_id=jid,
+                    terminal_status="completed",
+                    base_commit="abc123",
+                )
+            )
+
+        outcomes_path = tmp_path / "data" / "analytics" / "outcomes.jsonl"
+        lines = outcomes_path.read_text(encoding="utf-8").strip().split("\n")
+        assert len(lines) == 2
+
+    def test_delegation_and_advisory_outcomes_coexist(self, tmp_path: Path) -> None:
+        journal = OperationJournal(tmp_path / "data")
+        journal.append_outcome(
+            OutcomeRecord(
+                outcome_id="o-1",
+                timestamp="2026-04-21T00:00:00Z",
+                outcome_type="consult",
+                collaboration_id="collab-1",
+                runtime_id="rt-1",
+                context_size=4096,
+                turn_id="turn-1",
+            )
+        )
+        journal.append_delegation_outcome(
+            DelegationOutcomeRecord(
+                outcome_id="do-1",
+                timestamp="2026-04-21T00:00:00Z",
+                outcome_type="delegation_terminal",
+                collaboration_id="collab-2",
+                runtime_id="rt-1",
+                job_id="job-1",
+                terminal_status="completed",
+                base_commit="abc123",
+            )
+        )
+
+        outcomes_path = tmp_path / "data" / "analytics" / "outcomes.jsonl"
+        lines = outcomes_path.read_text(encoding="utf-8").strip().split("\n")
+        assert len(lines) == 2
+        records = [json.loads(line) for line in lines]
+        types = {r["outcome_type"] for r in records}
+        assert types == {"consult", "delegation_terminal"}
