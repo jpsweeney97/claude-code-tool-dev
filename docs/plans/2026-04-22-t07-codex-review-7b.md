@@ -129,8 +129,8 @@ directory entries), so new files inside new directories are discovered.
    `*.generated.*`, `node_modules/`, `vendor/`, `__pycache__/`, `*.pyc`.
 5. **Skip credential files.** Same exclusion as §6 layer-0 safety.
 
-Include surviving untracked files in the briefing as "new untracked
-files" in a separate subsection under Changes.
+Include surviving untracked files in the briefing in a dedicated
+"## New Untracked Files" section (between Changes and Surrounding Code).
 
 ### Large diff thresholds
 
@@ -164,8 +164,7 @@ truncation.
 **Filtering rules (mandatory before dispatch):**
 
 The server's `context_assembly._read_file_excerpt` raises
-`ContextAssemblyError` if an explicit path does not exist on disk
-(`context_assembly.py:376`). The skill MUST filter `explicit_paths`:
+`ContextAssemblyError` when an explicit path is missing from disk. The skill MUST filter `explicit_paths`:
 
 1. **Extant files only.** Deleted files appear in the diff but no longer
    exist. Represent deletions exclusively through the diff content in
@@ -186,6 +185,7 @@ table. Append `--name-status` to the same diff command:
 |-------|------------------------|
 | Branch review (resolved `<sha>`) | `git diff --name-status $(git merge-base <base> <sha>)...<sha>` |
 | Staged | `git diff --cached --name-status` |
+| Unstaged | `git diff --name-status` |
 | Commit range (resolved `<sha_start>`, `<sha_end>`) | `git diff --name-status <sha_start>..<sha_end>` |
 | No argument, non-default branch | `git diff --name-status $(git merge-base <base> HEAD)...HEAD` |
 | No argument, default branch | `git diff --name-status HEAD` |
@@ -203,8 +203,8 @@ and the exclusion patterns above. Shell-quote all git-derived paths.
 
 **Objective byte budget (mandatory):**
 
-The server's context assembly renders `objective` directly into the
-advisory packet (`context_assembly.py:238`). Objective content is NOT
+The server's `context_assembly._render_packet` renders `objective`
+directly into the advisory packet. Objective content is NOT
 trimmed — only context entries (explicit_references, task_local_context,
 etc.) are trimmed. If `objective` alone exceeds the 24KB soft target,
 all `explicit_paths` entries are trimmed away. If it exceeds the 48KB
@@ -234,6 +234,10 @@ Assemble a structured briefing:
 
 ## Changes
 [Diff content or summarized sections per §4 thresholds]
+
+## New Untracked Files
+[Content of untracked files from §4 untracked section, if any.
+Omit section if none.]
 
 ## Surrounding Code
 [For files < 300 lines: full file. For larger files: modified
@@ -280,8 +284,9 @@ These instructions go directly into the SKILL.md:
    material]` and note the redaction in the review output.
 4. **If redaction cannot be confirmed** (e.g., uncertain whether a value
    is a real credential): do NOT include the content. Fail closed.
-5. **Note:** The server's `consultation_safety.py` PreToolUse guard and
-   `context_assembly.py` redaction provide downstream defense. The skill
+5. **Note:** The server's `consultation_safety.py` (invoked by
+   `codex_guard.py`'s PreToolUse hook) and `context_assembly.py`
+   redaction provide downstream defense. The skill
    does not depend on those layers — it provides its own layer-0 scan.
 
 ## 7. Consult Dispatch
@@ -377,7 +382,7 @@ After receiving the `codex.consult` result, Claude synthesizes findings.
 | Skill references `profile="code-review"` as default | Read SKILL.md |
 | All 9 plan sections represented in skill content | Read SKILL.md |
 | No server files modified | `git diff --stat` |
-| Existing tests still pass (881+) | `uv run --package codex-collaboration pytest` |
+| Existing codex-collaboration tests still pass | `uv run --package codex-collaboration pytest` |
 
 ### Existing 7a test coverage (cited, not duplicated)
 

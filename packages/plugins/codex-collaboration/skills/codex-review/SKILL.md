@@ -100,6 +100,7 @@ Reuse the resolved SHA(s) from step 2. Append `--name-status` to the same diff c
 |---|---|
 | Branch review (resolved `<sha>`) | `git diff --name-status $(git merge-base <base> <sha>)...<sha>` |
 | Staged | `git diff --cached --name-status` |
+| Unstaged | `git diff --name-status` |
 | Commit range (resolved `<sha_start>`, `<sha_end>`) | `git diff --name-status <sha_start>..<sha_end>` |
 | No argument, non-default branch | `git diff --name-status $(git merge-base <base> HEAD)...HEAD` |
 | No argument, default branch | `git diff --name-status HEAD` |
@@ -108,9 +109,11 @@ Parse `--name-status` output for status codes:
 
 | Status | Action |
 |---|---|
-| `D` (deleted) | **Exclude.** Deleted files crash the server (`ContextAssemblyError` at `context_assembly.py:376`). Represent deletions only through diff content in `objective`. |
+| `D` (deleted) | **Exclude.** Deleted files crash the server (`ContextAssemblyError` from `context_assembly._read_file_excerpt` when an explicit path is missing). Represent deletions only through diff content in `objective`. |
 | `R` (renamed) | Include only the destination path (second path column), not the source. |
 | `A` (added), `M` (modified) | Include if they pass the filters below. |
+
+`D` paths and non-existent worktree paths are filtered by `test -f -- "$path"`, so unstaged deletions (and any other scope's deleted files) are represented only in `objective`, not in `explicit_paths`.
 
 **Filters (mandatory before dispatch):**
 
