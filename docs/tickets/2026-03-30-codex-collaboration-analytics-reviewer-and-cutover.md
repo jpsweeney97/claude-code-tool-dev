@@ -160,6 +160,34 @@ warranted.
 on. 7b depends on 7a because it consumes the `workflow` plumbing through
 `codex.consult`. 7c through 7e are sequential.
 
+### 7a Closeout (2026-04-22)
+
+Slice 7a landed in PR #116 and merged to `main` at `61eaa590`.
+
+Delivered scope:
+
+- `codex-analytics` skill and standalone analytics script over
+  `analytics/outcomes.jsonl` and `audit/events.jsonl`.
+- `ConsultWorkflow` and `workflow` plumbing through `codex.consult`,
+  `ConsultRequest`, `ControlPlane.codex_consult`, and `OutcomeRecord`.
+- `DelegationOutcomeRecord` for terminal delegation outcomes, including
+  append-once journal helpers, terminal emission paths, same-session recovery
+  catch-up, and malformed-line-tolerant analytics reads.
+- Section-aware analytics tests for usage, reliability/security,
+  context/runtime, delegation lifecycle, and review views.
+
+Final slice verification before merge: `881` codex-collaboration tests passed;
+`ruff check` passed; PR-scoped Python formatting passed; `git diff --check`
+passed. GitHub reported no branch checks.
+
+Known 7a limitation preserved intentionally: credential blocks/shadows and
+promotion rejections are surfaced as `unavailable (not emitted to audit stream)`
+because their audit emission points are deferred follow-up work. This does not
+block 7a closure, but it must not be treated as implemented metric coverage.
+
+Next slice: 7b, the `codex-review` skill consuming `workflow="review"` from the
+shared 7a contract.
+
 ### Live `/delegate` Smoke Placement
 
 T-06 deferred the live delegate smoke (requires Codex App Server). Placed as
@@ -194,7 +222,7 @@ full delegation lifecycle through the skill. If App Server is not available at
 
 ## Acceptance Criteria
 
-- [ ] An analytics skill exists and can compute usage, reliability/security,
+- [x] An analytics skill exists and can compute usage, reliability/security,
       context/runtime, delegation, and review views from
       `analytics/outcomes.jsonl` and `audit/events.jsonl`
 
