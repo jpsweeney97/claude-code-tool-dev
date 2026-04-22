@@ -1,7 +1,6 @@
 ---
 name: scrutinize
 description: Use when the user explicitly wants a harsher-than-normal critical review of a plan, design, draft, argument, decision, or code artifact. Trigger on requests like "scrutinize this", "be brutal", "tear this apart", "assume this is wrong", "reject until proven otherwise", or "review this with maximum scrutiny". Challenge the premise first, then run two passes that search for flaws, omissions, weak assumptions, second-order effects, edge cases, and hidden dependencies. Do not use for routine code review, collaborative editing, or balanced feedback when the user did not ask for an adversarial stance.
-disable-model-invocation: true
 ---
 
 # Scrutinize
