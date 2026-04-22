@@ -205,10 +205,17 @@ full delegation lifecycle through the skill. If App Server is not available at
       them as `unavailable (not emitted to audit stream)`. Tracked as a
       follow-up enhancement; does not block 7a closure.
 
-- [ ] A `codex-review` skill exists in the codex-collaboration package, can
+- [x] A `codex-review` skill exists in the codex-collaboration package, can
       review a real diff through `codex.consult` with `workflow="review"`,
       synthesizes Codex findings with Claude-side review judgment, and records
       review usage distinctly in analytics
+
+      **Closed (7b):** PR #117, merged at `f681094a`. Skill at
+      `skills/codex-review/SKILL.md` (270 lines, 9-step procedure). Smoke
+      passed: `codex.consult` dispatched with `workflow="review"`,
+      `profile="code-review"`; `outcomes.jsonl` row confirmed
+      `"workflow": "review"` + `"outcome_type": "consult"`. Review feedback
+      addressed in follow-up commit `90c6ff9a`.
 - [ ] Migration docs show how to replace each cross-model workflow with the new
       plugin surface
 - [ ] A parity matrix exists and covers consult, dialogue, delegate, analytics,
