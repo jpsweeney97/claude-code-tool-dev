@@ -6,7 +6,7 @@ import json
 from dataclasses import asdict
 from pathlib import Path
 
-from server.models import OutcomeRecord
+from server.models import OutcomeRecord, DelegationOutcomeRecord
 from server.journal import OperationJournal
 
 
@@ -195,3 +195,73 @@ class TestOutcomeRecordWorkflow:
             repo_root=Path("/tmp"), objective="test", workflow="review",
         )
         assert request.workflow == "review"
+
+
+class TestDelegationOutcomeRecord:
+    def test_delegation_terminal_fields(self) -> None:
+        record = DelegationOutcomeRecord(
+            outcome_id="do-1",
+            timestamp="2026-04-01T00:00:00Z",
+            outcome_type="delegation_terminal",
+            collaboration_id="collab-1",
+            runtime_id="rt-1",
+            job_id="job-1",
+            terminal_status="completed",
+            base_commit="abc123",
+            repo_root="/tmp/repo",
+        )
+        assert record.outcome_type == "delegation_terminal"
+        assert record.terminal_status == "completed"
+        assert record.job_id == "job-1"
+        assert record.base_commit == "abc123"
+        assert record.repo_root == "/tmp/repo"
+
+    def test_delegation_terminal_repo_root_defaults_none(self) -> None:
+        record = DelegationOutcomeRecord(
+            outcome_id="do-2",
+            timestamp="2026-04-01T00:00:00Z",
+            outcome_type="delegation_terminal",
+            collaboration_id="collab-1",
+            runtime_id="rt-1",
+            job_id="job-2",
+            terminal_status="failed",
+            base_commit="def456",
+        )
+        assert record.repo_root is None
+
+    def test_delegation_terminal_frozen(self) -> None:
+        record = DelegationOutcomeRecord(
+            outcome_id="do-3",
+            timestamp="2026-04-01T00:00:00Z",
+            outcome_type="delegation_terminal",
+            collaboration_id="collab-1",
+            runtime_id="rt-1",
+            job_id="job-3",
+            terminal_status="unknown",
+            base_commit="ghi789",
+        )
+        import pytest
+        with pytest.raises(AttributeError):
+            record.terminal_status = "completed"  # type: ignore[misc]
+
+    def test_delegation_terminal_asdict_roundtrip(self) -> None:
+        record = DelegationOutcomeRecord(
+            outcome_id="do-4",
+            timestamp="2026-04-01T00:00:00Z",
+            outcome_type="delegation_terminal",
+            collaboration_id="collab-1",
+            runtime_id="rt-1",
+            job_id="job-4",
+            terminal_status="completed",
+            base_commit="abc123",
+            repo_root="/tmp/repo",
+        )
+        d = asdict(record)
+        assert d["outcome_type"] == "delegation_terminal"
+        assert d["job_id"] == "job-4"
+        assert d["terminal_status"] == "completed"
+        assert d["base_commit"] == "abc123"
+        assert d["repo_root"] == "/tmp/repo"
+        # Fields NOT present (by design decision)
+        assert "promotion_state" not in d
+        assert "artifact_hash" not in d
