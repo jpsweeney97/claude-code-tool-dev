@@ -1124,9 +1124,7 @@ def test_codex_consult_default_workflow_in_outcome(tmp_path: Path) -> None:
         journal=journal,
     )
 
-    plane.codex_consult(
-        ConsultRequest(repo_root=tmp_path, objective="Review focus.py")
-    )
+    plane.codex_consult(ConsultRequest(repo_root=tmp_path, objective="Review focus.py"))
 
     outcomes_path = plugin_data / "analytics" / "outcomes.jsonl"
     record = json.loads(outcomes_path.read_text(encoding="utf-8").strip())

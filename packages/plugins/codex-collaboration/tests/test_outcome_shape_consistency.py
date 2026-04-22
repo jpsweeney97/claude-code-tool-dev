@@ -191,17 +191,25 @@ def test_all_outcome_records_share_same_keys(tmp_path: Path) -> None:
     # 5. Delegation terminal outcome (direct write — journal helper added in Task 4)
     outcomes_path = plugin_data / "analytics" / "outcomes.jsonl"
     with outcomes_path.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(asdict(DelegationOutcomeRecord(
-            outcome_id="del-outcome-1",
-            timestamp="2026-04-01T00:00:00Z",
-            outcome_type="delegation_terminal",
-            collaboration_id="collab-del",
-            runtime_id="rt-del",
-            job_id="job-del",
-            terminal_status="completed",
-            base_commit="abc123",
-            repo_root=str(tmp_path),
-        )), sort_keys=True) + "\n")
+        f.write(
+            json.dumps(
+                asdict(
+                    DelegationOutcomeRecord(
+                        outcome_id="del-outcome-1",
+                        timestamp="2026-04-01T00:00:00Z",
+                        outcome_type="delegation_terminal",
+                        collaboration_id="collab-del",
+                        runtime_id="rt-del",
+                        job_id="job-del",
+                        terminal_status="completed",
+                        base_commit="abc123",
+                        repo_root=str(tmp_path),
+                    )
+                ),
+                sort_keys=True,
+            )
+            + "\n"
+        )
 
     # Collect all outcomes and verify key consistency within each outcome_type.
     # Advisory outcomes (consult, dialogue_turn) and delegation terminal

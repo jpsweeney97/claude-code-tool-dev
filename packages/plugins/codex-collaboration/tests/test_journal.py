@@ -831,9 +831,7 @@ class TestDelegationOutcomeJournal:
         lines = outcomes_path.read_text(encoding="utf-8").strip().split("\n")
         assert len(lines) == 2
 
-    def test_delegation_and_advisory_outcomes_coexist(
-        self, tmp_path: Path
-    ) -> None:
+    def test_delegation_and_advisory_outcomes_coexist(self, tmp_path: Path) -> None:
         journal = OperationJournal(tmp_path / "data")
         journal.append_outcome(
             OutcomeRecord(

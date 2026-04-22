@@ -823,9 +823,11 @@ class DelegationController:
             )
         except Exception as exc:
             logger.warning(
-                "Terminal outcome emission failed for job %r: %s",
+                "Terminal outcome emission failed for job %r: %s: %s",
                 job_id,
+                type(exc).__name__,
                 exc,
+                exc_info=True,
             )
 
     def _persist_job_transition(self, job_id: str, status: JobStatus) -> DelegationJob:

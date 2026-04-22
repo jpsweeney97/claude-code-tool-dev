@@ -1809,11 +1809,13 @@ def test_decide_deny_emits_terminal_outcome(tmp_path: Path) -> None:
     outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
     assert outcomes_path.exists(), "Terminal outcome file must exist after deny"
     lines = [
-        line for line in outcomes_path.read_text(encoding="utf-8").strip().split("\n")
+        line
+        for line in outcomes_path.read_text(encoding="utf-8").strip().split("\n")
         if line.strip()
     ]
     terminal_records = [
-        json.loads(line) for line in lines
+        json.loads(line)
+        for line in lines
         if json.loads(line).get("outcome_type") == "delegation_terminal"
     ]
     assert len(terminal_records) == 1
@@ -3135,9 +3137,7 @@ def test_discard_accepts_failed_null_promotion(tmp_path: Path) -> None:
         _build_promote_scenario(tmp_path)
     )
     # Override to failed with null promotion_state.
-    job_store.update_status_and_promotion(
-        job_id, status="failed", promotion_state=None
-    )
+    job_store.update_status_and_promotion(job_id, status="failed", promotion_state=None)
 
     result = controller.discard(job_id=job_id)
     assert isinstance(result, DiscardResult)
@@ -3692,8 +3692,14 @@ class TestTerminalOutcomeEmission:
         repo_root = tmp_path / "repo"
         repo_root.mkdir()
         (
-            controller, _cp, _wm, job_store, _lineage, journal,
-            _registry, _prs,
+            controller,
+            _cp,
+            _wm,
+            job_store,
+            _lineage,
+            journal,
+            _registry,
+            _prs,
         ) = _build_controller(tmp_path)
 
         result = controller.start(repo_root=repo_root)
@@ -3704,7 +3710,8 @@ class TestTerminalOutcomeEmission:
         assert outcomes_path.exists()
         lines = outcomes_path.read_text(encoding="utf-8").strip().split("\n")
         terminal_records = [
-            json.loads(line) for line in lines
+            json.loads(line)
+            for line in lines
             if json.loads(line).get("outcome_type") == "delegation_terminal"
         ]
         assert len(terminal_records) == 1
@@ -3718,8 +3725,14 @@ class TestTerminalOutcomeEmission:
         repo_root = tmp_path / "repo"
         repo_root.mkdir()
         (
-            controller, cp, _wm, job_store, _lineage, journal,
-            _registry, _prs,
+            controller,
+            cp,
+            _wm,
+            job_store,
+            _lineage,
+            journal,
+            _registry,
+            _prs,
         ) = _build_controller(tmp_path)
 
         cp._next_turn_result = TurnExecutionResult(
@@ -3736,7 +3749,8 @@ class TestTerminalOutcomeEmission:
         outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
         lines = outcomes_path.read_text(encoding="utf-8").strip().split("\n")
         terminal_records = [
-            json.loads(line) for line in lines
+            json.loads(line)
+            for line in lines
             if json.loads(line).get("outcome_type") == "delegation_terminal"
         ]
         assert len(terminal_records) == 1
@@ -3746,8 +3760,14 @@ class TestTerminalOutcomeEmission:
         repo_root = tmp_path / "repo"
         repo_root.mkdir()
         (
-            controller, cp, _wm, job_store, _lineage, journal,
-            _registry, _prs,
+            controller,
+            cp,
+            _wm,
+            job_store,
+            _lineage,
+            journal,
+            _registry,
+            _prs,
         ) = _build_controller(tmp_path)
 
         cp._next_raise_on_turn = RuntimeError("turn dispatch failure")
@@ -3756,13 +3776,17 @@ class TestTerminalOutcomeEmission:
             controller.start(repo_root=repo_root)
 
         outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
-        assert outcomes_path.exists(), "Terminal outcome file must exist after unknown cleanup"
+        assert outcomes_path.exists(), (
+            "Terminal outcome file must exist after unknown cleanup"
+        )
         lines = [
-            line for line in outcomes_path.read_text(encoding="utf-8").strip().split("\n")
+            line
+            for line in outcomes_path.read_text(encoding="utf-8").strip().split("\n")
             if line.strip()
         ]
         terminal_records = [
-            json.loads(line) for line in lines
+            json.loads(line)
+            for line in lines
             if json.loads(line).get("outcome_type") == "delegation_terminal"
         ]
         assert len(terminal_records) == 1, "Exactly one terminal outcome expected"
@@ -3772,8 +3796,14 @@ class TestTerminalOutcomeEmission:
         repo_root = tmp_path / "repo"
         repo_root.mkdir()
         (
-            controller, _cp, _wm, job_store, _lineage, journal,
-            _registry, _prs,
+            controller,
+            _cp,
+            _wm,
+            job_store,
+            _lineage,
+            journal,
+            _registry,
+            _prs,
         ) = _build_controller(tmp_path)
 
         result = controller.start(repo_root=repo_root)
@@ -3785,10 +3815,44 @@ class TestTerminalOutcomeEmission:
         outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
         lines = outcomes_path.read_text(encoding="utf-8").strip().split("\n")
         terminal_records = [
-            json.loads(line) for line in lines
+            json.loads(line)
+            for line in lines
             if json.loads(line).get("outcome_type") == "delegation_terminal"
         ]
         assert len(terminal_records) == 1
+
+    def test_terminal_outcome_emission_failure_is_logged_not_propagated(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from unittest.mock import patch
+
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+        (
+            controller,
+            _cp,
+            _wm,
+            _js,
+            _lineage,
+            journal,
+            _registry,
+            _prs,
+        ) = _build_controller(tmp_path)
+
+        result = controller.start(repo_root=repo_root)
+        assert isinstance(result, DelegationJob)
+
+        with (
+            patch.object(
+                journal,
+                "append_delegation_outcome_once",
+                side_effect=OSError("disk full"),
+            ),
+            caplog.at_level("WARNING", logger="server.delegation_controller"),
+        ):
+            controller._emit_terminal_outcome_if_needed(result.job_id)
+
+        assert any("disk full" in msg for msg in caplog.messages)
 
 
 class TestRecoveryCatchup:
@@ -3801,11 +3865,18 @@ class TestRecoveryCatchup:
         repo_root = tmp_path / "repo"
         repo_root.mkdir()
         (
-            controller, _cp, _wm, job_store, lineage, journal,
-            _registry, _prs,
+            controller,
+            _cp,
+            _wm,
+            job_store,
+            lineage,
+            journal,
+            _registry,
+            _prs,
         ) = _build_controller(tmp_path)
 
         from server.models import CollaborationHandle, DelegationJob
+
         lineage.create(
             CollaborationHandle(
                 collaboration_id="collab-pre",
@@ -3837,11 +3908,13 @@ class TestRecoveryCatchup:
 
         assert outcomes_path.exists()
         lines = [
-            line for line in outcomes_path.read_text(encoding="utf-8").strip().split("\n")
+            line
+            for line in outcomes_path.read_text(encoding="utf-8").strip().split("\n")
             if line.strip()
         ]
         terminal_records = [
-            json.loads(line) for line in lines
+            json.loads(line)
+            for line in lines
             if json.loads(line).get("outcome_type") == "delegation_terminal"
         ]
         assert len(terminal_records) == 1
@@ -3856,11 +3929,18 @@ class TestRecoveryCatchup:
         repo_root = tmp_path / "repo"
         repo_root.mkdir()
         (
-            controller, _cp, _wm, job_store, lineage, journal,
-            _registry, _prs,
+            controller,
+            _cp,
+            _wm,
+            job_store,
+            lineage,
+            journal,
+            _registry,
+            _prs,
         ) = _build_controller(tmp_path)
 
         from server.models import CollaborationHandle, DelegationJob
+
         lineage.create(
             CollaborationHandle(
                 collaboration_id="collab-promoted",
@@ -3892,11 +3972,13 @@ class TestRecoveryCatchup:
             "Terminal outcome must be emitted even for verified/discarded jobs"
         )
         lines = [
-            line for line in outcomes_path.read_text(encoding="utf-8").strip().split("\n")
+            line
+            for line in outcomes_path.read_text(encoding="utf-8").strip().split("\n")
             if line.strip()
         ]
         terminal_records = [
-            json.loads(line) for line in lines
+            json.loads(line)
+            for line in lines
             if json.loads(line).get("outcome_type") == "delegation_terminal"
         ]
         assert len(terminal_records) == 1
@@ -3908,11 +3990,22 @@ class TestRecoveryCatchup:
         repo_root = tmp_path / "repo"
         repo_root.mkdir()
         (
-            controller, _cp, _wm, job_store, lineage, journal,
-            _registry, _prs,
+            controller,
+            _cp,
+            _wm,
+            job_store,
+            lineage,
+            journal,
+            _registry,
+            _prs,
         ) = _build_controller(tmp_path)
 
-        from server.models import CollaborationHandle, DelegationJob, DelegationOutcomeRecord
+        from server.models import (
+            CollaborationHandle,
+            DelegationJob,
+            DelegationOutcomeRecord,
+        )
+
         lineage.create(
             CollaborationHandle(
                 collaboration_id="collab-pre",
@@ -3954,11 +4047,13 @@ class TestRecoveryCatchup:
 
         outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
         lines = [
-            line for line in outcomes_path.read_text(encoding="utf-8").strip().split("\n")
+            line
+            for line in outcomes_path.read_text(encoding="utf-8").strip().split("\n")
             if line.strip()
         ]
         terminal_records = [
-            json.loads(line) for line in lines
+            json.loads(line)
+            for line in lines
             if json.loads(line).get("outcome_type") == "delegation_terminal"
         ]
         assert len(terminal_records) == 1  # No duplicate

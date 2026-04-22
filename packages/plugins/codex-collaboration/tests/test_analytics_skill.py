@@ -41,11 +41,13 @@ def _write_fixtures(plugin_data: Path) -> None:
 
     # 3 consult outcomes: 2 with workflow=consult, 1 with workflow=review
     # Policy fingerprints: 2x fp-alpha, 1x fp-beta (for distribution test)
-    for i, (wf, fp) in enumerate([
-        ("consult", "fp-alpha"),
-        ("consult", "fp-alpha"),
-        ("review", "fp-beta"),
-    ]):
+    for i, (wf, fp) in enumerate(
+        [
+            ("consult", "fp-alpha"),
+            ("consult", "fp-alpha"),
+            ("review", "fp-beta"),
+        ]
+    ):
         journal.append_outcome(
             OutcomeRecord(
                 outcome_id=f"o-{i}",
@@ -123,8 +125,18 @@ def _write_fixtures(plugin_data: Path) -> None:
         {"action": "delegate_start", "job_id": "job-0"},
         {"action": "delegate_start", "job_id": "job-1"},
         {"action": "escalate", "job_id": "job-0", "request_id": "req-0"},
-        {"action": "approve", "job_id": "job-0", "request_id": "req-0", "decision": "approve"},
-        {"action": "approve", "job_id": "job-1", "request_id": "req-1", "decision": "deny"},
+        {
+            "action": "approve",
+            "job_id": "job-0",
+            "request_id": "req-0",
+            "decision": "approve",
+        },
+        {
+            "action": "approve",
+            "job_id": "job-1",
+            "request_id": "req-1",
+            "decision": "deny",
+        },
         {"action": "promote", "job_id": "job-0"},
         {"action": "discard", "job_id": "job-1"},
     ]
@@ -220,3 +232,37 @@ class TestAnalyticsRecipe:
         # Legacy row has no fingerprint — not counted
         assert "| `fp-alpha` | 4 |" in output
         assert "| `fp-beta` | 1 |" in output
+
+    def test_missing_files_produce_zero_counts(self, tmp_path: Path) -> None:
+        outcomes = tmp_path / "nonexistent_outcomes.jsonl"
+        audit = tmp_path / "nonexistent_audit.jsonl"
+        result = subprocess.run(
+            ["python3", str(ANALYTICS_SCRIPT), str(outcomes), str(audit)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert result.returncode == 0, f"Script failed:\n{result.stderr}"
+        assert "(0 records)" in result.stdout
+
+    def test_malformed_lines_are_skipped_and_counted(self, tmp_path: Path) -> None:
+        outcomes = tmp_path / "outcomes.jsonl"
+        outcomes.write_text(
+            '{"outcome_type": "consult", "outcome_id": "o1", "timestamp": "t",'
+            ' "collaboration_id": "c1", "runtime_id": "r1", "context_size": 100,'
+            ' "turn_id": "t1"}\n'
+            "NOT VALID JSON\n"
+            '{"outcome_type": "consult", "outcome_id": "o2", "timestamp": "t",'
+            ' "collaboration_id": "c2", "runtime_id": "r1", "context_size": 200,'
+            ' "turn_id": "t2"}\n'
+        )
+        audit = tmp_path / "audit.jsonl"
+        audit.write_text("")
+        result = subprocess.run(
+            ["python3", str(ANALYTICS_SCRIPT), str(outcomes), str(audit)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert result.returncode == 0, f"Script failed:\n{result.stderr}"
+        assert "(2 records, 1 malformed)" in result.stdout

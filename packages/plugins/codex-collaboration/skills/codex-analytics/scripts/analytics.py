@@ -11,6 +11,22 @@ from collections import Counter
 from pathlib import Path
 
 
+def _read_jsonl(path: Path) -> tuple[list[dict[str, object]], int]:
+    """Read a JSONL file, skipping malformed lines. Returns (records, malformed_count)."""
+    if not path.exists():
+        return [], 0
+    records: list[dict[str, object]] = []
+    malformed = 0
+    for line in path.read_text().strip().split("\n"):
+        if not line.strip():
+            continue
+        try:
+            records.append(json.loads(line))
+        except json.JSONDecodeError:
+            malformed += 1
+    return records, malformed
+
+
 def main(outcomes_path: Path, audit_path: Path) -> None:
     by_type: Counter[str] = Counter()
     workflow_counts: Counter[str] = Counter()
@@ -18,15 +34,11 @@ def main(outcomes_path: Path, audit_path: Path) -> None:
     fingerprints: Counter[str] = Counter()
     delegation_terminals: list[dict[str, object]] = []
     unknown_types: Counter[str] = Counter()
-    total_outcome_records = 0
 
-    for line in (
-        outcomes_path.read_text().strip().split("\n") if outcomes_path.exists() else []
-    ):
-        if not line.strip():
-            continue
-        r = json.loads(line)
-        total_outcome_records += 1
+    outcome_records, outcomes_malformed = _read_jsonl(outcomes_path)
+    total_outcome_records = len(outcome_records)
+
+    for r in outcome_records:
         ot = r.get("outcome_type", "")
         if ot in ("consult", "dialogue_turn"):
             by_type[ot] += 1
@@ -50,15 +62,11 @@ def main(outcomes_path: Path, audit_path: Path) -> None:
     promote_count = 0
     discard_count = 0
     delegate_starts: dict[str, str] = {}
-    total_audit_records = 0
 
-    for line in (
-        audit_path.read_text().strip().split("\n") if audit_path.exists() else []
-    ):
-        if not line.strip():
-            continue
-        r = json.loads(line)
-        total_audit_records += 1
+    audit_records, audit_malformed = _read_jsonl(audit_path)
+    total_audit_records = len(audit_records)
+
+    for r in audit_records:
         action = r.get("action", "")
         audit_actions[action] += 1
         if action == "approve":
@@ -73,8 +81,12 @@ def main(outcomes_path: Path, audit_path: Path) -> None:
                 delegate_starts[jid] = r.get("timestamp", "")
 
     print("## Data Sources")
-    print(f"- Outcomes: `{outcomes_path}` ({total_outcome_records} records)")
-    print(f"- Audit: `{audit_path}` ({total_audit_records} records)")
+    outcomes_note = f", {outcomes_malformed} malformed" if outcomes_malformed else ""
+    audit_note = f", {audit_malformed} malformed" if audit_malformed else ""
+    print(
+        f"- Outcomes: `{outcomes_path}` ({total_outcome_records} records{outcomes_note})"
+    )
+    print(f"- Audit: `{audit_path}` ({total_audit_records} records{audit_note})")
 
     print("\n## Usage")
     print("| Metric | Count |")

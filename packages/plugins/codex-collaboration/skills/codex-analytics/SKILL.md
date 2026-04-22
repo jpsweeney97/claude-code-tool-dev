@@ -16,7 +16,7 @@ Call `codex.status` with the current `repo_root` to get `plugin_data_path`. The 
 - `{plugin_data_path}/analytics/outcomes.jsonl` — advisory and delegation terminal outcomes
 - `{plugin_data_path}/audit/events.jsonl` — trust boundary, lifecycle, and security events
 
-Both are append-only JSONL. Read with `Bash` using `cat` + `python -c` for aggregation, or `Read` for small files.
+Both are append-only JSONL. Use the analytics script (see below) for aggregation, or `Read` for ad-hoc inspection of small files.
 
 ## Outcome Record Shapes
 

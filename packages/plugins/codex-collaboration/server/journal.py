@@ -284,9 +284,7 @@ class OperationJournal:
         with self._outcomes_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(asdict(record), sort_keys=True) + "\n")
 
-    def append_delegation_outcome_once(
-        self, record: DelegationOutcomeRecord
-    ) -> None:
+    def append_delegation_outcome_once(self, record: DelegationOutcomeRecord) -> None:
         """Append a delegation outcome unless one exists for this job."""
 
         if self._jsonl_contains(
