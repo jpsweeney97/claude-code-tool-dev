@@ -244,10 +244,18 @@ full delegation lifecycle through the skill. If App Server is not available at
       `profile="code-review"`; `outcomes.jsonl` row confirmed
       `"workflow": "review"` + `"outcome_type": "consult"`. Review feedback
       addressed in follow-up commit `90c6ff9a`.
-- [ ] Migration docs show how to replace each cross-model workflow with the new
+- [x] Migration docs show how to replace each cross-model workflow with the new
       plugin surface
-- [ ] A parity matrix exists and covers consult, dialogue, delegate, analytics,
+- [x] A parity matrix exists and covers consult, dialogue, delegate, analytics,
       and review workflows
+
+      **Closed (7c):** PR #120, merged at `c59dbf11`. Migration and parity
+      artifact at `docs/plans/2026-04-22-t07-cross-model-migration-and-parity-7c.md`
+      (325 lines). Covers: 5-workflow parity matrix with functional-replacement
+      qualifiers, complete 17/17 script removal inventory, per-workflow
+      command-level migration guide, infrastructure comparison. 3 scrutiny
+      rounds before commit. This document is migration evidence — removal
+      authorization stays in 7d/7e.
 - [ ] Cross-model is removed from the repo once the parity matrix is complete
       and the live `/delegate` smoke has passed (or an explicit App Server
       deferral is recorded with the same transparency as T-06's deferral)
