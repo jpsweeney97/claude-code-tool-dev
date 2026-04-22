@@ -12,6 +12,7 @@ from typing import Any, Callable
 
 from .models import (
     AuditEvent,
+    DelegationOutcomeRecord,
     OperationJournalEntry,
     OutcomeRecord,
     StaleAdvisoryContextMarker,
@@ -276,6 +277,27 @@ class OperationJournal:
         ):
             return
         self.append_outcome(record)
+
+    def append_delegation_outcome(self, record: DelegationOutcomeRecord) -> None:
+        """Append a delegation terminal outcome record as JSONL."""
+
+        with self._outcomes_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(asdict(record), sort_keys=True) + "\n")
+
+    def append_delegation_outcome_once(
+        self, record: DelegationOutcomeRecord
+    ) -> None:
+        """Append a delegation outcome unless one exists for this job."""
+
+        if self._jsonl_contains(
+            self._outcomes_path,
+            lambda existing: (
+                existing.get("outcome_type") == record.outcome_type
+                and existing.get("job_id") == record.job_id
+            ),
+        ):
+            return
+        self.append_delegation_outcome(record)
 
     def write_phase(self, entry: OperationJournalEntry, *, session_id: str) -> None:
         """Append a phased journal record with fsync."""
