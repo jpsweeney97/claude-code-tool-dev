@@ -3654,3 +3654,109 @@ def test_recover_startup_preserves_promotion_attempt_from_intent(
         f"{recovered.promotion_attempt}. Recovery must preserve the attempt "
         "counter to avoid idempotency key reuse."
     )
+
+
+class TestTerminalOutcomeEmission:
+    """Verify DelegationOutcomeRecord emission on terminal job transitions."""
+
+    def test_completed_job_emits_terminal_outcome(self, tmp_path: Path) -> None:
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+        (
+            controller, _cp, _wm, job_store, _lineage, journal,
+            _registry, _prs,
+        ) = _build_controller(tmp_path)
+
+        result = controller.start(repo_root=repo_root)
+        assert isinstance(result, DelegationJob)
+        assert result.status == "completed"
+
+        outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
+        assert outcomes_path.exists()
+        lines = outcomes_path.read_text(encoding="utf-8").strip().split("\n")
+        terminal_records = [
+            json.loads(line) for line in lines
+            if json.loads(line).get("outcome_type") == "delegation_terminal"
+        ]
+        assert len(terminal_records) == 1
+        record = terminal_records[0]
+        assert record["job_id"] == "job-1"
+        assert record["terminal_status"] == "completed"
+        assert record["collaboration_id"] == "collab-1"
+        assert record["base_commit"] == "head-abc"
+
+    def test_failed_turn_emits_terminal_outcome(self, tmp_path: Path) -> None:
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+        (
+            controller, cp, _wm, job_store, _lineage, journal,
+            _registry, _prs,
+        ) = _build_controller(tmp_path)
+
+        cp._next_turn_result = TurnExecutionResult(
+            turn_id="turn-1",
+            status="failed",
+            agent_message="Failed.",
+            notifications=(),
+        )
+
+        result = controller.start(repo_root=repo_root)
+        assert isinstance(result, DelegationJob)
+        assert result.status == "failed"
+
+        outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
+        lines = outcomes_path.read_text(encoding="utf-8").strip().split("\n")
+        terminal_records = [
+            json.loads(line) for line in lines
+            if json.loads(line).get("outcome_type") == "delegation_terminal"
+        ]
+        assert len(terminal_records) == 1
+        assert terminal_records[0]["terminal_status"] == "failed"
+
+    def test_unknown_cleanup_emits_terminal_outcome(self, tmp_path: Path) -> None:
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+        (
+            controller, cp, _wm, job_store, _lineage, journal,
+            _registry, _prs,
+        ) = _build_controller(tmp_path)
+
+        cp._next_raise_on_turn = RuntimeError("turn dispatch failure")
+
+        with pytest.raises(RuntimeError, match="turn dispatch failure"):
+            controller.start(repo_root=repo_root)
+
+        outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
+        assert outcomes_path.exists(), "Terminal outcome file must exist after unknown cleanup"
+        lines = [
+            l for l in outcomes_path.read_text(encoding="utf-8").strip().split("\n")
+            if l.strip()
+        ]
+        terminal_records = [
+            json.loads(line) for line in lines
+            if json.loads(line).get("outcome_type") == "delegation_terminal"
+        ]
+        assert len(terminal_records) == 1, "Exactly one terminal outcome expected"
+        assert terminal_records[0]["terminal_status"] == "unknown"
+
+    def test_terminal_outcome_is_idempotent(self, tmp_path: Path) -> None:
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+        (
+            controller, _cp, _wm, job_store, _lineage, journal,
+            _registry, _prs,
+        ) = _build_controller(tmp_path)
+
+        result = controller.start(repo_root=repo_root)
+        assert isinstance(result, DelegationJob)
+
+        # Manually call the helper again — should not duplicate
+        controller._emit_terminal_outcome_if_needed(result.job_id)
+
+        outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
+        lines = outcomes_path.read_text(encoding="utf-8").strip().split("\n")
+        terminal_records = [
+            json.loads(line) for line in lines
+            if json.loads(line).get("outcome_type") == "delegation_terminal"
+        ]
+        assert len(terminal_records) == 1

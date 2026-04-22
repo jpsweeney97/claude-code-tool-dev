@@ -81,7 +81,9 @@ from .models import (
     DelegationDecisionResult,
     DelegationEscalation,
     DelegationJob,
+    DelegationOutcomeRecord,
     DelegationPollResult,
+    DelegationTerminalStatus,
     DiscardRejectedResponse,
     DiscardResult,
     JobBusyResponse,
@@ -98,6 +100,12 @@ from .pending_request_store import PendingRequestStore
 from .runtime import AppServerRuntimeSession, build_workspace_write_sandbox_policy
 
 logger = logging.getLogger(__name__)
+
+_TERMINAL_STATUS_MAP: dict[str, DelegationTerminalStatus] = {
+    "completed": "completed",
+    "failed": "failed",
+    "unknown": "unknown",
+}
 
 
 class _ControlPlaneLike(Protocol):
@@ -764,6 +772,7 @@ class DelegationController:
                 job_id,
                 exc_info=True,
             )
+        self._emit_terminal_outcome_if_needed(job_id)
         try:
             self._lineage_store.update_status(collaboration_id, "unknown")
         except Exception:
@@ -787,6 +796,36 @@ class DelegationController:
                 "Execution cleanup: failed to close runtime %r",
                 runtime_id,
                 exc_info=True,
+            )
+
+    def _emit_terminal_outcome_if_needed(self, job_id: str) -> None:
+        """Best-effort emit DelegationOutcomeRecord for a terminal job."""
+        try:
+            job = self._job_store.get(job_id)
+            if job is None:
+                return
+            terminal = _TERMINAL_STATUS_MAP.get(job.status)
+            if terminal is None:
+                return
+            handle = self._lineage_store.get(job.collaboration_id)
+            self._journal.append_delegation_outcome_once(
+                DelegationOutcomeRecord(
+                    outcome_id=self._uuid_factory(),
+                    timestamp=self._journal.timestamp(),
+                    outcome_type="delegation_terminal",
+                    collaboration_id=job.collaboration_id,
+                    runtime_id=job.runtime_id,
+                    job_id=job_id,
+                    terminal_status=terminal,
+                    base_commit=job.base_commit,
+                    repo_root=handle.repo_root if handle is not None else None,
+                )
+            )
+        except Exception as exc:
+            logger.warning(
+                "Terminal outcome emission failed for job %r: %s",
+                job_id,
+                exc,
             )
 
     def _persist_job_transition(self, job_id: str, status: JobStatus) -> DelegationJob:
@@ -1472,6 +1511,7 @@ class DelegationController:
             self._lineage_store.update_status(collaboration_id, "completed")
             self._runtime_registry.release(runtime_id)
             entry.session.close()
+            self._emit_terminal_outcome_if_needed(job_id)
             return updated_job
 
         # No server request captured — clean completion or failure.
@@ -1486,6 +1526,7 @@ class DelegationController:
         self._lineage_store.update_status(collaboration_id, "completed")
         self._runtime_registry.release(runtime_id)
         entry.session.close()
+        self._emit_terminal_outcome_if_needed(job_id)
 
         return updated_job
 
