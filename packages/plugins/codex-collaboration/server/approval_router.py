@@ -123,13 +123,11 @@ def is_within_delegation_boundary(
     unknown/interrupt paths).
     """
     if parsed.kind == "command_approval":
-        scope = parsed.requested_scope
-        if scope.get("networkApprovalContext") is not None:
-            return False
-        cwd = scope.get("cwd")
-        if cwd is not None and not _is_path_within_boundary(cwd, worktree_path):
-            return False
-        return True
+        # Command approvals carry opaque execution payloads. Spatial metadata
+        # such as cwd or networkApprovalContext cannot prove that the command
+        # itself stays within the delegation boundary, so these requests must
+        # always escalate.
+        return False
     if parsed.kind == "file_change":
         grant_root = parsed.requested_scope.get("grantRoot")
         if grant_root is not None and not _is_path_within_boundary(

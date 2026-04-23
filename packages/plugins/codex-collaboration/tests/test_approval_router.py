@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from server.approval_router import parse_pending_server_request
+from pathlib import Path
+
+from server.approval_router import (
+    is_within_delegation_boundary,
+    parse_pending_server_request,
+)
 
 
 def test_parse_integer_request_id_normalized_to_string() -> None:
@@ -209,3 +214,67 @@ def test_absent_available_decisions_uses_schema_default() -> None:
 
     assert "accept" in request.available_decisions
     assert "cancel" in request.available_decisions
+
+
+def test_command_approval_never_counts_as_within_boundary() -> None:
+    """Opaque command payloads must always escalate, even with in-worktree cwd."""
+    message = {
+        "id": "req-7",
+        "method": "item/commandExecution/requestApproval",
+        "params": {
+            "itemId": "item-7",
+            "threadId": "thr-7",
+            "turnId": "turn-7",
+            "command": "/bin/cat /etc/passwd",
+            "cwd": "/repo/worktree/src",
+            "availableDecisions": ["accept", "decline", "cancel"],
+        },
+    }
+
+    request = parse_pending_server_request(
+        message, runtime_id="rt-7", collaboration_id="collab-7"
+    )
+
+    assert (
+        is_within_delegation_boundary(request, Path("/repo/worktree")) is False
+    )
+
+
+def test_file_change_with_in_worktree_grant_root_is_within_boundary() -> None:
+    """File-change inline accept remains keyed to the actual grant scope."""
+    message = {
+        "id": "req-8",
+        "method": "item/fileChange/requestApproval",
+        "params": {
+            "itemId": "item-8",
+            "threadId": "thr-8",
+            "turnId": "turn-8",
+            "grantRoot": "/repo/worktree/generated",
+        },
+    }
+
+    request = parse_pending_server_request(
+        message, runtime_id="rt-8", collaboration_id="collab-8"
+    )
+
+    assert is_within_delegation_boundary(request, Path("/repo/worktree")) is True
+
+
+def test_file_change_with_out_of_worktree_grant_root_is_outside_boundary() -> None:
+    """Grant roots outside the worktree still fail the boundary check."""
+    message = {
+        "id": "req-9",
+        "method": "item/fileChange/requestApproval",
+        "params": {
+            "itemId": "item-9",
+            "threadId": "thr-9",
+            "turnId": "turn-9",
+            "grantRoot": "/tmp/generated",
+        },
+    }
+
+    request = parse_pending_server_request(
+        message, runtime_id="rt-9", collaboration_id="collab-9"
+    )
+
+    assert is_within_delegation_boundary(request, Path("/repo/worktree")) is False

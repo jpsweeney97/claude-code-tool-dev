@@ -1437,12 +1437,16 @@ def test_start_with_unknown_request_interrupts_and_escalates(tmp_path: Path) -> 
     assert registry.lookup("rt-1") is not None
 
 
-def test_start_with_two_requests_responds_to_both(tmp_path: Path) -> None:
-    """Two in-boundary command_approval requests → both inline-accepted → job completed."""
+def test_start_with_two_command_approvals_cancels_both_and_escalates_first(
+    tmp_path: Path,
+) -> None:
+    """Two command_approval requests → both cancelled → first request escalates."""
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, control_plane, _wm, _js, _ls, _j, _r, prs = _build_controller(tmp_path)
+    controller, control_plane, _wm, _js, _ls, _j, registry, prs = _build_controller(
+        tmp_path
+    )
 
     control_plane._next_session_requests = [
         _command_approval_request(request_id=1, item_id="item-a"),
@@ -1451,19 +1455,18 @@ def test_start_with_two_requests_responds_to_both(tmp_path: Path) -> None:
 
     result = controller.start(repo_root=repo_root, objective="Fix")
 
-    # Both in-boundary requests are inline-accepted — job completes.
-    assert isinstance(result, DelegationJob)
-    assert result.status == "completed"
-    # Neither request is captured (inline-accepted, not persisted as pending).
-    assert prs.get("1") is None
+    assert isinstance(result, DelegationEscalation)
+    assert result.job.status == "needs_escalation"
+    stored = prs.get("1")
+    assert stored is not None
+    assert stored.status == "resolved"
     assert prs.get("2") is None
-    # Both handler responses are accept decisions.
     assert control_plane._sessions[0]._handler_responses == [
-        {"decision": "accept"},
-        {"decision": "accept"},
+        {"decision": "cancel"},
+        {"decision": "cancel"},
     ]
-    # Session closed since job completed.
-    assert control_plane._sessions[0].closed
+    assert registry.lookup("rt-1") is not None
+    assert not control_plane._sessions[0].closed
 
 
 def test_start_with_unparseable_request_creates_minimal_causal_record(
@@ -1651,12 +1654,11 @@ def test_start_with_request_user_input_completed_returns_delegation_job(
 def test_later_parse_failure_does_not_prevent_captured_request_resolution(
     tmp_path: Path,
 ) -> None:
-    """First request (in-boundary command_approval) is inline-accepted.
-    Second message fails parse → captured as the escalation trigger.
+    """First command_approval is captured; later parse failure does not replace it.
 
-    The first request is inline-accepted (not captured). The second message
-    triggers interrupted_by_unknown (escalation) and becomes the captured
-    request with parse-failed semantics.
+    The first request triggers cancel/needs_escalation capture. The second
+    message then fails parse and interrupts the turn, but the first request
+    remains the causal escalation record.
     """
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
@@ -1665,8 +1667,8 @@ def test_later_parse_failure_does_not_prevent_captured_request_resolution(
         tmp_path
     )
 
-    # First message: parseable command_approval (in-boundary → inline accepted).
-    # Second: unparseable → triggers escalation.
+    # First message: parseable command_approval (captured via cancel).
+    # Second: unparseable → triggers interrupt but does not replace capture.
     control_plane._next_session_requests = [
         _command_approval_request(request_id=10, item_id="item-ok"),
         {"id": 11, "method": "broken/method", "params": "not-a-dict"},
@@ -1684,15 +1686,11 @@ def test_later_parse_failure_does_not_prevent_captured_request_resolution(
     assert isinstance(result, DelegationEscalation)
     assert result.job.status == "needs_escalation"
 
-    # The first request was inline-accepted (not captured).
-    assert prs.get("10") is None
-    # The first handler response is accept (inline).
-    assert control_plane._sessions[0]._handler_responses[0] == {"decision": "accept"}
-
-    # The second request (parse-failed) is the captured request.
-    stored = prs.get("11")
+    stored = prs.get("10")
     assert stored is not None
-    assert stored.status == "pending"  # Parse failures stay pending.
+    assert stored.status == "resolved"
+    assert prs.get("11") is None
+    assert control_plane._sessions[0]._handler_responses[0] == {"decision": "cancel"}
 
     # Runtime kept live for escalation.
     assert registry.lookup("rt-1") is not None
@@ -4171,8 +4169,8 @@ def test_sandbox_policy_includes_codex_support_roots(tmp_path: Path) -> None:
 # -----------------------------------------------------------------------------
 
 
-def test_command_approval_inline_accepted_completes_job(tmp_path: Path) -> None:
-    """In-boundary command_approval → handler returns accept → job completed."""
+def test_command_approval_defaults_to_escalation(tmp_path: Path) -> None:
+    """command_approval defaults to cancel/needs_escalation, even without network context."""
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
@@ -4183,12 +4181,11 @@ def test_command_approval_inline_accepted_completes_job(tmp_path: Path) -> None:
 
     result = controller.start(repo_root=repo_root, objective="Run tests")
 
-    assert isinstance(result, DelegationJob)
-    assert result.status == "completed"
-    assert control_plane._sessions[0]._handler_responses[0] == {"decision": "accept"}
-    # Runtime released and session closed after completion.
-    assert registry.lookup("rt-1") is None
-    assert control_plane._sessions[0].closed
+    assert isinstance(result, DelegationEscalation)
+    assert result.job.status == "needs_escalation"
+    assert control_plane._sessions[0]._handler_responses[0] == {"decision": "cancel"}
+    assert registry.lookup("rt-1") is not None
+    assert not control_plane._sessions[0].closed
 
 
 def test_file_change_inline_accepted_completes_job(tmp_path: Path) -> None:
@@ -4382,15 +4379,15 @@ def test_decide_deny_still_works_for_command_approval(tmp_path: Path) -> None:
     assert registry.lookup("rt-1") is None
 
 
-def test_inline_accept_emits_audit_event(tmp_path: Path) -> None:
-    """In-boundary command_approval → inline_accept audit event with actor=system."""
+def test_file_change_inline_accept_emits_audit_event(tmp_path: Path) -> None:
+    """In-boundary file_change → inline_accept audit event with actor=system."""
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
     controller, control_plane, _wm, _js, _ls, journal, _r, _prs = _build_controller(
         tmp_path
     )
-    control_plane._next_session_requests = [_command_approval_request()]
+    control_plane._next_session_requests = [_file_change_request()]
 
     controller.start(repo_root=repo_root, objective="Run tests")
 
@@ -4404,11 +4401,11 @@ def test_inline_accept_emits_audit_event(tmp_path: Path) -> None:
     inline_events = [e for e in lines if e.get("action") == "inline_accept"]
     assert len(inline_events) == 1
     assert inline_events[0]["actor"] == "system"
-    assert inline_events[0]["request_id"] == "42"
+    assert inline_events[0]["request_id"] == "43"
 
 
 def test_multiple_inline_accepts_all_complete(tmp_path: Path) -> None:
-    """Two in-boundary requests → both accepted → job completed with two audit events."""
+    """Two in-boundary file_change requests → job completed with two audit events."""
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
@@ -4416,7 +4413,7 @@ def test_multiple_inline_accepts_all_complete(tmp_path: Path) -> None:
         tmp_path
     )
     control_plane._next_session_requests = [
-        _command_approval_request(request_id=1, item_id="item-a"),
+        _file_change_request(request_id=1, item_id="item-a"),
         _file_change_request(request_id=2, item_id="item-b"),
     ]
 
@@ -4491,8 +4488,10 @@ def test_decide_approve_still_valid_for_request_user_input(tmp_path: Path) -> No
     assert result.job.status == "completed"
 
 
-def test_mixed_inline_accept_then_fail_closed(tmp_path: Path) -> None:
-    """First request in-boundary (accept), second out-of-boundary (cancel) → escalation."""
+def test_file_change_inline_accept_then_command_approval_escalates(
+    tmp_path: Path,
+) -> None:
+    """First request file_change inline-accepts, second command_approval escalates."""
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
@@ -4500,7 +4499,7 @@ def test_mixed_inline_accept_then_fail_closed(tmp_path: Path) -> None:
         tmp_path
     )
     control_plane._next_session_requests = [
-        _command_approval_request(request_id=10, item_id="item-ok"),
+        _file_change_request(request_id=10, item_id="item-ok"),
         _command_approval_with_network_context(request_id=20, item_id="item-net"),
     ]
 
@@ -4598,10 +4597,13 @@ def test_malformed_available_decisions_fails_closed_at_handler(tmp_path: Path) -
     assert control_plane._sessions[0]._handler_responses[0] == {"decision": "cancel"}
 
 
-def test_command_approval_with_explicit_in_worktree_cwd_accepted(
+def test_command_approval_with_in_worktree_cwd_still_escalates(
     tmp_path: Path,
 ) -> None:
-    """Command approval with cwd inside worktree → handler returns accept → job completed."""
+    """Command approval with cwd inside worktree still escalates.
+
+    Spatial metadata such as cwd does not constrain the command payload itself.
+    """
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
@@ -4622,18 +4624,20 @@ def test_command_approval_with_explicit_in_worktree_cwd_accepted(
                 "itemId": "item-in-wt",
                 "threadId": "thr-1",
                 "turnId": "turn-1",
-                "command": "ls",
+                "command": "/bin/cat /etc/passwd",
                 "cwd": cwd_inside,
+                "availableDecisions": ["accept", "decline", "cancel"],
             },
         }
     ]
 
     result = controller.start(repo_root=repo_root, objective="List in worktree")
 
-    assert isinstance(result, DelegationJob)
-    assert result.status == "completed"
-    assert control_plane._sessions[0]._handler_responses[0] == {"decision": "accept"}
-    assert registry.lookup("rt-1") is None
+    assert isinstance(result, DelegationEscalation)
+    assert result.job.status == "needs_escalation"
+    assert result.pending_escalation.kind == "command_approval"
+    assert control_plane._sessions[0]._handler_responses[0] == {"decision": "cancel"}
+    assert registry.lookup("rt-1") is not None
 
 
 def test_file_change_with_explicit_in_worktree_grant_root_accepted(
