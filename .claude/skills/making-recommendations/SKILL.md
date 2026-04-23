@@ -134,9 +134,9 @@ These extensions apply only to **High**-stakes decisions. Skip for Low and Mediu
 **Full analysis:** [link to decision record]
 ```
 
-### Codex Delta (cross-model adversarial check)
+### Codex Delta (codex-collaboration adversarial check)
 
-When the Codex MCP is available, run a cross-model adversarial check on the frontrunner before finalizing the ranking. An independent model finds blind spots you cannot see in your own reasoning.
+When the Codex MCP is available, run a codex-collaboration adversarial check on the frontrunner before finalizing the ranking. An independent model finds blind spots you cannot see in your own reasoning.
 
 Full invocation spec: [references/codex-delta.md](references/codex-delta.md)
 

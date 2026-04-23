@@ -29,7 +29,7 @@ docs/
 ├── references/   # Skill patterns, guides, style references
 ├── plans/        # Implementation plans and design documents
 ├── decisions/    # Architecture Decision Records
-├── learnings/    # Cross-model consultation insights
+├── learnings/    # Codex consultation insights
 ├── tickets/      # Work tickets
 └── audits/       # Quality audits
 
@@ -40,8 +40,6 @@ docs/
 
 | Package | Path | Language | Purpose |
 |---------|------|----------|---------|
-| cross-model | `packages/plugins/cross-model/` | Python | Codex MCP server + enforcement hooks + dialogue agent |
-| context-injection | `packages/plugins/cross-model/context-injection/` | Python | Mid-conversation evidence gathering with redaction |
 | handoff | `packages/plugins/handoff/` | Python | Session state persistence (save/load/search) |
 | ticket | `packages/plugins/ticket/` | Python | Repo-local ticket lifecycle management |
 | context-metrics | `packages/plugins/context-metrics/` | Python | Context window usage analysis |
@@ -90,5 +88,4 @@ Run with `uv run scripts/<name>`:
 | `sync-settings` | Sync hook config to `settings.json` (run after hook changes) |
 | `inventory` | List all extensions and packages |
 | `migrate` | Extension schema migrations |
-| `validate_consultation_contract.py` | Validate Codex contract + governance rules |
 | `validate_episode.py` | Validate learning episode format |

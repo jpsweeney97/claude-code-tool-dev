@@ -3,7 +3,7 @@
 ```yaml
 id: T-20260330-07
 date: 2026-03-30
-status: open
+status: closed
 priority: medium
 tags: [codex-collaboration, analytics, review, cutover, supersession]
 blocked_by: [T-20260330-04, T-20260330-06]
@@ -256,15 +256,31 @@ full delegation lifecycle through the skill. If App Server is not available at
       command-level migration guide, infrastructure comparison. 3 scrutiny
       rounds before commit. This document is migration evidence — removal
       authorization stays in 7d/7e.
-- [ ] Cross-model is removed from the repo once the parity matrix is complete
+- [x] Cross-model is removed from the repo once the parity matrix is complete
       and the live `/delegate` smoke has passed (or an explicit App Server
       deferral is recorded with the same transparency as T-06's deferral)
-- [ ] Context-injection is removed as part of the cross-model cutover.
+
+      **Closed (7e):** PR #TBD. `packages/plugins/cross-model/` deleted
+      (79 files, 21,113 lines). Live `/delegate` smoke attempted: App Server
+      available, delegation pipeline functional through start/escalate/decide/
+      complete/poll/inspect, but sandbox execution blocked by two
+      codex-collaboration defects (`includePlatformDefaults: False` in
+      `build_workspace_write_sandbox_policy`, cancel-then-prompt approval
+      loop). Recorded as execution-domain deferral, not App Server
+      unavailability. Job `23347703-673a-419f-b1f5-01ca16cfe1f6` discarded
+      (empty diff). See `docs/plans/2026-04-23-t07-cross-model-removal-7e.md`
+      §Delegate Smoke Deferral for full evidence.
+- [x] Context-injection is removed as part of the cross-model cutover.
       `T-20260330-04` explicitly resolved the retirement decision in favor of
       keeping context-injection retired by default. This is a
       demonstrated-not-scored adjudication, not a formal aggregate benchmark
       pass. Caveats: `T-20260416-01` open, mechanism losses L1/L2/L3
       acknowledged, capture sequence spans multiple doc commits
+
+      **Closed (7d):** PR #122, merged at `1f458bcf`. Context-injection
+      package deleted (54 files, ~19,487 lines). Dialogue skill and agent
+      retired with stubs. `/codex` delegation branch patched. All 825
+      cross-model tests passing post-removal.
 
 ## Verification
 

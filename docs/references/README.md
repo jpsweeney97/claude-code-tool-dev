@@ -39,20 +39,9 @@
 1. `./consultation-contract.md`
    - Normative 16-section contract for Codex consultations. Single source of truth
      for briefing structure, safety pipeline, transport params, continuity state,
-     relay obligations, and conformance. Referenced by the `/codex` skill and
-     `codex-dialogue` agent via fail-closed stubs.
+     relay obligations, and conformance.
 
 2. `./consultation-profiles.yaml`
    - Named profiles (`quick-check`, `deep-review`, `adversarial-challenge`,
      `exploratory`, `code-review`) mapping to resolved execution controls.
      Stored separately from the contract for edit-frequency isolation.
-
-3. `packages/plugins/cross-model/references/context-injection-contract.md`
-   - Complementary protocol: JSON contract between the `codex-dialogue` agent
-     and the context injection Python helper (MCP server). Governs mid-conversation
-     evidence gathering (process_turn / execute_scout calls).
-
-4. `./cross-model-plugin-operational-handbook.md`
-   - Practical operator's guide for the cross-model plugin. Covers architecture,
-     `/dialogue` end-to-end flow, context-injection runtime behavior, a worked
-     3-turn example, and a file-by-file change map for common modifications.
