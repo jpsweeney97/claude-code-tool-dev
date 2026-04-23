@@ -54,7 +54,7 @@ The `/dialogue` skill assembles gatherer outputs using the following determinist
 3. **Zero-output fallback** — if total parseable lines across both gatherers is 0 after retries, use minimal briefing with `warnings: ["zero_output"]`; skip steps 4-9
 4. **Discard** — remove `CLAIM`/`COUNTER`/`CONFIRM` missing citation; remove `COUNTER`/`CONFIRM` missing `AID:`; remove `COUNTER` missing `TYPE:`
 5. **Cap** — if >3 `COUNTER` items remain, keep first 3 (by appearance order)
-6. **Sanitize** — run credential patterns (consultation contract §7) on remaining content
+6. **Sanitize** — run credential sanitizer patterns on remaining content
 7. **Dedup** — same tag type + citation key across gatherers → keep Gatherer A's. Different tag types at same citation retained. Key = `path:line` normalized: strip leading `./`, lowercase, collapse `//`
 8. **Validate provenance** — for each `CLAIM` line in the retained set, check for `[SRC:code]` or `[SRC:docs]`. If missing, assign `[SRC:unknown]` and increment `provenance_unknown_count`. Does not drop lines.
 9. **Group** — deterministic order (Gatherer A first, then B within each section):

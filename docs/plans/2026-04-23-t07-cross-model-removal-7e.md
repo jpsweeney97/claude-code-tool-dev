@@ -299,7 +299,7 @@ delivered source.
 
 | # | File | Action |
 |---|------|--------|
-| 14 | `docs/references/README.md` (lines 50-58) | Remove the two stale "Codex Consultation Protocol" entries: (a) line 50-53 points to `packages/plugins/cross-model/references/context-injection-contract.md` which is deleted with the package, (b) lines 55-58 point to `./cross-model-plugin-operational-handbook.md` which does not exist. Retain entries 1-2 (`consultation-contract.md`, `consultation-profiles.yaml`) — those files exist at `docs/references/` and remain valid. Also update the entry 1 description (lines 42-43) to remove "Referenced by the `/codex` skill and `codex-dialogue` agent" since those are cross-model surfaces being deleted. |
+| 14 | `docs/references/README.md` (lines 50-58) | Remove the two stale "Codex Consultation Protocol" entries: (a) line 50-53 points to `packages/plugins/cross-model/references/context-injection-contract.md` which is deleted with the package, (b) lines 55-58 point to `./cross-model-plugin-operational-handbook.md` which does not exist. Retain `consultation-profiles.yaml` entry only. Delete `consultation-contract.md` symlink (target deleted with cross-model; no codex-collaboration equivalent — server-enforced contracts supersede the Claude-cognitive contract). Repoint `consultation-profiles.yaml` symlink to `codex-collaboration/references/`. Update README index to reflect both changes. |
 
 ### Group 8: T-07 ticket closeout
 
