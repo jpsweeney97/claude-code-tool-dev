@@ -36,12 +36,7 @@
 
 ## Codex Consultation Protocol
 
-1. `./consultation-contract.md`
-   - Normative 16-section contract for Codex consultations. Single source of truth
-     for briefing structure, safety pipeline, transport params, continuity state,
-     relay obligations, and conformance.
-
-2. `./consultation-profiles.yaml`
+1. `./consultation-profiles.yaml`
    - Named profiles (`quick-check`, `deep-review`, `adversarial-challenge`,
      `exploratory`, `code-review`) mapping to resolved execution controls.
-     Stored separately from the contract for edit-frequency isolation.
+     Symlink to `packages/plugins/codex-collaboration/references/`.

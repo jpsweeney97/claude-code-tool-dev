@@ -260,7 +260,7 @@ full delegation lifecycle through the skill. If App Server is not available at
       and the live `/delegate` smoke has passed (or an explicit App Server
       deferral is recorded with the same transparency as T-06's deferral)
 
-      **Closed (7e):** PR #TBD. `packages/plugins/cross-model/` deleted
+      **Closed (7e):** PR #123. `packages/plugins/cross-model/` deleted
       (79 files, 21,113 lines). Live `/delegate` smoke attempted: App Server
       available, delegation pipeline functional through start/escalate/decide/
       complete/poll/inspect, but sandbox execution blocked by two
