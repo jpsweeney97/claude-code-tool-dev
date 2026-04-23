@@ -1,1 +1,0 @@
-../../packages/plugins/cross-model/references/consultation-contract.md

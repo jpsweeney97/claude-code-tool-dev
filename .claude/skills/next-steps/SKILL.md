@@ -154,7 +154,7 @@ Before finalizing, verify that the critical path is derivable from the dependenc
 
 ## After producing the plan
 
-Suggest the user take the highest-risk or first-phase tasks into a Codex dialogue for deeper exploration. Use the literal slash command `/cross-model:dialogue` so the user can invoke it directly.
+Suggest the user take the highest-risk or first-phase tasks into a Codex dialogue for deeper exploration. Use the literal slash command `/codex-collaboration:dialogue` so the user can invoke it directly.
 
 ## Anti-patterns
 

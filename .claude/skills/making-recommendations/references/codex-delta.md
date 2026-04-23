@@ -1,6 +1,6 @@
-# Codex Delta: Cross-Model Adversarial Check
+# Codex Delta: Adversarial Check via codex-collaboration
 
-Extension point for the `making-recommendations` skill. Single adversarial consultation using `codex-dialogue` subagent, placed inside the I8-I9 pressure-testing phase.
+Extension point for the `making-recommendations` skill. Single adversarial consultation using `codex.consult`, placed inside the I8-I9 pressure-testing phase.
 
 **Design origin:** `docs/audits/2026-02-10-codex-delta-integration-design.md`
 
@@ -37,13 +37,11 @@ A frontrunner is "stable enough" for Codex Delta when all three conditions hold:
 
 If any condition fails, continue local adversarial lenses. Return to this gate on the next pass if conditions change.
 
-## Two-Phase Reveal
+## Structured Adversarial Prompt
 
-One call to `codex-dialogue` subagent, structured in two phases within a single consultation.
+One call to `codex.consult` with `profile="adversarial-challenge"`. The prompt merges analysis and adversarial questions in a single structured message. Bias mitigation is preserved by placing neutral option descriptions and analysis questions before the frontrunner reveal.
 
-### Phase 1 Briefing (No Frontrunner Revealed)
-
-Use this template. Options use neutral labels (A/B/C) with symmetric descriptions — same fields, approximate length, no loaded names.
+### Prompt Template
 
 ```
 ## Context
@@ -54,7 +52,7 @@ Constraints: [numbered list]
 ## Criteria
 [Table: criterion, weight, definition]
 
-## Options
+## Options (neutral labels — analyze before reading the frontrunner reveal below)
 Option A: [name]
 - Description: [1-2 sentences]
 - Key trade-off: [gains X, sacrifices Y]
@@ -67,39 +65,31 @@ Option B: [name]
 
 [repeat for each option]
 
-## Questions (Phase 1)
+## Analysis Questions
 1. Scan for framing flaws: criteria laundering, missing stakeholders, decision/implementation conflation.
 2. List distinct failure modes per option (not shared failure modes — those indicate a framing problem).
 3. Propose the cheapest disconfirming test for each option.
-```
 
-### Phase 2 Briefing (Reveal Frontrunner)
-
-After Phase 1 response, send as follow-up in the same consultation:
-
-```
 ## Frontrunner Reveal
 Current frontrunner: Option [X] ([name])
 Rationale (brief): [2-3 sentences — why it leads]
 
-## Questions (Phase 2 — adversarial posture)
-Switch to adversarial mode. Argue against the frontrunner:
+## Adversarial Questions
+Argue against the frontrunner:
 1. What is the strongest kill-it argument?
 2. Pre-mortem: it's 6 months later, this failed. What went wrong?
 3. What specific, testable conditions would change your mind about this choice?
 ```
 
-### Subagent Invocation
+### Invocation
 
-Invoke via `codex-dialogue` subagent with:
+Call `mcp__plugin_codex-collaboration_codex-collaboration__codex.consult` with:
 
 | Parameter | Value |
 |-----------|-------|
-| Posture | `collaborative` for Phase 1, switch to `adversarial` for Phase 2 |
-| Turn budget | Rigorous: 3-4 turns. Exhaustive: 5-8 turns |
-| Goal | Cross-model adversarial pressure-test of decision frontrunner |
-
-The posture switch happens within the conversation via the Phase 2 follow-up message ("switch to adversarial mode"), not by starting a new consultation.
+| `repo_root` | Output of `git rev-parse --show-toplevel` |
+| `objective` | The structured prompt above |
+| `profile` | `adversarial-challenge` |
 
 ## Output: Codex Delta Block
 
@@ -110,7 +100,7 @@ Produce one block at two resolutions (truncation rules, not two formats).
 Include in the chat summary and Decision Record inline:
 
 ```
-**Codex Delta** (adversarial, N turns)
+**Codex Delta** (adversarial, 1 turn)
 - Material challenges: [1-3 bullets, each falsifiable/testable]
 - Cheapest disconfirming test: [1 bullet]
 - Decision updates: [0-2 bullets — what changed in criteria/assumptions/options]
@@ -124,8 +114,7 @@ Add to the Decision Record file (after the Pressure Test section):
 ```
 ### Codex Delta
 
-**Session:** codex-dialogue | collaborative → adversarial | N turns | YYYY-MM-DD
-**Thread ID present:** yes/no
+**Session:** codex.consult | adversarial-challenge | 1 turn | YYYY-MM-DD
 
 **Material Challenges:**
 
@@ -137,8 +126,6 @@ Add to the Decision Record file (after the Pressure Test section):
 **Cheapest Disconfirming Test:** [description]
 
 **Decision Updates:** [what changed in criteria, assumptions, or options as a result]
-
-**Transcript:** [exhaustive only: inline or link. Rigorous: "available on request"]
 ```
 
 ### Status Tags
@@ -155,7 +142,7 @@ Each material challenge receives one status:
 
 ## Call Budget
 
-- **Default:** 1 Codex consultation per decision
+- **Default:** 1 `codex.consult` call per decision
 - **Hard cap:** 2 (second call exhaustive-only)
 - **Second call triggers:** Material reframing (criteria or constraints changed), option-set change (new option added or option disqualified), blocker objection preventing convergence
 - At rigorous stakes, escalation triggers upgrade to a second local adversarial pass, not a second Codex consultation
@@ -172,7 +159,7 @@ When Codex MCP is unavailable:
 
 1. Emit: "Codex MCP unavailable — continuing with local adversarial lenses."
 2. Run local adversarial lenses (I8-I9 from SKILL.md)
-3. Produce the same Codex Delta block structure with `**Session:** local adversarial lenses` instead of codex-dialogue metadata
+3. Produce the same Codex Delta block structure with `**Session:** local adversarial lenses` instead of codex.consult metadata
 4. Status tags and disposition rules still apply
 
 The protocol shape is identical whether Codex is available or not. No forking into "Codex version" and "non-Codex version."
@@ -180,8 +167,7 @@ The protocol shape is identical whether Codex is available or not. No forking in
 ## Availability Detection
 
 "Codex MCP is available" means:
-- The `codex-dialogue` subagent type exists in the Task tool's available agents
-- MCP tools `mcp__plugin_cross-model_codex__codex` and `mcp__plugin_cross-model_codex__codex-reply` are listed as available
+- MCP tool `mcp__plugin_codex-collaboration_codex-collaboration__codex.consult` is listed as available
 
 Check at the start of the adversarial phase. If unavailable, fall back immediately — do not retry or wait.
 
@@ -190,7 +176,6 @@ Check at the start of the adversarial phase. If unavailable, fall back immediate
 | Pattern | Why It Fails | Fix |
 |---------|--------------|-----|
 | Running Codex Delta after scoring is final | Too late to change anything — becomes rubber-stamp | Run at first stable frontrunner, before convergence |
-| Revealing frontrunner in Phase 1 | Confirmation bias — Codex anchors on your pick | Phase 1 uses neutral labels only |
 | Asymmetric option descriptions | Longer/richer description for frontrunner biases Codex | Same fields, approximate length, neutral labels |
 | Dispositioned as "resolved" without evidence | Theater — objection dismissed without work | Evidence bar by stakes level (see Status Tags) |
 | Running two Codex consultations at rigorous | Expensive and rarely needed | Second call exhaustive-only; rigorous gets a second local pass |
@@ -201,17 +186,12 @@ Check at the start of the adversarial phase. If unavailable, fall back immediate
 ### Codex MCP tools not found
 
 **Cause:** Codex MCP server not running or not configured.
-**Fix:** Check `mcp__plugin_cross-model_codex__codex` availability. If not present, fall back to local adversarial lenses.
+**Fix:** Check `mcp__plugin_codex-collaboration_codex-collaboration__codex.consult` availability. If not present, fall back to local adversarial lenses.
 
 ### Codex returns shallow or generic response
 
 **Cause:** Briefing too vague, or option descriptions too short for meaningful analysis.
 **Fix:** Ensure briefing includes: concrete criteria with weights, specific constraints, and option descriptions with trade-offs. Vague in = vague out.
-
-### Phase 2 doesn't produce adversarial response
-
-**Cause:** Codex may not switch posture from a follow-up message alone.
-**Fix:** Explicit framing in Phase 2: "Switch to adversarial mode. Argue against the frontrunner." If still not adversarial, rephrase: "What would convince you this is the wrong choice?"
 
 ### All objections dispositioned as "invalid"
 

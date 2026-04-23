@@ -1,10 +1,8 @@
 # Consultation Profiles
 #
 # Version: 0.2.0
-# Reference: consultation-contract.md §14
-#
 # Named profiles resolve to a complete set of execution controls.
-# Resolution order: explicit flags > named profile > contract defaults.
+# Resolution order: explicit flags > named profile > built-in defaults.
 #
 # Explicit flags (-m, -s, -a, -t) override profile fields.
 # Unknown profile names are rejected during resolution.

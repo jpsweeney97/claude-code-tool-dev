@@ -1,6 +1,6 @@
 """Consultation profile resolver.
 
-Resolution order: explicit flags > named profile > contract defaults.
+Resolution order: explicit flags > named profile > built-in defaults.
 Validation gate: rejects sandbox != read-only or approval_policy != never
 until freeze-and-rotate is implemented.
 """
