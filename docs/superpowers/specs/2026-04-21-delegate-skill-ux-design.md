@@ -253,12 +253,23 @@ When `pending_escalation` is encountered (from start, resume, or decide re-escal
 
 **3. Agent context** -- if `agent_context` is non-null, show what the agent was doing when the escalation triggered.
 
-**4. Decision prompt:**
+**4. Decision prompt** -- render dynamically based on `pending_escalation.available_decisions`:
+
+If `"approve"` is in `available_decisions`:
 
 ```
 Available decisions: approve, deny
   /delegate approve  -- approve this escalation
   /delegate deny     -- deny this escalation
+```
+
+If `"approve"` is NOT in `available_decisions` (e.g., `command_approval` and `file_change` kinds where the original request was already cancelled at the wire level):
+
+```
+Available decisions: deny
+  /delegate deny     -- deny this escalation
+
+Approve is not available for this escalation. The original request was interrupted at the wire level before reaching the skill. You can deny it or discard the job with /delegate discard.
 ```
 
 ### request_user_input Handling
@@ -313,13 +324,14 @@ When `/delegate promote` is invoked:
 
 This restriction exists because the skill is stateless and cannot confirm the user reviewed an arbitrary job in a prior flow. The singleton invariant makes the restriction cost-free: there is exactly one promotable job at a time, and it is always the active delegation.
 
-### Gate 2: Approve/Deny Requires Pending Escalation
+### Gate 2: Decision Requires Pending Escalation; Available Decisions Depend on Escalation Kind
 
 1. Call `codex.status` -> get `active_delegation`.
 2. If no active delegation -> error: "No active delegation."
 3. Call `poll(active_delegation.job_id)`.
-4. If no `pending_escalation` in poll result -> error: "No pending escalation to approve/deny."
+4. If no `pending_escalation` in poll result -> error: "No pending escalation to decide."
 5. Use `pending_escalation.request_id` for the `decide` call. Never expose or require internal request fields.
+6. Read `pending_escalation.available_decisions` to determine which decisions the user can make. The approve verb is only valid when `"approve"` is in `available_decisions`. For `command_approval` and `file_change` escalations that were cancelled at the wire level, `available_decisions` is `("deny",)` -- approve is structurally unavailable because the sandbox already returned an inline `accept` (for in-boundary requests) or `cancel` (for out-of-boundary requests) before the escalation reached the skill.
 
 ### Gate 3: Never Auto-Promote from Resume
 

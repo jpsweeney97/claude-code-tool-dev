@@ -197,12 +197,23 @@ Next steps:
 
 **3. Agent context** -- if `agent_context` is non-null, show what the agent was doing when the escalation triggered.
 
-**4. Decision prompt:**
+**4. Decision prompt** -- render dynamically based on `pending_escalation.available_decisions`:
+
+If `"approve"` is in `available_decisions`:
 
 ```
 Available decisions: approve, deny
   /delegate approve  -- approve this escalation
   /delegate deny     -- deny this escalation
+```
+
+If `"approve"` is NOT in `available_decisions` (e.g., `command_approval` and `file_change` kinds where the original request was already cancelled at the wire level):
+
+```
+Available decisions: deny
+  /delegate deny     -- deny this escalation
+
+Approve is not available for this escalation. The original request was interrupted at the wire level before reaching the skill. You can deny it or discard the job with /delegate discard.
 ```
 
 **`request_user_input` handling:** For this kind, bare `/delegate approve` is insufficient -- the server rejects approve without answers.
@@ -233,13 +244,14 @@ When `/delegate promote` is invoked:
 
 Promote only routes through `active_delegation`. The singleton invariant guarantees that if a job is promotable, it IS the `active_delegation`.
 
-### Gate 2: Approve/deny requires pending escalation
+### Gate 2: Decision requires pending escalation; available decisions depend on escalation kind
 
 1. Run status preflight (step 3). Extract `active_delegation`.
 2. If no active delegation: "No active delegation." **Stop.**
 3. Call `mcp__plugin_codex-collaboration_codex-collaboration__codex.delegate.poll` with `active_delegation.job_id`.
-4. If no `pending_escalation` in poll result: "No pending escalation to approve/deny." **Stop.**
+4. If no `pending_escalation` in poll result: "No pending escalation to decide." **Stop.**
 5. Use `pending_escalation.request_id` for the `decide` call. Never expose or require internal request fields from the user.
+6. Read `pending_escalation.available_decisions` to determine which decisions the user can make. The approve verb is only valid when `"approve"` is in `available_decisions`.
 
 ### Gate 3: Never auto-promote from resume
 
@@ -258,11 +270,12 @@ Poll is the only verb that allows inspecting arbitrary jobs outside the active d
 
 ### Approve (`/delegate approve`)
 
-1. Execute Gate 2 (approve/deny requires pending escalation).
-2. Determine escalation kind from `pending_escalation`.
-3. If kind is `request_user_input`: construct `answers` from conversation context and question identifiers. If no clear answer in conversation: ask user to clarify. **Stop.**
-4. Call `mcp__plugin_codex-collaboration_codex-collaboration__codex.delegate.decide` with `job_id`, `request_id`, `"approve"`, and `answers` (if applicable).
-5. Handle escalation continuation (step 6f).
+1. Execute Gate 2 (decision requires pending escalation).
+2. **Guard:** If `"approve"` is NOT in `pending_escalation.available_decisions`: reject locally with "Cannot approve this escalation -- approve is not available for this request kind. Use `/delegate deny` or `/delegate discard`." Do NOT call `decide`. **Stop.**
+3. Determine escalation kind from `pending_escalation`.
+4. If kind is `request_user_input`: construct `answers` from conversation context and question identifiers. If no clear answer in conversation: ask user to clarify. **Stop.**
+5. Call `mcp__plugin_codex-collaboration_codex-collaboration__codex.delegate.decide` with `job_id`, `request_id`, `"approve"`, and `answers` (if applicable).
+6. Handle escalation continuation (step 6f).
 
 ### Deny (`/delegate deny`)
 
@@ -280,7 +293,7 @@ If `job_id` provided: pass it to Gate 1 as the target. If not: Gate 1 uses `acti
 2. If `job_id` provided: use it. If not: extract `active_delegation.job_id` from status. If no active delegation: "No active delegation." **Stop.**
 3. Call `mcp__plugin_codex-collaboration_codex-collaboration__codex.delegate.discard` with `job_id`.
 4. If success: render terminal state via state router (step 6a).
-5. If typed rejection (`job_not_discardable`): render rejection. Explain allowed states: discard accepts `promotion_state` in `{pending, prechecks_failed}`, or `status` in `{failed, unknown}` with null `promotion_state`. Post-mutation states (`applied`, `rollback_needed`) require recovery, not discard.
+5. If typed rejection (`job_not_discardable`): render rejection. Explain allowed states: discard accepts `promotion_state` in `{pending, prechecks_failed}`, `status` in `{failed, unknown}` with null `promotion_state`, or `status == "needs_escalation"` with null `promotion_state` (stuck-escalation cleanup — atomically transitions the job to `failed + discarded`, releases the runtime, closes the session, and completes lineage). Post-mutation states (`applied`, `rollback_needed`) require recovery, not discard.
 
 ## Failure Handling
 

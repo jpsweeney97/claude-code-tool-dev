@@ -144,6 +144,10 @@ def _init_repo(repo_path: Path) -> str:
 
 
 class _StubSession:
+    @property
+    def codex_home(self) -> Path | None:
+        return Path("/fake")
+
     def initialize(self) -> RuntimeHandshake:
         return RuntimeHandshake(
             codex_home="/fake",
@@ -202,6 +206,7 @@ class _ConfigurableStubSession(_StubSession):
         turn_result: TurnExecutionResult | None = None,
     ) -> None:
         self._server_requests: list[dict[str, Any]] = server_requests or []
+        self._handler_responses: list[dict[str, Any] | None] = []
         self._interrupted = False
         self._turn_result = turn_result or TurnExecutionResult(
             turn_id="turn-stub",
@@ -224,7 +229,8 @@ class _ConfigurableStubSession(_StubSession):
     ) -> TurnExecutionResult:
         for req in self._server_requests:
             if server_request_handler is not None:
-                server_request_handler(req)
+                resp = server_request_handler(req)
+                self._handler_responses.append(resp)
         if self._interrupted:
             return TurnExecutionResult(
                 turn_id=self._turn_result.turn_id,
@@ -531,6 +537,27 @@ def _command_approval_request_msg(
     }
 
 
+def _command_approval_with_network_context_msg(
+    *,
+    request_id: int | str = 42,
+    item_id: str = "item-1",
+    thread_id: str = "thr-exec-stub",
+    turn_id: str = "turn-stub",
+) -> dict[str, Any]:
+    """Command approval notification with networkApprovalContext — crosses delegation boundary."""
+    return {
+        "id": request_id,
+        "method": "item/commandExecution/requestApproval",
+        "params": {
+            "itemId": item_id,
+            "threadId": thread_id,
+            "turnId": turn_id,
+            "command": "curl https://evil.com",
+            "networkApprovalContext": {"host": "evil.com", "protocol": "https"},
+        },
+    }
+
+
 def _permissions_request_msg(
     *,
     request_id: int | str = 99,
@@ -557,7 +584,7 @@ def test_e2e_command_approval_produces_escalation(tmp_path: Path) -> None:
     _init_repo(repo_root)
 
     session = _ConfigurableStubSession(
-        server_requests=[_command_approval_request_msg()],
+        server_requests=[_command_approval_with_network_context_msg()],
     )
     server, job_store, prs, journal, plugin_data = _build_e2e_setup(
         tmp_path,
@@ -665,7 +692,7 @@ def test_e2e_busy_gate_blocks_when_job_needs_escalation(tmp_path: Path) -> None:
     _init_repo(repo_root)
 
     session = _ConfigurableStubSession(
-        server_requests=[_command_approval_request_msg(request_id=55)],
+        server_requests=[_command_approval_with_network_context_msg(request_id=55)],
     )
     server, job_store, _prs, _journal, _plugin_data = _build_e2e_setup(
         tmp_path,
@@ -790,7 +817,7 @@ def test_delegate_poll_needs_escalation_returns_projected_request(
     _init_repo(repo_root)
 
     session = _ConfigurableStubSession(
-        server_requests=[_command_approval_request_msg(request_id=42)],
+        server_requests=[_command_approval_with_network_context_msg(request_id=42)],
     )
     server, _job_store, _prs, _journal, _plugin_data = _build_e2e_setup(
         tmp_path,
@@ -831,23 +858,23 @@ def test_delegate_poll_needs_escalation_returns_projected_request(
 
     assert poll_payload["pending_escalation"]["request_id"] == "42"
     assert poll_payload["pending_escalation"]["available_decisions"] == [
-        "approve",
         "deny",
     ]
     # codex_thread_id must NOT be in the response (PendingEscalationView strips it).
     assert "codex_thread_id" not in json.dumps(poll_payload["pending_escalation"])
 
 
-def test_delegate_decide_approve_end_to_end_through_mcp_dispatch(
+def test_delegate_decide_approve_rejected_for_command_approval_through_mcp_dispatch(
     tmp_path: Path,
 ) -> None:
+    """decide(approve) is rejected for command_approval/file_change kinds."""
     repo_root = tmp_path / "repo"
     _init_repo(repo_root)
 
     server, job_store, pending_request_store, journal, _plugin_data = _build_e2e_setup(
         tmp_path,
         session_factory=lambda: _ConfigurableStubSession(
-            server_requests=[_command_approval_request_msg()],
+            server_requests=[_command_approval_with_network_context_msg()],
         ),
     )
 
@@ -864,18 +891,6 @@ def test_delegate_decide_approve_end_to_end_through_mcp_dispatch(
     )
     start_payload = json.loads(start_response["result"]["content"][0]["text"])
     assert start_payload["job"]["status"] == "needs_escalation"
-
-    controller = server._ensure_delegation_controller()
-    entry = controller._runtime_registry.lookup(start_payload["job"]["runtime_id"])
-    assert entry is not None
-    stub = entry.session
-    stub._server_requests = []
-    stub._turn_result = TurnExecutionResult(
-        turn_id="turn-stub-2",
-        status="completed",
-        agent_message="Follow-up done.",
-        notifications=(),
-    )
 
     decide_response = server.handle_request(
         {
@@ -894,9 +909,8 @@ def test_delegate_decide_approve_end_to_end_through_mcp_dispatch(
     )
 
     decide_payload = json.loads(decide_response["result"]["content"][0]["text"])
-    assert decide_payload["decision"] == "approve"
-    assert decide_payload["resumed"] is True
-    assert decide_payload["job"]["status"] == "completed"
+    assert decide_payload["rejected"] is True
+    assert decide_payload["reason"] == "request_not_approvable"
 
 
 def test_delegate_decide_deny_end_to_end_through_mcp_dispatch(tmp_path: Path) -> None:
@@ -906,7 +920,7 @@ def test_delegate_decide_deny_end_to_end_through_mcp_dispatch(tmp_path: Path) ->
     server, job_store, pending_request_store, journal, _plugin_data = _build_e2e_setup(
         tmp_path,
         session_factory=lambda: _ConfigurableStubSession(
-            server_requests=[_command_approval_request_msg()],
+            server_requests=[_command_approval_with_network_context_msg()],
         ),
     )
 
@@ -977,7 +991,7 @@ def test_start_escalation_uses_pending_escalation_key(tmp_path: Path) -> None:
     _init_repo(repo_root)
 
     session = _ConfigurableStubSession(
-        server_requests=[_command_approval_request_msg()],
+        server_requests=[_command_approval_with_network_context_msg()],
     )
     server, _job_store, _prs, _journal, _plugin_data = _build_e2e_setup(
         tmp_path,
@@ -1018,14 +1032,16 @@ def test_decide_reescalation_uses_pending_escalation_key(tmp_path: Path) -> None
     repo_root = tmp_path / "repo"
     _init_repo(repo_root)
 
+    # Use unknown kind for the initial escalation so decide(approve) is valid.
+    # command_approval/file_change kinds reject approve under the new model.
     server, _job_store, _prs, _journal, _plugin_data = _build_e2e_setup(
         tmp_path,
         session_factory=lambda: _ConfigurableStubSession(
-            server_requests=[_command_approval_request_msg()],
+            server_requests=[_permissions_request_msg(request_id=77)],
         ),
     )
 
-    # Start → escalation.
+    # Start → escalation (unknown kind, request_id=77).
     start_response = server.handle_request(
         {
             "jsonrpc": "2.0",
@@ -1059,6 +1075,7 @@ def test_decide_reescalation_uses_pending_escalation_key(tmp_path: Path) -> None
         "pending_request"
     )
     assert start_esc is not None
+    assert start_esc["request_id"] == "77"
 
     decide_response = server.handle_request(
         {

@@ -175,12 +175,85 @@ def test_build_workspace_write_sandbox_policy_restricts_reads_and_writes(
         "readOnlyAccess": {
             "type": "restricted",
             "readableRoots": [str(worktree_path.resolve())],
-            "includePlatformDefaults": False,
+            "includePlatformDefaults": True,
         },
         "networkAccess": False,
         "excludeSlashTmp": True,
         "excludeTmpdirEnvVar": True,
     }
+
+
+def test_build_workspace_write_sandbox_policy_adds_codex_support_roots(
+    tmp_path: Path,
+) -> None:
+    worktree_path = tmp_path / "worktree"
+    codex_home = tmp_path / ".codex"
+    (codex_home / "skills").mkdir(parents=True)
+    (codex_home / "plugins" / "cache").mkdir(parents=True)
+    (codex_home / "memories").mkdir(parents=True)
+    (codex_home / "references").mkdir(parents=True)
+
+    policy = build_workspace_write_sandbox_policy(worktree_path, codex_home=codex_home)
+
+    readable = policy["readOnlyAccess"]["readableRoots"]
+    assert readable[0] == str(worktree_path.resolve())
+    assert str((codex_home / "skills").resolve()) in readable
+    assert str((codex_home / "plugins" / "cache").resolve()) in readable
+    assert str((codex_home / "memories").resolve()) in readable
+    assert str((codex_home / "references").resolve()) in readable
+    assert str(codex_home.resolve()) not in readable
+    assert policy["writableRoots"] == [str(worktree_path.resolve())]
+
+
+def test_build_workspace_write_sandbox_policy_skips_missing_support_roots(
+    tmp_path: Path,
+) -> None:
+    worktree_path = tmp_path / "worktree"
+    codex_home = tmp_path / ".codex"
+    (codex_home / "skills").mkdir(parents=True)
+
+    policy = build_workspace_write_sandbox_policy(worktree_path, codex_home=codex_home)
+
+    readable = policy["readOnlyAccess"]["readableRoots"]
+    assert len(readable) == 2
+    assert readable[0] == str(worktree_path.resolve())
+    assert readable[1] == str((codex_home / "skills").resolve())
+
+
+def test_build_workspace_write_sandbox_policy_rejects_support_root_symlink_escape(
+    tmp_path: Path,
+) -> None:
+    worktree_path = tmp_path / "worktree"
+    codex_home = tmp_path / ".codex"
+    codex_home.mkdir()
+    escape_target = tmp_path / "secret"
+    escape_target.mkdir()
+    (codex_home / "memories").symlink_to(escape_target)
+
+    policy = build_workspace_write_sandbox_policy(worktree_path, codex_home=codex_home)
+
+    readable = policy["readOnlyAccess"]["readableRoots"]
+    assert str(escape_target.resolve()) not in readable
+    assert len(readable) == 1
+
+
+def test_initialize_retains_codex_home(tmp_path: Path) -> None:
+    class _StubInitClient:
+        def request(self, method: str, params: dict) -> dict:
+            assert method == "initialize"
+            return {
+                "codexHome": str(tmp_path / ".codex"),
+                "platformFamily": "darwin",
+                "platformOs": "macOS",
+                "userAgent": "test/1.0",
+            }
+
+    session = AppServerRuntimeSession(repo_root=tmp_path)
+    session._client = _StubInitClient()  # type: ignore[assignment]
+
+    assert session.codex_home is None
+    session.initialize()
+    assert session.codex_home == tmp_path / ".codex"
 
 
 def test_run_turn_uses_custom_sandbox_policy_when_provided(tmp_path: Path) -> None:

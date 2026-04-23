@@ -206,22 +206,54 @@ assumption.
 
 ## Acceptance criteria
 
-- [ ] Live `/delegate` can run at least one shell command needed for a
-      simple repo edit (proves sandbox allows shell execution).
-- [ ] `codex.delegate.decide(approve)` grants the original App Server request
-      using the schema-valid `accept` decision. If live `accept` does not
-      resume the original action as expected, record the mismatch as an App
-      Server/handler integration failure with diagnostic evidence.
+- [ ] Live `/delegate` can run an end-to-end delegated objective that
+      invokes at least one shell command and completes without an
+      exec-policy escalation. **Note:** as of 2026-04-23 this criterion is
+      not met. Codex invokes all commands via a `/bin/zsh -lc '...'`
+      wrapper, and the wrapper itself triggers `command_approval` with
+      empty `available_decisions` + `proposedExecpolicyAmendment`, even
+      when the wrapped command only calls `/bin`/`/usr/bin` binaries.
+      Clearing this criterion requires exec-policy support (see Scope
+      limitations below).
+- [ ] The server request handler returns schema-valid `accept` for in-boundary
+      `command_approval` and `file_change` requests. App Server continues the
+      same turn without interruption. The job completes without a pending
+      escalation. `codex.delegate.decide(approve)` is rejected for these
+      request kinds with a typed reason (the original wire request was
+      interrupted; a new turn cannot grant it). `decide(deny)` and `discard`
+      remain valid.
 - [ ] A real objective produces a non-empty `full.diff` and non-empty
       `changed_files` (proves artifact production works).
 - [ ] `codex.delegate.poll` materializes reviewable artifacts with a stable
       artifact hash (proves artifact pipeline is functional).
-- [ ] Final disposition is either successful promotion or a typed, documented
-      promotion rejection unrelated to sandbox execution or approval-loop
-      recurrence (proves end-to-end lifecycle).
+- [ ] Final disposition is one of: (a) successful promotion, (b) a typed,
+      documented promotion rejection unrelated to sandbox execution or
+      approval-loop recurrence, or (c) a typed pre-promotion job failure
+      (`status="failed"` with `promotion_state=null`) produced by the
+      state-machine's empty-`available_decisions` path, with runtime
+      released, session closed, lineage completed, and artifacts
+      materialized for inspection (proves end-to-end lifecycle under both
+      the happy path and the deferred-scope exec-policy path).
 - [ ] Regression tests cover the sandbox policy serialization and the
       approval decision response shape (proves the fix doesn't silently
       regress).
+
+### Scope limitations
+
+This remediation proves the delegate lifecycle under the sandbox's
+**platform-default exec policy only**. The execution prompt
+(`execution_prompt_builder.py`) constrains delegated workers to executables
+available from `/bin` and `/usr/bin` (`find`, `ls`, `mkdir`, `cat`, `grep`,
+`sed`, `awk`, etc.) and explicitly forbids Homebrew, mise, and developer-tool
+binaries such as `rg`, `fd`, `uv`, `node`, `python`, and `ruff`.
+
+Widening the exec policy (e.g. handling `acceptWithExecpolicyAmendment`, an
+absolute-path allowlist, or command-pattern amendments) is **out of scope**
+for this ticket and is deferred to a follow-up trust-boundary design with its
+own contract around amendment persistence, representation in
+`available_decisions`, and the `/delegate approve` semantics for command
+approvals. Closing this ticket does not imply delegate support for objectives
+that structurally require developer tools.
 
 ## Implementation sequence
 

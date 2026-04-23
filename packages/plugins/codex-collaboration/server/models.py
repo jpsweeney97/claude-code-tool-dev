@@ -44,6 +44,7 @@ DecisionRejectedReason = Literal[
     "runtime_unavailable",
     "answers_required",
     "answers_not_allowed",
+    "request_not_approvable",
 ]
 PollRejectedReason = Literal["job_not_found"]
 PromotionRejectedReason = Literal[

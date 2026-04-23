@@ -167,3 +167,45 @@ def test_parse_permissions_request_falls_back_to_unknown_kind() -> None:
             }
         },
     }
+
+
+def test_malformed_available_decisions_fails_closed() -> None:
+    """Present but malformed availableDecisions must fail closed (empty tuple)."""
+    message = {
+        "id": "req-5",
+        "method": "item/commandExecution/requestApproval",
+        "params": {
+            "itemId": "item-5",
+            "threadId": "thr-5",
+            "turnId": "turn-5",
+            "command": "ls",
+            "availableDecisions": "cancel",
+        },
+    }
+
+    request = parse_pending_server_request(
+        message, runtime_id="rt-5", collaboration_id="collab-5"
+    )
+
+    assert request.available_decisions == ()
+
+
+def test_absent_available_decisions_uses_schema_default() -> None:
+    """When availableDecisions is completely absent, use the schema default for the kind."""
+    message = {
+        "id": "req-6",
+        "method": "item/commandExecution/requestApproval",
+        "params": {
+            "itemId": "item-6",
+            "threadId": "thr-6",
+            "turnId": "turn-6",
+            "command": "ls",
+        },
+    }
+
+    request = parse_pending_server_request(
+        message, runtime_id="rt-6", collaboration_id="collab-6"
+    )
+
+    assert "accept" in request.available_decisions
+    assert "cancel" in request.available_decisions

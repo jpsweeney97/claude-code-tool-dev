@@ -42,19 +42,28 @@ from server.pending_request_store import PendingRequestStore
 
 
 class _FakeSession:
-    def __init__(self, thread_id: str = "thr-1") -> None:
+    def __init__(
+        self, thread_id: str = "thr-1", codex_home_str: str = "/h"
+    ) -> None:
         self._thread_id = thread_id
         self.closed = False
         self._interrupted = False
         self._raise_on_turn: Exception | None = None
+        self._codex_home_str = codex_home_str
+        self.last_sandbox_policy: dict[str, Any] | None = None
         # Configurable server requests and turn result for capture loop tests.
         self._server_requests: list[dict[str, Any]] = []
+        self._handler_responses: list[dict[str, Any] | None] = []
         self._turn_result: TurnExecutionResult = TurnExecutionResult(
             turn_id="turn-1",
             status="completed",
             agent_message="Done.",
             notifications=(),
         )
+
+    @property
+    def codex_home(self) -> Path | None:
+        return Path(self._codex_home_str)
 
     def initialize(self) -> RuntimeHandshake:
         return RuntimeHandshake(
@@ -87,12 +96,14 @@ class _FakeSession:
         | None = None,
     ) -> TurnExecutionResult:
         """Simulate run_execution_turn by dispatching fake server requests."""
+        self.last_sandbox_policy = sandbox_policy
         if self._raise_on_turn is not None:
             raise self._raise_on_turn
         self._interrupted = False
         for req in self._server_requests:
             if server_request_handler is not None:
-                server_request_handler(req)
+                resp = server_request_handler(req)
+                self._handler_responses.append(resp)
         if self._interrupted:
             return TurnExecutionResult(
                 turn_id=self._turn_result.turn_id,
@@ -118,13 +129,17 @@ class _FakeControlPlane:
         self._next_session_requests: list[dict[str, Any]] = []
         self._next_turn_result: TurnExecutionResult | None = None
         self._next_raise_on_turn: Exception | None = None
+        self._next_codex_home: str = "/h"
 
     def start_execution_runtime(
         self, worktree_path: Path
     ) -> tuple[str, _FakeSession, str]:
         self.calls.append(worktree_path)
         self._next_runtime_id += 1
-        session = _FakeSession(thread_id=f"thr-{self._next_runtime_id}")
+        session = _FakeSession(
+            thread_id=f"thr-{self._next_runtime_id}",
+            codex_home_str=self._next_codex_home,
+        )
         session._server_requests = list(self._next_session_requests)
         if self._next_turn_result is not None:
             session._turn_result = self._next_turn_result
@@ -419,20 +434,9 @@ def test_start_returns_busy_response_when_active_job_exists(tmp_path: Path) -> N
 
     controller, control_plane, _wm, _js, _ls, _j, _r, _prs = _build_controller(tmp_path)
 
-    # Configure the first start to hit a command_approval server request,
-    # which produces needs_escalation (an active status).
-    control_plane._next_session_requests = [
-        {
-            "id": 42,
-            "method": "item/commandExecution/requestApproval",
-            "params": {
-                "itemId": "item-1",
-                "threadId": "thr-1",
-                "turnId": "turn-1",
-                "command": "rm -rf /",
-            },
-        }
-    ]
+    # Configure the first start to hit an out-of-boundary command_approval
+    # server request, which produces needs_escalation (an active status).
+    control_plane._next_session_requests = [_command_approval_with_network_context()]
 
     first = controller.start(repo_root=repo_root)
     assert isinstance(first, DelegationEscalation)
@@ -1317,6 +1321,54 @@ def _permissions_request(
     }
 
 
+def _command_approval_with_network_context(
+    *, request_id: int = 42, item_id: str = "item-1"
+) -> dict[str, Any]:
+    """Command approval request with networkApprovalContext — crosses delegation boundary."""
+    return {
+        "id": request_id,
+        "method": "item/commandExecution/requestApproval",
+        "params": {
+            "itemId": item_id,
+            "threadId": "thr-1",
+            "turnId": "turn-1",
+            "command": "curl https://evil.com",
+            "networkApprovalContext": {"host": "evil.com", "protocol": "https"},
+        },
+    }
+
+
+def _file_change_request(
+    *, request_id: int = 43, item_id: str = "item-fc"
+) -> dict[str, Any]:
+    """File change request without grantRoot — stays within delegation boundary."""
+    return {
+        "id": request_id,
+        "method": "item/fileChange/requestApproval",
+        "params": {
+            "itemId": item_id,
+            "threadId": "thr-1",
+            "turnId": "turn-1",
+        },
+    }
+
+
+def _file_change_with_out_of_worktree_grant_root(
+    *, request_id: int = 44, item_id: str = "item-fc-oot", grant_root: str = "/etc"
+) -> dict[str, Any]:
+    """File change request with grantRoot outside worktree — crosses delegation boundary."""
+    return {
+        "id": request_id,
+        "method": "item/fileChange/requestApproval",
+        "params": {
+            "itemId": item_id,
+            "threadId": "thr-1",
+            "turnId": "turn-1",
+            "grantRoot": grant_root,
+        },
+    }
+
+
 def test_start_with_command_approval_returns_escalation(tmp_path: Path) -> None:
     """command_approval → cancel response → DelegationEscalation with needs_escalation."""
     repo_root = tmp_path / "repo"
@@ -1326,7 +1378,7 @@ def test_start_with_command_approval_returns_escalation(tmp_path: Path) -> None:
         _build_controller(tmp_path)
     )
 
-    control_plane._next_session_requests = [_command_approval_request()]
+    control_plane._next_session_requests = [_command_approval_with_network_context()]
 
     result = controller.start(repo_root=repo_root, objective="Fix the bug")
 
@@ -1334,6 +1386,7 @@ def test_start_with_command_approval_returns_escalation(tmp_path: Path) -> None:
     assert result.job.status == "needs_escalation"
     assert result.pending_escalation.kind == "command_approval"
     assert result.pending_escalation.request_id == "42"
+    assert result.pending_escalation.available_decisions == ("deny",)
     assert result.agent_context is not None
 
     # Pending request was persisted and resolved (D4).
@@ -1385,7 +1438,7 @@ def test_start_with_unknown_request_interrupts_and_escalates(tmp_path: Path) -> 
 
 
 def test_start_with_two_requests_responds_to_both(tmp_path: Path) -> None:
-    """Second request gets a response but is NOT separately persisted."""
+    """Two in-boundary command_approval requests → both inline-accepted → job completed."""
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
@@ -1398,12 +1451,19 @@ def test_start_with_two_requests_responds_to_both(tmp_path: Path) -> None:
 
     result = controller.start(repo_root=repo_root, objective="Fix")
 
-    assert isinstance(result, DelegationEscalation)
-    # Only the FIRST request is persisted.
-    assert prs.get("1") is not None
+    # Both in-boundary requests are inline-accepted — job completes.
+    assert isinstance(result, DelegationJob)
+    assert result.status == "completed"
+    # Neither request is captured (inline-accepted, not persisted as pending).
+    assert prs.get("1") is None
     assert prs.get("2") is None
-    # The escalation refers to the first request.
-    assert result.pending_escalation.request_id == "1"
+    # Both handler responses are accept decisions.
+    assert control_plane._sessions[0]._handler_responses == [
+        {"decision": "accept"},
+        {"decision": "accept"},
+    ]
+    # Session closed since job completed.
+    assert control_plane._sessions[0].closed
 
 
 def test_start_with_unparseable_request_creates_minimal_causal_record(
@@ -1591,12 +1651,12 @@ def test_start_with_request_user_input_completed_returns_delegation_job(
 def test_later_parse_failure_does_not_prevent_captured_request_resolution(
     tmp_path: Path,
 ) -> None:
-    """First request parses fine, second message fails parse → first resolved.
+    """First request (in-boundary command_approval) is inline-accepted.
+    Second message fails parse → captured as the escalation trigger.
 
-    The captured_request_parse_failed flag should only apply to the captured
-    (first) request. A later malformed message should still trigger
-    interrupted_by_unknown (escalation), but the successfully-parsed first
-    request must still be marked resolved.
+    The first request is inline-accepted (not captured). The second message
+    triggers interrupted_by_unknown (escalation) and becomes the captured
+    request with parse-failed semantics.
     """
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
@@ -1605,7 +1665,8 @@ def test_later_parse_failure_does_not_prevent_captured_request_resolution(
         tmp_path
     )
 
-    # First message: parseable command_approval. Second: unparseable.
+    # First message: parseable command_approval (in-boundary → inline accepted).
+    # Second: unparseable → triggers escalation.
     control_plane._next_session_requests = [
         _command_approval_request(request_id=10, item_id="item-ok"),
         {"id": 11, "method": "broken/method", "params": "not-a-dict"},
@@ -1623,14 +1684,15 @@ def test_later_parse_failure_does_not_prevent_captured_request_resolution(
     assert isinstance(result, DelegationEscalation)
     assert result.job.status == "needs_escalation"
 
-    # The FIRST request (successfully parsed) must be resolved — not left
-    # pending due to a later message's parse failure.
-    stored = prs.get("10")
-    assert stored is not None
-    assert stored.status == "resolved"
+    # The first request was inline-accepted (not captured).
+    assert prs.get("10") is None
+    # The first handler response is accept (inline).
+    assert control_plane._sessions[0]._handler_responses[0] == {"decision": "accept"}
 
-    # Only the first request was persisted (first-capture semantics).
-    assert prs.get("11") is None
+    # The second request (parse-failed) is the captured request.
+    stored = prs.get("11")
+    assert stored is not None
+    assert stored.status == "pending"  # Parse failures stay pending.
 
     # Runtime kept live for escalation.
     assert registry.lookup("rt-1") is not None
@@ -1657,7 +1719,7 @@ def test_start_escalation_keeps_execution_handle_active(tmp_path: Path) -> None:
     controller, control_plane, _wm, _js, lineage, _j, _r, _prs = _build_controller(
         tmp_path
     )
-    control_plane._next_session_requests = [_command_approval_request()]
+    control_plane._next_session_requests = [_command_approval_with_network_context()]
 
     result = controller.start(repo_root=repo_root, objective="Need approval")
 
@@ -1683,7 +1745,8 @@ def test_decide_approve_resumes_runtime_and_returns_completed_result(
     controller, control_plane, _wm, _js, lineage, _j, registry, _prs = (
         _build_controller(tmp_path)
     )
-    control_plane._next_session_requests = [_command_approval_request()]
+    # Use unknown-kind escalation where approve is still valid.
+    control_plane._next_session_requests = [_permissions_request()]
     start_result = controller.start(repo_root=repo_root, objective="Fix it")
     assert isinstance(start_result, DelegationEscalation)
 
@@ -1698,7 +1761,7 @@ def test_decide_approve_resumes_runtime_and_returns_completed_result(
 
     result = controller.decide(
         job_id="job-1",
-        request_id="42",
+        request_id="99",
         decision="approve",
     )
 
@@ -1721,7 +1784,10 @@ def test_decide_approve_can_reescalate_with_new_pending_request(tmp_path: Path) 
     controller, control_plane, _wm, _js, _ls, _j, registry, prs = _build_controller(
         tmp_path
     )
-    control_plane._next_session_requests = [_command_approval_request()]
+    # Use unknown-kind escalation where approve is still valid.
+    control_plane._next_session_requests = [
+        _permissions_request(request_id=50, item_id="item-p1")
+    ]
     start_result = controller.start(repo_root=repo_root, objective="Fix it")
     assert isinstance(start_result, DelegationEscalation)
 
@@ -1736,7 +1802,7 @@ def test_decide_approve_can_reescalate_with_new_pending_request(tmp_path: Path) 
 
     result = controller.decide(
         job_id="job-1",
-        request_id="42",
+        request_id="50",
         decision="approve",
     )
 
@@ -1760,7 +1826,7 @@ def test_decide_deny_marks_job_failed_and_closes_runtime(tmp_path: Path) -> None
     controller, control_plane, _wm, job_store, lineage, journal, registry, _prs = (
         _build_controller(tmp_path)
     )
-    control_plane._next_session_requests = [_command_approval_request()]
+    control_plane._next_session_requests = [_command_approval_with_network_context()]
     start_result = controller.start(repo_root=repo_root, objective="Fix it")
     assert isinstance(start_result, DelegationEscalation)
 
@@ -1800,7 +1866,7 @@ def test_decide_deny_emits_terminal_outcome(tmp_path: Path) -> None:
     controller, control_plane, _wm, _js, _ls, journal, _r, _prs = _build_controller(
         tmp_path
     )
-    control_plane._next_session_requests = [_command_approval_request()]
+    control_plane._next_session_requests = [_command_approval_with_network_context()]
     start_result = controller.start(repo_root=repo_root, objective="Fix it")
     assert isinstance(start_result, DelegationEscalation)
 
@@ -1832,7 +1898,8 @@ def test_decide_rejects_when_runtime_is_missing(tmp_path: Path) -> None:
     controller, control_plane, _wm, _js, _ls, _j, registry, _prs = _build_controller(
         tmp_path
     )
-    control_plane._next_session_requests = [_command_approval_request()]
+    # Use unknown-kind escalation so approve reaches the runtime check.
+    control_plane._next_session_requests = [_permissions_request()]
     start_result = controller.start(repo_root=repo_root, objective="Fix it")
     assert isinstance(start_result, DelegationEscalation)
 
@@ -1840,7 +1907,7 @@ def test_decide_rejects_when_runtime_is_missing(tmp_path: Path) -> None:
 
     result = controller.decide(
         job_id="job-1",
-        request_id="42",
+        request_id="99",
         decision="approve",
     )
 
@@ -1856,7 +1923,7 @@ def test_decide_rejects_invalid_decision_value(tmp_path: Path) -> None:
     repo_root.mkdir()
 
     controller, control_plane, _wm, _js, _ls, _j, _r, _prs = _build_controller(tmp_path)
-    control_plane._next_session_requests = [_command_approval_request()]
+    control_plane._next_session_requests = [_command_approval_with_network_context()]
     start_result = controller.start(repo_root=repo_root, objective="Fix it")
     assert isinstance(start_result, DelegationEscalation)
 
@@ -1944,7 +2011,7 @@ def test_decide_rejects_request_not_found(tmp_path: Path) -> None:
     repo_root.mkdir()
 
     controller, control_plane, _wm, _js, _ls, _j, _r, _prs = _build_controller(tmp_path)
-    control_plane._next_session_requests = [_command_approval_request()]
+    control_plane._next_session_requests = [_command_approval_with_network_context()]
     start_result = controller.start(repo_root=repo_root, objective="Fix it")
     assert isinstance(start_result, DelegationEscalation)
 
@@ -1965,7 +2032,7 @@ def test_decide_rejects_request_job_mismatch(tmp_path: Path) -> None:
     repo_root.mkdir()
 
     controller, control_plane, _wm, _js, _ls, _j, _r, prs = _build_controller(tmp_path)
-    control_plane._next_session_requests = [_command_approval_request()]
+    control_plane._next_session_requests = [_command_approval_with_network_context()]
     start_result = controller.start(repo_root=repo_root, objective="Fix it")
     assert isinstance(start_result, DelegationEscalation)
 
@@ -2001,7 +2068,7 @@ def test_decide_rejects_deny_with_answers(tmp_path: Path) -> None:
     repo_root.mkdir()
 
     controller, control_plane, _wm, _js, _ls, _j, _r, _prs = _build_controller(tmp_path)
-    control_plane._next_session_requests = [_command_approval_request()]
+    control_plane._next_session_requests = [_command_approval_with_network_context()]
     start_result = controller.start(repo_root=repo_root, objective="Fix it")
     assert isinstance(start_result, DelegationEscalation)
 
@@ -2024,7 +2091,7 @@ def test_decide_rejects_answers_for_non_request_user_input(tmp_path: Path) -> No
 
     controller, control_plane, _wm, _js, _ls, _j, _r, _prs = _build_controller(tmp_path)
     # command_approval is not request_user_input — answers not allowed
-    control_plane._next_session_requests = [_command_approval_request()]
+    control_plane._next_session_requests = [_command_approval_with_network_context()]
     start_result = controller.start(repo_root=repo_root, objective="Fix it")
     assert isinstance(start_result, DelegationEscalation)
 
@@ -2097,7 +2164,8 @@ def test_decide_approve_turn_failure_raises_committed_decision_finalization_erro
     controller, control_plane, _wm, job_store, lineage, journal, registry, _prs = (
         _build_controller(tmp_path)
     )
-    control_plane._next_session_requests = [_command_approval_request()]
+    # Use unknown-kind escalation so approve reaches the turn dispatch.
+    control_plane._next_session_requests = [_permissions_request()]
     start_result = controller.start(repo_root=repo_root, objective="Fix it")
     assert isinstance(start_result, DelegationEscalation)
 
@@ -2107,7 +2175,7 @@ def test_decide_approve_turn_failure_raises_committed_decision_finalization_erro
     with pytest.raises(CommittedDecisionFinalizationError, match="committed"):
         controller.decide(
             job_id="job-1",
-            request_id="42",
+            request_id="99",
             decision="approve",
         )
 
@@ -2266,8 +2334,10 @@ def test_decide_rejects_stale_request_id_after_reescalation(tmp_path: Path) -> N
     controller, control_plane, _wm, _js, _ls, _j, registry, prs = _build_controller(
         tmp_path
     )
-    # First escalation: command_approval with request_id "42"
-    control_plane._next_session_requests = [_command_approval_request()]
+    # First escalation: unknown kind with request_id "50" (approve is valid).
+    control_plane._next_session_requests = [
+        _permissions_request(request_id=50, item_id="item-p1")
+    ]
     start_result = controller.start(repo_root=repo_root, objective="Fix it")
     assert isinstance(start_result, DelegationEscalation)
 
@@ -2282,17 +2352,17 @@ def test_decide_rejects_stale_request_id_after_reescalation(tmp_path: Path) -> N
     )
     approve_result = controller.decide(
         job_id="job-1",
-        request_id="42",
+        request_id="50",
         decision="approve",
     )
     assert isinstance(approve_result, DelegationDecisionResult)
     assert approve_result.pending_escalation is not None
     assert approve_result.pending_escalation.request_id == "99"
 
-    # Now try to use the stale request_id "42" to decide the new escalation
+    # Now try to use the stale request_id "50" to decide the new escalation
     result = controller.decide(
         job_id="job-1",
-        request_id="42",
+        request_id="50",
         decision="approve",
     )
     assert isinstance(result, DecisionRejectedResponse)
@@ -2313,7 +2383,8 @@ def test_decide_approve_post_turn_journal_failure_raises_committed_decision_fina
     controller, control_plane, _wm, job_store, lineage, journal, registry, _prs = (
         _build_controller(tmp_path)
     )
-    control_plane._next_session_requests = [_command_approval_request()]
+    # Use unknown-kind escalation so approve reaches the turn dispatch.
+    control_plane._next_session_requests = [_permissions_request()]
     start_result = controller.start(repo_root=repo_root, objective="Fix it")
     assert isinstance(start_result, DelegationEscalation)
 
@@ -2339,7 +2410,7 @@ def test_decide_approve_post_turn_journal_failure_raises_committed_decision_fina
     with pytest.raises(CommittedDecisionFinalizationError, match="committed"):
         controller.decide(
             job_id="job-1",
-            request_id="42",
+            request_id="99",
             decision="approve",
         )
 
@@ -2361,7 +2432,7 @@ def test_decide_deny_post_commit_failure_raises_committed_decision_finalization_
     controller, control_plane, _wm, job_store, lineage, journal, registry, _prs = (
         _build_controller(tmp_path)
     )
-    control_plane._next_session_requests = [_command_approval_request()]
+    control_plane._next_session_requests = [_command_approval_with_network_context()]
     start_result = controller.start(repo_root=repo_root, objective="Fix it")
     assert isinstance(start_result, DelegationEscalation)
 
@@ -2407,7 +2478,7 @@ def test_start_escalation_keeps_promotion_state_none(tmp_path: Path) -> None:
     controller, control_plane, _wm, job_store, _lineage, _journal, _registry, _prs = (
         _build_controller(tmp_path)
     )
-    control_plane._next_session_requests = [_command_approval_request()]
+    control_plane._next_session_requests = [_command_approval_with_network_context()]
     result = controller.start(repo_root=repo_root)
     assert isinstance(result, DelegationEscalation)
     assert result.job.status == "needs_escalation"
@@ -2466,14 +2537,14 @@ def test_poll_needs_escalation_projects_pending_request_without_raw_ids(
     controller, control_plane, _wm, _job_store, _lineage, _journal, _registry, _prs = (
         _build_controller(tmp_path)
     )
-    control_plane._next_session_requests = [_command_approval_request()]
+    control_plane._next_session_requests = [_command_approval_with_network_context()]
     start_result = controller.start(repo_root=repo_root)
     assert isinstance(start_result, DelegationEscalation)
     polled = controller.poll(job_id=start_result.job.job_id)
     assert isinstance(polled, DelegationPollResult)
     assert polled.pending_escalation is not None
     assert polled.pending_escalation.request_id == "42"
-    assert polled.pending_escalation.available_decisions == ("approve", "deny")
+    assert polled.pending_escalation.available_decisions == ("deny",)
     assert not hasattr(polled.pending_escalation, "codex_thread_id")
 
 
@@ -4057,3 +4128,827 @@ class TestRecoveryCatchup:
             if json.loads(line).get("outcome_type") == "delegation_terminal"
         ]
         assert len(terminal_records) == 1  # No duplicate
+
+
+# -----------------------------------------------------------------------------
+# Delegate remediation — sandbox policy includes codex support roots.
+# -----------------------------------------------------------------------------
+
+
+def test_sandbox_policy_includes_codex_support_roots(tmp_path: Path) -> None:
+    """Sandbox policy passed to run_execution_turn includes codex support roots."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    codex_home = tmp_path / ".codex"
+    (codex_home / "skills").mkdir(parents=True)
+    (codex_home / "plugins" / "cache").mkdir(parents=True)
+    (codex_home / "memories").mkdir(parents=True)
+    (codex_home / "references").mkdir(parents=True)
+
+    controller, control_plane, _wm, _js, _ls, _j, _reg, _prs = _build_controller(
+        tmp_path
+    )
+    control_plane._next_codex_home = str(codex_home)
+
+    result = controller.start(repo_root=repo_root, objective="Run tests")
+
+    assert isinstance(result, DelegationJob)
+    session = control_plane._sessions[0]
+    assert session.last_sandbox_policy is not None
+    readable = session.last_sandbox_policy["readOnlyAccess"]["readableRoots"]
+    assert str((codex_home / "skills").resolve()) in readable
+    assert str((codex_home / "plugins" / "cache").resolve()) in readable
+    assert str((codex_home / "memories").resolve()) in readable
+    assert str((codex_home / "references").resolve()) in readable
+    assert str(codex_home.resolve()) not in readable
+    assert session.last_sandbox_policy["writableRoots"] == [
+        str((tmp_path / "data" / "runtimes" / "delegation" / "job-1" / "worktree").resolve())
+    ]
+
+
+# -----------------------------------------------------------------------------
+# Delegate remediation — three-category handler + inline-accept + deny-only.
+# -----------------------------------------------------------------------------
+
+
+def test_command_approval_inline_accepted_completes_job(tmp_path: Path) -> None:
+    """In-boundary command_approval → handler returns accept → job completed."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, _j, registry, _prs = _build_controller(
+        tmp_path
+    )
+    control_plane._next_session_requests = [_command_approval_request()]
+
+    result = controller.start(repo_root=repo_root, objective="Run tests")
+
+    assert isinstance(result, DelegationJob)
+    assert result.status == "completed"
+    assert control_plane._sessions[0]._handler_responses[0] == {"decision": "accept"}
+    # Runtime released and session closed after completion.
+    assert registry.lookup("rt-1") is None
+    assert control_plane._sessions[0].closed
+
+
+def test_file_change_inline_accepted_completes_job(tmp_path: Path) -> None:
+    """In-boundary file_change → handler returns accept → job completed."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, _j, registry, _prs = _build_controller(
+        tmp_path
+    )
+    control_plane._next_session_requests = [_file_change_request()]
+
+    result = controller.start(repo_root=repo_root, objective="Edit file")
+
+    assert isinstance(result, DelegationJob)
+    assert result.status == "completed"
+    assert control_plane._sessions[0]._handler_responses[0] == {"decision": "accept"}
+    assert registry.lookup("rt-1") is None
+    assert control_plane._sessions[0].closed
+
+
+def test_command_approval_with_network_context_escalates(tmp_path: Path) -> None:
+    """Out-of-boundary command_approval (networkApprovalContext) → cancel → needs_escalation."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, _j, registry, _prs = _build_controller(
+        tmp_path
+    )
+    control_plane._next_session_requests = [_command_approval_with_network_context()]
+
+    result = controller.start(repo_root=repo_root, objective="Fetch data")
+
+    assert isinstance(result, DelegationEscalation)
+    assert result.job.status == "needs_escalation"
+    assert control_plane._sessions[0]._handler_responses[0] == {"decision": "cancel"}
+    assert registry.lookup("rt-1") is not None
+
+
+def test_file_change_with_out_of_worktree_grant_root_escalates(tmp_path: Path) -> None:
+    """Out-of-boundary file_change (grantRoot outside worktree) → cancel → needs_escalation."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, _j, registry, _prs = _build_controller(
+        tmp_path
+    )
+    control_plane._next_session_requests = [
+        _file_change_with_out_of_worktree_grant_root()
+    ]
+
+    result = controller.start(repo_root=repo_root, objective="Edit config")
+
+    assert isinstance(result, DelegationEscalation)
+    assert result.job.status == "needs_escalation"
+    assert control_plane._sessions[0]._handler_responses[0] == {"decision": "cancel"}
+    assert registry.lookup("rt-1") is not None
+
+
+def test_command_approval_with_out_of_worktree_cwd_escalates(tmp_path: Path) -> None:
+    """Command approval with cwd outside worktree → cancel → needs_escalation."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, _j, registry, _prs = _build_controller(
+        tmp_path
+    )
+    control_plane._next_session_requests = [
+        {
+            "id": 45,
+            "method": "item/commandExecution/requestApproval",
+            "params": {
+                "itemId": "item-cwd",
+                "threadId": "thr-1",
+                "turnId": "turn-1",
+                "command": "ls",
+                "cwd": "/etc",
+            },
+        }
+    ]
+
+    result = controller.start(repo_root=repo_root, objective="List files")
+
+    assert isinstance(result, DelegationEscalation)
+    assert result.job.status == "needs_escalation"
+    assert control_plane._sessions[0]._handler_responses[0] == {"decision": "cancel"}
+    assert registry.lookup("rt-1") is not None
+
+
+def test_command_approval_with_relative_cwd_escalates(tmp_path: Path) -> None:
+    """Command approval with relative cwd → cancel → needs_escalation."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, _j, registry, _prs = _build_controller(
+        tmp_path
+    )
+    control_plane._next_session_requests = [
+        {
+            "id": 46,
+            "method": "item/commandExecution/requestApproval",
+            "params": {
+                "itemId": "item-rel",
+                "threadId": "thr-1",
+                "turnId": "turn-1",
+                "command": "ls",
+                "cwd": "./relative",
+            },
+        }
+    ]
+
+    result = controller.start(repo_root=repo_root, objective="List relative")
+
+    assert isinstance(result, DelegationEscalation)
+    assert result.job.status == "needs_escalation"
+    assert control_plane._sessions[0]._handler_responses[0] == {"decision": "cancel"}
+    assert registry.lookup("rt-1") is not None
+
+
+def test_decide_approve_rejected_for_command_approval(tmp_path: Path) -> None:
+    """decide(approve) on a command_approval escalation → rejected with request_not_approvable."""
+    from server.models import DecisionRejectedResponse
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, _j, _r, _prs = _build_controller(tmp_path)
+    control_plane._next_session_requests = [_command_approval_with_network_context()]
+    start_result = controller.start(repo_root=repo_root, objective="Fix it")
+    assert isinstance(start_result, DelegationEscalation)
+
+    result = controller.decide(
+        job_id="job-1",
+        request_id="42",
+        decision="approve",
+    )
+
+    assert isinstance(result, DecisionRejectedResponse)
+    assert result.rejected is True
+    assert result.reason == "request_not_approvable"
+
+
+def test_decide_approve_rejected_for_file_change(tmp_path: Path) -> None:
+    """decide(approve) on a file_change escalation → rejected with request_not_approvable."""
+    from server.models import DecisionRejectedResponse
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, _j, _r, _prs = _build_controller(tmp_path)
+    control_plane._next_session_requests = [
+        _file_change_with_out_of_worktree_grant_root()
+    ]
+    start_result = controller.start(repo_root=repo_root, objective="Edit config")
+    assert isinstance(start_result, DelegationEscalation)
+
+    result = controller.decide(
+        job_id="job-1",
+        request_id="44",
+        decision="approve",
+    )
+
+    assert isinstance(result, DecisionRejectedResponse)
+    assert result.rejected is True
+    assert result.reason == "request_not_approvable"
+
+
+def test_decide_deny_still_works_for_command_approval(tmp_path: Path) -> None:
+    """Deny is unaffected by the approve guard for cancel-capable kinds."""
+    from server.models import DelegationDecisionResult
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, job_store, _ls, _j, registry, _prs = (
+        _build_controller(tmp_path)
+    )
+    control_plane._next_session_requests = [_command_approval_with_network_context()]
+    start_result = controller.start(repo_root=repo_root, objective="Fix it")
+    assert isinstance(start_result, DelegationEscalation)
+
+    result = controller.decide(
+        job_id="job-1",
+        request_id="42",
+        decision="deny",
+    )
+
+    assert isinstance(result, DelegationDecisionResult)
+    assert result.decision == "deny"
+    assert result.job.status == "failed"
+    assert registry.lookup("rt-1") is None
+
+
+def test_inline_accept_emits_audit_event(tmp_path: Path) -> None:
+    """In-boundary command_approval → inline_accept audit event with actor=system."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, journal, _r, _prs = _build_controller(
+        tmp_path
+    )
+    control_plane._next_session_requests = [_command_approval_request()]
+
+    controller.start(repo_root=repo_root, objective="Run tests")
+
+    events_path = journal.plugin_data_path / "audit" / "events.jsonl"
+    assert events_path.exists()
+    lines = [
+        json.loads(line)
+        for line in events_path.read_text().splitlines()
+        if line.strip()
+    ]
+    inline_events = [e for e in lines if e.get("action") == "inline_accept"]
+    assert len(inline_events) == 1
+    assert inline_events[0]["actor"] == "system"
+    assert inline_events[0]["request_id"] == "42"
+
+
+def test_multiple_inline_accepts_all_complete(tmp_path: Path) -> None:
+    """Two in-boundary requests → both accepted → job completed with two audit events."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, journal, _r, _prs = _build_controller(
+        tmp_path
+    )
+    control_plane._next_session_requests = [
+        _command_approval_request(request_id=1, item_id="item-a"),
+        _file_change_request(request_id=2, item_id="item-b"),
+    ]
+
+    result = controller.start(repo_root=repo_root, objective="Multi")
+
+    assert isinstance(result, DelegationJob)
+    assert result.status == "completed"
+
+    events_path = journal.plugin_data_path / "audit" / "events.jsonl"
+    lines = [
+        json.loads(line)
+        for line in events_path.read_text().splitlines()
+        if line.strip()
+    ]
+    inline_events = [e for e in lines if e.get("action") == "inline_accept"]
+    assert len(inline_events) == 2
+
+
+def test_fail_closed_escalation_view_omits_approve(tmp_path: Path) -> None:
+    """Out-of-boundary command_approval → escalation view has deny-only decisions."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, _j, _r, _prs = _build_controller(tmp_path)
+    control_plane._next_session_requests = [_command_approval_with_network_context()]
+
+    result = controller.start(repo_root=repo_root, objective="Fetch")
+
+    assert isinstance(result, DelegationEscalation)
+    assert result.pending_escalation.available_decisions == ("deny",)
+
+
+def test_decide_approve_still_valid_for_request_user_input(tmp_path: Path) -> None:
+    """approve with answers is valid for request_user_input (not cancel-capable)."""
+    from server.models import DelegationDecisionResult
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, _j, registry, _prs = _build_controller(
+        tmp_path
+    )
+    control_plane._next_session_requests = [_request_user_input_request()]
+    control_plane._next_turn_result = TurnExecutionResult(
+        turn_id="turn-1",
+        status="interrupted",
+        agent_message="Need input",
+        notifications=(),
+    )
+    start_result = controller.start(repo_root=repo_root, objective="Ask user")
+    assert isinstance(start_result, DelegationEscalation)
+
+    # Configure follow-up session for the approve-with-answers resume.
+    session = control_plane._sessions[0]
+    session._server_requests = []
+    session._turn_result = TurnExecutionResult(
+        turn_id="turn-2",
+        status="completed",
+        agent_message="Got answers, done.",
+        notifications=(),
+    )
+
+    result = controller.decide(
+        job_id="job-1",
+        request_id="55",
+        decision="approve",
+        answers={"q1": ("answer",)},
+    )
+
+    assert isinstance(result, DelegationDecisionResult)
+    assert result.decision == "approve"
+    assert result.job.status == "completed"
+
+
+def test_mixed_inline_accept_then_fail_closed(tmp_path: Path) -> None:
+    """First request in-boundary (accept), second out-of-boundary (cancel) → escalation."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, journal, _r, _prs = _build_controller(
+        tmp_path
+    )
+    control_plane._next_session_requests = [
+        _command_approval_request(request_id=10, item_id="item-ok"),
+        _command_approval_with_network_context(request_id=20, item_id="item-net"),
+    ]
+
+    result = controller.start(repo_root=repo_root, objective="Mixed")
+
+    assert isinstance(result, DelegationEscalation)
+    assert result.job.status == "needs_escalation"
+
+    # Check handler responses: first accepted, second cancelled.
+    assert control_plane._sessions[0]._handler_responses == [
+        {"decision": "accept"},
+        {"decision": "cancel"},
+    ]
+
+    # Audit events: one inline_accept (first), one escalate (second).
+    events_path = journal.plugin_data_path / "audit" / "events.jsonl"
+    lines = [
+        json.loads(line)
+        for line in events_path.read_text().splitlines()
+        if line.strip()
+    ]
+    inline_events = [e for e in lines if e.get("action") == "inline_accept"]
+    assert len(inline_events) == 1
+    escalate_events = [e for e in lines if e.get("action") == "escalate"]
+    assert len(escalate_events) == 1
+
+
+def test_accept_not_in_available_decisions_escalates(tmp_path: Path) -> None:
+    """Command approval with availableDecisions lacking 'accept' → cancel → escalation."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, _j, _r, _prs = _build_controller(tmp_path)
+    control_plane._next_session_requests = [
+        {
+            "id": 47,
+            "method": "item/commandExecution/requestApproval",
+            "params": {
+                "itemId": "item-no-accept",
+                "threadId": "thr-1",
+                "turnId": "turn-1",
+                "command": "safe-cmd",
+                "availableDecisions": ["decline", "cancel"],
+            },
+        }
+    ]
+
+    result = controller.start(repo_root=repo_root, objective="No accept")
+
+    assert isinstance(result, DelegationEscalation)
+    assert result.job.status == "needs_escalation"
+    assert result.pending_escalation.available_decisions == ("deny",)
+    assert control_plane._sessions[0]._handler_responses[0] == {"decision": "cancel"}
+
+    # decide(approve) should also be rejected.
+    from server.models import DecisionRejectedResponse
+
+    approve_result = controller.decide(
+        job_id="job-1",
+        request_id="47",
+        decision="approve",
+    )
+    assert isinstance(approve_result, DecisionRejectedResponse)
+    assert approve_result.reason == "request_not_approvable"
+
+
+def test_malformed_available_decisions_fails_closed_at_handler(tmp_path: Path) -> None:
+    """Malformed availableDecisions (string instead of list) → empty tuple → cancel → failed.
+
+    Empty available_decisions means no plugin-actionable decision is possible,
+    so the job finalizes as failed (not needs_escalation).
+    """
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, _j, _r, _prs = _build_controller(tmp_path)
+    control_plane._next_session_requests = [
+        {
+            "id": 48,
+            "method": "item/commandExecution/requestApproval",
+            "params": {
+                "itemId": "item-malformed",
+                "threadId": "thr-1",
+                "turnId": "turn-1",
+                "command": "ls",
+                "availableDecisions": "cancel",
+            },
+        }
+    ]
+
+    result = controller.start(repo_root=repo_root, objective="Malformed decisions")
+
+    assert isinstance(result, DelegationJob)
+    assert result.status == "failed"
+    assert control_plane._sessions[0]._handler_responses[0] == {"decision": "cancel"}
+
+
+def test_command_approval_with_explicit_in_worktree_cwd_accepted(
+    tmp_path: Path,
+) -> None:
+    """Command approval with cwd inside worktree → handler returns accept → job completed."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, _j, registry, _prs = _build_controller(
+        tmp_path
+    )
+    # The worktree path is under plugin_data/runtimes/delegation/job-1/worktree.
+    # We need to figure out the worktree path after start.
+    # The worktree path is created by _FakeWorktreeManager.create_worktree.
+    worktree_path = tmp_path / "data" / "runtimes" / "delegation" / "job-1" / "worktree"
+    cwd_inside = str(worktree_path / "src")
+
+    control_plane._next_session_requests = [
+        {
+            "id": 48,
+            "method": "item/commandExecution/requestApproval",
+            "params": {
+                "itemId": "item-in-wt",
+                "threadId": "thr-1",
+                "turnId": "turn-1",
+                "command": "ls",
+                "cwd": cwd_inside,
+            },
+        }
+    ]
+
+    result = controller.start(repo_root=repo_root, objective="List in worktree")
+
+    assert isinstance(result, DelegationJob)
+    assert result.status == "completed"
+    assert control_plane._sessions[0]._handler_responses[0] == {"decision": "accept"}
+    assert registry.lookup("rt-1") is None
+
+
+def test_file_change_with_explicit_in_worktree_grant_root_accepted(
+    tmp_path: Path,
+) -> None:
+    """File change with grantRoot inside worktree → handler returns accept → job completed."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, _j, registry, _prs = _build_controller(
+        tmp_path
+    )
+    worktree_path = tmp_path / "data" / "runtimes" / "delegation" / "job-1" / "worktree"
+    grant_root_inside = str(worktree_path / "config")
+
+    control_plane._next_session_requests = [
+        {
+            "id": 49,
+            "method": "item/fileChange/requestApproval",
+            "params": {
+                "itemId": "item-fc-in",
+                "threadId": "thr-1",
+                "turnId": "turn-1",
+                "grantRoot": grant_root_inside,
+            },
+        }
+    ]
+
+    result = controller.start(repo_root=repo_root, objective="Edit in worktree")
+
+    assert isinstance(result, DelegationJob)
+    assert result.status == "completed"
+    assert control_plane._sessions[0]._handler_responses[0] == {"decision": "accept"}
+    assert registry.lookup("rt-1") is None
+
+
+# ---------------------------------------------------------------------------
+# Empty available_decisions → failed (not needs_escalation)
+# ---------------------------------------------------------------------------
+
+
+def test_empty_available_decisions_command_approval_finalizes_as_failed(
+    tmp_path: Path,
+) -> None:
+    """command_approval with explicit availableDecisions: [] → cancel → failed.
+
+    When the App Server offers no actionable decisions, there is nothing for the
+    user to decide — the job must finalize as failed, not needs_escalation.
+    """
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, lineage, journal, registry, _prs = (
+        _build_controller(tmp_path)
+    )
+    control_plane._next_session_requests = [
+        {
+            "id": 50,
+            "method": "item/commandExecution/requestApproval",
+            "params": {
+                "itemId": "item-empty-ad",
+                "threadId": "thr-1",
+                "turnId": "turn-1",
+                "command": "rg --files",
+                "availableDecisions": [],
+            },
+        }
+    ]
+
+    result = controller.start(repo_root=repo_root, objective="Use rg")
+
+    assert isinstance(result, DelegationJob)
+    assert result.status == "failed"
+    assert control_plane._sessions[0]._handler_responses[0] == {"decision": "cancel"}
+    # Runtime released and session closed (not kept live).
+    assert registry.lookup("rt-1") is None
+    assert control_plane._sessions[0].closed
+    # Lineage completed.
+    handle = lineage.get("collab-1")
+    assert handle is not None and handle.status == "completed"
+    # Terminal outcome emitted.
+    outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
+    assert outcomes_path.exists()
+    outcome_lines = [
+        json.loads(line)
+        for line in outcomes_path.read_text().splitlines()
+        if line.strip()
+    ]
+    terminal = [o for o in outcome_lines if o.get("outcome_type") == "delegation_terminal"]
+    assert len(terminal) == 1
+    assert terminal[0]["terminal_status"] == "failed"
+
+
+def test_empty_available_decisions_file_change_finalizes_as_failed(
+    tmp_path: Path,
+) -> None:
+    """file_change with explicit availableDecisions: [] → cancel → failed."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, lineage, _j, registry, _prs = (
+        _build_controller(tmp_path)
+    )
+    control_plane._next_session_requests = [
+        {
+            "id": 51,
+            "method": "item/fileChange/requestApproval",
+            "params": {
+                "itemId": "item-fc-empty",
+                "threadId": "thr-1",
+                "turnId": "turn-1",
+                "availableDecisions": [],
+            },
+        }
+    ]
+
+    result = controller.start(repo_root=repo_root, objective="Write file")
+
+    assert isinstance(result, DelegationJob)
+    assert result.status == "failed"
+    assert registry.lookup("rt-1") is None
+    assert control_plane._sessions[0].closed
+    handle = lineage.get("collab-1")
+    assert handle is not None and handle.status == "completed"
+
+
+def test_command_approval_with_wire_decisions_still_escalates(
+    tmp_path: Path,
+) -> None:
+    """command_approval with non-empty availableDecisions (e.g. ["decline", "cancel"])
+    still produces needs_escalation — deny remains a valid user decision."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, _ls, _j, registry, _prs = (
+        _build_controller(tmp_path)
+    )
+    control_plane._next_session_requests = [
+        {
+            "id": 52,
+            "method": "item/commandExecution/requestApproval",
+            "params": {
+                "itemId": "item-with-decisions",
+                "threadId": "thr-1",
+                "turnId": "turn-1",
+                "command": "curl https://example.com",
+                "networkApprovalContext": {"host": "example.com"},
+                "availableDecisions": ["decline", "cancel"],
+            },
+        }
+    ]
+
+    result = controller.start(repo_root=repo_root, objective="Fetch data")
+
+    assert isinstance(result, DelegationEscalation)
+    assert result.job.status == "needs_escalation"
+    # Runtime kept live for the escalation.
+    assert registry.lookup("rt-1") is not None
+    assert not control_plane._sessions[0].closed
+
+
+def test_decide_deny_works_for_ordinary_escalation_with_nonempty_decisions(
+    tmp_path: Path,
+) -> None:
+    """deny is valid for normal fail-closed escalations where raw decisions are non-empty."""
+    from server.models import DelegationDecisionResult
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, lineage, _j, registry, _prs = (
+        _build_controller(tmp_path)
+    )
+    control_plane._next_session_requests = [
+        {
+            "id": 53,
+            "method": "item/commandExecution/requestApproval",
+            "params": {
+                "itemId": "item-deny-test",
+                "threadId": "thr-1",
+                "turnId": "turn-1",
+                "command": "curl https://evil.com",
+                "networkApprovalContext": {"host": "evil.com"},
+                "availableDecisions": ["decline", "cancel"],
+            },
+        }
+    ]
+    start_result = controller.start(repo_root=repo_root, objective="Deny test")
+    assert isinstance(start_result, DelegationEscalation)
+
+    result = controller.decide(job_id="job-1", request_id="53", decision="deny")
+
+    assert isinstance(result, DelegationDecisionResult)
+    assert result.decision == "deny"
+    assert result.job.status == "failed"
+    assert registry.lookup("rt-1") is None
+    handle = lineage.get("collab-1")
+    assert handle is not None and handle.status == "completed"
+
+
+# ---------------------------------------------------------------------------
+# Discard accepts needs_escalation + promotion_state=None
+# ---------------------------------------------------------------------------
+
+
+def test_discard_accepts_needs_escalation_and_clears_busy_gate(
+    tmp_path: Path,
+) -> None:
+    """Discarding a needs_escalation job transitions to failed+discarded,
+    releases runtime, closes session, and clears the busy gate."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, job_store, lineage, journal, registry, _prs = (
+        _build_controller(tmp_path)
+    )
+    # Use non-empty decisions so we get needs_escalation (not failed via Option B).
+    control_plane._next_session_requests = [_command_approval_with_network_context()]
+    start_result = controller.start(repo_root=repo_root, objective="Stuck job")
+    assert isinstance(start_result, DelegationEscalation)
+    assert start_result.job.status == "needs_escalation"
+    # Runtime is live.
+    assert registry.lookup("rt-1") is not None
+
+    result = controller.discard(job_id="job-1")
+
+    assert isinstance(result, DiscardResult)
+    assert result.job.status == "failed"
+    assert result.job.promotion_state == "discarded"
+    # Runtime released and session closed.
+    assert registry.lookup("rt-1") is None
+    assert control_plane._sessions[0].closed
+    # Lineage completed.
+    handle = lineage.get("collab-1")
+    assert handle is not None and handle.status == "completed"
+    # Discard audit event emitted.
+    events_path = journal.plugin_data_path / "audit" / "events.jsonl"
+    lines = [
+        json.loads(line)
+        for line in events_path.read_text().splitlines()
+        if line.strip()
+    ]
+    discard_events = [e for e in lines if e.get("action") == "discard"]
+    assert len(discard_events) == 1
+    # Terminal outcome emitted.
+    outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
+    assert outcomes_path.exists()
+    outcome_lines = [
+        json.loads(line)
+        for line in outcomes_path.read_text().splitlines()
+        if line.strip()
+    ]
+    terminal = [o for o in outcome_lines if o.get("outcome_type") == "delegation_terminal"]
+    assert len(terminal) == 1
+    assert terminal[0]["terminal_status"] == "failed"
+
+    # Busy gate cleared — new start succeeds.
+    control_plane._next_session_requests = []
+    new_result = controller.start(repo_root=repo_root, objective="Fresh start")
+    assert isinstance(new_result, DelegationJob)
+    assert new_result.status == "completed"
+
+
+def test_discard_needs_escalation_handles_missing_runtime_entry(
+    tmp_path: Path,
+) -> None:
+    """Discard needs_escalation gracefully handles missing runtime entry."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, lineage, _j, registry, _prs = (
+        _build_controller(tmp_path)
+    )
+    control_plane._next_session_requests = [_command_approval_with_network_context()]
+    start_result = controller.start(repo_root=repo_root, objective="Stuck job 2")
+    assert isinstance(start_result, DelegationEscalation)
+
+    # Simulate a crash recovery scenario: runtime entry already gone.
+    registry.release("rt-1")
+    assert registry.lookup("rt-1") is None
+
+    result = controller.discard(job_id="job-1")
+
+    assert isinstance(result, DiscardResult)
+    assert result.job.status == "failed"
+    assert result.job.promotion_state == "discarded"
+    handle = lineage.get("collab-1")
+    assert handle is not None and handle.status == "completed"
+
+
+def test_decide_does_not_reject_on_resolved_request_status(
+    tmp_path: Path,
+) -> None:
+    """Wire-level 'resolved' status on a PendingServerRequest does not prevent
+    plugin-level deny — only _decided_request_ids matters."""
+    from server.models import DelegationDecisionResult
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _wm, _js, lineage, _j, registry, prs = (
+        _build_controller(tmp_path)
+    )
+    control_plane._next_session_requests = [_command_approval_with_network_context()]
+    start_result = controller.start(repo_root=repo_root, objective="Resolved test")
+    assert isinstance(start_result, DelegationEscalation)
+
+    # Verify request is already resolved (D4 signal from finalization).
+    stored = prs.get("42")
+    assert stored is not None
+    assert stored.status == "resolved"
+
+    # Deny should still work — resolved status is wire lifecycle, not plugin decision.
+    result = controller.decide(job_id="job-1", request_id="42", decision="deny")
+
+    assert isinstance(result, DelegationDecisionResult)
+    assert result.decision == "deny"
+    assert result.job.status == "failed"

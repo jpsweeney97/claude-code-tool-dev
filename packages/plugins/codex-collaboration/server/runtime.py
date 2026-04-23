@@ -20,17 +20,50 @@ def _build_read_only_sandbox_policy() -> dict[str, Any]:
     return {"type": "readOnly"}
 
 
-def build_workspace_write_sandbox_policy(worktree_path: Path) -> dict[str, Any]:
+_CODEX_SUPPORT_READ_SUBROOTS: tuple[tuple[str, ...], ...] = (
+    ("skills",),
+    ("plugins", "cache"),
+    ("memories",),
+    ("references",),
+)
+
+
+def _resolve_codex_support_roots(codex_home: Path) -> list[str]:
+    resolved_home = codex_home.resolve()
+    seen: set[str] = set()
+    roots: list[str] = []
+    for parts in _CODEX_SUPPORT_READ_SUBROOTS:
+        candidate = codex_home.joinpath(*parts)
+        if not candidate.is_dir():
+            continue
+        resolved = candidate.resolve()
+        if not resolved.is_relative_to(resolved_home):
+            continue
+        resolved_str = str(resolved)
+        if resolved_str not in seen:
+            seen.add(resolved_str)
+            roots.append(resolved_str)
+    return roots
+
+
+def build_workspace_write_sandbox_policy(
+    worktree_path: Path,
+    *,
+    codex_home: Path | None = None,
+) -> dict[str, Any]:
     """Return the v1 execution sandbox policy for an isolated worktree."""
 
     resolved = worktree_path.resolve()
+    support_roots = (
+        _resolve_codex_support_roots(codex_home) if codex_home is not None else []
+    )
     return {
         "type": "workspaceWrite",
         "writableRoots": [str(resolved)],
         "readOnlyAccess": {
             "type": "restricted",
-            "readableRoots": [str(resolved)],
-            "includePlatformDefaults": False,
+            "readableRoots": [str(resolved), *support_roots],
+            "includePlatformDefaults": True,
         },
         "networkAccess": False,
         "excludeSlashTmp": True,
@@ -54,6 +87,13 @@ class AppServerRuntimeSession:
             cwd=repo_root,
             request_timeout=request_timeout,
         )
+        self._handshake: RuntimeHandshake | None = None
+
+    @property
+    def codex_home(self) -> Path | None:
+        if self._handshake is None:
+            return None
+        return Path(self._handshake.codex_home)
 
     def initialize(self) -> RuntimeHandshake:
         """Perform the `initialize` handshake."""
@@ -68,12 +108,14 @@ class AppServerRuntimeSession:
                 }
             },
         )
-        return RuntimeHandshake(
+        handshake = RuntimeHandshake(
             codex_home=str(result["codexHome"]),
             platform_family=str(result["platformFamily"]),
             platform_os=str(result["platformOs"]),
             user_agent=str(result["userAgent"]),
         )
+        self._handshake = handshake
+        return handshake
 
     def read_account(self) -> AccountState:
         """Return the current auth state."""
