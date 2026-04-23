@@ -137,11 +137,17 @@ If post-application verification fails:
 
 `codex.delegate.discard` is a separate low-risk operation from promotion.
 
-- **Allowed states:** `promotion_state in {pending, prechecks_failed}`, or `status in {failed, unknown}` with `promotion_state is None` (pre-mutation)
+- **Allowed states:**
+  - `promotion_state in {pending, prechecks_failed}` (pre-mutation, simple flag-flip).
+  - `status in {failed, unknown}` with `promotion_state is None` (pre-mutation, simple flag-flip).
+  - `status == needs_escalation` with `promotion_state is None` (stuck-escalation cleanup — the job owns a live runtime that must be released).
 - **Rejected states:** `prechecks_passed`, `applied`, `verified`, `rollback_needed`, `rolled_back`, and `discarded`
-- **Rationale:** discard is only valid before any primary-workspace mutation has occurred. Failed/unknown jobs with null promotion state are pre-mutation by definition and must be discardable to prevent permanently blocking new delegations via the widened busy gate.
+- **Rationale:** discard is only valid before any primary-workspace mutation has occurred. Failed/unknown jobs with null promotion state are pre-mutation by definition and must be discardable to prevent permanently blocking new delegations via the widened busy gate. `needs_escalation + null` is also admitted: such a job is pre-mutation but still owns a live runtime, so the cleanup path is required to release resources that deny-based finalization would otherwise handle.
 
-Discard emits an [audit event](contracts.md#auditevent) with `action: discard`, transitions the job to `promotion_state="discarded"`, and schedules the execution worktree for normal discard-time cleanup.
+Discard emits an [audit event](contracts.md#auditevent) with `action: discard` and schedules the execution worktree for normal discard-time cleanup.
+
+- **Simple path** (`pending`, `prechecks_failed`, or `failed | unknown` + null `promotion_state`): transitions the job to `promotion_state="discarded"` via a single promotion-state update.
+- **Cleanup path** (`needs_escalation` + null `promotion_state`): atomically transitions the job to `status="failed"` and `promotion_state="discarded"`, releases the runtime registry entry, closes the underlying advisory session, marks lineage `completed`, and emits the terminal outcome record. This path handles missing runtime entries gracefully for crash-recovery scenarios.
 
 ## Workspace Effects
 

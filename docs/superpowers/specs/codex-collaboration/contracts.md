@@ -294,7 +294,7 @@ that cannot be handled under the opening-slice constraints.
 | Field | Type | Description |
 |---|---|---|
 | `rejected` | boolean | Always `true` |
-| `reason` | enum | `invalid_decision`, `job_not_found`, `job_not_awaiting_decision`, `request_not_found`, `request_job_mismatch`, `request_already_decided`, `runtime_unavailable`, `answers_required`, `answers_not_allowed` |
+| `reason` | enum | `invalid_decision`, `job_not_found`, `job_not_awaiting_decision`, `request_not_found`, `request_job_mismatch`, `request_already_decided`, `runtime_unavailable`, `answers_required`, `answers_not_allowed`, `request_not_approvable` |
 | `detail` | string | Human-readable explanation |
 | `job_id` | string? | Rejected job id when known |
 | `request_id` | string? | Rejected request id when known |

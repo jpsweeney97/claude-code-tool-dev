@@ -62,7 +62,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
-from .approval_router import parse_pending_server_request
+from .approval_router import is_within_delegation_boundary, parse_pending_server_request
 from .delegation_job_store import DelegationJobStore
 from .execution_prompt_builder import (
     build_execution_resume_turn_text,
@@ -106,6 +106,9 @@ _TERMINAL_STATUS_MAP: dict[str, DelegationTerminalStatus] = {
     "failed": "failed",
     "unknown": "unknown",
 }
+
+_CANCEL_CAPABLE_KINDS = frozenset({"command_approval", "file_change"})
+_KNOWN_DENIAL_KINDS = frozenset({"request_user_input"})
 
 
 class _ControlPlaneLike(Protocol):
@@ -639,8 +642,7 @@ class DelegationController:
         captured_request: PendingServerRequest | None = None
         interrupted_by_unknown = False
         captured_request_parse_failed = False
-        _CANCEL_CAPABLE_KINDS = frozenset({"command_approval", "file_change"})
-        _KNOWN_DENIAL_KINDS = frozenset({"request_user_input"})
+        inline_accepted_requests: list[PendingServerRequest] = []
         entry = self._runtime_registry.lookup(runtime_id)
         assert entry is not None, (
             f"ExecutionRuntimeRegistry invariant violation: runtime_id={runtime_id!r} "
@@ -711,19 +713,31 @@ class DelegationController:
                     )
                 return None
 
+            if parsed.kind in _CANCEL_CAPABLE_KINDS:
+                if (
+                    "accept" in parsed.available_decisions
+                    and is_within_delegation_boundary(parsed, worktree_path)
+                ):
+                    inline_accepted_requests.append(parsed)
+                    return {"decision": "accept"}
+                if captured_request is None:
+                    self._pending_request_store.create(parsed)
+                    captured_request = parsed
+                return {"decision": "cancel"}
+
             if captured_request is None:
                 self._pending_request_store.create(parsed)
                 captured_request = parsed
-
-            if parsed.kind in _CANCEL_CAPABLE_KINDS:
-                return {"decision": "cancel"}
             return {"answers": {}}
 
         try:
             turn_result = entry.session.run_execution_turn(
                 thread_id=entry.thread_id,
                 prompt_text=prompt_text,
-                sandbox_policy=build_workspace_write_sandbox_policy(worktree_path),
+                sandbox_policy=build_workspace_write_sandbox_policy(
+                    worktree_path,
+                    codex_home=entry.session.codex_home,
+                ),
                 approval_policy=self._approval_policy,
                 server_request_handler=_server_request_handler,
             )
@@ -746,6 +760,7 @@ class DelegationController:
                 captured_request=captured_request,
                 interrupted_by_unknown=interrupted_by_unknown,
                 captured_request_parse_failed=captured_request_parse_failed,
+                inline_accepted_requests=inline_accepted_requests,
             )
         except Exception:
             self._mark_execution_unknown_and_cleanup(
@@ -843,18 +858,23 @@ class DelegationController:
         )
         return updated
 
-    # Plugin-level decisions exposed by codex.delegate.decide.
     _PLUGIN_DECISIONS: tuple[str, ...] = ("approve", "deny")
+    _DENY_ONLY_DECISIONS: tuple[str, ...] = ("deny",)
 
     def _project_request_to_view(
         self, request: PendingServerRequest
     ) -> PendingEscalationView:
         """Project a PendingServerRequest to the caller-visible PendingEscalationView."""
+        decisions = (
+            self._DENY_ONLY_DECISIONS
+            if request.kind in _CANCEL_CAPABLE_KINDS
+            else self._PLUGIN_DECISIONS
+        )
         return PendingEscalationView(
             request_id=request.request_id,
             kind=request.kind,
             requested_scope=request.requested_scope,
-            available_decisions=self._PLUGIN_DECISIONS,
+            available_decisions=decisions,
         )
 
     def _project_pending_escalation(
@@ -1389,9 +1409,11 @@ class DelegationController:
     def discard(self, *, job_id: str) -> DiscardResult | DiscardRejectedResponse:
         """Discard a delegation job without promoting.
 
-        Allowed when promotion_state in (pending, prechecks_failed), or when
-        status in (failed, unknown) and promotion_state is None (pre-mutation).
-        Post-mutation states (applied, rollback_needed) are never discardable.
+        Allowed when promotion_state in (pending, prechecks_failed), when
+        status in (failed, unknown) and promotion_state is None (pre-mutation),
+        or when status is needs_escalation and promotion_state is None (stuck
+        escalation cleanup). Post-mutation states (applied, rollback_needed)
+        are never discardable.
         """
         job = self._job_store.get(job_id)
         if job is None:
@@ -1401,8 +1423,13 @@ class DelegationController:
                 detail=f"Discard failed: job not found. Got: {job_id!r:.100}",
                 job_id=job_id,
             )
-        _discardable = job.promotion_state in ("pending", "prechecks_failed") or (
-            job.status in ("failed", "unknown") and job.promotion_state is None
+        _needs_escalation_cleanup = (
+            job.status == "needs_escalation" and job.promotion_state is None
+        )
+        _discardable = (
+            job.promotion_state in ("pending", "prechecks_failed")
+            or (job.status in ("failed", "unknown") and job.promotion_state is None)
+            or _needs_escalation_cleanup
         )
         if not _discardable:
             return DiscardRejectedResponse(
@@ -1415,10 +1442,23 @@ class DelegationController:
                 job_id=job_id,
             )
 
-        self._job_store.update_promotion_state(
-            job_id,
-            promotion_state="discarded",
-        )
+        if _needs_escalation_cleanup:
+            self._job_store.update_status_and_promotion(
+                job_id,
+                status="failed",
+                promotion_state="discarded",
+            )
+            self._lineage_store.update_status(job.collaboration_id, "completed")
+            entry = self._runtime_registry.lookup(job.runtime_id)
+            if entry is not None:
+                self._runtime_registry.release(job.runtime_id)
+                entry.session.close()
+            self._emit_terminal_outcome_if_needed(job_id)
+        else:
+            self._job_store.update_promotion_state(
+                job_id,
+                promotion_state="discarded",
+            )
 
         # Audit event.
         self._journal.append_audit_event(
@@ -1436,6 +1476,35 @@ class DelegationController:
         updated = self._job_store.get(job_id) or job
         return DiscardResult(job=updated)
 
+    def _emit_inline_accept_audit(
+        self,
+        *,
+        inline_accepted_requests: list[PendingServerRequest],
+        collaboration_id: str,
+        runtime_id: str,
+        job_id: str,
+    ) -> None:
+        for accepted in inline_accepted_requests:
+            try:
+                self._journal.append_audit_event(
+                    AuditEvent(
+                        event_id=self._uuid_factory(),
+                        timestamp=self._journal.timestamp(),
+                        actor="system",
+                        action="inline_accept",
+                        collaboration_id=collaboration_id,
+                        runtime_id=runtime_id,
+                        job_id=job_id,
+                        request_id=accepted.request_id,
+                    )
+                )
+            except Exception:
+                logger.warning(
+                    "Inline-accept audit emission failed for request %s",
+                    accepted.request_id,
+                    exc_info=True,
+                )
+
     def _finalize_turn(
         self,
         *,
@@ -1447,13 +1516,19 @@ class DelegationController:
         captured_request: PendingServerRequest | None,
         interrupted_by_unknown: bool,
         captured_request_parse_failed: bool,
+        inline_accepted_requests: list[PendingServerRequest] | None = None,
     ) -> DelegationJob | DelegationEscalation:
         """Post-turn status derivation, audit, and cleanup.
 
         Called by _execute_live_turn (used by both start and decide).
         Separated so the caller can wrap it in a failure guard.
         """
-        _CANCEL_CAPABLE_KINDS = frozenset({"command_approval", "file_change"})
+        self._emit_inline_accept_audit(
+            inline_accepted_requests=inline_accepted_requests or [],
+            collaboration_id=collaboration_id,
+            runtime_id=runtime_id,
+            job_id=job_id,
+        )
 
         if captured_request is not None:
             # D6 diagnostic — only when we have a parseable request with
@@ -1470,8 +1545,13 @@ class DelegationController:
                 )
 
             # Job status derivation.
-            if captured_request.kind in _CANCEL_CAPABLE_KINDS or interrupted_by_unknown:
+            if interrupted_by_unknown:
                 final_status: JobStatus = "needs_escalation"
+            elif captured_request.kind in _CANCEL_CAPABLE_KINDS:
+                if captured_request.available_decisions:
+                    final_status = "needs_escalation"
+                else:
+                    final_status = "failed"
             elif turn_result.status == "completed":
                 final_status = "completed"
             else:
@@ -1643,6 +1723,18 @@ class DelegationController:
                 detail=(
                     "Delegation decide failed: answers are only valid for request_user_input. "
                     f"Got: kind={request.kind!r:.100}"
+                ),
+                job_id=job_id,
+                request_id=request_id,
+            )
+
+        if decision == "approve" and request.kind in _CANCEL_CAPABLE_KINDS:
+            return self._reject_decision(
+                reason="request_not_approvable",
+                detail=(
+                    f"Delegation decide failed: cannot approve a {request.kind} "
+                    "request after wire-level cancel. The original App Server request "
+                    "was interrupted; a new turn cannot grant it. Use 'deny' or discard."
                 ),
                 job_id=job_id,
                 request_id=request_id,

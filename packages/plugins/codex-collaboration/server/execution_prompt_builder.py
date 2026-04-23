@@ -33,8 +33,14 @@ def build_execution_turn_text(
         "When you run verification, persist a deterministic test-results record at:\n"
         f"  {TEST_RESULTS_RECORD_RELATIVE_PATH}\n"
         "Write JSON with keys: schema_version, status, commands, summary.\n"
-        "Work within the worktree boundary. Commands that require approval "
-        "will be escalated to the caller for review."
+        "Work ONLY within the worktree boundary. Do NOT navigate above the "
+        "worktree with '..' or absolute paths outside the workspace. The worktree "
+        "IS a full repository copy — all project files are inside it. Commands "
+        "that escape the worktree boundary will be blocked by the sandbox.\n\n"
+        "Tool constraint: use only platform-default executables available from "
+        "/bin and /usr/bin (e.g. find, ls, mkdir, cat, grep, sed, awk). "
+        "Do NOT use Homebrew, mise, or developer-tool binaries such as rg, fd, "
+        "uv, node, python, or ruff — they are outside the sandbox exec policy."
     )
 
 

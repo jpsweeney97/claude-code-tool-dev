@@ -7,6 +7,7 @@ payloads. Decision routing, resolution dispatch, and job-state transitions land
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from .models import PendingRequestKind, PendingServerRequest
@@ -28,7 +29,7 @@ _AVAILABLE_DECISIONS: dict[PendingRequestKind, tuple[str, ...]] = {
     ),
     # File-change and user-input decision sets are routed later when the
     # execution-domain decide surface is implemented.
-    "file_change": (),
+    "file_change": ("accept", "acceptForSession", "decline", "cancel"),
     "request_user_input": (),
     "unknown": (),
 }
@@ -101,9 +102,56 @@ def _require_request_id(payload: dict[str, Any], key: str) -> str:
 def _resolve_available_decisions(
     params: dict[str, Any], kind: PendingRequestKind
 ) -> tuple[str, ...]:
-    wire_value = params.get("availableDecisions")
+    if "availableDecisions" not in params:
+        return _AVAILABLE_DECISIONS[kind]
+    wire_value = params["availableDecisions"]
     if isinstance(wire_value, list) and all(
         isinstance(decision, str) for decision in wire_value
     ):
         return tuple(wire_value)
-    return _AVAILABLE_DECISIONS[kind]
+    return ()
+
+
+def is_within_delegation_boundary(
+    parsed: PendingServerRequest,
+    worktree_path: Path,
+) -> bool:
+    """Check whether a parsed server request stays within the delegation worktree boundary.
+
+    Only cancel-capable kinds (command_approval, file_change) are boundary-checkable.
+    All other kinds return False (not within boundary — they are handled by existing
+    unknown/interrupt paths).
+    """
+    if parsed.kind == "command_approval":
+        # Command approvals carry opaque execution payloads. Spatial metadata
+        # such as cwd or networkApprovalContext cannot prove that the command
+        # itself stays within the delegation boundary, so these requests must
+        # always escalate.
+        return False
+    if parsed.kind == "file_change":
+        grant_root = parsed.requested_scope.get("grantRoot")
+        if grant_root is not None and not _is_path_within_boundary(
+            grant_root, worktree_path
+        ):
+            return False
+        return True
+    return False
+
+
+def _is_path_within_boundary(value: object, worktree_path: Path) -> bool:
+    """Check whether a path value is within the worktree boundary.
+
+    Returns True for None (absent/null — no expanded scope).
+    Returns False for non-string, relative paths, or resolution errors.
+    """
+    if value is None:
+        return True
+    if not isinstance(value, str):
+        return False
+    path = Path(value)
+    if not path.is_absolute():
+        return False
+    try:
+        return path.resolve().is_relative_to(worktree_path.resolve())
+    except (OSError, ValueError):
+        return False
