@@ -38,9 +38,15 @@ Five invariants govern the design. Any implementation change must verify against
 
 **IO-1 (Session ownership):** The worker thread exclusively owns its `AppServerRuntimeSession` and `JsonRpcClient` for the lifetime of its turn. All JSON-RPC reads (`_next_id`, `request()`, `next_notification()`) and writes (`respond()`) happen on that thread. No other thread touches the session. Rationale: `JsonRpcClient` at `packages/plugins/codex-collaboration/server/jsonrpc_client.py` has no shared-client locking (`_next_id` is a bare int increment at line 40, `_notification_backlog` is an unlocked `deque`).
 
-**IO-2 (Cross-thread API = resolution registry only):** The resolution registry is the only cross-thread API between main (MCP dispatch) and worker. `decide()` publishes to the registry; the worker blocks on it. No other shared mutable state crosses threads — not the session, not the stores, not the job state.
+**IO-2 (In-memory cross-thread coordination = resolution registry only):** The resolution registry is the only *in-memory* coordination API between main (MCP dispatch) and worker. `decide()` publishes to the registry; the worker blocks on it. No other in-memory mutable state crosses threads — not the session, not the job state. The JSONL stores (`pending_request_store`, `delegation_job_store`, operation journal) are durable cross-thread observation surfaces under IO-3's single-writer discipline: main may read a store while the worker is the active writer (e.g., `poll()` reads job state during a running turn). Concurrent readers may observe a stale snapshot or skip an in-progress/invalid JSONL record; they must not treat partial JSON as a valid record — the replay paths enforce this today by swallowing `json.JSONDecodeError` (`pending_request_store.py:87`, `delegation_job_store.py:204`). IO-4 backs the durability side (fsync on writes); IO-2 governs only the in-memory coordination layer.
 
 **IO-3 (Single-writer-per-store):** Each store has one writer thread at a time per the thread-role table (see §Runtime Architecture). Eliminates store-level locks; relies on OS append atomicity (IO-4) for correctness. The "at a time" clause is load-bearing and depends on the **singleton busy gate** at `packages/plugins/codex-collaboration/server/delegation_controller.py:328-349` — the max-1 user-attention job per session check that consults the job store, the runtime registry, and unresolved `job_creation` journal entries. Because at most one delegation job is in flight per session, at most one worker thread exists at any instant. Any future relaxation of the singleton constraint (parallel jobs, multi-session sharding) must revisit IO-3 either by adding store-level locking or by proving that multi-worker → single-writer-per-store still holds under the new partitioning.
+
+Within a single job's lifecycle, single-writer-per-store further requires that main-thread and worker-thread writes to the same store never overlap. Packet 1 preserves this by construction:
+
+- **`delegation_job_store`:** worker writes end with the terminal-status persistence via `_persist_job_transition` (worker's last write for that job). Main-thread `poll()` may subsequently write `update_artifacts` via `_load_or_materialize_inspection` at `delegation_controller.py:870-899`, but this path is gated on `job.status in ("completed", "failed", "unknown")` at `:873` — so these writes observe a frozen terminal job with no concurrent worker writes.
+- **Operation journal:** `approval_resolution.intent` has two writers — main (operator-decide path) and worker (timeout-wake path). The `ResolutionRegistry.reserve()` CAS is the gate that ensures exactly one of them wins per `request_id`; the losing caller receives `None` from `reserve()` and writes nothing. The surviving winner's `intent` write therefore has no concurrent writer. `approval_resolution.dispatched` and `.completed` are always worker-only.
+- **`pending_request_store`:** worker-only. Main reads during validation in `decide()` and projection in `poll()`; does not write.
 
 **IO-4 (Inherited JSONL append — DURABLE journal writes):** The operation journal and stores that gate recovery correctness — `journal.write_phase` at `packages/plugins/codex-collaboration/server/journal.py:300-307`, `pending_request_store._append` at `:71-75`, `delegation_job_store._append` — use `open("a")` + single-line JSON write + **`flush()` + `os.fsync()`**. The fsync is load-bearing: these writes survive process crash. The repo already depends on this pattern being correct under its single-writer discipline on supported platforms (Linux/macOS). This spec extends the operation journal to two writers (main writes `approval_resolution.intent` via `decide()`; worker writes `approval_resolution.dispatched/completed`); we inherit the platform assumption, we do not prove it. If a future change adds multi-process concurrent writers or Windows support, upgrade to an explicit lock or hardened append primitive.
 
@@ -102,8 +108,8 @@ decide(rid)
 
 | Thread | Spawned by | Lifetime | Session | Store writes | Store reads |
 |---|---|---|---|---|---|
-| Main (MCP dispatch) | Plugin process | Plugin process | Read-only (via controller helpers) | `delegation_job_store.create` (via start only); `journal.write_phase(intent)`; `journal.append_audit_event` | Any (read-only for poll, decide validation) |
-| Worker (per-turn) | `start()` spawn | One turn (from `_execute_live_turn` entry to terminal or exception) | Exclusive owner (IO-1) | `pending_request_store` (create + mutators); `delegation_job_store.update_parked_request` + terminal status via `_persist_job_transition`; `journal.write_phase(dispatched, completed)` | Own session state only |
+| Main (MCP dispatch) | Plugin process | Plugin process | Read-only (via controller helpers) | `delegation_job_store.create` (via `start()` only); `delegation_job_store.update_artifacts` (via `poll()`'s `_load_or_materialize_inspection` at `:870-899`; gated to terminal jobs only by `:873` — see IO-3); `journal.write_phase(approval_resolution.intent)` (operator-decide path, gated by `reserve()` CAS); `journal.append_audit_event` | Any (read-only for poll, decide validation) |
+| Worker (per-turn) | `start()` spawn | One turn (from `_execute_live_turn` entry to terminal or exception) | Exclusive owner (IO-1) | `pending_request_store` (create + mutators); `delegation_job_store.update_parked_request` + terminal status via `_persist_job_transition`; `journal.write_phase(approval_resolution.intent)` (timeout-path only, after timer-signal wake; gated by `reserve()` CAS); `journal.write_phase(approval_resolution.dispatched, approval_resolution.completed)` | Own session state only |
 | JSON-RPC background readers (existing) | `JsonRpcClient.start` | Per session | Queue producer only (`_message_queue` at `jsonrpc_client.py:35`) | None | None |
 | Cold-start recovery (existing) | Plugin init | Plugin init | None | Demotion transitions via `_persist_job_transition` | All stores |
 
@@ -113,7 +119,7 @@ The two "new" threading constructs are the **worker thread** (one per in-flight 
 
 In-memory structure. The registry owns two independent coordination channels:
 
-- **Per-request channel** — a `RegistryEntry` keyed by `request_id`. States `awaiting | consuming`. Used by the worker to block on a pending resolution and by `decide()` to deliver one.
+- **Per-request channel** — a `RegistryEntry` keyed by `request_id`. States `awaiting | reserved | consuming` (see §Transactional registry protocol for the transitions and failure modes). Used by the worker to block on a pending resolution and by `decide()` to deliver one.
 - **Per-job capture-ready channel** — a `CaptureReadyEvent` keyed by `job_id`. Signaled by the worker once it has captured a server request and parked; awaited by `start()` on the main thread to obtain the escalation payload synchronously.
 
 ```python
@@ -153,8 +159,15 @@ class ResolutionRegistry:
     # Per-job capture-ready channel
     # job_id → CaptureReadyEvent (one-shot; created on start(), discarded after wait_for_parked resolves)
     def announce_parked(self, job_id: str, request_id: str) -> None: ...     # worker signals capture-ready
-    def announce_turn_completed_empty(self, job_id: str) -> None: ...        # worker signals turn ended without capture
-    def announce_worker_failed(self, job_id: str, error: Exception) -> None: ...  # worker signals exception
+    def announce_turn_completed_empty(self, job_id: str) -> None: ...        # worker signals turn ended without any capture (analytical completion)
+    def announce_turn_terminal_without_escalation(                           # worker signals turn ended in a terminal non-escalation state
+        self,
+        job_id: str,
+        status: str,                                                         # job status that will be returned (e.g., "unknown")
+        reason: str,                                                         # e.g., "unknown_kind_parse_failure"
+        request_id: str | None,                                              # persisted-for-audit request id, if any
+    ) -> None: ...
+    def announce_worker_failed(self, job_id: str, error: Exception) -> None: ...  # worker signals a genuine worker-side exception
     def wait_for_parked(
         self, job_id: str, timeout_seconds: float,
     ) -> ParkedCaptureResult: ...                                            # main blocks here in start()
@@ -171,17 +184,36 @@ class Parked:
 
 @dataclass(frozen=True)
 class TurnCompletedWithoutCapture:
-    pass  # Codex finished its objective without requesting approval
+    pass  # Codex finished its objective without requesting approval (analytical success)
+
+@dataclass(frozen=True)
+class TurnTerminalWithoutEscalation:
+    # Terminal non-escalation outcome. Worker has already persisted the terminal job
+    # status (e.g., "unknown") and written any audit trail (e.g., the parse-failure
+    # PendingServerRequest(kind="unknown") record). start() returns — does NOT raise.
+    # Packet 1 emits this variant ONLY for kind="unknown" parse failures; the Literal
+    # constrains the current surface but is written to accept future extensions.
+    job_status: Literal["unknown"]
+    reason: str                       # e.g., "unknown_kind_parse_failure"
+    request_id: str | None            # persisted-for-audit request id, if any
 
 @dataclass(frozen=True)
 class WorkerFailed:
+    # Genuine worker-side exception (e.g., transport failure, handler bug).
+    # NOT used for unknown-kind parse failures — those use TurnTerminalWithoutEscalation.
     error: Exception
 
 @dataclass(frozen=True)
 class CaptureTimeout:
     pass  # main-thread safety net; worker never signaled within CAPTURE_READY_TIMEOUT_SECONDS
 
-ParkedCaptureResult = Parked | TurnCompletedWithoutCapture | WorkerFailed | CaptureTimeout
+ParkedCaptureResult = (
+    Parked
+    | TurnCompletedWithoutCapture
+    | TurnTerminalWithoutEscalation
+    | WorkerFailed
+    | CaptureTimeout
+)
 ```
 
 The registry is the sole cross-thread mutable state (IO-2). It uses a `threading.Lock` for the per-request CAS and `threading.Event`s for both the per-request wake and the per-job capture-ready signal. Entries are discarded entry-by-entry as each turn's resolution concludes; the registry itself lives for the plugin process.
@@ -341,8 +373,21 @@ def start(args) -> DelegationStartResult:
                 escalation=None,
                 outcome=... ,                          # non-escalation completion
             )
+        case TurnTerminalWithoutEscalation(job_status, reason, request_id):
+            # Worker persisted the terminal non-escalation state before signaling
+            # (e.g., kind="unknown" parse failure: audit record created, turn
+            # interrupted, job persisted as status="unknown"). start() returns
+            # normally — it does NOT raise. This is semantically distinct from
+            # WorkerFailed: the worker operated correctly; the *request* was
+            # unparseable.
+            return DelegationStartResult(
+                job=job_store.get(job.job_id),         # status == job_status (e.g., "unknown")
+                escalation=None,
+                outcome=...,                           # DelegationOutcomeRecord citing `reason` and `request_id`
+            )
         case WorkerFailed(exc):
-            # Worker already ran _mark_execution_unknown_and_cleanup; job is "unknown".
+            # Genuine worker-side exception. Already ran _mark_execution_unknown_and_cleanup;
+            # job is "unknown". Parse failures are NOT routed here — see TurnTerminalWithoutEscalation.
             raise DelegationStartError(
                 reason="worker_failed_before_capture",
                 cause=exc,
@@ -363,8 +408,11 @@ def start(args) -> DelegationStartResult:
 |---|---|---|
 | Parked | `needs_escalation` | Escalation payload + job snapshot |
 | TurnCompletedWithoutCapture | Terminal (`completed` via `_finalize_turn`) | Non-escalation outcome (existing `DelegationStartResult` shape for that branch) |
+| TurnTerminalWithoutEscalation | Terminal (`unknown` — persisted by worker before signal) | `DelegationStartResult` with `escalation=None` + `DelegationOutcomeRecord` citing `reason` and `request_id` — **returns, does not raise** |
 | WorkerFailed | `unknown` (via `_mark_execution_unknown_and_cleanup`) | `DelegationStartError(reason="worker_failed_before_capture")` |
 | CaptureTimeout | `running` (unchanged by main thread) | `DelegationStartError(reason="capture_ready_timeout")` |
+
+**Why `TurnTerminalWithoutEscalation` is distinct from `WorkerFailed`:** both can produce `job.status="unknown"`, but they differ in **who failed**. `WorkerFailed` signals that the worker itself raised an unhandled exception (transport failure, handler bug) — the operator-visible outcome is an error (`DelegationStartError`). `TurnTerminalWithoutEscalation` signals that the worker handled unparseable input *correctly* and terminalized the job — the operator-visible outcome is a normal return with a terminal job and an outcome record. Conflating the two would force callers to distinguish "the plugin broke" from "the request couldn't be rendered" by inspecting exception payloads rather than return shape.
 
 **Why `CaptureTimeout` does not force-kill the worker:** Python threads cannot be safely cancelled from outside. Forcing a kill would orphan transport state, leak stdin/stdout handles, and leave stores mid-write. The safe path is: surface the error to the caller, leave the job in `running`, and let the existing cold-start recovery at `delegation_controller.py:2036-2038` demote the job to `unknown` on next session init (or sooner if explicit cleanup is warranted — this is follow-up surface area for a future packet, not Packet 1).
 
@@ -785,7 +833,7 @@ The `PendingServerRequest` record after a `deny` on `request_user_input` still s
 
 - `delegation_controller.py:1473` — change `if captured_request.kind in _CANCEL_CAPABLE_KINDS or interrupted_by_unknown:` to match only `_CANCEL_CAPABLE_KINDS`; handle `interrupted_by_unknown` on a separate branch that routes to `final_status = "unknown"`.
 - `delegation_controller.py:1482-1510` — the `if final_status == "needs_escalation":` branch must not fire for unknown-kind terminations. Instead, the `interrupted_by_unknown` path flows to the non-escalation return at `:1512-1517` (`_emit_terminal_outcome_if_needed`, release runtime, close session, return the `unknown`-terminal job).
-- `delegation_controller.py` worker path — the new worker sequence (Packet 1) should not call `registry.register` or `registry.announce_parked` when the captured request has `kind="unknown"`. Instead it signals `announce_worker_failed(job_id, UnknownKindParseFailure(...))` or a dedicated `announce_turn_completed_empty(job_id)` with an attached diagnostic — pending the concrete implementation detail.
+- `delegation_controller.py` worker path — the new worker sequence (Packet 1) does NOT call `registry.register` or `registry.announce_parked` when the captured request has `kind="unknown"`. Instead, after the existing `PendingServerRequest(kind="unknown")` audit-trail record is created (at `:671-688`) and the turn is interrupted (at `:690-695`), the worker persists the job as terminal via `_persist_job_transition` with `status="unknown"`, then signals `registry.announce_turn_terminal_without_escalation(job_id, status="unknown", reason="unknown_kind_parse_failure", request_id=<persisted_request_id>)`. Neither `announce_worker_failed` nor `announce_turn_completed_empty` is used for this path: the former implies a worker-side exception (which this is not — the worker correctly handled unparseable input), and the latter implies analytical completion (which this is not — the turn was interrupted on parse failure). The new signal causes `start()` to return a `DelegationStartResult` with `status="unknown"` rather than raising `DelegationStartError`.
 - Recovery code at `:2036-2038` already demotes `needs_escalation` jobs to `unknown` on restart; under Packet 1 these jobs never reach `needs_escalation` in the first place, so recovery treats them as already-terminal.
 
 **Operator-facing effect:** under Packet 1, a parse-failed request surfaces to the operator as "delegation failed" (job terminal, status=`unknown`, `DelegationOutcomeRecord` with failure context), not as "please approve or deny this action." This is strictly more honest — the plugin cannot render the action in the first place, so asking the operator to decide on it is misleading.
@@ -1061,7 +1109,7 @@ Mirrors the existing capture-time kind distinctions at `delegation_controller.py
 | `command_approval` | `{"decision": "cancel"}` | `{"decision": "cancel"}` — dispatch via respond() |
 | `file_change` | `{"decision": "cancel"}` | `{"decision": "cancel"}` — dispatch via respond() |
 | `request_user_input` | `{"answers": {}}` (known-denial at `:720`) | `entry.session.interrupt_turn(...)` — no respond() |
-| `unknown` | `interrupt_turn` (D4 carve-out at `:690-695`) | `entry.session.interrupt_turn(...)` — no respond() |
+| `unknown` | `interrupt_turn` (D4 carve-out at `:690-695`) | **N/A** — `kind="unknown"` never parks under Packet 1 (see §Unknown-kind contract), so no registry entry and no timer exist; there is no timeout path |
 
 **Why narrowed for Packet 1:** `request_user_input`'s timeout-response contract is not pinned in the codex-app-server docs. The existing capture-time `{"answers": {}}` path is known to work as denial; using the same payload at timeout-time is plausible but uncertainty on App Server-side behavior argues for `interrupt_turn` instead. Packet 2 or a later packet may expand timeout automation to `request_user_input` after its response contract is explicitly confirmed.
 
