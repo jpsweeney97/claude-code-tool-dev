@@ -120,7 +120,7 @@ The two "new" threading constructs are the **worker thread** (one per in-flight 
 In-memory structure. The registry owns two independent coordination channels:
 
 - **Per-request channel** — a `RegistryEntry` keyed by `request_id`. States `awaiting | reserved | consuming` (see §Transactional registry protocol for the transitions and failure modes). Used by the worker to block on a pending resolution and by `decide()` to deliver one.
-- **Per-job start-outcome channel** — a `CaptureReadyEvent` keyed by `job_id`, awaited by `start()` on the main thread to obtain a synchronous outcome. The worker signals exactly one of four outcomes into this channel: `announce_parked` (a parkable request was captured), `announce_turn_completed_empty` (the turn finished without any approval request — analytical completion), `announce_turn_terminal_without_escalation` (the turn terminalized without a parkable capture — e.g., `kind="unknown"` parse failure), or `announce_worker_failed` (the worker raised an unhandled exception). A fifth outcome, `CaptureTimeout`, is synthesized on the main thread if the worker never signals within `CAPTURE_READY_TIMEOUT_SECONDS`. "Capture-ready" in the channel name is historical — the channel predates the non-parkable outcomes and is kept for continuity with existing code. Rename during implementation is optional.
+- **Per-job start-outcome channel** — a `CaptureReadyEvent` keyed by `job_id`, awaited by `start()` on the main thread to obtain a synchronous outcome. The worker signals exactly one of four outcomes into this channel: `announce_parked` (a parkable request was captured), `announce_turn_completed_empty` (the turn finished without any approval request — analytical completion), `announce_turn_terminal_without_escalation` (the turn terminalized without a parkable capture — e.g., `kind="unknown"` parse failure), or `announce_worker_failed` (the worker raised an unhandled exception). A fifth outcome, `StartWaitElapsed`, is synthesized on the main thread if the worker has not signaled within `START_OUTCOME_WAIT_SECONDS` — this is a synchronous handshake budget, not a wedge detector (see §Capture-ready handshake). "Capture-ready" in the channel name is historical; a less-misleading rename is deferred to implementation-time refactor. See §Late start-outcome signals for the lifecycle contract that governs worker `announce_*` calls arriving after the channel has already resolved.
 
 ```python
 class ResolutionRegistry:
@@ -204,15 +204,22 @@ class WorkerFailed:
     error: Exception
 
 @dataclass(frozen=True)
-class CaptureTimeout:
-    pass  # main-thread safety net; worker never signaled within CAPTURE_READY_TIMEOUT_SECONDS
+class StartWaitElapsed:
+    # Synchronous start-wait budget elapsed without a terminal outcome signal from
+    # the worker. NOT a failure — the worker may still be executing a valid long
+    # turn (e.g., a purely analytical delegation) and has simply not yet requested
+    # approval or reached turn-completion. start() returns a plain DelegationJob
+    # with status="running"; the caller polls to observe the eventual outcome.
+    # Late announce_* signals from the worker for this job_id become warning/
+    # no-op at the start-outcome channel layer (see §Late start-outcome signals).
+    pass
 
 ParkedCaptureResult = (
     Parked
     | TurnCompletedWithoutCapture
     | TurnTerminalWithoutEscalation
     | WorkerFailed
-    | CaptureTimeout
+    | StartWaitElapsed
 )
 ```
 
@@ -315,7 +322,7 @@ Uncommitted `ReservationToken`s auto-abort when the context manager exits; expli
 
 `start()` is synchronous at the MCP boundary — the caller expects either an escalation payload (most common), a terminal result (rare: turn finished without any approval request), or an error. The worker is the only thread with the transport; the main thread cannot observe "a request is parked" from any durable surface until the worker has written it. The handshake primitive is the per-job capture-ready channel on the registry.
 
-**Constant:** `CAPTURE_READY_TIMEOUT_SECONDS = 30` (configurable). Safety net only — the worker should signal within seconds under normal conditions. This is a different timer than `APPROVAL_OPERATOR_WINDOW_SECONDS`; the former bounds "how long before we suspect the worker is wedged"; the latter bounds "how long an operator has to decide."
+**Constant:** `START_OUTCOME_WAIT_SECONDS = 30` (configurable). This is a **synchronous start-wait budget**, NOT a wedge detector. If the worker does not signal within this budget, `start()` returns a plain `DelegationJob(status="running")` so the caller can poll for the eventual outcome; it does NOT raise and does NOT assume the worker is wedged. A 45-second analytical delegation with no approval request is a legitimate use case: the worker is doing valid work and will eventually signal `announce_turn_completed_empty` once the turn finishes, but that signal arrives after the synchronous handshake has already returned. Genuine worker wedges still surface — they surface through the normal polling path (`poll()` reports `status="running"` indefinitely) and through cold-start recovery (running jobs get demoted to `unknown` on next session init). This is a different timer than `APPROVAL_OPERATOR_WINDOW_SECONDS`; the former bounds "how long start() blocks synchronously"; the latter bounds "how long an operator has to decide."
 
 **Worker sequence (inside `_execute_live_turn` handler, on first *parkable* captured request — kind ∈ `{command_approval, file_change, request_user_input}`):**
 
@@ -382,7 +389,7 @@ def start(args) -> DelegationJob | DelegationEscalation | JobBusyResponse:
     self._journal.write_phase(OperationJournalEntry(operation="job_creation", phase="dispatched", ...))
     self._spawn_worker(job)                            # worker starts _execute_live_turn
     result = self._registry.wait_for_parked(
-        job.job_id, timeout_seconds=CAPTURE_READY_TIMEOUT_SECONDS,
+        job.job_id, timeout_seconds=START_OUTCOME_WAIT_SECONDS,
     )
     match result:
         case Parked(request_id):
@@ -417,14 +424,27 @@ def start(args) -> DelegationJob | DelegationEscalation | JobBusyResponse:
                 reason="worker_failed_before_capture",
                 cause=exc,
             )
-        case CaptureTimeout():
-            # Main-thread safety net. Worker is wedged or deadlocked.
-            # Do NOT kill the worker arbitrarily; log + raise.
-            # Recovery: next startup sees orphan job, demotes via recover_startup().
-            raise DelegationStartError(
-                reason="capture_ready_timeout",
-                detail=f"worker did not signal capture within {CAPTURE_READY_TIMEOUT_SECONDS}s",
+        case StartWaitElapsed():
+            # Synchronous start-wait budget elapsed with no terminal outcome signal
+            # from the worker. The worker may still be executing a valid long turn
+            # — it has not failed. Return plain DelegationJob(status="running"):
+            # caller polls to observe the eventual outcome (escalation, completion,
+            # or unknown-terminal). Worker's later announce_* calls are warning/
+            # no-op at the start-outcome channel (see §Late start-outcome signals);
+            # their durable state writes (pending_request_store, job_store, journal)
+            # have already landed, so poll() observes the true outcome.
+            #
+            # A one-line warning is logged noting that the synchronous start-wait
+            # budget elapsed for this job_id, so operators can distinguish "slow
+            # valid turn" from "suspiciously long-running job" if they need to.
+            logger.warning(
+                "delegation.start: start-wait budget elapsed; returning running",
+                extra={
+                    "job_id": job.job_id,
+                    "budget_seconds": START_OUTCOME_WAIT_SECONDS,
+                },
             )
+            return self._job_store.get(job.job_id)  # status unchanged ("running")
 ```
 
 **Status transitions visible to `start()`:**
@@ -435,13 +455,41 @@ def start(args) -> DelegationJob | DelegationEscalation | JobBusyResponse:
 | TurnCompletedWithoutCapture | Terminal (`completed` via `_finalize_turn`) | plain `DelegationJob(status="completed", ...)` |
 | TurnTerminalWithoutEscalation | Terminal (`unknown` — persisted by worker before signal) | plain `DelegationJob(status="unknown", ...)` — **returns, does not raise**. Causal record lives on the persisted `PendingServerRequest(kind="unknown")` audit entry at `:671-688`; `DelegationOutcomeRecord` remains the ordinary terminal analytics record (no `reason`/`request_id` fields; not extended by Packet 1). |
 | WorkerFailed | `unknown` (via `_mark_execution_unknown_and_cleanup`) | raises `DelegationStartError(reason="worker_failed_before_capture")` |
-| CaptureTimeout | `running` (unchanged by main thread) | raises `DelegationStartError(reason="capture_ready_timeout")` |
+| StartWaitElapsed | `running` (unchanged by main thread) | plain `DelegationJob(status="running", ...)` — **returns, does not raise**. Caller polls for outcome. One-line log warning records the budget-elapsed event. |
 
 **Why `TurnTerminalWithoutEscalation` is distinct from `WorkerFailed`:** both can produce `job.status="unknown"`, but they differ in **who failed**. `WorkerFailed` signals that the worker itself raised an unhandled exception (transport failure, handler bug) — the operator-visible outcome is an error (`DelegationStartError` raised). `TurnTerminalWithoutEscalation` signals that the worker handled unparseable input *correctly* and terminalized the job — the operator-visible outcome is a normal return (a plain `DelegationJob` with `status="unknown"`). Conflating the two would force callers to distinguish "the plugin broke" from "the request couldn't be rendered" by inspecting exception payloads rather than by return-vs-raise polarity.
 
-**Why `CaptureTimeout` does not force-kill the worker:** Python threads cannot be safely cancelled from outside. Forcing a kill would orphan transport state, leak stdin/stdout handles, and leave stores mid-write. The safe path is: surface the error to the caller, leave the job in `running`, and let the existing cold-start recovery at `delegation_controller.py:2036-2038` demote the job to `unknown` on next session init (or sooner if explicit cleanup is warranted — this is follow-up surface area for a future packet, not Packet 1).
+**Why `StartWaitElapsed` does not force-kill the worker or raise:** Python threads cannot be safely cancelled from outside. Forcing a kill would orphan transport state, leak stdin/stdout handles, and leave stores mid-write. Raising a `DelegationStartError` would be a second category error: we do not actually know that anything went wrong — the worker may be processing a valid long turn. The safe path is: return `DelegationJob(status="running")`, leave the job in `running`, and let the caller's normal polling path observe the eventual outcome. Genuinely-wedged workers — the subset of `StartWaitElapsed` cases where the worker never terminalizes — surface through two existing mechanisms: (a) the caller's polling continues to show `status="running"` indefinitely, which is the honest observation; (b) cold-start recovery at `delegation_controller.py:2036-2038` demotes any `running` job on next session init. Explicit mid-session wedge detection (kill orphans by threshold) is follow-up surface area for a future packet, not Packet 1.
 
 **Why `TurnCompletedWithoutCapture` is a legitimate outcome:** Codex may complete an objective in a single turn without triggering any server-request approval (no shell command, no file change, no user input) — for example, a purely analytical delegation. The worker's normal `_finalize_turn` path writes the terminal outcome; the handshake signals that main can return the non-escalation result.
+
+### Late start-outcome signals (post-`wait_for_parked` lifecycle)
+
+Under `StartWaitElapsed`, `start()` returns while the worker is still running. The worker will eventually reach one of its normal signal points — `announce_parked`, `announce_turn_completed_empty`, `announce_turn_terminal_without_escalation`, or `announce_worker_failed` — but by then the main thread is no longer waiting on the per-job start-outcome channel. This is the late-signal case; Packet 1 defines its semantics precisely.
+
+**Lifecycle rule:** `wait_for_parked` discards the per-job `CaptureReadyEvent` upon returning ANY outcome, including the synthesized `StartWaitElapsed`. Worker `announce_*` calls for the same `job_id` after the event is discarded observe an empty channel and behave as follows:
+
+1. **Wake effect:** no-op. There is no main thread blocked on the channel, so there is no one to wake. The registry logs a one-line warning at INFO/DEBUG level (`"late start-outcome signal ignored"`) with the `job_id` and the signal kind.
+2. **Durable state:** **untouched**. The worker's durable writes that PRECEDE every `announce_*` call have already landed and stand authoritative:
+   - `announce_parked` is preceded by `pending_request_store.create(...)`, `job_store.update_parked_request(...)`, `job_store._persist_job_transition("needs_escalation")`, and `registry.register(rid, ...)` — so `poll()` subsequently observes the escalation and `decide(rid)` can find and reserve the per-request entry.
+   - `announce_turn_completed_empty` is preceded by `_finalize_turn`'s terminal-state write — so `poll()` subsequently observes `status="completed"`.
+   - `announce_turn_terminal_without_escalation` is preceded by `job_store._persist_job_transition("unknown")` and the persisted `PendingServerRequest(kind="unknown")` audit record — so `poll()` subsequently observes `status="unknown"`.
+   - `announce_worker_failed` is preceded by `_mark_execution_unknown_and_cleanup` — so `poll()` subsequently observes `status="unknown"`.
+3. **Per-request registry entry:** **authoritative**. Critically, the per-request `RegistryEntry` keyed by `request_id` is a SEPARATE data structure from the per-job `CaptureReadyEvent`. Late `announce_parked` losing its wake effect does NOT remove or disable the per-request entry created by `register(rid)`. A subsequent `decide(rid)` from the main thread still finds the entry in `"awaiting"`, reserves it, commits, and wakes the (still-blocking) worker via `registry.wait(rid)`. The registry's two channels have independent lifecycles.
+
+**Implications for caller observability:**
+
+- After `start() → DelegationJob(status="running")`, the caller polls. The next poll may see: still `running` (worker hasn't signaled yet), `needs_escalation` (late `announce_parked` case — worker parked and is blocking on `registry.wait`), `completed` (late `announce_turn_completed_empty`), or `unknown` (late `announce_turn_terminal_without_escalation` or late `announce_worker_failed`). All four are valid poll observations.
+- The caller does NOT need a new MCP tool or error-recovery path. The existing `poll()` surface is sufficient; `decide()` continues to work on parked requests whose escalation was surfaced via poll rather than via start.
+
+**Atomicity note:** the discard of the `CaptureReadyEvent` must be race-free with the worker's signal. Implementation uses `dict.pop(job_id, None)` under the registry lock: either the signal wins (main consumes the outcome; worker's signal was observed) or the main-thread timer wins (main synthesizes `StartWaitElapsed`; worker's subsequent signal finds the channel gone). In no case can both paths resolve with conflicting outcomes.
+
+**Tests to add:**
+
+- Late-park observation: force `START_OUTCOME_WAIT_SECONDS` to elapse before the worker signals; verify `start()` returns `DelegationJob(status="running")`; verify subsequent `poll()` returns the escalation; verify `decide()` then completes the flow end-to-end.
+- Late terminal-signal no-crash: force `START_OUTCOME_WAIT_SECONDS` to elapse; worker then calls `announce_turn_completed_empty` for the same `job_id`; verify no exception raises on the worker thread and the warning is logged; verify subsequent `poll()` returns `status="completed"`.
+- Late worker-failed no-crash: same shape but worker signals `announce_worker_failed`; verify no exception raises; subsequent `poll()` returns `status="unknown"`.
+- Concurrent signal-vs-timeout race: induce the worker to call `announce_parked` at the exact moment the main thread's timer fires; verify exactly one path resolves (either Parked escalation or StartWaitElapsed running-return), never both.
 
 ## Deferred-Resolution Lifecycle
 
@@ -501,7 +549,7 @@ decide(rid)
                                                                store.mark_resolved(rid, resolved_at)
                                                                job_store.update_parked_request(job_id, None)
                                                                journal.write_phase: approval_resolution.completed
-                                                                   (completion_origin="completed_normally")
+                                                                   (completion_origin="worker_completed")
                                                                registry.discard(rid)
                                                                handler returns None (suppress auto-respond)
                                                               loop → next_notification()
@@ -522,6 +570,8 @@ decide(rid)
 2. **Per-request entry registered before capture-ready signal.** The worker calls `registry.register(rid)` before `registry.announce_parked(job_id, rid)`. A pathologically fast `decide()` from the main thread (observing `Parked` and immediately calling `decide()`) can never reach `reserve(rid)` before the per-request entry exists.
 3. **Journal `intent` durable before registry `commit_signal`.** `decide()` writes `approval_resolution.intent` to the operation journal (fsynced per IO-4) before calling `registry.commit_signal(token)`. The worker, which writes `dispatched` and `completed`, cannot wake before `commit_signal` fires — preserving file-order monotonicity of the `approval_resolution` idempotency key.
 4. **Audit append is post-commit.** `journal.append_audit_event` fires after `commit_signal` returns and after decide() has already constructed its return value. Audit failure is a logged warning (IO-5: audit is not fsynced and cannot gate worker wake); it never rolls back the commit. This placement eliminates the "ghost intent" failure mode that would arise if audit sat inside the pre-signal critical section (see §Transactional registry protocol).
+
+**`session.respond(rid, payload)` may raise.** The happy-path diagram above shows the success branch only. If `respond()` raises (e.g., `BrokenPipeError` wrapped into `RuntimeError` at `jsonrpc_client.py:123-130`), the worker follows the **Dispatch failure path** — see the dedicated subsection below — which atomically records `dispatch_result="failed"`, marks the request `canceled`, writes `approval_resolution.completed`, and terminalizes the job as `unknown` (not `failed`, per OB-1).
 
 ### Timeout path (cancel-capable kind)
 
@@ -553,7 +603,7 @@ MAIN                          REGISTRY                        WORKER
                                                                # status="canceled", resolution_action=None
                                                                job_store.update_parked_request(job_id, None)
                                                                journal.write_phase: approval_resolution.completed
-                                                                   (completion_origin="completed_normally")
+                                                                   (completion_origin="worker_completed")
                                                                # Audit is best-effort (IO-5);
                                                                # logged as warning if it fails.
                                                                audit: action="approval_timeout"
@@ -585,7 +635,7 @@ WORKER on synthetic timeout wake:
   # leaves resolution_action=None, response_payload=None
   job_store.update_parked_request(job_id, None)
   journal.write_phase: approval_resolution.completed
-      (completion_origin="completed_normally")
+      (completion_origin="worker_completed")
   # Audit is best-effort (IO-5); logged as warning if it fails.
   audit: action="approval_timeout"
   registry.discard(rid)
@@ -597,6 +647,66 @@ WORKER on synthetic timeout wake:
 **Timer ownership note (Packet 1 model).** The registry's internal timeout timer is a `threading.Timer` owned by each `RegistryEntry`. It performs ONLY in-memory state changes and the wake signal: `reserve(rid, timeout_resolution)` → `commit_signal(token)`. It does not write to the operation journal, the pending request store, the delegation job store, or the audit log. This keeps the registry a pure coordination primitive (IO-2) and avoids introducing a third journal writer beyond main and worker. All durable effects for a timeout — `approval_resolution.intent`, `dispatched`, `completed`, `record_timeout`, `update_parked_request`, audit — happen on the worker thread after wake, in single-writer sequence. File-order monotonicity of the `approval_resolution` idempotency key is therefore preserved trivially, without cross-thread coordination.
 
 **Why cross-thread "intent durable before signal" does not apply here.** In the decide path, main writes `intent` and worker writes `dispatched/completed` — two threads must coordinate so `intent` lands first. In the timeout path, the timer writes nothing to the journal; the worker writes the entire `intent → dispatched → completed` sequence on a single thread. There is no cross-thread race to protect. The narrower invariant ("intent durable before the next-phase record for the same idempotency key") is preserved by local sequencing. The `decision=None` on timeout intent/dispatched records is the human-readable discriminator for "this record came from a timer, not an operator decide" — combined with the `PendingServerRequest.timed_out=True` marker and the `action="approval_timeout"` audit event (best-effort, IO-5).
+
+### Dispatch failure path (`session.respond()` raises)
+
+This is the failure mode where the operator's decision was accepted and the reservation was committed, but the worker's subsequent `session.respond(...)` call raises — most commonly `BrokenPipeError` from a Codex subprocess that died mid-turn (wrapped into `RuntimeError` at `jsonrpc_client.py:123-130`). Packet 1 makes this path auditable rather than invisible.
+
+```
+WORKER on wake (after decide() committed reservation; main already returned DecisionAccepted):
+  [approval_resolution.intent is already durable — decide() wrote it pre-commit]
+  job_store._persist_job_transition(running)
+  journal.write_phase: approval_resolution.dispatched
+  try:
+      session.respond(rid, payload)                  # may raise RuntimeError on broken pipe
+  except Exception as exc:
+      # Transport-level failure. Atomically capture the forensic fact +
+      # non-actionable status in one store write (see mutator rationale below).
+      store.record_dispatch_failure(
+          rid,
+          action=resolution_action,                  # "approve" | "deny"
+          payload=payload,
+          dispatch_at=<iso_timestamp>,
+          dispatch_error=<serialized_exc>,
+      )
+      # Atomic op: sets resolution_action, response_payload,
+      # response_dispatch_at, dispatch_result="failed", status="canceled",
+      # resolved_at=None  (resolved_at stays None — dispatch did not resolve).
+      job_store.update_parked_request(job_id, None)
+      journal.write_phase: approval_resolution.completed
+          (completion_origin="worker_completed")
+      # Audit is best-effort (IO-5); logged as warning if it fails.
+      audit: action="dispatch_failed", dispatch_result="failed"
+      registry.discard(rid)
+      # Terminalize the job. Status is "unknown", NOT "failed" — transport
+      # failure means we cannot verify whether App Server applied the operator
+      # decision (OB-1). The honest terminal status is "unknown".
+      _mark_execution_unknown_and_cleanup(
+          reason="dispatch_failed",
+          cause=exc,
+      )
+      # Do NOT re-raise past cleanup — the exception has been captured durably.
+      return
+  # Success path continues in the happy-path diagram.
+  store.record_response_dispatch(rid, ..., dispatch_result="succeeded")
+  store.mark_resolved(rid, resolved_at)
+  ...
+```
+
+**Why a dedicated atomic mutator (`record_dispatch_failure`) instead of `record_response_dispatch(..., dispatch_result="failed")` + separate `update_status`.** Same atomicity argument as `record_timeout` in §Timeout path. Splitting the forensic write and the status transition across two store records opens a replay window where `dispatch_result="failed"` + `status="pending"` could be briefly observed — an inconsistent pair that no point in the lifecycle should ever show. A dedicated mutator writes both fields in one append, preserving single-record atomicity under crash-mid-write. See §Store mutators for the signature.
+
+**Why the job terminalizes as `unknown`, not `failed`.** Under OB-1, the plugin does not claim semantic application of an operator decision by App Server. A broken pipe after `dispatched` means the plugin attempted to deliver the operator's decision but does not know whether delivery occurred on the other side (the subprocess may have applied the decision and then crashed, or crashed before the write reached the kernel). The honest terminal status is `unknown` — same status Packet 1 uses for unparseable requests — because further human inspection is required to decide what happened. `failed` would imply a definitive "nothing happened," which we cannot verify.
+
+**What `decide()`'s caller sees.** `decide()` has already returned `DelegationDecisionResult(decision_accepted=True, ...)` before the worker's transport failure — consistent with the async contract (decide acknowledges that the plugin accepted the decision for dispatch; it does NOT claim dispatch succeeded). The caller discovers the failure by polling: `poll()` reports `job.status="unknown"`; the forensic detail (`dispatch_result="failed"`, `dispatch_error=<...>`) lives on the persisted `PendingServerRequest`. This matches the async contract rewrite in §contracts.md §decide.
+
+**Intent durability under failure.** The `approval_resolution.intent` record is already durable before the worker wakes — written by `decide()` pre-`commit_signal` (see §Transactional registry protocol). The subsequent `dispatched`/`completed`/failure records are all local-sequence writes by the worker; if the worker crashes between `dispatched` and `completed`, cold-start recovery writes `completed` with `completion_origin="recovered_unresolved"` and demotes the job. The `dispatch_result="failed"` forensic fact is lost in that sub-case — acceptable because it is a strict subset of the "process crashed" recovery boundary, which is already documented in §Recovery.
+
+**Tests to add:**
+
+- Broken-pipe during respond: induce `RuntimeError` on `session.respond(...)`; verify `record_dispatch_failure` is called with correct fields; verify `poll()` reports `job.status="unknown"`, `pending_request.status="canceled"`, `pending_request.dispatch_result="failed"`, `pending_request.resolved_at=None`.
+- Atomicity under replay: simulate partial write during the hypothetical two-record sequence; replay must never produce `dispatch_result="failed"` + `status="pending"` simultaneously (the dedicated mutator guarantees one-record atomicity).
+- Intent durability preserved under dispatch failure: verify `journal.write_phase(approval_resolution.intent)` was durable before the failure and remains the authority for the operator's decision regardless of dispatch outcome.
+- Audit best-effort: simulate audit append failure after dispatch failure; verify the job still terminalizes correctly and a warning is logged (IO-5 semantics preserved).
 
 ### Worker-death path (exception during parked section)
 
@@ -658,16 +768,16 @@ All new fields are nullable / have safe defaults. Back-compatible: existing reco
 
 ### PendingRequestStatus (unchanged)
 
-Existing enum `Literal["pending", "resolved", "canceled"]` at `packages/plugins/codex-collaboration/server/models.py:20` is sufficient. Successful resolution → `resolved`. Timeouts → `canceled`. Failures (BrokenPipe etc.) → `canceled` via the outer turn-failure path.
+Existing enum `Literal["pending", "resolved", "canceled"]` at `packages/plugins/codex-collaboration/server/models.py:20` is sufficient. Successful resolution → `resolved` (via `mark_resolved`). Timeouts → `canceled` (via `record_timeout`, atomic). Dispatch failures → `canceled` (via `record_dispatch_failure`, atomic — see §Dispatch failure path).
 
 ### OperationJournalEntry (addition)
 
 ```python
-completion_origin: Literal["completed_normally", "recovered_unresolved"] | None = None
+completion_origin: Literal["worker_completed", "recovered_unresolved"] | None = None
 ```
 
 Provenance annotation on the terminal `phase="completed"` marker. Values:
-- `"completed_normally"`: worker wrote the completed record in the normal dispatch flow.
+- `"worker_completed"`: worker wrote the completed record. Covers both successful dispatch and worker-handled failure paths (e.g., dispatch failure at §Dispatch failure path); distinguishes worker-origin completions from recovery-origin ones. Transport outcome (success vs failure) is carried by `PendingServerRequest.dispatch_result`, not by this field.
 - `"recovered_unresolved"`: cold-start recovery wrote the completed record to close an orphaned unresolved operation.
 - `None`: legacy records written before this schema change (back-compat read semantics).
 
@@ -695,7 +805,7 @@ class PendingEscalationView:
 
 `PendingRequestKind` at `models.py:16-18` stays unchanged — `"unknown"` is still a valid *persisted* request kind in `PendingRequestStore` (where it records parse-failure audit trails). The split encodes the semantic distinction the Packet 1 behavior requires: `"unknown"` is a persisted request kind but NOT an escalatable request kind.
 
-`_project_pending_escalation` (see §`_project_pending_escalation` rewrite) enforces the narrowing at the projection boundary: if a caller ever reaches the projection with `kind="unknown"` (which Packet 1's control flow should prevent), the projection raises rather than silently constructing a violating view. Type-level enforcement via `EscalatableRequestKind` catches most violations at mypy time; the runtime assertion is a belt-and-suspenders check for callsites that bypass the type system (e.g., `dict[str, Any]`-shaped constructor inputs).
+The narrowing is enforced at the **constructor boundary** — `_project_request_to_view` raises `UnknownKindInEscalationProjection` if `request.kind` is not in the escalatable set. This catches every path that builds a `PendingEscalationView`, including `decide()`'s direct projection callsite at `controller:1691-1697`; it does not rely on callers remembering to go through `_project_pending_escalation`. See §Projection helper rewrites for the full guard pseudocode and per-callsite recovery semantics. Type-level enforcement via `EscalatableRequestKind` catches most violations at mypy time; the runtime assertion is a belt-and-suspenders check for callsites that bypass the type system (e.g., `dict[str, Any]`-shaped constructor inputs from JSONL replay paths).
 
 `contracts.md:332` tightens its `kind` enum to match the three-literal list — see §contracts.md updates.
 
@@ -741,9 +851,32 @@ def record_timeout(
     # Append {"op": "record_timeout", ...}
     # Populates: timed_out=True; dispatch fields if applicable (None for interrupted path)
     # Also emits status transition to "canceled" atomically via the same op
+
+def record_dispatch_failure(
+    self,
+    request_id: str,
+    *,
+    action: Literal["approve", "deny"],
+    payload: dict[str, Any],
+    dispatch_at: str,
+    dispatch_error: str,
+) -> None:
+    # Append {"op": "record_dispatch_failure", ...}; replay handles new op type.
+    # ATOMIC write: populates all of the following in a single record so replay
+    # can never observe an inconsistent intermediate (see §Dispatch failure path):
+    #   resolution_action = action
+    #   response_payload = payload
+    #   response_dispatch_at = dispatch_at
+    #   dispatch_result = "failed"
+    #   status = "canceled"
+    #   resolved_at = None                  # NOT resolved — dispatch did not deliver
+    # dispatch_error is captured in the record for later forensic inspection
+    # (stored on an optional audit-side field or as a new dispatch_error
+    # field on PendingServerRequest, depending on retention needs — see
+    # §Observability).
 ```
 
-Dedicated methods, not a generic `update(**fields)`. Matches existing store style at `pending_request_store.py:29-69` and keeps replay's `op` dispatch enumerable.
+Dedicated methods, not a generic `update(**fields)`. Matches existing store style at `pending_request_store.py:29-69` and keeps replay's `op` dispatch enumerable. `record_timeout` and `record_dispatch_failure` are structurally parallel: each captures a terminal circumstance (timer fired / transport raised) plus the `status="canceled"` transition in a single atomic append.
 
 **DelegationJobStore addition:**
 
@@ -889,7 +1022,7 @@ The `PendingServerRequest` record after a `deny` on `request_user_input` still s
 - `delegation_controller.py` worker path — the new worker sequence (Packet 1) does NOT call `registry.register` or `registry.announce_parked` when the captured request has `kind="unknown"`. Instead, after the existing `PendingServerRequest(kind="unknown")` audit-trail record is created (at `:671-688`) and the turn is interrupted (at `:690-695`), the worker persists the job as terminal via `_persist_job_transition` with `status="unknown"`, then signals `registry.announce_turn_terminal_without_escalation(job_id, status="unknown", reason="unknown_kind_parse_failure", request_id=<persisted_request_id>)`. Neither `announce_worker_failed` nor `announce_turn_completed_empty` is used for this path: the former implies a worker-side exception (which this is not — the worker correctly handled unparseable input), and the latter implies analytical completion (which this is not — the turn was interrupted on parse failure). The new signal causes `start()` to return a plain `DelegationJob` with `status="unknown"` (on the existing `DelegationJob | DelegationEscalation | JobBusyResponse` union — no new wrapper is introduced) rather than raising `DelegationStartError`.
 - Recovery code at `:2036-2038` already demotes `needs_escalation` jobs to `unknown` on restart; under Packet 1 these jobs never reach `needs_escalation` in the first place, so recovery treats them as already-terminal.
 
-**Operator-facing effect:** under Packet 1, a parse-failed request surfaces to the operator as "delegation failed" (job terminal, status=`unknown`, `DelegationOutcomeRecord` with failure context), not as "please approve or deny this action." This is strictly more honest — the plugin cannot render the action in the first place, so asking the operator to decide on it is misleading.
+**Operator-facing effect:** under Packet 1, a parse-failed request surfaces to the operator as "delegation failed" (job terminal, status=`unknown`) — not as "please approve or deny this action." The causal failure context lives on the persisted `PendingServerRequest(kind="unknown")` audit entry (at `controller:671-688`); `DelegationOutcomeRecord` remains the ordinary terminal analytics record with its existing shape (`models.py:227-244`) and is NOT extended by Packet 1 to carry `reason`/`request_id`. This is strictly more honest than the pre-Packet-1 behavior — the plugin cannot render the action in the first place, so asking the operator to decide on it is misleading.
 
 **Tests to add:**
 
@@ -947,7 +1080,54 @@ This is NOT a bug and is NOT eliminated by any achievable synchronization short 
 - *Have `decide()` write `status="running"` before returning.* Rejected — it would be honest about the registry state (reservation committed) but dishonest about the worker's progress (nothing has been dispatched yet). Worse, if the worker then fails, the job's recorded status lies about the sequence of events.
 - *Add a `status="consuming"` intermediate JobStatus literal.* Rejected for Packet 1 scope — adds a new enum value for a window the caller can derive from `decide()`'s return anyway. Reconsider if downstream consumers turn out to need explicit persistence of this state.
 
-### `_project_pending_escalation` rewrite
+### Projection helper rewrites (`_project_request_to_view` and `_project_pending_escalation`)
+
+Packet 1 modifies both projection helpers at `delegation_controller.py:849-868`. The `EscalatableRequestKind` runtime guard lives at the **constructor** boundary (`_project_request_to_view`), not only at the polling boundary (`_project_pending_escalation`). Placing the guard at the constructor catches all paths that build a `PendingEscalationView`, including `decide()`'s direct projection at `controller:1691-1697` (when `decide()` returns a fresh view of the parked request on the rejection-with-projection path) — not just the `poll()` path. `_project_pending_escalation` can then rely on this guard, optionally with a redundant local assertion.
+
+**`_project_request_to_view` rewrite (constructor with runtime guard):**
+
+```python
+_ESCALATABLE_REQUEST_KINDS: frozenset[str] = frozenset(
+    {"command_approval", "file_change", "request_user_input"}
+)
+
+
+def _project_request_to_view(
+    self, request: PendingServerRequest
+) -> PendingEscalationView:
+    """Project a PendingServerRequest to the caller-visible PendingEscalationView.
+
+    Raises UnknownKindInEscalationProjection if request.kind is not in the
+    escalatable set. Under Packet 1 the caller control flow should prevent
+    this (unknown-kind requests terminalize the job before reaching any
+    projection callsite). The runtime guard is a belt-and-suspenders check
+    against dynamic construction paths — e.g., a PendingServerRequest read
+    from JSONL replay whose kind was persisted before the Packet 1 behavior
+    change landed, or future callsites that bypass the type system.
+    """
+    if request.kind not in _ESCALATABLE_REQUEST_KINDS:
+        raise UnknownKindInEscalationProjection(
+            f"EscalatableRequestKind violation: request_id={request.request_id!r} "
+            f"kind={request.kind!r:.100}. Under Packet 1, kind='unknown' "
+            f"must never reach escalation projection; such jobs are "
+            f"terminalized via the Unknown-kind contract."
+        )
+    # The narrow cast below is justified by the guard above. Static
+    # type-checkers see cast(EscalatableRequestKind, request.kind).
+    return PendingEscalationView(
+        request_id=request.request_id,
+        kind=cast(EscalatableRequestKind, request.kind),
+        requested_scope=request.requested_scope,
+        available_decisions=self._PLUGIN_DECISIONS,
+    )
+```
+
+`UnknownKindInEscalationProjection` is a new exception type added in Packet 1. It is an internal assertion signal, not a caller-visible error — it MUST NOT escape the controller boundary. If raised, the controller catches it at the callsite, logs a critical error including `job_id` and `request_id`, and either terminalizes the job as `unknown` or returns `None` from the projection (depending on whether the callsite semantically allows a `None` return). Implementation details per callsite:
+
+- `_project_pending_escalation` (poll path): catch, log, return `None` — the poll result simply omits `pending_escalation`. This preserves the caller's observability while refusing to construct a violating view.
+- `decide()` projection (at `controller:1691-1697` and any other callsite that expects a valid view): catch, log, and terminalize the job as `unknown` with `_mark_execution_unknown_and_cleanup`. If `decide()` reaches the projection and the request has `kind="unknown"`, the plugin's internal state is inconsistent — terminalize to fail-closed.
+
+**`_project_pending_escalation` rewrite (job-anchored, tombstone-guarded):**
 
 Current implementation at `delegation_controller.py:860-868` uses `requests[-1]` (last record). Replace with job-anchored + tombstone-guarded logic:
 
@@ -963,7 +1143,15 @@ def _project_pending_escalation(
     if request is None or request.status != "pending":
         return None                                           # tombstone guard: req resolved
                                                               # but job field not yet cleared
-    return self._project_request_to_view(request)
+    try:
+        return self._project_request_to_view(request)
+    except UnknownKindInEscalationProjection as exc:
+        logger.error(
+            "delegation.poll: unknown-kind leaked to escalation projection; "
+            "returning None",
+            extra={"job_id": job.job_id, "request_id": request.request_id, "cause": str(exc)},
+        )
+        return None
 ```
 
 The helper is **job-anchored** (takes `DelegationJob`), not collaboration-anchored — the authority chain starts at `poll(job_id)` at `:901-902`. Callers update to pass the job object.
@@ -1094,7 +1282,7 @@ A future inspection surface (not Packet 1) may expose the forensic fields.
 
 ### New (this spec)
 
-- **Completion provenance annotation:** the recovery-written `phase="completed"` records at `:1870-1884` gain `completion_origin="recovered_unresolved"`. Worker-written completions gain `completion_origin="completed_normally"`. Old records without the field are interpreted as `None` (back-compat read).
+- **Completion provenance annotation:** the recovery-written `phase="completed"` records at `:1870-1884` gain `completion_origin="recovered_unresolved"`. Worker-written completions gain `completion_origin="worker_completed"`. Old records without the field are interpreted as `None` (back-compat read).
 - **Projection tombstone guard** (already specified in `_project_pending_escalation` §contracts): between the worker's `mark_resolved` and `update_parked_request(None)` writes, the job may transiently show `parked_request_id != None` while the request's `status == "resolved"`. Projection returns None in this window rather than surfacing a stale view.
 - **Terminal-status projection guard** (already specified): jobs in `completed`, `failed`, or `unknown` status return None from projection regardless of `parked_request_id`. The field is dead state once the job is terminal; the projection ignores it. Recovery does not proactively clear the field — projection's read-path guard is sufficient.
 
@@ -1218,6 +1406,7 @@ PendingServerRequest after timeout interrupt:
 - `PendingRequestStore.mark_resolved` — status transition + timestamp set
 - `PendingRequestStore.record_protocol_echo` — signals tuple + timestamp
 - `PendingRequestStore.record_timeout` — timed_out flag + status=canceled atomicity
+- `PendingRequestStore.record_dispatch_failure` — single-append atomicity of {dispatch_result=failed, status=canceled, resolved_at=None, resolution_action, response_payload, response_dispatch_at, dispatch_error}; partial-write replay never yields dispatch_result=failed + status=pending
 - `DelegationJobStore.update_parked_request` — set, then clear, then replay consistency
 
 **Integration tests (worker thread lifecycle):**
@@ -1225,8 +1414,11 @@ PendingServerRequest after timeout interrupt:
 - Worker parks on registry; MCP main thread responsive to concurrent poll
 - Worker wakes on `decide()`; dispatches respond; transitions status
 - Worker wakes on timeout; dispatches cancel; records timed_out
+- Worker wakes on `decide()`; `session.respond()` raises `BrokenPipeError`; `record_dispatch_failure` captures forensic fields; job terminalizes as `unknown`; `poll()` exposes `dispatch_result="failed"` and `job.status="unknown"`
 - Worker exception during park; cleanup runs; registry entry discarded; late decide rejects via `job_not_awaiting_decision`
 - Worker exception post-wake; cleanup runs; turn fails; `_mark_execution_unknown_and_cleanup` executes
+- Start-wait budget elapsed with healthy slow worker: force `START_OUTCOME_WAIT_SECONDS` to elapse before the worker signals; verify `start()` returns `DelegationJob(status="running")` (not a raise); verify subsequent `poll()` observes the eventual escalation/completion/unknown outcome the worker signals later; verify the late `announce_*` call does not raise on the worker thread
+- Concurrent signal-vs-budget race: induce worker `announce_parked` at the exact moment the main-thread timer synthesizes `StartWaitElapsed`; assert exactly one path resolves (Parked escalation OR running-return), never both, and durable state is consistent with whichever path won
 
 **End-to-end tests (MCP boundary):**
 - Full deferred-approval flow: MCP `codex.delegate.start` → capture → park → MCP `codex.delegate.poll` returns escalation → MCP `codex.delegate.decide` → dispatch → turn completes → final poll returns completion
@@ -1244,6 +1436,7 @@ PendingServerRequest after timeout interrupt:
 - OB-1: no test/assertion ever claims "decision applied" based on transport success alone
 - Protocol echo: persisted tuple matches signals observed in notifications
 - Timeout: `approval_timeout` audit event fires; `timed_out=True` on record
+- Dispatch failure: `dispatch_failed` audit event fires; `dispatch_result="failed"` on record; `resolved_at=None`; terminal `job.status="unknown"` (not `"failed"`, per OB-1 — transport failure does not mean dispatch failure from App Server's perspective)
 
 **Public contract tests (`codex.delegate.start` JSON shape + escalation-view kind narrowing):**
 - Parse-failure return: `codex.delegate.start` of a delegation whose first captured request has `kind="unknown"` returns a plain `DelegationJob` JSON object with `status="unknown"`; assert the response has NO `pending_escalation` key, NO `escalated: true` marker, and NO new `outcome` field.
