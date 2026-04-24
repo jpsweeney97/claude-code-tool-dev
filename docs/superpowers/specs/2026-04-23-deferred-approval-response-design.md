@@ -119,7 +119,7 @@ The two "new" threading constructs are the **worker thread** (one per in-flight 
 
 In-memory structure. The registry owns two independent coordination channels:
 
-- **Per-request channel** — a `RegistryEntry` keyed by `request_id`. States `awaiting | reserved | consuming` (see §Transactional registry protocol for the transitions and failure modes). Used by the worker to block on a pending resolution and by `decide()` to deliver one.
+- **Per-request channel** — a `RegistryEntry` keyed by `request_id`. States `awaiting | reserved | consuming | aborted` (see §Transactional registry protocol for the `awaiting → reserved → consuming` transitions and §Internal abort coordination for the `awaiting → aborted` transition). Used by the worker to block on a pending resolution, by `decide()` to deliver one, and by `signal_internal_abort()` to terminate a parked worker on a plugin-invariant violation.
 - **Per-job start-outcome channel** — a `CaptureReadyEvent` keyed by `job_id`, awaited by `start()` on the main thread to obtain a synchronous outcome. The worker signals exactly one of four outcomes into this channel: `announce_parked` (a parkable request was captured), `announce_turn_completed_empty` (the turn finished without any approval request — analytical completion), `announce_turn_terminal_without_escalation` (the turn terminalized without a parkable capture — e.g., `kind="unknown"` parse failure), or `announce_worker_failed` (the worker raised an unhandled exception). A fifth outcome, `StartWaitElapsed`, is synthesized on the main thread if the worker has not signaled within `START_OUTCOME_WAIT_SECONDS` — this is a synchronous handshake budget, not a wedge detector (see §Capture-ready handshake). "Capture-ready" in the channel name is historical; a less-misleading rename is deferred to implementation-time refactor. See §Late start-outcome signals for the lifecycle contract that governs worker `announce_*` calls arriving after the channel has already resolved.
 
 ```python
@@ -128,6 +128,8 @@ class ResolutionRegistry:
     # request_id → RegistryEntry
     # Entry states: "awaiting" (worker parked) | "reserved" (reservation taken, pre-commit)
     #               | "consuming" (reservation committed; wake signal sent)
+    #               | "aborted"  (signal_internal_abort took effect; worker waking
+    #                             with InternalAbort(reason); see §Internal abort coordination)
     # threading.Lock guards entry state transitions
     # threading.Event per entry for worker's block-and-wake
 
@@ -138,7 +140,10 @@ class ResolutionRegistry:
         self, request_id: str, resolution: Resolution,
     ) -> ReservationToken | None: ...                # awaiting → reserved (atomic CAS)
                                                      # Returns None if entry is not in "awaiting" state
-                                                     # (already reserved, consumed, or discarded)
+                                                     # (reserved, consuming, aborted, or discarded).
+                                                     # Called by operator decide() AND by the registry's
+                                                     # timeout timer; the timer treats None as a no-op
+                                                     # (see §Timer ownership — stale timer contract).
     def commit_signal(self, token: ReservationToken) -> None: ...
                                                      # reserved → consuming + threading.Event.set()
                                                      # Irreversible. Caller must have durably written
@@ -147,8 +152,14 @@ class ResolutionRegistry:
                                                      # reserved → awaiting (idempotent on double-abort)
                                                      # Safe only before the matching intent is durable.
 
-    def wait(self, request_id: str) -> Resolution: ...            # worker blocks here post-register
-    def discard(self, request_id: str) -> None: ...               # called after worker finalizes
+    def wait(self, request_id: str) -> Resolution: ...            # worker blocks here post-register;
+                                                                  # returns DecisionResolution (operator
+                                                                  # decide or synthesized timeout) or
+                                                                  # InternalAbort (from signal_internal_abort);
+                                                                  # see §Internal abort coordination
+    def discard(self, request_id: str) -> None: ...               # called after worker finalizes;
+                                                                  # idempotent on any terminal state
+                                                                  # (consuming, aborted, or already discarded)
 
     # Timeout timer is registry-internal; it does ONLY in-memory state + signal,
     # NEVER writes to the operation journal. Sequence:
@@ -245,10 +256,21 @@ This is a narrower rule than the previous "intent durable before signal" invaria
 │  blocked)   │◄─────────────│  pre-    │                        │  waking)  │
 │             │  abort_      │  commit) │                        │           │
 └─────────────┘  reservation └──────────┘                        └───────────┘
-                  (token)
+       │          (token)
+       │  signal_internal_abort(rid, reason)
+       │  (atomic; see §Internal abort coordination)
+       ▼
+┌─────────────┐
+│   aborted   │
+│ (worker     │
+│  waking     │
+│  with       │
+│  Internal-  │
+│  Abort)     │
+└─────────────┘
 ```
 
-The terminal transition `reserved → consuming` is **irreversible** by contract. `reserved → awaiting` via `abort_reservation` is only safe *before* the caller has written any durable side effect tied to this reservation.
+Two terminal transitions are **irreversible** by contract: `reserved → consuming` (operator decide path) and `awaiting → aborted` (internal abort path). `reserved → awaiting` via `abort_reservation` is the one reversible transition, and only safe *before* the caller has written any durable side effect tied to this reservation. Once an entry reaches `consuming` or `aborted`, only `discard()` (called by the worker after finalizing) removes it from the registry. Any subsequent `reserve()` against a `consuming` or `aborted` entry returns `None` — this is how late-firing timers and racing operator `decide()` calls cleanly no-op against entries that other paths have already claimed.
 
 **decide()'s use of the protocol:**
 
@@ -379,9 +401,14 @@ Resolution = DecisionResolution | InternalAbort
        (completion_origin="worker_completed")
 6. audit: action="internal_abort", reason=reason       # best-effort, IO-5
 7. registry.discard(rid)
-8. _mark_execution_unknown_and_cleanup(                # worker-owned cleanup
-       reason=f"internal_abort:{reason}", cause=None,
-   )
+8. _mark_execution_unknown_and_cleanup(...)             # worker-owned cleanup; existing
+                                                         # signature at delegation_controller.py:759
+                                                         # takes job_id, collaboration_id,
+                                                         # runtime_id, entry — no diagnostic
+                                                         # reason/cause kwargs. Durable forensic
+                                                         # context already lives in the store
+                                                         # record written at step 3 above
+                                                         # (record_internal_abort.reason).
 9. worker thread exits
 ```
 
@@ -397,7 +424,10 @@ No `session.respond(...)` fires: the request is being *abandoned*, not resolved 
 - **IO-5:** The `action="internal_abort"` audit event is appended post-durable-writes, best-effort (no fsync, no gating).
 - **OB-1:** Terminal status is `unknown`. The plugin claims only "I could not dispatch a decision for this request"; it makes no claim about whether the underlying capture was valid on the App Server side.
 
-**Failure semantics if `signal_internal_abort` races.** If the operator's `decide()` wins the CAS while the main thread is en route to calling `signal_internal_abort`, the signal is a no-op (`awaiting → aborted` transition fails because the entry is already in `reserved` or `consuming`). The operator path then executes normally. The caller that tried to abort must accept whichever path committed first: this is honest concurrency — the operator's durable decision outranks a subsequent "we think this request is invalid" observation, because the decision is already durable in the journal. Callers therefore MUST NOT assume `signal_internal_abort` always takes effect; they log the return value and react accordingly (F1 start-path raises regardless; F5 poll-path continues with the current projection-null observation).
+**Failure semantics if `signal_internal_abort` races.** If the operator's `decide()` wins the CAS while the main thread is en route to calling `signal_internal_abort`, the signal is a no-op (`awaiting → aborted` transition fails because the entry is already in `reserved` or `consuming`). The operator path then executes normally. The caller that tried to abort must accept whichever path committed first: this is honest concurrency — the operator's durable decision outranks a subsequent "we think this request is invalid" observation, because the decision is already durable in the journal. Callers therefore MUST NOT assume `signal_internal_abort` always takes effect; they log the return value and react accordingly. Two callsite behaviors in Packet 1:
+
+- **`start()` (Parked projection invariant):** raises `DelegationStartError(reason="parked_projection_invariant_violation")` regardless of the signal's return. The exception path is unconditional because the main thread has already decided it cannot construct an escalation view; whether cleanup happened via abort-win or operator-decide-win, the start caller's observation is the same failure mode.
+- **`poll()` (unknown-kind in escalation projection):** returns `DelegationPollResult(pending_escalation=None, ...)` regardless of the signal's return. The null projection is the honest current observation (the projection literally could not be constructed on this thread); subsequent polls observe the settled state per §What the caller observes.
 
 ### Capture-ready handshake (start() control flow)
 
@@ -658,8 +688,10 @@ decide(rid)
                                                                journal.write_phase: approval_resolution.dispatched
                                                                session.respond(rid, payload)
                                                                  [stdin write + flush succeed]
-                                                               store.record_response_dispatch(rid, ...,
-                                                                   dispatch_result="succeeded")
+                                                               store.record_response_dispatch(rid, ...)
+                                                                   # dispatch_result hardcoded
+                                                                   # to "succeeded" inside the
+                                                                   # mutator; no caller kwarg.
                                                                store.mark_resolved(rid, resolved_at)
                                                                job_store.update_parked_request(job_id, None)
                                                                journal.write_phase: approval_resolution.completed
@@ -746,10 +778,11 @@ MAIN                          REGISTRY                        WORKER
                                                                           dispatch_result="failed",
                                                                           dispatch_error=<sanitized_bounded>
                                                                    registry.discard(rid)
-                                                                   _mark_execution_unknown_and_cleanup(
-                                                                       reason="timeout_dispatch_failed",
-                                                                       cause=exc,
-                                                                   )
+                                                                   _mark_execution_unknown_and_cleanup(...)
+                                                                   # Existing signature (delegation_controller.py:759);
+                                                                   # no diagnostic reason/cause kwargs. The failure
+                                                                   # reason is durable on the request record via
+                                                                   # record_timeout.dispatch_error above.
                                                                    return
                                                               loop continues
 ```
@@ -772,7 +805,8 @@ WORKER on synthetic timeout wake:
   store.record_timeout(rid,
       response_payload=None,
       response_dispatch_at=None,
-      dispatch_result=None)
+      dispatch_result=None,
+      dispatch_error=None)
   # Atomic op: sets timed_out=True, status="canceled",
   # leaves resolution_action=None, response_payload=None
   job_store.update_parked_request(job_id, None)
@@ -784,9 +818,11 @@ WORKER on synthetic timeout wake:
   handler returns None
 ```
 
-**Why `record_timeout` instead of `record_response_dispatch` + `update_status`.** The earlier `record_response_dispatch(action=Literal["approve", "deny"], ...)` signature cannot represent a timeout — there is no operator `action`, and writing `resolution_action` to any non-None value would conflate operator-fact with circumstance-fact (Q7 invariant from the brainstorm). `record_timeout` is a dedicated mutator that **atomically** sets `timed_out=True`, `status="canceled"`, and the optional dispatch fields (None-tuple for the interrupt path; populated for the cancel-dispatch path). A separate `update_status` call would split the timed_out/status transition across two journal records, introducing a replay window where `timed_out=True` and `status="pending"` could be briefly observed — inconsistent with the atomicity the mutator contract guarantees.
+**Why `record_timeout` instead of `record_response_dispatch` + `update_status`.** The `record_response_dispatch(action=Literal["approve", "deny"], ...)` signature cannot represent a timeout — there is no operator `action`, and writing `resolution_action` to any non-None value would conflate operator-fact with circumstance-fact (Q7 invariant from the brainstorm). `record_timeout` is a dedicated mutator that **atomically** sets `timed_out=True`, `status="canceled"`, and the optional dispatch fields (None-tuple for the interrupt path; populated for the cancel-dispatch path). A separate `update_status` call would split the timed_out/status transition across two journal records, introducing a replay window where `timed_out=True` and `status="pending"` could be briefly observed — inconsistent with the atomicity the mutator contract guarantees.
 
 **Timer ownership note (Packet 1 model).** The registry's internal timeout timer is a `threading.Timer` owned by each `RegistryEntry`. It performs ONLY in-memory state changes and the wake signal: `reserve(rid, timeout_resolution)` → `commit_signal(token)`. It does not write to the operation journal, the pending request store, the delegation job store, or the audit log. This keeps the registry a pure coordination primitive (IO-2) and avoids introducing a third journal writer beyond main and worker. All durable effects for a timeout — `approval_resolution.intent`, `dispatched`, `completed`, `record_timeout`, `update_parked_request`, audit — happen on the worker thread after wake, in single-writer sequence. File-order monotonicity of the `approval_resolution` idempotency key is therefore preserved trivially, without cross-thread coordination.
+
+**Stale timer contract.** The timer callback calls `reserve(rid, timeout_resolution)` and returns immediately if it receives `None`; for entries already in `aborted`, `consuming`, or `discarded`, the timer performs no store, journal, audit, registry wake, or session side effect. This is the mechanism that prevents a late-firing timer from racing with a concluding abort or decide path — the existing CAS-reject rule in `reserve()` is the sole coordination primitive, and no explicit timer-cancellation is required on `signal_internal_abort` or `commit_signal`. The harmless wake is the cost of reusing one coordination primitive for three races (decide-vs-timer, abort-vs-timer, abort-vs-decide).
 
 **Why cross-thread "intent durable before signal" does not apply here.** In the decide path, main writes `intent` and worker writes `dispatched/completed` — two threads must coordinate so `intent` lands first. In the timeout path, the timer writes nothing to the journal; the worker writes the entire `intent → dispatched → completed` sequence on a single thread. There is no cross-thread race to protect. The narrower invariant ("intent durable before the next-phase record for the same idempotency key") is preserved by local sequencing. The `decision=None` on timeout intent/dispatched records is the human-readable discriminator for "this record came from a timer, not an operator decide" — combined with the `PendingServerRequest.timed_out=True` marker and the `action="approval_timeout"` audit event (best-effort, IO-5).
 
@@ -823,19 +859,20 @@ WORKER on wake (after decide() committed reservation; main already returned Deci
       # Terminalize the job. Status is "unknown", NOT "failed" — transport
       # failure means we cannot verify whether App Server applied the operator
       # decision (OB-1). The honest terminal status is "unknown".
-      _mark_execution_unknown_and_cleanup(
-          reason="dispatch_failed",
-          cause=exc,
-      )
+      _mark_execution_unknown_and_cleanup(...)
+      # Existing signature (delegation_controller.py:759); no diagnostic
+      # reason/cause kwargs. The failure reason is durable on the request
+      # record via record_dispatch_failure.dispatch_error above.
       # Do NOT re-raise past cleanup — the exception has been captured durably.
       return
   # Success path continues in the happy-path diagram.
-  store.record_response_dispatch(rid, ..., dispatch_result="succeeded")
+  store.record_response_dispatch(rid, ...)   # dispatch_result hardcoded to
+                                             # "succeeded" inside the mutator
   store.mark_resolved(rid, resolved_at)
   ...
 ```
 
-**Why a dedicated atomic mutator (`record_dispatch_failure`) instead of `record_response_dispatch(..., dispatch_result="failed")` + separate `update_status`.** Same atomicity argument as `record_timeout` in §Timeout path. Splitting the forensic write and the status transition across two store records opens a replay window where `dispatch_result="failed"` + `status="pending"` could be briefly observed — an inconsistent pair that no point in the lifecycle should ever show. A dedicated mutator writes both fields in one append, preserving single-record atomicity under crash-mid-write. See §Store mutators for the signature.
+**Why a dedicated atomic mutator (`record_dispatch_failure`) instead of a hypothetical `record_response_dispatch` that also accepted `dispatch_result="failed"` + separate `update_status`.** Same atomicity argument as `record_timeout` in §Timeout path. Splitting the forensic write and the status transition across two store records opens a replay window where `dispatch_result="failed"` + `status="pending"` could be briefly observed — an inconsistent pair that no point in the lifecycle should ever show. A dedicated mutator writes both fields in one append, preserving single-record atomicity under crash-mid-write. The permissive signature is additionally unrepresentable: `record_response_dispatch` has no `dispatch_result` parameter at all — the field is hardcoded to `"succeeded"` inside the mutator (see §Store mutators). Making the failure state structurally impossible through the success-path method is stronger than a type annotation or documentation rule. See §Store mutators for the signature.
 
 **Why the job terminalizes as `unknown`, not `failed`.** Under OB-1, the plugin does not claim semantic application of an operator decision by App Server. A broken pipe after `dispatched` means the plugin attempted to deliver the operator's decision but does not know whether delivery occurred on the other side (the subprocess may have applied the decision and then crashed, or crashed before the write reached the kernel). The honest terminal status is `unknown` — same status Packet 1 uses for unparseable requests — because further human inspection is required to decide what happened. `failed` would imply a definitive "nothing happened," which we cannot verify.
 
@@ -965,10 +1002,16 @@ def record_response_dispatch(
     action: Literal["approve", "deny"],
     payload: dict[str, Any],
     dispatch_at: str,
-    dispatch_result: Literal["succeeded", "failed"],
 ) -> None:
-    # Append {"op": "record_response_dispatch", ...}; replay handles new op type
-    # Populates: resolution_action, response_payload, response_dispatch_at, dispatch_result
+    # Append {"op": "record_response_dispatch", ...}; replay handles new op type.
+    # Success-path mutator only. The failure and timeout paths route through
+    # `record_dispatch_failure` and `record_timeout`, which are atomic
+    # mutators that also set `status="canceled"` in the same record
+    # (see §Dispatch failure path and §Timeout path).
+    # Populates: resolution_action, response_payload, response_dispatch_at,
+    # and dispatch_result (hardcoded to "succeeded" inside this mutator —
+    # no caller-provided dimension; the parameter was removed to make the
+    # failure state structurally unrepresentable through this method).
 
 def mark_resolved(self, request_id: str, resolved_at: str) -> None:
     # Append {"op": "mark_resolved", ...}
@@ -1305,7 +1348,14 @@ Implementation details per callsite:
 2. The worker wakes on `InternalAbort(reason)`, executes the abort sequence (see §Internal abort coordination), terminalizes the job as `unknown`.
 3. Poll #2 (any subsequent poll) sees `job.status="unknown"`, `pending_escalation=None`. The caller observes the terminal state.
 
-This is eventually consistent — the window where `status="needs_escalation"` and `pending_escalation=None` are both observed is bounded by the worker's wake-to-cleanup latency (single-threaded sequence, no I/O besides JSONL appends). Callers that poll repeatedly see the state settle. Callers that decide() against the original `request_id` in that window receive `request_already_decided` (registry entry was transitioned by `signal_internal_abort`).
+This is eventually consistent — the window where `status="needs_escalation"` and `pending_escalation=None` are both observed is bounded by the worker's wake-to-cleanup latency (single-threaded sequence, no I/O besides JSONL appends). Callers that poll repeatedly see the state settle.
+
+**`decide()` interaction during the abort window depends on the CAS outcome at the registry entry**:
+
+- **`signal_internal_abort` wins** (returns `True`): the entry transitions `awaiting → aborted`; any subsequent `decide()` against this `request_id` finds `reserve()` returning `None` and is rejected with `request_already_decided`. The terminal convergence follows steps 2–3 above.
+- **`decide()` wins** (`signal_internal_abort` returns `False`): the operator's reservation committed before the abort signal arrived. The worker wakes on the operator's `DecisionResolution` and completes the dispatch via the normal success or dispatch-failure path. The abort attempt's only artifact is a log line noting the signal's `False` return; the job terminalizes per the operator path (`resolved` on dispatch success, `unknown` on dispatch failure). The Poll #1 that triggered the abort already returned `pending_escalation=None` because the projection failed on that thread — that observation is not retroactively invalidated, but subsequent polls reflect the operator's decided outcome, not an abort.
+
+**Rejection literal reuse.** Packet 1 does not introduce a new `request_already_aborted` reason; callers receive `request_already_decided` whether the entry left `awaiting` via operator `decide()`, `signal_internal_abort`, or the registry's timeout timer. The existing reason accurately describes the caller-facing reality ("this request slot is no longer addressable"). The durable distinction between the three paths lives in the `PendingServerRequest` terminal-circumstance fields: `resolution_action` for operator decides, `timed_out=True` for timer, `internal_abort_reason` for internal aborts. Audit queries join on those fields, not on the rejection literal.
 
 **`_project_pending_escalation` rewrite (job-anchored, tombstone-guarded):**
 
