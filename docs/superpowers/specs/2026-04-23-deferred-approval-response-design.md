@@ -120,7 +120,7 @@ The two "new" threading constructs are the **worker thread** (one per in-flight 
 In-memory structure. The registry owns two independent coordination channels:
 
 - **Per-request channel** — a `RegistryEntry` keyed by `request_id`. States `awaiting | reserved | consuming` (see §Transactional registry protocol for the transitions and failure modes). Used by the worker to block on a pending resolution and by `decide()` to deliver one.
-- **Per-job capture-ready channel** — a `CaptureReadyEvent` keyed by `job_id`. Signaled by the worker once it has captured a server request and parked; awaited by `start()` on the main thread to obtain the escalation payload synchronously.
+- **Per-job start-outcome channel** — a `CaptureReadyEvent` keyed by `job_id`, awaited by `start()` on the main thread to obtain a synchronous outcome. The worker signals exactly one of four outcomes into this channel: `announce_parked` (a parkable request was captured), `announce_turn_completed_empty` (the turn finished without any approval request — analytical completion), `announce_turn_terminal_without_escalation` (the turn terminalized without a parkable capture — e.g., `kind="unknown"` parse failure), or `announce_worker_failed` (the worker raised an unhandled exception). A fifth outcome, `CaptureTimeout`, is synthesized on the main thread if the worker never signals within `CAPTURE_READY_TIMEOUT_SECONDS`. "Capture-ready" in the channel name is historical — the channel predates the non-parkable outcomes and is kept for continuity with existing code. Rename during implementation is optional.
 
 ```python
 class ResolutionRegistry:
@@ -317,7 +317,7 @@ Uncommitted `ReservationToken`s auto-abort when the context manager exits; expli
 
 **Constant:** `CAPTURE_READY_TIMEOUT_SECONDS = 30` (configurable). Safety net only — the worker should signal within seconds under normal conditions. This is a different timer than `APPROVAL_OPERATOR_WINDOW_SECONDS`; the former bounds "how long before we suspect the worker is wedged"; the latter bounds "how long an operator has to decide."
 
-**Worker sequence (inside `_execute_live_turn` handler, on first captured request):**
+**Worker sequence (inside `_execute_live_turn` handler, on first *parkable* captured request — kind ∈ `{command_approval, file_change, request_user_input}`):**
 
 ```
 1. pending_request_store.create(request)              # durable request record
@@ -329,6 +329,27 @@ Uncommitted `ReservationToken`s auto-abort when the context manager exits; expli
 ```
 
 **Ordering rationale.** Steps 1–3 are durable-first: by the time step 5 fires, any `poll(job_id)` the caller issues returns the parked escalation consistently. Step 4 **must** precede step 5 because the handshake signal can wake the main thread arbitrarily fast; if the main thread observes `Parked` and immediately calls `decide()`, `reserve(rid)` must find the per-request entry already in `awaiting`. A reversed order (`announce_parked` before `register`) creates a race where `decide()` arrives before the worker has established the entry the reservation looks up.
+
+**Worker sequence on captured request with `kind="unknown"` (parse failure — non-parkable):**
+
+```
+1. pending_request_store.create(PendingServerRequest(kind="unknown", ...))
+                                                      # audit record (existing at delegation_controller.py:671-688)
+2. session.interrupt_turn(thread_id, turn_id)         # existing at :690-695
+3. [turn loop exits after interrupt]
+4. post-turn cleanup routes interrupted_by_unknown → final_status="unknown"
+                                                      # see §Unknown-kind contract callsite changes at controller:1473, :1482-1510
+5. job_store._persist_job_transition("unknown")       # terminal status
+6. registry.announce_turn_terminal_without_escalation(
+       job_id,
+       status="unknown",
+       reason="unknown_kind_parse_failure",
+       request_id=<persisted_request_id>,
+   )                                                   # signals main thread
+7. worker thread exits
+```
+
+**Why no registry entry for `kind="unknown"`.** No `register`, no `wait`. There is no entry to wake, no timer to start, and no way for `decide()` to target this request successfully. `decide()` on the persisted audit-trail request returns `RequestDecisionRejected(job_not_awaiting_decision)` (the job is terminal, not awaiting). See §Unknown-kind contract for the full rationale and the current-vs-Packet-1 behavior comparison.
 
 **Worker sequence on turn-completion-without-capture (Codex finished its objective without needing approval):**
 
@@ -350,8 +371,12 @@ Uncommitted `ReservationToken`s auto-abort when the context manager exits; expli
 
 **Main-thread (`start()`) sequence:**
 
+`start()` keeps its existing external return union — `DelegationJob | DelegationEscalation | JobBusyResponse` — and does NOT introduce a new wrapper. The five internal registry outcomes map onto this union (or into exceptions for the two error outcomes):
+
 ```python
-def start(args) -> DelegationStartResult:
+def start(args) -> DelegationJob | DelegationEscalation | JobBusyResponse:
+    # Busy gate, job creation, journal writes, and worker spawn are unchanged
+    # from current delegation_controller.py:267-700. Only the wait/match is new.
     job = self._job_store.create(...)
     self._journal.write_phase(OperationJournalEntry(operation="job_creation", phase="intent", ...))
     self._journal.write_phase(OperationJournalEntry(operation="job_creation", phase="dispatched", ...))
@@ -361,30 +386,30 @@ def start(args) -> DelegationStartResult:
     )
     match result:
         case Parked(request_id):
-            return DelegationStartResult(
-                job=job_store.get(job.job_id),         # re-read to capture status=needs_escalation
-                escalation=self._project_pending_escalation(job),
-                ...,
+            # Worker captured a parkable request and transitioned job to needs_escalation.
+            return DelegationEscalation(
+                job=self._job_store.get(job.job_id),
+                pending_escalation=self._project_pending_escalation(job),
+                agent_context=self._build_agent_context(job),
             )
         case TurnCompletedWithoutCapture():
-            # Worker already wrote terminal state through _finalize_turn.
-            return DelegationStartResult(
-                job=job_store.get(job.job_id),         # status=completed
-                escalation=None,
-                outcome=... ,                          # non-escalation completion
-            )
+            # Worker already wrote terminal state through _finalize_turn (status=completed).
+            return self._job_store.get(job.job_id)
         case TurnTerminalWithoutEscalation(job_status, reason, request_id):
-            # Worker persisted the terminal non-escalation state before signaling
+            # Worker persisted terminal non-escalation state before signaling
             # (e.g., kind="unknown" parse failure: audit record created, turn
             # interrupted, job persisted as status="unknown"). start() returns
-            # normally — it does NOT raise. This is semantically distinct from
-            # WorkerFailed: the worker operated correctly; the *request* was
-            # unparseable.
-            return DelegationStartResult(
-                job=job_store.get(job.job_id),         # status == job_status (e.g., "unknown")
-                escalation=None,
-                outcome=...,                           # DelegationOutcomeRecord citing `reason` and `request_id`
-            )
+            # normally — it does NOT raise. The causal record of the parse
+            # failure is the persisted PendingServerRequest(kind="unknown") at
+            # delegation_controller.py:671-688. DelegationOutcomeRecord is the
+            # ordinary terminal analytics record (see models.py:227-244 —
+            # fields: outcome_id, timestamp, outcome_type, collaboration_id,
+            # runtime_id, job_id, terminal_status, base_commit, repo_root) and
+            # is NOT extended by Packet 1 to carry reason/request_id. The
+            # reason/request_id fields carried in this registry signal are for
+            # worker-side logging and optional audit linkage; they are not
+            # included in start()'s return value.
+            return self._job_store.get(job.job_id)
         case WorkerFailed(exc):
             # Genuine worker-side exception. Already ran _mark_execution_unknown_and_cleanup;
             # job is "unknown". Parse failures are NOT routed here — see TurnTerminalWithoutEscalation.
@@ -406,13 +431,13 @@ def start(args) -> DelegationStartResult:
 
 | Worker outcome | `job.status` when `start()` returns | Returned to MCP caller |
 |---|---|---|
-| Parked | `needs_escalation` | Escalation payload + job snapshot |
-| TurnCompletedWithoutCapture | Terminal (`completed` via `_finalize_turn`) | Non-escalation outcome (existing `DelegationStartResult` shape for that branch) |
-| TurnTerminalWithoutEscalation | Terminal (`unknown` — persisted by worker before signal) | `DelegationStartResult` with `escalation=None` + `DelegationOutcomeRecord` citing `reason` and `request_id` — **returns, does not raise** |
-| WorkerFailed | `unknown` (via `_mark_execution_unknown_and_cleanup`) | `DelegationStartError(reason="worker_failed_before_capture")` |
-| CaptureTimeout | `running` (unchanged by main thread) | `DelegationStartError(reason="capture_ready_timeout")` |
+| Parked | `needs_escalation` | `DelegationEscalation(job, pending_escalation, agent_context)` — existing shape, unchanged |
+| TurnCompletedWithoutCapture | Terminal (`completed` via `_finalize_turn`) | plain `DelegationJob(status="completed", ...)` |
+| TurnTerminalWithoutEscalation | Terminal (`unknown` — persisted by worker before signal) | plain `DelegationJob(status="unknown", ...)` — **returns, does not raise**. Causal record lives on the persisted `PendingServerRequest(kind="unknown")` audit entry at `:671-688`; `DelegationOutcomeRecord` remains the ordinary terminal analytics record (no `reason`/`request_id` fields; not extended by Packet 1). |
+| WorkerFailed | `unknown` (via `_mark_execution_unknown_and_cleanup`) | raises `DelegationStartError(reason="worker_failed_before_capture")` |
+| CaptureTimeout | `running` (unchanged by main thread) | raises `DelegationStartError(reason="capture_ready_timeout")` |
 
-**Why `TurnTerminalWithoutEscalation` is distinct from `WorkerFailed`:** both can produce `job.status="unknown"`, but they differ in **who failed**. `WorkerFailed` signals that the worker itself raised an unhandled exception (transport failure, handler bug) — the operator-visible outcome is an error (`DelegationStartError`). `TurnTerminalWithoutEscalation` signals that the worker handled unparseable input *correctly* and terminalized the job — the operator-visible outcome is a normal return with a terminal job and an outcome record. Conflating the two would force callers to distinguish "the plugin broke" from "the request couldn't be rendered" by inspecting exception payloads rather than return shape.
+**Why `TurnTerminalWithoutEscalation` is distinct from `WorkerFailed`:** both can produce `job.status="unknown"`, but they differ in **who failed**. `WorkerFailed` signals that the worker itself raised an unhandled exception (transport failure, handler bug) — the operator-visible outcome is an error (`DelegationStartError` raised). `TurnTerminalWithoutEscalation` signals that the worker handled unparseable input *correctly* and terminalized the job — the operator-visible outcome is a normal return (a plain `DelegationJob` with `status="unknown"`). Conflating the two would force callers to distinguish "the plugin broke" from "the request couldn't be rendered" by inspecting exception payloads rather than by return-vs-raise polarity.
 
 **Why `CaptureTimeout` does not force-kill the worker:** Python threads cannot be safely cancelled from outside. Forcing a kill would orphan transport state, leak stdin/stdout handles, and leave stores mid-write. The safe path is: surface the error to the caller, leave the job in `running`, and let the existing cold-start recovery at `delegation_controller.py:2036-2038` demote the job to `unknown` on next session init (or sooner if explicit cleanup is warranted — this is follow-up surface area for a future packet, not Packet 1).
 
@@ -446,8 +471,10 @@ start(args)
                                                                    ◄── block on per-entry event ──
   result = Parked(rid)
   re-read job (status=needs_escalation)
-  return DelegationStartResult(
-      escalation=project_pending_escalation(job))
+  return DelegationEscalation(
+      job=job,
+      pending_escalation=project_pending_escalation(job),
+      agent_context=build_agent_context(job))
                                                               notification loop buffers
                                                               messages in queue during block
 
@@ -646,6 +673,32 @@ Provenance annotation on the terminal `phase="completed"` marker. Values:
 
 Narrowly scoped to journal provenance. Timeouts, failures, and dispatch errors are recorded on the `PendingServerRequest` record and/or audit events — not here.
 
+### EscalatableRequestKind (new literal) + `PendingEscalationView.kind` narrowing
+
+Packet 1's behavior is that `kind="unknown"` never surfaces to the operator as an escalation (see §Unknown-kind contract). Today the public view admits it anyway — `PendingEscalationView.kind: PendingRequestKind` at `models.py:449-450` permits all four literals. Packet 1 introduces a narrower literal type used exclusively by the escalation projection:
+
+```python
+# packages/plugins/codex-collaboration/server/models.py — addition
+EscalatableRequestKind = Literal[
+    "command_approval",
+    "file_change",
+    "request_user_input",
+]
+
+@dataclass(frozen=True)
+class PendingEscalationView:
+    request_id: str
+    kind: EscalatableRequestKind          # narrowed from PendingRequestKind
+    requested_scope: dict[str, Any]
+    available_decisions: tuple[str, ...] = ()
+```
+
+`PendingRequestKind` at `models.py:16-18` stays unchanged — `"unknown"` is still a valid *persisted* request kind in `PendingRequestStore` (where it records parse-failure audit trails). The split encodes the semantic distinction the Packet 1 behavior requires: `"unknown"` is a persisted request kind but NOT an escalatable request kind.
+
+`_project_pending_escalation` (see §`_project_pending_escalation` rewrite) enforces the narrowing at the projection boundary: if a caller ever reaches the projection with `kind="unknown"` (which Packet 1's control flow should prevent), the projection raises rather than silently constructing a violating view. Type-level enforcement via `EscalatableRequestKind` catches most violations at mypy time; the runtime assertion is a belt-and-suspenders check for callsites that bypass the type system (e.g., `dict[str, Any]`-shaped constructor inputs).
+
+`contracts.md:332` tightens its `kind` enum to match the three-literal list — see §contracts.md updates.
+
 ### Store mutators
 
 **PendingRequestStore additions:**
@@ -822,7 +875,7 @@ The `PendingServerRequest` record after a `deny` on `request_user_input` still s
 | Parse failure in handler | Create `PendingServerRequest(kind="unknown")` for audit | Same — preserve audit trail |
 | Turn behavior | Handler calls `interrupt_turn` (at `:690-695`); flags `interrupted_by_unknown` | Same — still interrupts |
 | Job status derivation | `final_status = "needs_escalation"` (at `:1473`) | `final_status = "unknown"` (terminal) |
-| Caller-visible | `DelegationEscalation` with pending_escalation projection (at `:1504-1510`) | Plain `DelegationJob` with `status="unknown"`, plus a `DelegationOutcomeRecord` documenting the parse failure |
+| Caller-visible | `DelegationEscalation` with pending_escalation projection (at `:1504-1510`) | Plain `DelegationJob` with `status="unknown"`. The persisted `PendingServerRequest(kind="unknown")` at `:671-688` is the causal record of the parse failure; `DelegationOutcomeRecord` remains the ordinary terminal analytics record (not extended by Packet 1 to carry `reason`/`request_id`). |
 | Registry | Request registered, worker parks, escalation surfaces | Request NEVER registered, NEVER parked, NEVER announce_parked-ed |
 | `decide()` on this request | Proceeds as if the operator can decide | Rejects with `job_not_awaiting_decision` (job is terminal, not awaiting) |
 | Timeout diagrams | (timeout path applies) | N/A — no parked state |
@@ -833,7 +886,7 @@ The `PendingServerRequest` record after a `deny` on `request_user_input` still s
 
 - `delegation_controller.py:1473` — change `if captured_request.kind in _CANCEL_CAPABLE_KINDS or interrupted_by_unknown:` to match only `_CANCEL_CAPABLE_KINDS`; handle `interrupted_by_unknown` on a separate branch that routes to `final_status = "unknown"`.
 - `delegation_controller.py:1482-1510` — the `if final_status == "needs_escalation":` branch must not fire for unknown-kind terminations. Instead, the `interrupted_by_unknown` path flows to the non-escalation return at `:1512-1517` (`_emit_terminal_outcome_if_needed`, release runtime, close session, return the `unknown`-terminal job).
-- `delegation_controller.py` worker path — the new worker sequence (Packet 1) does NOT call `registry.register` or `registry.announce_parked` when the captured request has `kind="unknown"`. Instead, after the existing `PendingServerRequest(kind="unknown")` audit-trail record is created (at `:671-688`) and the turn is interrupted (at `:690-695`), the worker persists the job as terminal via `_persist_job_transition` with `status="unknown"`, then signals `registry.announce_turn_terminal_without_escalation(job_id, status="unknown", reason="unknown_kind_parse_failure", request_id=<persisted_request_id>)`. Neither `announce_worker_failed` nor `announce_turn_completed_empty` is used for this path: the former implies a worker-side exception (which this is not — the worker correctly handled unparseable input), and the latter implies analytical completion (which this is not — the turn was interrupted on parse failure). The new signal causes `start()` to return a `DelegationStartResult` with `status="unknown"` rather than raising `DelegationStartError`.
+- `delegation_controller.py` worker path — the new worker sequence (Packet 1) does NOT call `registry.register` or `registry.announce_parked` when the captured request has `kind="unknown"`. Instead, after the existing `PendingServerRequest(kind="unknown")` audit-trail record is created (at `:671-688`) and the turn is interrupted (at `:690-695`), the worker persists the job as terminal via `_persist_job_transition` with `status="unknown"`, then signals `registry.announce_turn_terminal_without_escalation(job_id, status="unknown", reason="unknown_kind_parse_failure", request_id=<persisted_request_id>)`. Neither `announce_worker_failed` nor `announce_turn_completed_empty` is used for this path: the former implies a worker-side exception (which this is not — the worker correctly handled unparseable input), and the latter implies analytical completion (which this is not — the turn was interrupted on parse failure). The new signal causes `start()` to return a plain `DelegationJob` with `status="unknown"` (on the existing `DelegationJob | DelegationEscalation | JobBusyResponse` union — no new wrapper is introduced) rather than raising `DelegationStartError`.
 - Recovery code at `:2036-2038` already demotes `needs_escalation` jobs to `unknown` on restart; under Packet 1 these jobs never reach `needs_escalation` in the first place, so recovery treats them as already-terminal.
 
 **Operator-facing effect:** under Packet 1, a parse-failed request surfaces to the operator as "delegation failed" (job terminal, status=`unknown`, `DelegationOutcomeRecord` with failure context), not as "please approve or deny this action." This is strictly more honest — the plugin cannot render the action in the first place, so asking the operator to decide on it is misleading.
@@ -915,15 +968,28 @@ def _project_pending_escalation(
 
 The helper is **job-anchored** (takes `DelegationJob`), not collaboration-anchored — the authority chain starts at `poll(job_id)` at `:901-902`. Callers update to pass the job object.
 
-### contracts.md §decide
+### contracts.md updates
 
-Rewrite to reflect:
+Packet 1 touches three sections of `contracts.md`. The update set is load-bearing for ticket AC4 ("Spec names every public contract change").
+
+**§decide (`contracts.md:297-310`):** rewrite to reflect:
 - Async model (decide returns before dispatch completes)
 - Minimal response payload (`decision_accepted`, `job_id`, `request_id`)
 - poll as sole observation surface for post-decide state
 - "Accepted for dispatch" verb, not "applied"
 
-Current text at `docs/superpowers/specs/codex-collaboration/contracts.md:297-310` is the update target.
+**§Start (locate the `codex.delegate.start` section in `contracts.md`):** document the existing success union explicitly. Packet 1 does NOT introduce a new wrapper, but the previously-implicit cases surface new JSON shapes at the MCP boundary:
+
+| Internal outcome | Return type | MCP JSON shape | Notes |
+|---|---|---|---|
+| Parked (parkable capture) | `DelegationEscalation` | `{"job": {...}, "pending_escalation": {...}, "agent_context": "...", "escalated": true}` | Existing shape; unchanged. |
+| Turn completed without capture | plain `DelegationJob` | `{"job_id": "...", "status": "completed", ...}` | No `pending_escalation` key; no `escalated: true` marker. |
+| Unknown-kind parse failure | plain `DelegationJob` | `{"job_id": "...", "status": "unknown", ...}` | No `pending_escalation` key; no `escalated: true` marker; no new `outcome` field. |
+| Worker exception / capture timeout | N/A — raises | MCP tool error (`DelegationStartError`) | Not a successful response body. |
+
+The MCP serializer at `mcp_server.py:443-450` requires no change: the existing `isinstance(result, DelegationEscalation)` branch handles the parked case; the `asdict(result)` fallthrough handles the plain-`DelegationJob` cases.
+
+**§Pending Escalation View (`contracts.md:325-334`):** tighten the `kind` enum from four literals to three: `command_approval`, `file_change`, `request_user_input`. Add a note: "`unknown` is a valid `PendingRequestKind` at the store/audit layer but cannot appear in a `PendingEscalationView` under Packet 1 — such requests terminalize the job instead (see §Unknown-kind contract in the design spec)."
 
 ### MCP tool schema (no JSON-schema change) and custom serializer
 
@@ -1011,11 +1077,13 @@ AuditEvent(
 
 Narrative record of "registry timer fired for this request." Not recovery-critical; the `PendingServerRequest.timed_out=True` field is the durable fact. Audit event is for analytics / human review trails.
 
-### `PendingEscalationView` stays minimal
+### `PendingEscalationView` stays field-minimal; `kind` narrows
 
 `PendingEscalationView` at `models.py:441` retains its current "minimal caller-visible subset needed to render an escalation prompt" role. The new `PendingServerRequest` fields (`dispatch_result`, `resolved_at`, `protocol_echo_*`, `timed_out`) are diagnostic / historical state, not prompt-rendering state. Adding them would blur "current action needed" with "forensic request record."
 
-A future inspection surface (not Packet 1) may expose these fields.
+Packet 1 does narrow one existing field: `PendingEscalationView.kind` retypes from `PendingRequestKind` (4 literals including `"unknown"`) to the new `EscalatableRequestKind` (3 literals excluding `"unknown"`). See §EscalatableRequestKind. This is strictly a narrowing — no field added, no field removed, no prompt-rendering semantics changed. It reflects the Packet 1 behavior that `kind="unknown"` never reaches an escalation.
+
+A future inspection surface (not Packet 1) may expose the forensic fields.
 
 ## Recovery and Reconciliation
 
@@ -1176,6 +1244,13 @@ PendingServerRequest after timeout interrupt:
 - OB-1: no test/assertion ever claims "decision applied" based on transport success alone
 - Protocol echo: persisted tuple matches signals observed in notifications
 - Timeout: `approval_timeout` audit event fires; `timed_out=True` on record
+
+**Public contract tests (`codex.delegate.start` JSON shape + escalation-view kind narrowing):**
+- Parse-failure return: `codex.delegate.start` of a delegation whose first captured request has `kind="unknown"` returns a plain `DelegationJob` JSON object with `status="unknown"`; assert the response has NO `pending_escalation` key, NO `escalated: true` marker, and NO new `outcome` field.
+- Turn-completed-without-capture return: `codex.delegate.start` of a purely analytical delegation returns a plain `DelegationJob` JSON object with `status="completed"`; assert no `pending_escalation` key, no `escalated: true` marker.
+- Parked return (regression): `codex.delegate.start` of a delegation with a parkable captured request returns `DelegationEscalation` JSON (`job`, `pending_escalation`, `agent_context`, `escalated=true`) — shape matches the pre-Packet-1 escalated return exactly.
+- Escalation-view kind narrowing: across `codex.delegate.start`, `codex.delegate.poll`, and `codex.delegate.decide` return paths, assert that no `pending_escalation.kind` field ever carries the string `"unknown"`. Also assert via static typing (mypy/pyright) that `EscalatableRequestKind` is the only type constructible into `PendingEscalationView.kind`.
+- Pre-Packet-1 regression: the `interrupted_by_unknown` control path does not surface as a `DelegationEscalation` on `start()` return. Fixture reproduces a parse-failing request; assertion confirms the pre-Packet-1 escalation projection no longer fires.
 
 ### Migration
 
