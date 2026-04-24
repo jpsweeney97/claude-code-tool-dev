@@ -31,7 +31,7 @@ import time
 
 import pytest
 
-from codex_collaboration.server.resolution_registry import (
+from server.resolution_registry import (
     DecisionResolution,
     InternalAbort,
     ResolutionRegistry,
@@ -568,7 +568,7 @@ from __future__ import annotations
 import threading
 import time
 
-from codex_collaboration.server.resolution_registry import (
+from server.resolution_registry import (
     Parked,
     ParkedCaptureResult,
     ResolutionRegistry,

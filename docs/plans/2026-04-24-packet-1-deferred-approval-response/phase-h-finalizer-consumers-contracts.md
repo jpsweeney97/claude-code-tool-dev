@@ -466,7 +466,7 @@ Create `packages/plugins/codex-collaboration/tests/test_discard_canceled.py`:
 
 from __future__ import annotations
 
-from codex_collaboration.server.models import DiscardRejectedResponse, DiscardResult
+from server.models import DiscardRejectedResponse, DiscardResult
 
 
 def test_discard_canceled_with_null_promotion_state_succeeds(

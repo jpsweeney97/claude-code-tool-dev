@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from dataclasses import fields
 
-from codex_collaboration.server.models import DelegationDecisionResult
+from server.models import DelegationDecisionResult
 
 
 def test_has_exactly_three_fields() -> None:
@@ -66,7 +66,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 
-from codex_collaboration.server.models import DelegationDecisionResult
+from server.models import DelegationDecisionResult
 
 
 def test_asdict_produces_three_keys() -> None:
@@ -208,12 +208,12 @@ from typing import cast
 
 import pytest
 
-from codex_collaboration.server.delegation_controller import (
+from server.delegation_controller import (
     DelegationController,
     UnknownKindInEscalationProjection,
     _ESCALATABLE_REQUEST_KINDS,
 )
-from codex_collaboration.server.models import (
+from server.models import (
     DelegationJob,
     PendingServerRequest,
 )

@@ -27,8 +27,8 @@ from __future__ import annotations
 
 from typing import get_args
 
-from codex_collaboration.server.delegation_controller import _TERMINAL_STATUS_MAP
-from codex_collaboration.server.models import DelegationTerminalStatus, JobStatus
+from server.delegation_controller import _TERMINAL_STATUS_MAP
+from server.models import DelegationTerminalStatus, JobStatus
 
 
 def test_job_status_admits_canceled() -> None:
@@ -121,7 +121,7 @@ Expected: 4 PASS.
 - [ ] **Step 1.7: Verify `_VALID_STATUSES` derivation auto-picks up the new literal**
 
 ```bash
-uv run --package codex-collaboration python -c "from codex_collaboration.server.delegation_job_store import _VALID_STATUSES; assert 'canceled' in _VALID_STATUSES, _VALID_STATUSES; print('OK')"
+PYTHONPATH=packages/plugins/codex-collaboration uv run --package codex-collaboration python -c "from server.delegation_job_store import _VALID_STATUSES; assert 'canceled' in _VALID_STATUSES, _VALID_STATUSES; print('OK')"
 ```
 
 Expected: `OK`. The `get_args(JobStatus)` call at `delegation_job_store.py:17` derives `_VALID_STATUSES` from the Literal, so adding to the Literal auto-widens the validator without a separate edit.
@@ -165,7 +165,7 @@ from __future__ import annotations
 
 from typing import get_args, get_type_hints
 
-from codex_collaboration.server.models import (
+from server.models import (
     EscalatableRequestKind,
     PendingEscalationView,
     PendingRequestKind,
@@ -293,7 +293,7 @@ from __future__ import annotations
 
 import pytest
 
-from codex_collaboration.server.delegation_controller import _sanitize_error_string
+from server.delegation_controller import _sanitize_error_string
 
 
 def test_sanitize_class_prefix_and_message() -> None:
@@ -429,7 +429,7 @@ from __future__ import annotations
 
 import pytest
 
-from codex_collaboration.server.delegation_controller import (
+from server.delegation_controller import (
     DelegationStartError,
     UnknownKindInEscalationProjection,
 )
@@ -585,7 +585,7 @@ from __future__ import annotations
 
 import pytest
 
-from codex_collaboration.server.delegation_controller import (
+from server.delegation_controller import (
     _WorkerTerminalBranchSignal,
 )
 
@@ -675,7 +675,7 @@ Note: the `from dataclasses import dataclass` import is already present at the t
 Before committing, verify the dataclass import is clean:
 
 ```bash
-uv run --package codex-collaboration python -c "from codex_collaboration.server.delegation_controller import _WorkerTerminalBranchSignal; print(_WorkerTerminalBranchSignal(reason='ok').reason)"
+PYTHONPATH=packages/plugins/codex-collaboration uv run --package codex-collaboration python -c "from server.delegation_controller import _WorkerTerminalBranchSignal; print(_WorkerTerminalBranchSignal(reason='ok').reason)"
 ```
 
 Expected: `ok`.

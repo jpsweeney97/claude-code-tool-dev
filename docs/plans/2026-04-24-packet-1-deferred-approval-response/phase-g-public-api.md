@@ -27,10 +27,10 @@ from __future__ import annotations
 
 import pytest
 
-from codex_collaboration.server.delegation_controller import (
+from server.delegation_controller import (
     DelegationStartError,
 )
-from codex_collaboration.server.models import (
+from server.models import (
     DelegationEscalation,
     DelegationJob,
 )
@@ -67,7 +67,7 @@ def test_start_returns_running_job_on_start_wait_elapsed(
     """Budget elapses without any signal → start() returns
     DelegationJob(status='running'). Does NOT raise."""
     monkeypatch.setattr(
-        "codex_collaboration.server.delegation_controller.START_OUTCOME_WAIT_SECONDS",
+        "server.delegation_controller.START_OUTCOME_WAIT_SECONDS",
         0.1,
     )
     # Arrange a worker that will signal LATER; force budget to elapse.
@@ -304,7 +304,7 @@ Create `packages/plugins/codex-collaboration/tests/test_delegate_decide_async_in
 
 from __future__ import annotations
 
-from codex_collaboration.server.models import DelegationDecisionResult, DecisionRejectedResponse
+from server.models import DelegationDecisionResult, DecisionRejectedResponse
 
 
 def test_decide_returns_3_field_result_on_success(

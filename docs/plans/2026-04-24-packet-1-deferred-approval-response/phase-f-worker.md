@@ -33,10 +33,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from codex_collaboration.server.delegation_controller import (
+from server.delegation_controller import (
     _WorkerTerminalBranchSignal,
 )
-from codex_collaboration.server.worker_runner import _WorkerRunner
+from server.worker_runner import _WorkerRunner
 
 
 def test_worker_runner_exists() -> None:
@@ -90,7 +90,7 @@ def test_load_or_materialize_inspection_tuple_admits_canceled() -> None:
     """_load_or_materialize_inspection's terminal guard at :873 must admit
     'canceled' (fourth literal) and return None for canceled (no artifacts).
     """
-    from codex_collaboration.server.delegation_controller import DelegationController
+    from server.delegation_controller import DelegationController
     # Unit-test the tuple via introspection of the method's source or
     # by exercising the code path with a canceled job.
     pass  # Exercise via integration fixture below.

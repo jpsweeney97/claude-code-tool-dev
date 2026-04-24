@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from dataclasses import fields
 
-from codex_collaboration.server.models import PendingServerRequest
+from server.models import PendingServerRequest
 
 
 def test_has_resolution_action_field() -> None:
@@ -82,7 +82,7 @@ def test_existing_records_replay_cleanly_with_none_defaults(tmp_path) -> None:
     new fields. Simulate by writing a record with ONLY the old-shape keys
     and verifying replay materializes a PendingServerRequest with new
     fields at their defaults."""
-    from codex_collaboration.server.pending_request_store import PendingRequestStore
+    from server.pending_request_store import PendingRequestStore
 
     store = PendingRequestStore(plugin_data_path=tmp_path, session_id="s1")
     # Hand-craft a legacy record without the new fields and append it.
@@ -255,8 +255,8 @@ from __future__ import annotations
 
 import pytest
 
-from codex_collaboration.server.models import PendingServerRequest
-from codex_collaboration.server.pending_request_store import PendingRequestStore
+from server.models import PendingServerRequest
+from server.pending_request_store import PendingRequestStore
 
 
 def _make_pending(rid: str = "r1") -> PendingServerRequest:
@@ -541,8 +541,8 @@ Create `packages/plugins/codex-collaboration/tests/test_pending_request_store_at
 
 from __future__ import annotations
 
-from codex_collaboration.server.models import PendingServerRequest
-from codex_collaboration.server.pending_request_store import PendingRequestStore
+from server.models import PendingServerRequest
+from server.pending_request_store import PendingRequestStore
 
 
 def _make_pending(rid: str = "r1") -> PendingServerRequest:
@@ -912,8 +912,8 @@ Create `packages/plugins/codex-collaboration/tests/test_delegation_job_parked_re
 
 from __future__ import annotations
 
-from codex_collaboration.server.delegation_job_store import DelegationJobStore
-from codex_collaboration.server.models import DelegationJob
+from server.delegation_job_store import DelegationJobStore
+from server.models import DelegationJob
 
 
 def _make_job(job_id: str = "j1") -> DelegationJob:

@@ -27,8 +27,8 @@ from __future__ import annotations
 
 import pytest
 
-from codex_collaboration.server.journal import OperationJournal, SchemaViolation
-from codex_collaboration.server.models import OperationJournalEntry
+from server.journal import OperationJournal, SchemaViolation
+from server.models import OperationJournalEntry
 
 
 def test_completion_origin_field_exists_with_default_none() -> None:
