@@ -32,10 +32,10 @@ fi
 # printf '%s' avoids echo's trailing newline inflating the count
 LINE_COUNT=$(printf '%s' "$CONTENT" | wc -l | tr -d ' ')
 
-if [ "$LINE_COUNT" -gt 500 ]; then
+if [ "$LINE_COUNT" -gt 3000 ]; then
   # Use jq to construct JSON safely (handles special chars in FILE_PATH)
   jq -n --arg path "$FILE_PATH" --arg count "$LINE_COUNT" \
-    '{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": ("This file (" + $path + ") is " + $count + " lines. Files over 500 lines are difficult to reference in future conversations. Consider invoking /superspec:spec-writer to create a modular spec structure.")}}'
+    '{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": ("This file (" + $path + ") is " + $count + " lines. Files over 3000 lines are difficult to reference in future conversations. Consider invoking /superspec:spec-writer to create a modular spec structure.")}}'
 fi
 
 exit 0
