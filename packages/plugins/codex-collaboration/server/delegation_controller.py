@@ -108,6 +108,40 @@ _TERMINAL_STATUS_MAP: dict[str, DelegationTerminalStatus] = {
     "unknown": "unknown",
 }
 
+_SANITIZE_MESSAGE_CAP = 200
+_SANITIZE_TOTAL_CAP = 256
+
+
+def _sanitize_error_string(exc: BaseException) -> str:
+    """Produce a bounded, JSONL-safe forensic string for persistence.
+
+    Format: "<ExceptionClassName>: <bounded, escaped message>". Used by the
+    three PendingServerRequest forensic fields (dispatch_error,
+    interrupt_error, internal_abort_reason). Per spec §Sanitization rules:
+    message truncated at 200 chars with "..." elision, newlines/tabs escaped,
+    total length bounded at 256 chars. A too-long class name triggers a
+    further truncation and a warning log.
+    """
+    class_name = type(exc).__name__
+    raw = str(exc)
+    if len(raw) > _SANITIZE_MESSAGE_CAP:
+        message = raw[:_SANITIZE_MESSAGE_CAP] + "..."
+    else:
+        message = raw
+    # Escape newlines, tabs, and other control characters so the final string
+    # is a single JSONL-safe line. encode/decode(unicode_escape) preserves
+    # regular content while quoting control characters as \n, \t, etc.
+    message = message.encode("unicode_escape").decode("ascii")
+    combined = f"{class_name}: {message}"
+    if len(combined) > _SANITIZE_TOTAL_CAP:
+        logger.warning(
+            "Forensic string exceeded total cap; truncating. class=%r len=%d",
+            class_name,
+            len(combined),
+        )
+        combined = combined[:_SANITIZE_TOTAL_CAP]
+    return combined
+
 
 class _ControlPlaneLike(Protocol):
     def start_execution_runtime(
