@@ -64,3 +64,6 @@ claude-devtools-config.json
 # Skill eval artifacts (ephemeral output)
 .claude/skills/**/evals/
 .claude/skills/**/*-workspace/
+
+# Superpowers visual companion (brainstorm mockups, server state)
+.superpowers/
