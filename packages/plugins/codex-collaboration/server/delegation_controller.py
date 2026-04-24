@@ -144,6 +144,54 @@ def _sanitize_error_string(exc: BaseException) -> str:
     return combined
 
 
+class DelegationStartError(RuntimeError):
+    """Raised by start() when the delegation-start sequence cannot produce
+    a successful return value. The reason literal is part of the public
+    plugin contract — see §DelegationStartError reasons in the spec.
+
+    __str__ contract: "{reason}: {message}" when message is non-empty,
+    else "{reason}". This guarantees MCP text-prefix recoverability
+    without requiring a boundary change.
+
+    Raise idiom for cases with a chained cause:
+        raise DelegationStartError(reason=..., cause=exc) from exc
+    so Python's __cause__ chain is preserved alongside the explicit .cause
+    field. Duplication is intentional: __cause__ participates in
+    tracebacks; .cause is the typed attribute callers can read without
+    walking __cause__.
+    """
+
+    reason: str
+    cause: Exception | None
+
+    def __init__(
+        self,
+        *,
+        reason: str,
+        cause: Exception | None = None,
+        message: str = "",
+    ) -> None:
+        if message:
+            super().__init__(f"{reason}: {message}")
+        else:
+            super().__init__(reason)
+        self.reason = reason
+        self.cause = cause
+
+
+class UnknownKindInEscalationProjection(Exception):
+    """Raised by _project_request_to_view when request.kind is not in
+    EscalatableRequestKind. Internal assertion signal — MUST NOT escape the
+    controller boundary.
+
+    Subclass of Exception (NOT RuntimeError) so narrower except clauses
+    catch it before a generic `except RuntimeError`. Carries only a
+    message; the callsite determines the abort reason.
+    """
+
+    pass
+
+
 class _ControlPlaneLike(Protocol):
     def start_execution_runtime(
         self, worktree_path: Path
