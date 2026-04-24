@@ -42,7 +42,9 @@ Five invariants govern the design. Any implementation change must verify against
 
 **IO-3 (Single-writer-per-store):** Each store has one writer thread at a time per the thread-role table (see §Runtime Architecture). Eliminates store-level locks; relies on OS append atomicity (IO-4) for correctness. The "at a time" clause is load-bearing and depends on the **singleton busy gate** at `packages/plugins/codex-collaboration/server/delegation_controller.py:328-349` — the max-1 user-attention job per session check that consults the job store, the runtime registry, and unresolved `job_creation` journal entries. Because at most one delegation job is in flight per session, at most one worker thread exists at any instant. Any future relaxation of the singleton constraint (parallel jobs, multi-session sharding) must revisit IO-3 either by adding store-level locking or by proving that multi-worker → single-writer-per-store still holds under the new partitioning.
 
-**IO-4 (Inherited JSONL append):** All JSONL writers — stores (`pending_request_store._append` at `packages/plugins/codex-collaboration/server/pending_request_store.py:71-75`, `delegation_job_store._append`) and the operation journal (`journal.write_phase` at `packages/plugins/codex-collaboration/server/journal.py:300-307`) — use the pattern `open("a")` + single-line JSON write + flush + fsync. The repo already depends on this pattern being correct under its single-writer discipline on supported platforms (Linux/macOS). This spec extends the operation journal to two writers (main writes `approval_resolution.intent`; worker writes `approval_resolution.dispatched/completed`); we inherit the platform assumption, we do not prove it. If a future change adds multi-process concurrent writers or Windows support, upgrade to an explicit lock or hardened append primitive.
+**IO-4 (Inherited JSONL append — DURABLE journal writes):** The operation journal and stores that gate recovery correctness — `journal.write_phase` at `packages/plugins/codex-collaboration/server/journal.py:300-307`, `pending_request_store._append` at `:71-75`, `delegation_job_store._append` — use `open("a")` + single-line JSON write + **`flush()` + `os.fsync()`**. The fsync is load-bearing: these writes survive process crash. The repo already depends on this pattern being correct under its single-writer discipline on supported platforms (Linux/macOS). This spec extends the operation journal to two writers (main writes `approval_resolution.intent` via `decide()`; worker writes `approval_resolution.dispatched/completed`); we inherit the platform assumption, we do not prove it. If a future change adds multi-process concurrent writers or Windows support, upgrade to an explicit lock or hardened append primitive.
+
+**IO-5 (Audit events are best-effort, NOT durable):** `journal.append_audit_event` at `packages/plugins/codex-collaboration/server/journal.py:241-245` is `open("a")` + single-line JSON write — **no `flush()`, no `os.fsync()`**. Audit events may be lost on process crash between the `write()` call and the OS eventually flushing the page cache. The same applies to `append_outcome` (`:261-265`) and `append_delegation_outcome` (`:281-285`). Concrete consequence for this design: audit-event appends MUST NOT sit inside any critical section that gates worker wake or durable state transitions. An audit failure is survivable (log + continue); an operation-journal failure is not. This is why the transactional registry protocol (see §Transactional registry protocol) places `append_audit_event` AFTER `commit_signal`, not before.
 
 **OB-1 (Observation honesty):** Every durable field and audit event reflects only what the plugin locally observed. Transport-level observations use transport verbs (dispatched, succeeded, failed). Turn-level observations use turn verbs (completed, interrupted). The plugin does not claim semantic application of an operator decision by App Server, because it has no channel to verify that claim.
 
@@ -80,12 +82,12 @@ start(...)
                                                          announce_parked(job_id, rid)
   return escalation                                      block on rid ◄──── await
 decide(rid)
-  claim(rid, res) [CAS]
-  journal: intent                                        (still blocked)
-  signal(rid) ─────────► wake
+  token = reserve(rid, res) [CAS awaiting → reserved]
+  journal: intent (fsynced)                              (still blocked)
+  commit_signal(token) ─────────────► wake
   return decision_accepted                               update_status → running
-                                                         journal: dispatched
-                                                         respond()
+  audit: approve|deny (post-commit;                      journal: dispatched
+         best-effort, IO-5)                              respond()
                                                          record stores
                                                          journal: completed
                                                          discard(rid)
@@ -118,17 +120,35 @@ In-memory structure. The registry owns two independent coordination channels:
 class ResolutionRegistry:
     # Per-request resolution channel
     # request_id → RegistryEntry
-    # Entry states: "awaiting" (worker parked) | "consuming" (decide claim succeeded)
+    # Entry states: "awaiting" (worker parked) | "reserved" (reservation taken, pre-commit)
+    #               | "consuming" (reservation committed; wake signal sent)
     # threading.Lock guards entry state transitions
     # threading.Event per entry for worker's block-and-wake
 
     def register(self, request_id: str, job_id: str, timeout_seconds: int) -> None: ...
-    def claim(self, request_id: str, resolution: Resolution) -> bool: ...    # atomic CAS awaiting → consuming;
-                                                                             # returns False if not in "awaiting"
-    def signal(self, request_id: str) -> None: ...                           # fires the per-entry Event
-    def wait(self, request_id: str) -> Resolution: ...                       # worker blocks here post-register
-    def discard(self, request_id: str) -> None: ...                          # called after worker finalizes
-    # internal timer fires after timeout_seconds → claim() synthetic timeout resolution + signal()
+
+    # Two-phase reservation protocol. See §Transactional registry protocol.
+    def reserve(
+        self, request_id: str, resolution: Resolution,
+    ) -> ReservationToken | None: ...                # awaiting → reserved (atomic CAS)
+                                                     # Returns None if entry is not in "awaiting" state
+                                                     # (already reserved, consumed, or discarded)
+    def commit_signal(self, token: ReservationToken) -> None: ...
+                                                     # reserved → consuming + threading.Event.set()
+                                                     # Irreversible. Caller must have durably written
+                                                     # approval_resolution.intent before calling.
+    def abort_reservation(self, token: ReservationToken) -> None: ...
+                                                     # reserved → awaiting (idempotent on double-abort)
+                                                     # Safe only before the matching intent is durable.
+
+    def wait(self, request_id: str) -> Resolution: ...            # worker blocks here post-register
+    def discard(self, request_id: str) -> None: ...               # called after worker finalizes
+
+    # Timeout timer is registry-internal; it does ONLY in-memory state + signal,
+    # NEVER writes to the operation journal. Sequence:
+    #   self.reserve(rid, timeout_resolution) → token
+    #   self.commit_signal(token)             # wakes worker with synthetic timeout resolution
+    # The worker owns all timeout journal writes (intent/dispatched/completed) on its own thread.
 
     # Per-job capture-ready channel
     # job_id → CaptureReadyEvent (one-shot; created on start(), discarded after wait_for_parked resolves)
@@ -139,6 +159,8 @@ class ResolutionRegistry:
         self, job_id: str, timeout_seconds: float,
     ) -> ParkedCaptureResult: ...                                            # main blocks here in start()
 ```
+
+`ReservationToken` is an opaque handle returned by `reserve()` and consumed by exactly one subsequent `commit_signal` or `abort_reservation` call. It carries enough internal state (request_id, entry generation counter) to reject stale tokens — e.g., if the entry was discarded and re-registered between reserve and commit, the stale token's commit_signal becomes a no-op or raises. See §Transactional registry protocol for the full lifecycle.
 
 `ParkedCaptureResult` is a sum type:
 
@@ -164,7 +186,98 @@ ParkedCaptureResult = Parked | TurnCompletedWithoutCapture | WorkerFailed | Capt
 
 The registry is the sole cross-thread mutable state (IO-2). It uses a `threading.Lock` for the per-request CAS and `threading.Event`s for both the per-request wake and the per-job capture-ready signal. Entries are discarded entry-by-entry as each turn's resolution concludes; the registry itself lives for the plugin process.
 
-**Ordering guarantee (load-bearing for journal correctness).** The split of `publish` into `claim` + `signal` is deliberate: `decide()` must write `approval_resolution.intent` to the operation journal **before** calling `signal()`. The worker's journal writes (`dispatched`, `completed`) can only start after `signal()` wakes it. This preserves file-order monotonicity for the `approval_resolution` idempotency key (`intent → dispatched → completed`) — critical because `journal._terminal_phases` at `journal.py:345-349` builds its terminal-phase dict from `replay_jsonl` results in file order, and a late-arriving `intent` record would make a completed operation look unresolved under recovery.
+**Ordering guarantees — path-specific.** Journal file-order monotonicity for the `approval_resolution` idempotency key (`intent → dispatched → completed`) is load-bearing because `journal._terminal_phases` at `journal.py:345-349` builds its terminal-phase dict from `replay_jsonl` in file order; a late-arriving `intent` after `completed` would make a resolved operation look unresolved under recovery. The mechanism that preserves this invariant is path-specific:
+
+- **Operator decision path (decide):** main thread writes `approval_resolution.intent` **before** calling `commit_signal`. The worker, which writes `dispatched` and `completed`, cannot wake before `commit_signal` fires. Cross-thread ordering is enforced by the transactional protocol (below).
+- **Timeout path:** the timer signals the worker immediately after in-memory reservation; no journal write fires on the timer's thread. The worker, on wake, writes `approval_resolution.intent` (with `decision=None`) **first**, then `dispatched`, then `completed` — all on a single thread. File-order monotonicity is trivially preserved by sequential single-writer execution.
+
+This is a narrower rule than the previous "intent durable before signal" invariant and it is honest about the two paths' different ownership models.
+
+### Transactional registry protocol
+
+`decide()` must perform two durable side effects and one non-durable side effect in a specific order, with well-defined failure behavior between each step. The transactional protocol makes that structure explicit.
+
+**States and transitions:**
+
+```
+┌─────────────┐  reserve()   ┌──────────┐  commit_signal(token)  ┌───────────┐
+│  awaiting   │─────────────►│ reserved │───────────────────────►│ consuming │
+│ (worker     │              │ (decide  │                        │ (worker   │
+│  blocked)   │◄─────────────│  pre-    │                        │  waking)  │
+│             │  abort_      │  commit) │                        │           │
+└─────────────┘  reservation └──────────┘                        └───────────┘
+                  (token)
+```
+
+The terminal transition `reserved → consuming` is **irreversible** by contract. `reserved → awaiting` via `abort_reservation` is only safe *before* the caller has written any durable side effect tied to this reservation.
+
+**decide()'s use of the protocol:**
+
+```python
+def decide(job_id, request_id, decision, answers) -> DelegationDecisionResult:
+    # 1. Validate args (existing logic)
+    payload = build_response_payload(decision, answers, request)
+
+    # 2. Reserve (CAS awaiting → reserved). If None, caller already decided.
+    token = registry.reserve(request_id, Resolution(payload=payload, kind=request.kind))
+    if token is None:
+        return _reject(reason="request_already_decided", ...)
+
+    try:
+        # 3. Write durable intent. THIS is the authority-making step — on
+        # success, the operation is recoverable and MUST be committed.
+        journal.write_phase(OperationJournalEntry(
+            operation="approval_resolution", phase="intent",
+            decision=decision, job_id=job_id, request_id=request_id, ...,
+        ))
+    except BaseException:
+        # Intent never landed. Roll back the reservation so a retry or
+        # the timer can claim the slot. Re-raise to surface the error.
+        registry.abort_reservation(token)
+        raise
+
+    # 4. Commit + signal. Irreversible; worker wakes here.
+    registry.commit_signal(token)
+
+    # 5. Audit — post-commit, non-gating. Audit failure is logged as a
+    # warning but does NOT roll back the signal (per IO-5, audit is not
+    # durable enough to gate worker wake).
+    try:
+        journal.append_audit_event(AuditEvent(action=decision, ...))
+    except BaseException as exc:
+        logger.warning("Audit event append failed post-commit: %s", exc)
+
+    return DelegationDecisionResult(decision_accepted=True, job_id=job_id, request_id=request_id)
+```
+
+**Failure analysis per step:**
+
+| Failure between… | Outcome | Recovery |
+|---|---|---|
+| `reserve()` raises | No registry mutation; no journal writes | Caller sees the exception and can retry |
+| `reserve()` returns None | Slot already reserved/consumed by another call | Existing CAS semantics; reject with `request_already_decided` |
+| Journal `intent` raises | `abort_reservation(token)` restores `awaiting` before re-raise | Entry back in `awaiting`; timer or retry can claim |
+| Journal `intent` succeeds, `commit_signal` raises | Impossible by construction: `commit_signal` is a local `threading.Event.set()` + state mutation. If it raises, the plugin has a deeper bug — log and crash loudly rather than abort. | Plugin-critical failure; documented in the protocol |
+| `commit_signal` succeeds, audit raises | Logged warning; decide returns success | Audit gap is acceptable per IO-5 |
+
+**Reservation token and context manager.** To make the reserve/commit-or-abort pairing enforceable by reading decide()'s code, the registry exposes a context-manager variant that auto-aborts uncommitted reservations on exit:
+
+```python
+with registry.reservation(request_id, resolution) as token:
+    if token is None:
+        return _reject(reason="request_already_decided", ...)
+    journal.write_phase(...)
+    token.commit_signal()    # explicit; otherwise the with-block aborts on exit
+
+# If journal.write_phase raised, the with-block aborts the reservation on
+# context exit; commit_signal was never called.
+```
+
+Uncommitted `ReservationToken`s auto-abort when the context manager exits; explicit `.commit_signal()` promotes the token to consumed and suppresses auto-abort.
+
+**Why audit lives outside the transaction:** Per IO-5, `append_audit_event` is best-effort (no flush, no fsync). If audit were sequenced *before* `commit_signal`, an audit failure would force `abort_reservation` — but the intent record is already durable. Aborting would create a durable "ghost intent" (journal says operator decided; registry says entry is back in awaiting). Recovery would then see an orphan intent without a matching dispatched/completed, triggering the `recovered_unresolved` recovery path for an operation that was actually about to succeed. Moving audit post-commit eliminates this class of error. The consequence is that audit events may be lost on crash between `commit_signal` and the audit append — acceptable because recovery reconstructs the operator-decision record from the operation journal's `decision` field on the intent entry.
+
+**Intent durability is the authority boundary.** The invariant is: *once `approval_resolution.intent` is durable, the operation is committed regardless of what happens on the plugin side afterward.* The registry reservation is a coordination primitive (keeps the worker blocked until main is ready to wake it); the journal intent is the recovery authority. Rollback across the authority boundary would violate this invariant.
 
 ### Capture-ready handshake (start() control flow)
 
@@ -183,7 +296,7 @@ The registry is the sole cross-thread mutable state (IO-2). It uses a `threading
 6. resolution = registry.wait(rid)                    # blocks until decide() or timer
 ```
 
-**Ordering rationale.** Steps 1–3 are durable-first: by the time step 5 fires, any `poll(job_id)` the caller issues returns the parked escalation consistently. Step 4 **must** precede step 5 because the handshake signal can wake the main thread arbitrarily fast; if the main thread observes `Parked` and immediately calls `decide()`, `claim(rid)` must find the per-request entry already in `awaiting`. A reversed order (`announce_parked` before `register`) creates a race where `decide()` arrives before the worker has established the entry the claim looks up.
+**Ordering rationale.** Steps 1–3 are durable-first: by the time step 5 fires, any `poll(job_id)` the caller issues returns the parked escalation consistently. Step 4 **must** precede step 5 because the handshake signal can wake the main thread arbitrarily fast; if the main thread observes `Parked` and immediately calls `decide()`, `reserve(rid)` must find the per-request entry already in `awaiting`. A reversed order (`announce_parked` before `register`) creates a race where `decide()` arrives before the worker has established the entry the reservation looks up.
 
 **Worker sequence on turn-completion-without-capture (Codex finished its objective without needing approval):**
 
@@ -291,14 +404,19 @@ start(args)
                                                               messages in queue during block
 
 decide(rid)
-  validate args
-  ok = registry.claim(rid, res)   ──► CAS awaiting → consuming (atomic; no signal yet)
-  if not ok: reject as request_already_decided
-  journal.write_phase: approval_resolution.intent     # durable BEFORE signal
-  journal.append_audit_event: approve | deny
-  registry.signal(rid)             ─── fires event ───►  wake
+  validate args; build payload
+  token = registry.reserve(rid, res)   ──► CAS awaiting → reserved (atomic; no signal yet)
+  if token is None: reject as request_already_decided
+  try:
+      journal.write_phase: approval_resolution.intent   # durable BEFORE commit_signal (IO-4 fsync)
+  except:
+      registry.abort_reservation(token) ──► reserved → awaiting
+      raise
+  registry.commit_signal(token)        ──► reserved → consuming + signal ─► wake
   return DelegationDecisionResult(decision_accepted=True,
                                    job_id=job_id, request_id=rid)
+  # Post-commit, non-gating — audit failure logged as warning only (IO-5):
+  journal.append_audit_event: approve | deny
                                                                job_store._persist_job_transition(running)
                                                                journal.write_phase: approval_resolution.dispatched
                                                                session.respond(rid, payload)
@@ -326,23 +444,31 @@ decide(rid)
 **Ordering invariants visible in the diagram:**
 
 1. **Capture-ready before escalation return.** `start()` does not return an escalation until the worker's `announce_parked` signal arrives. All durable state (`pending_request_store.create`, `job_store.update_parked_request`, `job.status = needs_escalation`) is written before the signal, so `start()`'s re-read sees a consistent snapshot.
-2. **Per-request entry registered before capture-ready signal.** The worker calls `registry.register(rid)` before `registry.announce_parked(job_id, rid)`. A pathologically fast `decide()` from the main thread (observing `Parked` and immediately calling `decide()`) can never reach `claim(rid)` before the per-request entry exists.
-3. **Journal `intent` durable before registry `signal`.** `decide()` writes `approval_resolution.intent` to the operation journal before calling `registry.signal(rid)`. The worker, which writes `dispatched` and `completed`, cannot wake before `signal()` fires — preserving file-order monotonicity of the `approval_resolution` idempotency key.
+2. **Per-request entry registered before capture-ready signal.** The worker calls `registry.register(rid)` before `registry.announce_parked(job_id, rid)`. A pathologically fast `decide()` from the main thread (observing `Parked` and immediately calling `decide()`) can never reach `reserve(rid)` before the per-request entry exists.
+3. **Journal `intent` durable before registry `commit_signal`.** `decide()` writes `approval_resolution.intent` to the operation journal (fsynced per IO-4) before calling `registry.commit_signal(token)`. The worker, which writes `dispatched` and `completed`, cannot wake before `commit_signal` fires — preserving file-order monotonicity of the `approval_resolution` idempotency key.
+4. **Audit append is post-commit.** `journal.append_audit_event` fires after `commit_signal` returns and after decide() has already constructed its return value. Audit failure is a logged warning (IO-5: audit is not fsynced and cannot gate worker wake); it never rolls back the commit. This placement eliminates the "ghost intent" failure mode that would arise if audit sat inside the pre-signal critical section (see §Transactional registry protocol).
 
 ### Timeout path (cancel-capable kind)
 
 ```
 MAIN                          REGISTRY                        WORKER
 ────                          ────────                        ──────
-                              [no decide() arrives]
+                              [no decide() arrives within
+                               APPROVAL_OPERATOR_WINDOW_SECONDS]
                               internal timer fires
-                              registry.claim(rid, timeout_resolution)   # CAS awaiting → consuming
-                              journal.write_phase (from timer fn, still
-                                  main-thread scope):
-                                  approval_resolution.intent (decision=None)
-                              registry.signal(rid) ─────► wake
+                              token = reserve(rid, timeout_resolution)
+                                      # awaiting → reserved (in-memory only)
+                              commit_signal(token)
+                                      # reserved → consuming + event fires ─► wake
+                              [timer thread writes NOTHING to the
+                               operation journal — registry stays pure]
+                                                               # Worker now owns every journal write
+                                                               # for this idempotency key.
+                                                               journal.write_phase: approval_resolution.intent
+                                                                   (decision=None)           # first write
                                                                job_store._persist_job_transition(running)
                                                                journal.write_phase: approval_resolution.dispatched
+                                                                   (decision=None)
                                                                session.respond(rid, {"decision": "cancel"})
                                                                store.record_timeout(rid,
                                                                    response_payload={"decision": "cancel"},
@@ -353,23 +479,28 @@ MAIN                          REGISTRY                        WORKER
                                                                job_store.update_parked_request(job_id, None)
                                                                journal.write_phase: approval_resolution.completed
                                                                    (completion_origin="completed_normally")
+                                                               # Audit is best-effort (IO-5);
+                                                               # logged as warning if it fails.
                                                                audit: action="approval_timeout"
                                                                registry.discard(rid)
                                                                handler returns None
                                                               loop continues
 ```
 
-### Timeout path (non-cancel-capable kind: request_user_input, unknown)
+### Timeout path (non-cancel-capable kind: request_user_input)
+
+(`kind="unknown"` is not eligible for timeout because it never parks — see §Unknown-kind contract.)
 
 ```
-REGISTRY (timer fn on plugin main thread):
-  registry.claim(rid, timeout_resolution)    # CAS awaiting → consuming
-  journal.write_phase: approval_resolution.intent (decision=None)
-  registry.signal(rid) ─────► wake
+REGISTRY (timer thread):
+  token = reserve(rid, timeout_resolution)   # awaiting → reserved
+  commit_signal(token)                        # reserved → consuming + signal ─► wake
+  [no journal writes on timer thread]
 
 WORKER on synthetic timeout wake:
+  journal.write_phase: approval_resolution.intent (decision=None)   # first write
   job_store._persist_job_transition(running)
-  journal.write_phase: approval_resolution.dispatched
+  journal.write_phase: approval_resolution.dispatched (decision=None)
   session.interrupt_turn(thread_id, turn_id)            # no respond(); no payload dispatched
   store.record_timeout(rid,
       response_payload=None,
@@ -380,6 +511,7 @@ WORKER on synthetic timeout wake:
   job_store.update_parked_request(job_id, None)
   journal.write_phase: approval_resolution.completed
       (completion_origin="completed_normally")
+  # Audit is best-effort (IO-5); logged as warning if it fails.
   audit: action="approval_timeout"
   registry.discard(rid)
   handler returns None
@@ -387,7 +519,9 @@ WORKER on synthetic timeout wake:
 
 **Why `record_timeout` instead of `record_response_dispatch` + `update_status`.** The earlier `record_response_dispatch(action=Literal["approve", "deny"], ...)` signature cannot represent a timeout — there is no operator `action`, and writing `resolution_action` to any non-None value would conflate operator-fact with circumstance-fact (Q7 invariant from the brainstorm). `record_timeout` is a dedicated mutator that **atomically** sets `timed_out=True`, `status="canceled"`, and the optional dispatch fields (None-tuple for the interrupt path; populated for the cancel-dispatch path). A separate `update_status` call would split the timed_out/status transition across two journal records, introducing a replay window where `timed_out=True` and `status="pending"` could be briefly observed — inconsistent with the atomicity the mutator contract guarantees.
 
-**Timer ownership note.** The registry's internal timeout timer runs on a scheduler thread (plugin main scope, not the worker). It performs the `claim` + `intent` write + `signal` sequence using the same ordering guarantee as real `decide()`: intent durable before signal. The `decision` field on the intent record is `None` for timeouts (`OperationJournalEntry.decision` is already optional per `journal.py:54-60` — no schema change required). The human-readable discriminator for "this resolution came from a timeout" is the `action="approval_timeout"` audit event the worker writes after dispatch, plus the `PendingServerRequest.timed_out=True` durable marker. Recovery does not need to re-discriminate decide-vs-timeout from the operation journal alone; `approval_resolution.completed` is terminal regardless of origin.
+**Timer ownership note (Packet 1 model).** The registry's internal timeout timer is a `threading.Timer` owned by each `RegistryEntry`. It performs ONLY in-memory state changes and the wake signal: `reserve(rid, timeout_resolution)` → `commit_signal(token)`. It does not write to the operation journal, the pending request store, the delegation job store, or the audit log. This keeps the registry a pure coordination primitive (IO-2) and avoids introducing a third journal writer beyond main and worker. All durable effects for a timeout — `approval_resolution.intent`, `dispatched`, `completed`, `record_timeout`, `update_parked_request`, audit — happen on the worker thread after wake, in single-writer sequence. File-order monotonicity of the `approval_resolution` idempotency key is therefore preserved trivially, without cross-thread coordination.
+
+**Why cross-thread "intent durable before signal" does not apply here.** In the decide path, main writes `intent` and worker writes `dispatched/completed` — two threads must coordinate so `intent` lands first. In the timeout path, the timer writes nothing to the journal; the worker writes the entire `intent → dispatched → completed` sequence on a single thread. There is no cross-thread race to protect. The narrower invariant ("intent durable before the next-phase record for the same idempotency key") is preserved by local sequencing. The `decision=None` on timeout intent/dispatched records is the human-readable discriminator for "this record came from a timer, not an operator decide" — combined with the `PendingServerRequest.timed_out=True` marker and the `action="approval_timeout"` audit event (best-effort, IO-5).
 
 ### Worker-death path (exception during parked section)
 
@@ -403,7 +537,7 @@ WORKER raises during park or post-wake:
   re-raises
 
 MAIN (later decide call):
-  registry.claim(rid, ...) → False (no entry; worker discarded it during cleanup)
+  registry.reserve(rid, ...) → None (no entry; worker discarded it during cleanup)
   fall through to job state validation
   job.status == "unknown" → reject via job_not_awaiting_decision
 ```
@@ -576,12 +710,14 @@ All five previous fields are removed. The caller observes live state via `poll()
 
 - Returns after, in strict order:
   1. Validating args (existing logic at `delegation_controller.py:1620-1649`).
-  2. `registry.claim(request_id, resolution)` — atomic CAS `awaiting → consuming`. If `False`, reject with `request_already_decided` and return without any further side effects.
-  3. Writing `approval_resolution.intent` to the operation journal (existing write at `delegation_controller.py:1666-1679`; kept).
-  4. Appending `approve` / `deny` audit event (existing at `:1680-1692`; kept).
-  5. `registry.signal(request_id)` — fires the per-entry event, waking the worker.
+  2. `registry.reserve(request_id, resolution)` — atomic CAS `awaiting → reserved`. If None, reject with `request_already_decided` and return without any further side effects.
+  3. Writing `approval_resolution.intent` to the operation journal (existing write at `delegation_controller.py:1666-1679`; kept). If this raises, `abort_reservation(token)` restores `awaiting` and the exception re-raises to the caller.
+  4. `registry.commit_signal(token)` — fires the per-entry event and transitions `reserved → consuming`. Irreversible.
+  5. Appending `approve` / `deny` audit event via `journal.append_audit_event` (existing at `:1680-1692`; kept). **Post-commit, non-gating:** audit failure is logged as a warning and does not affect the return value. Audit is best-effort per IO-5.
 
-- **Ordering rationale.** The claim/signal split exists so that `approval_resolution.intent` is durable before the worker can wake. Under the previous single-`publish(...)` shape, `publish` both captured the slot and woke the worker, so the worker could race ahead and append `approval_resolution.dispatched` (and even `completed`) to the journal before `decide()` appended `intent`. `journal._terminal_phases` at `journal.py:345-349` builds its last-phase-per-key dict from replay in file order, so an `intent` record arriving after `completed` would make a completed operation look unresolved. The split makes the ordering guarantee explicit and mechanical: step 5 cannot happen until step 3 has returned.
+- **Ordering rationale.** Step 3 (durable journal intent) must precede step 4 (worker wake) because the worker will immediately write `dispatched` and `completed` after wake; a late-arriving `intent` would violate file-order monotonicity of the `approval_resolution` idempotency key (see §Resolution registry → Ordering guarantees). Step 5 (audit) lives outside the critical section because IO-5 makes audit non-durable; gating the worker wake on a non-durable write would introduce a "ghost intent" failure mode under crash (see §Transactional registry protocol → "Why audit lives outside the transaction").
+
+- **Failure recovery semantics:** the reservation is rollback-safe up to and including a raised journal-intent write. After journal-intent durably lands, the operation is committed from the authority perspective; `commit_signal` must succeed (it is a local state mutation + `threading.Event.set()`; failure is a plugin-critical bug rather than a recoverable error).
 
 - The `approval_resolution.dispatched` write at `:1693-1708` **moves to the worker thread** — `decide()` no longer writes it.
 
@@ -621,9 +757,43 @@ The `request_user_input` request kind has no App Server-native `{"decision": ...
 
 The `PendingServerRequest` record after a `deny` on `request_user_input` still sets `resolution_action="deny"` (operator-fact) and `response_payload={"answers": {}}` (transport-fact). Audit queries distinguish "operator denied" from "operator approved with empty answers" via `resolution_action`, which `response_payload` alone cannot disambiguate.
 
-**Payload construction happens on the main thread** (inside `decide()` before `registry.claim(...)`) — not on the worker. Rationale: validation lives in `decide()` anyway (`delegation_controller.py:1620-1649` validates `answers` for `request_user_input`); constructing the payload adjacent to validation keeps the error surface narrow. The worker receives a fully-formed payload in the `Resolution` object and dispatches it via `session.respond(...)` without further shaping.
+**Payload construction happens on the main thread** (inside `decide()` before `registry.reserve(...)`) — not on the worker. Rationale: validation lives in `decide()` anyway (`delegation_controller.py:1620-1649` validates `answers` for `request_user_input`); constructing the payload adjacent to validation keeps the error surface narrow. The worker receives a fully-formed payload in the `Resolution` object and dispatches it via `session.respond(...)` without further shaping.
 
-**Unknown / stale kinds:** If a request's `kind` is not one of the four known literals (`command_approval`, `file_change`, `request_user_input`, or the `unknown` carve-out at `:690-695`), `decide()` rejects with the existing `request_not_found` / `request_job_mismatch` reasons at validation time — no new rejection reason needed for unmapped kinds, because kind is set at capture and already validated against the handler's known set.
+**`kind="unknown"` is not in the mapping table.** Unknown-kind requests never reach the decide flow in Packet 1 — they are captured for audit, interrupt the turn, and terminalize the job. See §Unknown-kind contract (explicit behavior change) for the full rationale and the specific rejection reason `decide()` returns if a caller tries anyway.
+
+### Unknown-kind contract (explicit behavior change from current code)
+
+**Current behavior (pre-Packet 1, what Packet 1 replaces):** The D4 carve-out at `delegation_controller.py:671-688` creates a minimal `PendingServerRequest` with `kind="unknown"` when server-request parsing fails. The post-turn path at `:1473-1478` routes `interrupted_by_unknown = True` to `final_status = "needs_escalation"`. The branch at `:1482-1510` emits an `escalate` audit event and returns a `DelegationEscalation` with the unknown request projected as a caller-visible pending escalation. The operator is then expected to call `decide()` on a request the plugin could not even parse.
+
+**Why this is a problem under Packet 1's model:** deferred approval assumes the plugin can construct a meaningful App Server response payload on the worker's behalf. Packet 1's §Response payload mapping table (approve → `{"decision": "accept"}`, etc.) requires a known request kind. For `kind="unknown"`, the plugin has no parseable `itemId`, `threadId`, or `commandActions` — nothing to respond to. Even if the operator said "approve," the worker would have nothing to dispatch.
+
+**Packet 1 behavior (explicit change):**
+
+| Step | Current | Packet 1 |
+|---|---|---|
+| Parse failure in handler | Create `PendingServerRequest(kind="unknown")` for audit | Same — preserve audit trail |
+| Turn behavior | Handler calls `interrupt_turn` (at `:690-695`); flags `interrupted_by_unknown` | Same — still interrupts |
+| Job status derivation | `final_status = "needs_escalation"` (at `:1473`) | `final_status = "unknown"` (terminal) |
+| Caller-visible | `DelegationEscalation` with pending_escalation projection (at `:1504-1510`) | Plain `DelegationJob` with `status="unknown"`, plus a `DelegationOutcomeRecord` documenting the parse failure |
+| Registry | Request registered, worker parks, escalation surfaces | Request NEVER registered, NEVER parked, NEVER announce_parked-ed |
+| `decide()` on this request | Proceeds as if the operator can decide | Rejects with `job_not_awaiting_decision` (job is terminal, not awaiting) |
+| Timeout diagrams | (timeout path applies) | N/A — no parked state |
+
+**Rationale for rejection reason:** the request *does* exist in the pending request store (parse-failure record was created for audit), but the JOB is terminal (`unknown`). `request_not_found` is wrong because the request is persisted. `request_job_mismatch` is wrong because the request and job correlate correctly. `job_not_awaiting_decision` is correct: the job is not in `needs_escalation`, so no decision applies.
+
+**Callsite change summary:**
+
+- `delegation_controller.py:1473` — change `if captured_request.kind in _CANCEL_CAPABLE_KINDS or interrupted_by_unknown:` to match only `_CANCEL_CAPABLE_KINDS`; handle `interrupted_by_unknown` on a separate branch that routes to `final_status = "unknown"`.
+- `delegation_controller.py:1482-1510` — the `if final_status == "needs_escalation":` branch must not fire for unknown-kind terminations. Instead, the `interrupted_by_unknown` path flows to the non-escalation return at `:1512-1517` (`_emit_terminal_outcome_if_needed`, release runtime, close session, return the `unknown`-terminal job).
+- `delegation_controller.py` worker path — the new worker sequence (Packet 1) should not call `registry.register` or `registry.announce_parked` when the captured request has `kind="unknown"`. Instead it signals `announce_worker_failed(job_id, UnknownKindParseFailure(...))` or a dedicated `announce_turn_completed_empty(job_id)` with an attached diagnostic — pending the concrete implementation detail.
+- Recovery code at `:2036-2038` already demotes `needs_escalation` jobs to `unknown` on restart; under Packet 1 these jobs never reach `needs_escalation` in the first place, so recovery treats them as already-terminal.
+
+**Operator-facing effect:** under Packet 1, a parse-failed request surfaces to the operator as "delegation failed" (job terminal, status=`unknown`, `DelegationOutcomeRecord` with failure context), not as "please approve or deny this action." This is strictly more honest — the plugin cannot render the action in the first place, so asking the operator to decide on it is misleading.
+
+**Tests to add:**
+
+- Integration: server-request parse failure → turn interrupted → job terminalized as `unknown` → no escalation surfaces → `decide()` on the persisted-for-audit request rejects with `job_not_awaiting_decision`.
+- Regression: the prior `interrupted_by_unknown → escalation` path is intentionally removed; test that it no longer fires.
 
 ### Rejection reasons (unchanged)
 
@@ -644,6 +814,37 @@ No additions needed.
 - `job.status` transitions (`needs_escalation → running → completed | failed | unknown`)
 - `PendingEscalationView` (updated for the current parked request, if any)
 - Later inspection surfaces for `PendingServerRequest.dispatch_result`, `resolved_at`, `protocol_echo_*` (not added to `PendingEscalationView` — see §Observability)
+
+### The consuming window — honest poll semantics
+
+Between `decide()`'s return and the worker's `job_store._persist_job_transition("running")` call, there is a transient window where `poll()` can legitimately observe:
+
+- `job.status == "needs_escalation"` (worker has not yet transitioned)
+- `job.parked_request_id == <rid>` (not yet cleared)
+- `_project_pending_escalation` returning a `PendingEscalationView` for the decided request
+
+This is NOT a bug and is NOT eliminated by any achievable synchronization short of blocking `decide()` until the worker wakes — which would recreate the synchronous-return failure that motivates Packet 1. Packet 1 accepts the window and documents it honestly.
+
+**Properties of the consuming window:**
+
+| Property | Value |
+|---|---|
+| Opens when | `decide()` returns `decision_accepted=True` |
+| Closes when | Worker completes `job_store._persist_job_transition("running")` |
+| Typical duration | Microseconds to low milliseconds — bounded by worker wake + one store write |
+| What `poll()` shows inside the window | Same `PendingEscalationView` as before `decide()` returned |
+| Risk | Caller that immediately polls after `decide()` may re-render the "awaiting approval" UI briefly, or (worse) call `decide()` again — the second call would return `request_already_decided` via the reservation CAS, which is safe but observable |
+| Mitigation on caller side | Trust `decide()`'s `decision_accepted=True` as the authoritative "operator answer received"; use `poll()` for eventual state, not immediate re-verification |
+
+**What the caller SHOULD do in the consuming window:** treat `decide()`'s successful return as the authoritative record that the decision has been accepted for dispatch. If the UI needs to reflect "decision accepted, dispatch pending," derive that state locally from the fact that `decide()` returned `decision_accepted=True`, not from an immediate `poll()`. Once the caller polls again (milliseconds later, or on the next user-driven poll), the window has closed and `job.status == "running"` or later.
+
+**What the caller MUST NOT do:** assume that `poll()` immediately after `decide()` reflects the post-dispatch state. The spec's four-tier observability taxonomy (see §Observability) applies: transport-write outcome comes via store fields written post-dispatch; turn-terminal status comes via `job.status`; both trail `decide()`'s return by a bounded but nonzero delay.
+
+**Honesty about alternatives (rejected):**
+
+- *Block `decide()` until worker wakes.* Rejected — recreates the failure mode Packet 1 exists to fix. The whole point is that `decide()` returns while the worker proceeds asynchronously.
+- *Have `decide()` write `status="running"` before returning.* Rejected — it would be honest about the registry state (reservation committed) but dishonest about the worker's progress (nothing has been dispatched yet). Worse, if the worker then fails, the job's recorded status lies about the sequence of events.
+- *Add a `status="consuming"` intermediate JobStatus literal.* Rejected for Packet 1 scope — adds a new enum value for a window the caller can derive from `decide()`'s return anyway. Reconsider if downstream consumers turn out to need explicit persistence of this state.
 
 ### `_project_pending_escalation` rewrite
 
@@ -785,11 +986,45 @@ A future inspection surface (not Packet 1) may expose these fields.
 
 `completion_origin="recovered_unresolved"` is the durable honesty about crash-abandoned rows. Downstream consumers that interpreted `phase="completed"` as "operation succeeded" were already wrong (because the current code blind-closes rows even before this spec); the new field gives them a correct signal to distinguish.
 
+### Journal validator relaxation (REQUIRED schema change)
+
+The journal validator at `packages/plugins/codex-collaboration/server/journal.py:124-136` (intent) and `:137-157` (dispatched) currently enforces `isinstance(record.get("decision"), str)` — i.e., `decision` is required to be a non-None string for any `approval_resolution` record. Under the current codebase, every write passes `decision=DecisionAction` literal so this holds.
+
+Packet 1 introduces timeout `approval_resolution.intent` and `dispatched` records with `decision=None` (non-operator origin). The validator must relax the `decision` check on those two branches to:
+
+```python
+elif op == "approval_resolution" and phase == "intent":
+    ...  # job_id (string), request_id (string) still required
+    decision = record.get("decision")
+    if decision is not None and not isinstance(decision, str):
+        raise SchemaViolation(
+            "approval_resolution at intent requires decision to be a string or None"
+        )
+
+elif op == "approval_resolution" and phase == "dispatched":
+    ...  # job_id, request_id, runtime_id, codex_thread_id (strings) still required
+    decision = record.get("decision")
+    if decision is not None and not isinstance(decision, str):
+        raise SchemaViolation(
+            "approval_resolution at dispatched requires decision to be a string or None"
+        )
+```
+
+**Scope of the relaxation — narrow by intent:**
+
+- `decision=None` is permitted on `approval_resolution.intent` and `.dispatched` ONLY — no other operation.
+- `decision=None` semantically means "non-operator-origin resolution" (today: timeout; future packets may add other non-operator origins).
+- `DecisionAction` at `models.py:34` stays `Literal["approve", "deny"]` — the operator-decision vocabulary is NOT widened. `decision=None` is a journal-level representation, not a new operator decision.
+- Readers that interpret `decision` must handle None explicitly; treating it as a missing required field (as today) would reject valid records post-migration.
+
+**Test updates:** existing `test_journal.py` assertions that `approval_resolution intent requires decision (string)` must be amended to allow None. Recovery code at `delegation_controller.py:1856-1884` must also accept None when reading journal intent records.
+
 ### What does NOT change
 
 - Phase enum (`intent/dispatched/completed`) is untouched.
-- Operation enum (`_VALID_OPERATIONS`) is untouched — `approval_resolution` already present.
+- Operation enum (`_VALID_OPERATIONS`) is untouched — `approval_resolution` already present; no new `approval_timeout` operation introduced.
 - `_phase_rank` helper unchanged.
+- `DecisionAction` literal at `models.py:34` stays `approve | deny`.
 
 ## Timeout Policy
 
@@ -880,7 +1115,7 @@ PendingServerRequest after timeout interrupt:
 **End-to-end tests (MCP boundary):**
 - Full deferred-approval flow: MCP `codex.delegate.start` → capture → park → MCP `codex.delegate.poll` returns escalation → MCP `codex.delegate.decide` → dispatch → turn completes → final poll returns completion
 - Duplicate decide: second call returns `request_already_decided`
-- Poll during consuming window: status already `running`; pending_escalation not surfaced
+- Poll during consuming window: MAY transiently show pending_escalation; once worker completes `status→running` transition, subsequent polls no longer surface the escalation. Test asserts the eventual state, not immediate absence.
 - Cold-start recovery: plugin restart mid-park → orphan demotion → late decide rejects
 
 **Concurrency property tests:**
