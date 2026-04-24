@@ -163,7 +163,11 @@ class ResolutionRegistry:
 
     # Timeout timer is registry-internal; it does ONLY in-memory state + signal,
     # NEVER writes to the operation journal. Sequence:
-    #   self.reserve(rid, timeout_resolution) → token
+    #   token = self.reserve(rid, timeout_resolution)
+    #   if token is None:
+    #       return                            # entry no longer awaiting (decided/aborted/discarded);
+    #                                         # late timer is a no-op — no store, journal, audit,
+    #                                         # wake, or session side effect. See Stale timer contract.
     #   self.commit_signal(token)             # wakes worker with synthetic timeout resolution
     # The worker owns all timeout journal writes (intent/dispatched/completed) on its own thread.
 
@@ -345,7 +349,7 @@ Uncommitted `ReservationToken`s auto-abort when the context manager exits; expli
 Some plugin-invariant violations are discovered by the main thread *after* the worker has already parked. Two paths surface them in Packet 1:
 
 - `start()` receives a `Parked` signal from `wait_for_parked`, but the subsequent escalation projection cannot be constructed (e.g., the refreshed job's projection returns `None` despite `Parked` having fired — see §Capture-ready handshake `Parked` case).
-- `poll()` (or `decide()`) tries to project a pending request into `PendingEscalationView` and the request's `kind` is not in `EscalatableRequestKind` (e.g., a `kind="unknown"` record from a pre-Packet-1 JSONL replay — see §Projection helper rewrites).
+- `poll()` tries to project a pending request into `PendingEscalationView` and the request's `kind` is not in `EscalatableRequestKind` (e.g., a `kind="unknown"` record from a pre-Packet-1 JSONL replay — see §Projection helper rewrites). In Packet 1 `decide()` no longer returns a projected view (see §DelegationDecisionResult — new shape), so the abort trigger surfaces only on the `poll()` path; the registry-level signal stays available for any future packet that reintroduces a projection callsite.
 
 In both cases the main thread **cannot** call `_mark_execution_unknown_and_cleanup` directly: that helper closes the worker-owned session and writes worker-owned store records, which would violate IO-1 (session ownership) and IO-3 (single-writer-per-store). Cleanup must be worker-owned. The registry supplies a dedicated signal for this class of failure.
 
@@ -356,9 +360,10 @@ class ResolutionRegistry:
         """Signal the parked worker to abort this request with the given reason.
 
         Atomic under the registry lock:
-          awaiting → aborted    (wakes the worker with InternalAbort(reason))
-          reserved | consuming  → no-op, returns False (operator path already owns it)
-          discarded | unknown   → no-op, returns False
+          awaiting               → aborted  (wakes worker with InternalAbort(reason); returns True)
+          reserved | consuming   → no-op,   returns False (operator path already owns it)
+          aborted                → no-op,   returns False (abort already signaled)
+          missing / no entry     → no-op,   returns False (never registered, or already discarded)
 
         Idempotent on repeated calls for the same request_id (second call is a no-op).
         Caller writes NO journal entry — internal abort is an in-memory coordination
@@ -728,7 +733,10 @@ MAIN                          REGISTRY                        WORKER
                                APPROVAL_OPERATOR_WINDOW_SECONDS]
                               internal timer fires
                               token = reserve(rid, timeout_resolution)
-                                      # awaiting → reserved (in-memory only)
+                                      # awaiting → reserved (in-memory only);
+                                      # returns None if entry left awaiting
+                              if token is None:
+                                  return       # stale timer: no side effects at all
                               commit_signal(token)
                                       # reserved → consuming + event fires ─► wake
                               [timer thread writes NOTHING to the
@@ -793,7 +801,8 @@ MAIN                          REGISTRY                        WORKER
 
 ```
 REGISTRY (timer thread):
-  token = reserve(rid, timeout_resolution)   # awaiting → reserved
+  token = reserve(rid, timeout_resolution)   # awaiting → reserved; None if entry is not awaiting
+  if token is None: return                    # stale timer: no store, journal, audit, wake, or session side effect
   commit_signal(token)                        # reserved → consuming + signal ─► wake
   [no journal writes on timer thread]
 
@@ -820,7 +829,7 @@ WORKER on synthetic timeout wake:
 
 **Why `record_timeout` instead of `record_response_dispatch` + `update_status`.** The `record_response_dispatch(action=Literal["approve", "deny"], ...)` signature cannot represent a timeout — there is no operator `action`, and writing `resolution_action` to any non-None value would conflate operator-fact with circumstance-fact (Q7 invariant from the brainstorm). `record_timeout` is a dedicated mutator that **atomically** sets `timed_out=True`, `status="canceled"`, and the optional dispatch fields (None-tuple for the interrupt path; populated for the cancel-dispatch path). A separate `update_status` call would split the timed_out/status transition across two journal records, introducing a replay window where `timed_out=True` and `status="pending"` could be briefly observed — inconsistent with the atomicity the mutator contract guarantees.
 
-**Timer ownership note (Packet 1 model).** The registry's internal timeout timer is a `threading.Timer` owned by each `RegistryEntry`. It performs ONLY in-memory state changes and the wake signal: `reserve(rid, timeout_resolution)` → `commit_signal(token)`. It does not write to the operation journal, the pending request store, the delegation job store, or the audit log. This keeps the registry a pure coordination primitive (IO-2) and avoids introducing a third journal writer beyond main and worker. All durable effects for a timeout — `approval_resolution.intent`, `dispatched`, `completed`, `record_timeout`, `update_parked_request`, audit — happen on the worker thread after wake, in single-writer sequence. File-order monotonicity of the `approval_resolution` idempotency key is therefore preserved trivially, without cross-thread coordination.
+**Timer ownership note (Packet 1 model).** The registry's internal timeout timer is a `threading.Timer` owned by each `RegistryEntry`. It performs ONLY in-memory state changes and the wake signal: `token = reserve(rid, timeout_resolution); if token is None: return; commit_signal(token)`. The `None` early-return is the stale-timer path documented below. It does not write to the operation journal, the pending request store, the delegation job store, or the audit log. This keeps the registry a pure coordination primitive (IO-2) and avoids introducing a third journal writer beyond main and worker. All durable effects for a timeout — `approval_resolution.intent`, `dispatched`, `completed`, `record_timeout`, `update_parked_request`, audit — happen on the worker thread after wake, in single-writer sequence. File-order monotonicity of the `approval_resolution` idempotency key is therefore preserved trivially, without cross-thread coordination.
 
 **Stale timer contract.** The timer callback calls `reserve(rid, timeout_resolution)` and returns immediately if it receives `None`; for entries already in `aborted`, `consuming`, or `discarded`, the timer performs no store, journal, audit, registry wake, or session side effect. This is the mechanism that prevents a late-firing timer from racing with a concluding abort or decide path — the existing CAS-reject rule in `reserve()` is the sole coordination primitive, and no explicit timer-cancellation is required on `signal_internal_abort` or `commit_signal`. The harmless wake is the cost of reusing one coordination primitive for three races (decide-vs-timer, abort-vs-timer, abort-vs-decide).
 
@@ -986,7 +995,7 @@ class PendingEscalationView:
 
 `PendingRequestKind` at `models.py:16-18` stays unchanged — `"unknown"` is still a valid *persisted* request kind in `PendingRequestStore` (where it records parse-failure audit trails). The split encodes the semantic distinction the Packet 1 behavior requires: `"unknown"` is a persisted request kind but NOT an escalatable request kind.
 
-The narrowing is enforced at the **constructor boundary** — `_project_request_to_view` raises `UnknownKindInEscalationProjection` if `request.kind` is not in the escalatable set. This catches every path that builds a `PendingEscalationView`, including `decide()`'s direct projection callsite at `controller:1691-1697`; it does not rely on callers remembering to go through `_project_pending_escalation`. See §Projection helper rewrites for the full guard pseudocode and per-callsite recovery semantics. Type-level enforcement via `EscalatableRequestKind` catches most violations at mypy time; the runtime assertion is a belt-and-suspenders check for callsites that bypass the type system (e.g., `dict[str, Any]`-shaped constructor inputs from JSONL replay paths).
+The narrowing is enforced at the **constructor boundary** — `_project_request_to_view` raises `UnknownKindInEscalationProjection` if `request.kind` is not in the escalatable set. This catches every Packet 1 path that constructs a `PendingEscalationView` — `_project_pending_escalation` (called by `poll()` and by `start()`'s escalation-return branch), plus any future caller that routes through `_project_request_to_view` — without relying on callers to remember the guard. In Packet 1, `decide()` returns the new 3-field `DelegationDecisionResult` and has no projection callsite of its own; placing the runtime check at the constructor means a later packet that re-introduces projection in `decide()` (or anywhere else) inherits the guard by construction. See §Projection helper rewrites for the full guard pseudocode and per-callsite recovery semantics. Type-level enforcement via `EscalatableRequestKind` catches most violations at mypy time; the runtime assertion is a belt-and-suspenders check for callsites that bypass the type system (e.g., `dict[str, Any]`-shaped constructor inputs from JSONL replay paths).
 
 `contracts.md:332` tightens its `kind` enum to match the three-literal list — see §contracts.md updates.
 
@@ -1115,7 +1124,7 @@ Thin delegation to `JsonRpcClient.respond` at `jsonrpc_client.py:106-130`. Expos
 
 Each store's `_replay()` method extends with branches for new op types. Existing pattern at `pending_request_store.py:77-137`:
 
-- `record_response_dispatch` → set the four dispatch fields on the existing record
+- `record_response_dispatch` → set `resolution_action`, `response_payload`, `response_dispatch_at`, `dispatch_result="succeeded"`
 - `mark_resolved` → set `status="resolved"` and `resolved_at`
 - `record_protocol_echo` → set `protocol_echo_signals`, `protocol_echo_observed_at`
 - `record_timeout` → set `timed_out=True`, dispatch fields if provided (`response_payload`, `response_dispatch_at`, `dispatch_result`, `dispatch_error`), `status="canceled"`
@@ -1295,7 +1304,7 @@ This is NOT a bug and is NOT eliminated by any achievable synchronization short 
 
 ### Projection helper rewrites (`_project_request_to_view` and `_project_pending_escalation`)
 
-Packet 1 modifies both projection helpers at `delegation_controller.py:849-868`. The `EscalatableRequestKind` runtime guard lives at the **constructor** boundary (`_project_request_to_view`), not only at the polling boundary (`_project_pending_escalation`). Placing the guard at the constructor catches all paths that build a `PendingEscalationView`, including `decide()`'s direct projection at `controller:1691-1697` (when `decide()` returns a fresh view of the parked request on the rejection-with-projection path) — not just the `poll()` path. `_project_pending_escalation` can then rely on this guard, optionally with a redundant local assertion.
+Packet 1 modifies both projection helpers at `delegation_controller.py:849-868`. The `EscalatableRequestKind` runtime guard lives at the **constructor** boundary (`_project_request_to_view`), not only at the polling boundary (`_project_pending_escalation`). Placing the guard at the constructor catches the Packet 1 projection callsites — `_project_pending_escalation` serves both `poll()` and `start()`'s escalation-return branch — and, by construction, any future caller that goes through `_project_request_to_view`. (`decide()` in Packet 1 returns the new 3-field `DelegationDecisionResult` and has no projection callsite to guard; the constructor-level guard is the mechanism by which any re-introduced projection in a later packet inherits the check without caller diligence.) `_project_pending_escalation` can then rely on this guard, optionally with a redundant local assertion.
 
 **`_project_request_to_view` rewrite (constructor with runtime guard):**
 
@@ -1342,20 +1351,28 @@ Implementation details per callsite:
 - **`_project_pending_escalation` (poll path):** catch the exception, log at critical level with `job_id` and `request_id`, call `self._registry.signal_internal_abort(request.request_id, reason="unknown_kind_in_escalation_projection")`, return `None`. The current poll result omits `pending_escalation` (the escalation was never legitimately constructible); subsequent polls observe the terminal `status="unknown"` after the worker's abort-path writes land.
 - **`decide()` path:** under the Packet 1 async contract (see §DelegationDecisionResult — new shape), `decide()` no longer projects a pending-escalation view into its return value — the new shape is `{decision_accepted, job_id, request_id}` and `poll()` is the sole observation surface. `decide()` therefore has no remaining `_project_request_to_view` callsite in its normal path. If an intermediate helper re-introduces projection (during implementation or future packets), it follows the same rule: catch `UnknownKindInEscalationProjection`, log, call `signal_internal_abort(request_id, reason="unknown_kind_in_escalation_projection")`, then fall through to a rejection (`request_already_decided` or a new `internal_invariant_violation` reason — the specific rejection shape is deferred to the packet that adds the callsite). `decide()` itself in Packet 1 does not need this guard, but the exception-type is spec'd so future callsites cannot bypass it.
 
-**What the caller observes.** The observation sequence for a poll-triggered internal abort is:
+**What the caller observes.** The observation sequence depends on which operation wins the CAS at the registry entry when `_project_pending_escalation` issues `signal_internal_abort`:
 
-1. Poll #1 triggers projection, sees invariant violation, signals abort, returns `DelegationPollResult(job=<current-snapshot>, pending_escalation=None, inspection=None, detail=None)`. The `job.status` may still be `needs_escalation` at this exact observation (the worker has not yet processed the abort signal). The caller sees "no actionable escalation surface" for this job state, which is the honest reflection of the current snapshot.
-2. The worker wakes on `InternalAbort(reason)`, executes the abort sequence (see §Internal abort coordination), terminalizes the job as `unknown`.
-3. Poll #2 (any subsequent poll) sees `job.status="unknown"`, `pending_escalation=None`. The caller observes the terminal state.
+**Branch A — `signal_internal_abort` wins the CAS (`awaiting → aborted`, returns `True`):**
 
-This is eventually consistent — the window where `status="needs_escalation"` and `pending_escalation=None` are both observed is bounded by the worker's wake-to-cleanup latency (single-threaded sequence, no I/O besides JSONL appends). Callers that poll repeatedly see the state settle.
+1. Poll #1 (the thread that triggered projection) returns `DelegationPollResult(job=<current-snapshot>, pending_escalation=None, inspection=None, detail=None)`. The `job.status` may still read `needs_escalation` at this exact observation — the worker has not yet processed the abort signal. The caller sees "no actionable escalation surface," which is the honest reflection of the current snapshot.
+2. The worker wakes on `InternalAbort(reason)`, executes the abort sequence (see §Internal abort coordination), and terminalizes the job as `unknown`.
+3. Poll #2 (any subsequent poll) sees `job.status="unknown"`, `pending_escalation=None`. A concurrent `decide()` against this `request_id` is rejected: `request_already_decided` while the registry entry is still live (aborted), then `job_not_awaiting_decision` once the worker's abort-path writes land and advance `job.status` off `needs_escalation`.
 
-**`decide()` interaction during the abort window depends on the CAS outcome at the registry entry**:
+**Branch B — `decide()` wins the CAS (`signal_internal_abort` returns `False`):**
 
-- **`signal_internal_abort` wins** (returns `True`): the entry transitions `awaiting → aborted`; any subsequent `decide()` against this `request_id` finds `reserve()` returning `None` and is rejected with `request_already_decided`. The terminal convergence follows steps 2–3 above.
-- **`decide()` wins** (`signal_internal_abort` returns `False`): the operator's reservation committed before the abort signal arrived. The worker wakes on the operator's `DecisionResolution` and completes the dispatch via the normal success or dispatch-failure path. The abort attempt's only artifact is a log line noting the signal's `False` return; the job terminalizes per the operator path (`resolved` on dispatch success, `unknown` on dispatch failure). The Poll #1 that triggered the abort already returned `pending_escalation=None` because the projection failed on that thread — that observation is not retroactively invalidated, but subsequent polls reflect the operator's decided outcome, not an abort.
+1. Poll #1 returns the same `pending_escalation=None` snapshot as Branch A step 1. The projection failed on the poll thread and the observation is not retroactively invalidated, even though the abort signal lost the race.
+2. The operator's reservation committed before the abort signal arrived. The worker wakes on the operator's `DecisionResolution` and completes dispatch via the normal success path or the dispatch-failure path. The abort attempt's only artifact is a log line recording the `False` return from `signal_internal_abort`.
+3. Subsequent polls reflect the operator's decided outcome — `status="running"` while dispatch is in flight, then terminal `resolved` on dispatch success or `unknown` on dispatch failure. No abort-origin record is written on this branch.
 
-**Rejection literal reuse.** Packet 1 does not introduce a new `request_already_aborted` reason; callers receive `request_already_decided` whether the entry left `awaiting` via operator `decide()`, `signal_internal_abort`, or the registry's timeout timer. The existing reason accurately describes the caller-facing reality ("this request slot is no longer addressable"). The durable distinction between the three paths lives in the `PendingServerRequest` terminal-circumstance fields: `resolution_action` for operator decides, `timed_out=True` for timer, `internal_abort_reason` for internal aborts. Audit queries join on those fields, not on the rejection literal.
+Both branches are eventually consistent: the window where `status="needs_escalation"` and `pending_escalation=None` are both observed is bounded by the worker's wake-to-cleanup latency (a single-threaded sequence with no I/O beyond JSONL appends). Callers that poll repeatedly see the state settle.
+
+**Rejection literals (two guards, two reasons).** A late `decide()` is rejected by one of two guards, depending on how far the worker has advanced the job state:
+
+- **Live registry window → `request_already_decided`.** While the job is still `needs_escalation` but the registry entry has already left `awaiting` (via operator `decide()`, `signal_internal_abort`, or the registry's timeout timer), `registry.reserve()` returns `None` and the controller rejects with `request_already_decided`. The request slot is no longer addressable on the registry side.
+- **Post-wake window → `job_not_awaiting_decision`.** Once the worker has processed the wake outcome, it advances the job's status off `needs_escalation` — to `running` for accepted decides and cancel-capable timeouts, and to a terminal state (`resolved` / `unknown`) once dispatch completes or an abort/dispatch-failure writes its completion record. From that point the job-status guard at `delegation_controller.py:1577` rejects with `job_not_awaiting_decision` before `decide()` even reaches the registry.
+
+Packet 1 does not introduce a new `request_already_aborted` reason — the two existing reasons cover both guards honestly. The durable distinction between the underlying wake outcomes lives in the `PendingServerRequest` terminal-circumstance fields: `resolution_action` for operator decides, `timed_out=True` for timer, `internal_abort_reason` for internal aborts. Audit queries join on those fields, not on the rejection literal.
 
 **`_project_pending_escalation` rewrite (job-anchored, tombstone-guarded):**
 
@@ -1726,7 +1743,7 @@ PendingServerRequest after timeout interrupt:
 - Parse-failure return: `codex.delegate.start` of a delegation whose first captured request has `kind="unknown"` returns a plain `DelegationJob` JSON object with `status="unknown"`; assert the response has NO `pending_escalation` key, NO `escalated: true` marker, and NO new `outcome` field.
 - Turn-completed-without-capture return: `codex.delegate.start` of a purely analytical delegation returns a plain `DelegationJob` JSON object with `status="completed"`; assert no `pending_escalation` key, no `escalated: true` marker.
 - Parked return (regression): `codex.delegate.start` of a delegation with a parkable captured request returns `DelegationEscalation` JSON (`job`, `pending_escalation`, `agent_context`, `escalated=true`) — shape matches the pre-Packet-1 escalated return exactly.
-- Escalation-view kind narrowing: across `codex.delegate.start`, `codex.delegate.poll`, and `codex.delegate.decide` return paths, assert that no `pending_escalation.kind` field ever carries the string `"unknown"`. Also assert via static typing (mypy/pyright) that `EscalatableRequestKind` is the only type constructible into `PendingEscalationView.kind`.
+- Escalation-view kind narrowing: across `codex.delegate.start` (escalated return) and `codex.delegate.poll` return paths — the two Packet 1 surfaces that can include `pending_escalation` — assert that no `pending_escalation.kind` field ever carries the string `"unknown"`. Assert separately that `codex.delegate.decide` returns the new 3-field shape (`decision_accepted`, `job_id`, `request_id`) with no `pending_escalation` key at all. Also assert via static typing (mypy/pyright) that `EscalatableRequestKind` is the only type constructible into `PendingEscalationView.kind`.
 - Pre-Packet-1 regression: the `interrupted_by_unknown` control path does not surface as a `DelegationEscalation` on `start()` return. Fixture reproduces a parse-failing request; assertion confirms the pre-Packet-1 escalation projection no longer fires.
 
 ### Migration
