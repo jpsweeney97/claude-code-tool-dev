@@ -318,6 +318,87 @@ Uncommitted `ReservationToken`s auto-abort when the context manager exits; expli
 
 **Intent durability is the authority boundary.** The invariant is: *once `approval_resolution.intent` is durable, the operation is committed regardless of what happens on the plugin side afterward.* The registry reservation is a coordination primitive (keeps the worker blocked until main is ready to wake it); the journal intent is the recovery authority. Rollback across the authority boundary would violate this invariant.
 
+### Internal abort coordination (plugin-invariant violations)
+
+Some plugin-invariant violations are discovered by the main thread *after* the worker has already parked. Two paths surface them in Packet 1:
+
+- `start()` receives a `Parked` signal from `wait_for_parked`, but the subsequent escalation projection cannot be constructed (e.g., the refreshed job's projection returns `None` despite `Parked` having fired — see §Capture-ready handshake `Parked` case).
+- `poll()` (or `decide()`) tries to project a pending request into `PendingEscalationView` and the request's `kind` is not in `EscalatableRequestKind` (e.g., a `kind="unknown"` record from a pre-Packet-1 JSONL replay — see §Projection helper rewrites).
+
+In both cases the main thread **cannot** call `_mark_execution_unknown_and_cleanup` directly: that helper closes the worker-owned session and writes worker-owned store records, which would violate IO-1 (session ownership) and IO-3 (single-writer-per-store). Cleanup must be worker-owned. The registry supplies a dedicated signal for this class of failure.
+
+```python
+class ResolutionRegistry:
+    ...
+    def signal_internal_abort(self, request_id: str, reason: str) -> bool:
+        """Signal the parked worker to abort this request with the given reason.
+
+        Atomic under the registry lock:
+          awaiting → aborted    (wakes the worker with InternalAbort(reason))
+          reserved | consuming  → no-op, returns False (operator path already owns it)
+          discarded | unknown   → no-op, returns False
+
+        Idempotent on repeated calls for the same request_id (second call is a no-op).
+        Caller writes NO journal entry — internal abort is an in-memory coordination
+        signal, not a durable authority. The worker owns all durable state writes
+        for the abort path.
+        """
+        ...
+```
+
+**New wake outcome on the per-request channel.** The return of `registry.wait(request_id)` broadens from a single `Resolution` dataclass to a sum type that already implicitly covered decide-arrived and timeout-synthesized resolutions; `InternalAbort` joins that union as a third variant.
+
+```python
+@dataclass(frozen=True)
+class DecisionResolution:
+    payload: dict[str, Any]                   # operator-decide payload; cancel payload on timeout
+    kind: PendingRequestKind
+    is_timeout: bool = False                   # True iff synthesized by the registry timer
+
+@dataclass(frozen=True)
+class InternalAbort:
+    reason: str                                # e.g., "parked_projection_invariant_violation",
+                                               # "unknown_kind_in_escalation_projection"
+                                               # Sanitized and bounded on construction (see
+                                               # §Observability and Honesty Rules).
+
+Resolution = DecisionResolution | InternalAbort
+```
+
+**Worker wake sequence on `InternalAbort(reason)`.** The worker executes the following on its own thread. Single-writer-per-store and IO-1 session ownership are preserved throughout:
+
+```
+1. journal.write_phase: approval_resolution.intent     (decision=None)  # first write
+2. journal.write_phase: approval_resolution.dispatched (decision=None)
+3. store.record_internal_abort(rid, reason=reason)
+   # Atomic op: sets status="canceled", resolution_action=None,
+   # internal_abort_reason=reason, response_payload=None,
+   # response_dispatch_at=None, dispatch_result=None, resolved_at=None
+4. job_store.update_parked_request(job_id, None)
+5. journal.write_phase: approval_resolution.completed
+       (completion_origin="worker_completed")
+6. audit: action="internal_abort", reason=reason       # best-effort, IO-5
+7. registry.discard(rid)
+8. _mark_execution_unknown_and_cleanup(                # worker-owned cleanup
+       reason=f"internal_abort:{reason}", cause=None,
+   )
+9. worker thread exits
+```
+
+No `session.respond(...)` fires: the request is being *abandoned*, not resolved by operator decision. The job terminalizes as `unknown` — the plugin cannot claim semantic application of anything, because no decision was dispatched (OB-1).
+
+**Why no `reserve → commit_signal` flow.** The two-phase protocol exists to coordinate *operator-initiated durable writes* (`decide()` writes `approval_resolution.intent` before the reservation commits, so the journal entry is durable before the worker wakes). Internal abort has no durable intent from the main thread: the main thread writes no journal record, and the worker owns the entire abort sequence including its own `intent → dispatched → completed` triplet. Collapsing `signal_internal_abort` into a single atomic state transition is not a shortcut; the cross-thread ordering concern that motivates two-phase does not exist for this path.
+
+**IO-invariant preservation.**
+- **IO-1:** Main does not touch the worker's session. The worker executes `_mark_execution_unknown_and_cleanup` (which calls `session.close`, `runtime_registry.release`) on its own thread.
+- **IO-2:** The registry state transition + `threading.Event.set()` is the sole cross-thread signal; no new in-memory shared mutable state.
+- **IO-3:** All store writes on the abort path (`record_internal_abort`, `update_parked_request`, terminal `_persist_job_transition`) run on the worker thread. The main thread writes nothing.
+- **IO-4:** `approval_resolution.intent` is durable before `.dispatched` and `.completed` — the worker writes the three phases sequentially on a single thread, so file-order monotonicity is trivial.
+- **IO-5:** The `action="internal_abort"` audit event is appended post-durable-writes, best-effort (no fsync, no gating).
+- **OB-1:** Terminal status is `unknown`. The plugin claims only "I could not dispatch a decision for this request"; it makes no claim about whether the underlying capture was valid on the App Server side.
+
+**Failure semantics if `signal_internal_abort` races.** If the operator's `decide()` wins the CAS while the main thread is en route to calling `signal_internal_abort`, the signal is a no-op (`awaiting → aborted` transition fails because the entry is already in `reserved` or `consuming`). The operator path then executes normally. The caller that tried to abort must accept whichever path committed first: this is honest concurrency — the operator's durable decision outranks a subsequent "we think this request is invalid" observation, because the decision is already durable in the journal. Callers therefore MUST NOT assume `signal_internal_abort` always takes effect; they log the return value and react accordingly (F1 start-path raises regardless; F5 poll-path continues with the current projection-null observation).
+
 ### Capture-ready handshake (start() control flow)
 
 `start()` is synchronous at the MCP boundary — the caller expects either an escalation payload (most common), a terminal result (rare: turn finished without any approval request), or an error. The worker is the only thread with the transport; the main thread cannot observe "a request is parked" from any durable surface until the worker has written it. The handshake primitive is the per-job capture-ready channel on the registry.
@@ -394,10 +475,41 @@ def start(args) -> DelegationJob | DelegationEscalation | JobBusyResponse:
     match result:
         case Parked(request_id):
             # Worker captured a parkable request and transitioned job to needs_escalation.
+            # Refresh the job once and bind to a local: the pre-worker `job`
+            # (from job_store.create above) has parked_request_id=None and
+            # would yield a null projection.
+            updated_job = self._job_store.get(job.job_id)
+            escalation_view = self._project_pending_escalation(updated_job)
+            if escalation_view is None:
+                # Worker signaled Parked but the projection produced nothing.
+                # This is a plugin-invariant violation: Parked SHOULD imply a
+                # pending, parkable request addressable from the refreshed job.
+                # Possible causes include (a) a concurrent path cleared the
+                # request between signal and projection, (b) an in-memory vs
+                # JSONL inconsistency, (c) a future callsite that set
+                # parked_request_id without persisting a request record.
+                #
+                # Main thread cannot invoke _mark_execution_unknown_and_cleanup
+                # directly (IO-1 session ownership, IO-3 single-writer-per-store).
+                # Route cleanup through the worker via the internal-abort
+                # primitive (see §Internal abort coordination), then raise with
+                # a dedicated reason distinct from worker_failed_before_capture.
+                logger.critical(
+                    "delegation.start: Parked signal but null escalation projection",
+                    extra={"job_id": job.job_id, "request_id": request_id},
+                )
+                self._registry.signal_internal_abort(
+                    request_id,
+                    reason="parked_projection_invariant_violation",
+                )
+                raise DelegationStartError(
+                    reason="parked_projection_invariant_violation",
+                    cause=None,
+                )
             return DelegationEscalation(
-                job=self._job_store.get(job.job_id),
-                pending_escalation=self._project_pending_escalation(job),
-                agent_context=self._build_agent_context(job),
+                job=updated_job,
+                pending_escalation=escalation_view,
+                agent_context=self._build_agent_context(updated_job),
             )
         case TurnCompletedWithoutCapture():
             # Worker already wrote terminal state through _finalize_turn (status=completed).
@@ -451,13 +563,15 @@ def start(args) -> DelegationJob | DelegationEscalation | JobBusyResponse:
 
 | Worker outcome | `job.status` when `start()` returns | Returned to MCP caller |
 |---|---|---|
-| Parked | `needs_escalation` | `DelegationEscalation(job, pending_escalation, agent_context)` — existing shape, unchanged |
+| Parked | `needs_escalation` | `DelegationEscalation(job, pending_escalation, agent_context)` — existing shape, unchanged. Sub-case: if the refreshed-job projection returns `None` (plugin-invariant violation), `start()` signals `registry.signal_internal_abort(rid, "parked_projection_invariant_violation")` and raises `DelegationStartError(reason="parked_projection_invariant_violation")`. Worker owns cleanup (see §Internal abort coordination). |
 | TurnCompletedWithoutCapture | Terminal (`completed` via `_finalize_turn`) | plain `DelegationJob(status="completed", ...)` |
 | TurnTerminalWithoutEscalation | Terminal (`unknown` — persisted by worker before signal) | plain `DelegationJob(status="unknown", ...)` — **returns, does not raise**. Causal record lives on the persisted `PendingServerRequest(kind="unknown")` audit entry at `:671-688`; `DelegationOutcomeRecord` remains the ordinary terminal analytics record (no `reason`/`request_id` fields; not extended by Packet 1). |
 | WorkerFailed | `unknown` (via `_mark_execution_unknown_and_cleanup`) | raises `DelegationStartError(reason="worker_failed_before_capture")` |
 | StartWaitElapsed | `running` (unchanged by main thread) | plain `DelegationJob(status="running", ...)` — **returns, does not raise**. Caller polls for outcome. One-line log warning records the budget-elapsed event. |
 
 **Why `TurnTerminalWithoutEscalation` is distinct from `WorkerFailed`:** both can produce `job.status="unknown"`, but they differ in **who failed**. `WorkerFailed` signals that the worker itself raised an unhandled exception (transport failure, handler bug) — the operator-visible outcome is an error (`DelegationStartError` raised). `TurnTerminalWithoutEscalation` signals that the worker handled unparseable input *correctly* and terminalized the job — the operator-visible outcome is a normal return (a plain `DelegationJob` with `status="unknown"`). Conflating the two would force callers to distinguish "the plugin broke" from "the request couldn't be rendered" by inspecting exception payloads rather than by return-vs-raise polarity.
+
+**Why `parked_projection_invariant_violation` is distinct from `worker_failed_before_capture`:** both are `DelegationStartError` subtypes and both terminalize the job as `unknown` via `_mark_execution_unknown_and_cleanup` on the worker thread. They differ in **what the worker observed**. `worker_failed_before_capture` means the worker raised an unhandled exception before capturing any request (no persisted `PendingServerRequest`, no registry entry, `announce_worker_failed` signal). `parked_projection_invariant_violation` means capture SUCCEEDED (`Parked` fired, per-request registry entry established, `parked_request_id` persisted) but a subsequent plugin-side projection disagreed with that state — the signal and the materialized view are out of sync. The reason name preserves the post-mortem distinction: the former indicates a worker crash; the latter indicates a consistency bug between Parked-signaling and projection.
 
 **Why `StartWaitElapsed` does not force-kill the worker or raise:** Python threads cannot be safely cancelled from outside. Forcing a kill would orphan transport state, leak stdin/stdout handles, and leave stores mid-write. Raising a `DelegationStartError` would be a second category error: we do not actually know that anything went wrong — the worker may be processing a valid long turn. The safe path is: return `DelegationJob(status="running")`, leave the job in `running`, and let the caller's normal polling path observe the eventual outcome. Genuinely-wedged workers — the subset of `StartWaitElapsed` cases where the worker never terminalizes — surface through two existing mechanisms: (a) the caller's polling continues to show `status="running"` indefinitely, which is the honest observation; (b) cold-start recovery at `delegation_controller.py:2036-2038` demotes any `running` job on next session init. Explicit mid-session wedge detection (kill orphans by threshold) is follow-up surface area for a future packet, not Packet 1.
 
@@ -594,21 +708,49 @@ MAIN                          REGISTRY                        WORKER
                                                                job_store._persist_job_transition(running)
                                                                journal.write_phase: approval_resolution.dispatched
                                                                    (decision=None)
-                                                               session.respond(rid, {"decision": "cancel"})
-                                                               store.record_timeout(rid,
-                                                                   response_payload={"decision": "cancel"},
-                                                                   response_dispatch_at="<iso>",
-                                                                   dispatch_result="succeeded")
-                                                               # Atomic op: sets timed_out=True,
-                                                               # status="canceled", resolution_action=None
-                                                               job_store.update_parked_request(job_id, None)
-                                                               journal.write_phase: approval_resolution.completed
-                                                                   (completion_origin="worker_completed")
-                                                               # Audit is best-effort (IO-5);
-                                                               # logged as warning if it fails.
-                                                               audit: action="approval_timeout"
-                                                               registry.discard(rid)
-                                                               handler returns None
+                                                               try:
+                                                                   session.respond(rid, {"decision": "cancel"})
+                                                                   store.record_timeout(rid,
+                                                                       response_payload={"decision": "cancel"},
+                                                                       response_dispatch_at="<iso>",
+                                                                       dispatch_result="succeeded",
+                                                                       dispatch_error=None)
+                                                                   # Atomic op: sets timed_out=True,
+                                                                   # status="canceled", resolution_action=None.
+                                                                   job_store.update_parked_request(job_id, None)
+                                                                   journal.write_phase: approval_resolution.completed
+                                                                       (completion_origin="worker_completed")
+                                                                   # Audit is best-effort (IO-5); warning on failure.
+                                                                   audit: action="approval_timeout",
+                                                                          dispatch_result="succeeded"
+                                                                   registry.discard(rid)
+                                                                   handler returns None
+                                                               except Exception as exc:
+                                                                   # Transport-level failure of cancel-dispatch
+                                                                   # (e.g., BrokenPipeError → RuntimeError from
+                                                                   # jsonrpc_client.py:106-130). Sibling of the
+                                                                   # operator-decide failure path; same OB-1
+                                                                   # terminal=unknown rule (we cannot verify
+                                                                   # whether App Server applied the cancel).
+                                                                   store.record_timeout(rid,
+                                                                       response_payload={"decision": "cancel"},
+                                                                       response_dispatch_at="<iso>",
+                                                                       dispatch_result="failed",
+                                                                       dispatch_error=<sanitized_bounded>)
+                                                                   # Atomic op still sets timed_out=True,
+                                                                   # status="canceled", resolution_action=None.
+                                                                   job_store.update_parked_request(job_id, None)
+                                                                   journal.write_phase: approval_resolution.completed
+                                                                       (completion_origin="worker_completed")
+                                                                   audit: action="approval_timeout",
+                                                                          dispatch_result="failed",
+                                                                          dispatch_error=<sanitized_bounded>
+                                                                   registry.discard(rid)
+                                                                   _mark_execution_unknown_and_cleanup(
+                                                                       reason="timeout_dispatch_failed",
+                                                                       cause=exc,
+                                                                   )
+                                                                   return
                                                               loop continues
 ```
 
@@ -703,7 +845,7 @@ WORKER on wake (after decide() committed reservation; main already returned Deci
 
 **Tests to add:**
 
-- Broken-pipe during respond: induce `RuntimeError` on `session.respond(...)`; verify `record_dispatch_failure` is called with correct fields; verify `poll()` reports `job.status="unknown"`, `pending_request.status="canceled"`, `pending_request.dispatch_result="failed"`, `pending_request.resolved_at=None`.
+- Broken-pipe during respond: induce `RuntimeError` on `session.respond(...)`; verify `record_dispatch_failure` is called with correct fields; verify `poll()` returns `job.status="unknown"` (the only forensic signal exposed via `poll()`); verify `PendingRequestStore.get(rid)` (direct store inspection) shows `status="canceled"`, `dispatch_result="failed"`, `dispatch_error` matches sanitization format, `resolved_at=None`. `PendingEscalationView` carries only prompt-rendering fields, so forensic fields are tested via direct store read, not the MCP-visible `poll()` surface.
 - Atomicity under replay: simulate partial write during the hypothetical two-record sequence; replay must never produce `dispatch_result="failed"` + `status="pending"` simultaneously (the dedicated mutator guarantees one-record atomicity).
 - Intent durability preserved under dispatch failure: verify `journal.write_phase(approval_resolution.intent)` was durable before the failure and remains the authority for the operator's decision regardless of dispatch outcome.
 - Audit best-effort: simulate audit append failure after dispatch failure; verify the job still terminalizes correctly and a warning is logged (IO-5 semantics preserved).
@@ -759,12 +901,14 @@ All new fields are nullable / have safe defaults. Back-compatible: existing reco
 | `response_payload` | `dict[str, Any] \| None` | `None` | Worker | At dispatch (for kinds with a payload; None for interrupted-path) |
 | `response_dispatch_at` | `str \| None` | `None` | Worker | Immediately before respond() call |
 | `dispatch_result` | `Literal["succeeded", "failed"] \| None` | `None` | Worker | Immediately after respond() returns or raises |
+| `dispatch_error` | `str \| None` | `None` | Worker | Only when `dispatch_result="failed"`; sanitized + bounded (see §Observability sanitization rules) |
 | `resolved_at` | `str \| None` | `None` | Worker | Only on success transition to `status="resolved"` |
 | `protocol_echo_signals` | `tuple[str, ...]` | `()` | Worker | Post-turn, via promoted `_verify_post_turn_signals` |
 | `protocol_echo_observed_at` | `str \| None` | `None` | Worker | Post-turn with `protocol_echo_signals` |
 | `timed_out` | `bool` | `False` | Worker | Iff resolution came from registry timer, not decide() |
+| `internal_abort_reason` | `str \| None` | `None` | Worker | Only on internal-abort wake (see §Internal abort coordination); sanitized + bounded (see §Observability sanitization rules) |
 
-`resolution_action` is strictly operator-fact (what `decide()` specified). `timed_out` is strictly circumstance-fact. `dispatch_result` is strictly transport-fact. The three axes stay orthogonal so any audit query asks exactly what it means to ask.
+`resolution_action` is strictly operator-fact (what `decide()` specified). `timed_out` is strictly circumstance-fact. `dispatch_result` is strictly transport-fact. `dispatch_error` is the forensic annotation tied to `dispatch_result="failed"`. `internal_abort_reason` is the plugin-invariant-violation annotation tied to the internal-abort path; it is orthogonal to the three axes above and is never set alongside `resolution_action`, `dispatch_result`, or `timed_out`. Keeping the axes orthogonal means any audit query asks exactly what it means to ask.
 
 ### PendingRequestStatus (unchanged)
 
@@ -847,10 +991,18 @@ def record_timeout(
     response_payload: dict[str, Any] | None,
     response_dispatch_at: str | None,
     dispatch_result: Literal["succeeded", "failed"] | None,
+    dispatch_error: str | None,
 ) -> None:
     # Append {"op": "record_timeout", ...}
-    # Populates: timed_out=True; dispatch fields if applicable (None for interrupted path)
-    # Also emits status transition to "canceled" atomically via the same op
+    # Populates: timed_out=True; dispatch fields per path:
+    #   - Interrupted (non-cancel-capable) path:
+    #     payload=None, at=None, result=None, error=None
+    #   - Cancel-capable success path:
+    #     payload=cancel, at=<iso>, result="succeeded", error=None
+    #   - Cancel-capable failure path (transport raised — see §Timeout path):
+    #     payload=cancel, at=<iso>, result="failed",
+    #     error=<sanitized bounded string; see §Observability>
+    # Also emits status transition to "canceled" atomically via the same op.
 
 def record_dispatch_failure(
     self,
@@ -868,15 +1020,31 @@ def record_dispatch_failure(
     #   response_payload = payload
     #   response_dispatch_at = dispatch_at
     #   dispatch_result = "failed"
+    #   dispatch_error = <sanitized, bounded — see §Observability sanitization rules>
     #   status = "canceled"
     #   resolved_at = None                  # NOT resolved — dispatch did not deliver
-    # dispatch_error is captured in the record for later forensic inspection
-    # (stored on an optional audit-side field or as a new dispatch_error
-    # field on PendingServerRequest, depending on retention needs — see
-    # §Observability).
+
+def record_internal_abort(
+    self,
+    request_id: str,
+    *,
+    reason: str,
+) -> None:
+    # Append {"op": "record_internal_abort", ...}; replay handles new op type.
+    # ATOMIC write: populates all of the following in a single record so replay
+    # can never observe an inconsistent intermediate (see §Internal abort
+    # coordination):
+    #   status = "canceled"
+    #   internal_abort_reason = <sanitized, bounded — see §Observability>
+    #   resolution_action = None            # no operator decision was made
+    #   response_payload = None             # no dispatch occurred
+    #   response_dispatch_at = None
+    #   dispatch_result = None
+    #   resolved_at = None                  # NOT resolved — aborted
+    # timed_out remains False (this is not a timeout; reason names the cause).
 ```
 
-Dedicated methods, not a generic `update(**fields)`. Matches existing store style at `pending_request_store.py:29-69` and keeps replay's `op` dispatch enumerable. `record_timeout` and `record_dispatch_failure` are structurally parallel: each captures a terminal circumstance (timer fired / transport raised) plus the `status="canceled"` transition in a single atomic append.
+Dedicated methods, not a generic `update(**fields)`. Matches existing store style at `pending_request_store.py:29-69` and keeps replay's `op` dispatch enumerable. `record_timeout`, `record_dispatch_failure`, and `record_internal_abort` are structurally parallel: each captures a terminal circumstance (timer fired / transport raised / plugin-invariant violation) plus the `status="canceled"` transition in a single atomic append. The three are orthogonal on the `PendingServerRequest` field axes (`timed_out`, `dispatch_result`, `internal_abort_reason` respectively) so any audit query that joins on them never conflates the causes.
 
 **DelegationJobStore addition:**
 
@@ -907,7 +1075,9 @@ Each store's `_replay()` method extends with branches for new op types. Existing
 - `record_response_dispatch` → set the four dispatch fields on the existing record
 - `mark_resolved` → set `status="resolved"` and `resolved_at`
 - `record_protocol_echo` → set `protocol_echo_signals`, `protocol_echo_observed_at`
-- `record_timeout` → set `timed_out=True`, dispatch fields (if provided), `status="canceled"`
+- `record_timeout` → set `timed_out=True`, dispatch fields if provided (`response_payload`, `response_dispatch_at`, `dispatch_result`, `dispatch_error`), `status="canceled"`
+- `record_dispatch_failure` → set `resolution_action`, `response_payload`, `response_dispatch_at`, `dispatch_result="failed"`, `dispatch_error`, `status="canceled"`, `resolved_at=None`
+- `record_internal_abort` → set `status="canceled"`, `internal_abort_reason`, `resolution_action=None`, `response_payload=None`, `response_dispatch_at=None`, `dispatch_result=None`, `resolved_at=None`
 - `update_parked_request` (on job store) → set `parked_request_id` to value or None
 
 Unknown op types in logs from future migrations are skipped (graceful-read per existing pattern at `pending_request_store.py:87-90`).
@@ -1122,10 +1292,20 @@ def _project_request_to_view(
     )
 ```
 
-`UnknownKindInEscalationProjection` is a new exception type added in Packet 1. It is an internal assertion signal, not a caller-visible error — it MUST NOT escape the controller boundary. If raised, the controller catches it at the callsite, logs a critical error including `job_id` and `request_id`, and either terminalizes the job as `unknown` or returns `None` from the projection (depending on whether the callsite semantically allows a `None` return). Implementation details per callsite:
+`UnknownKindInEscalationProjection` is a new exception type added in Packet 1. It is an internal assertion signal, not a caller-visible error — it MUST NOT escape the controller boundary. If raised, the callsite catches it, logs a critical error, routes cleanup through the **worker-coordinated internal-abort primitive** (see §Internal abort coordination), and returns a response consistent with the caller's current observation window. Main thread MUST NOT invoke `_mark_execution_unknown_and_cleanup` directly — that helper closes the worker-owned session and writes worker-owned store records, violating IO-1 and IO-3.
 
-- `_project_pending_escalation` (poll path): catch, log, return `None` — the poll result simply omits `pending_escalation`. This preserves the caller's observability while refusing to construct a violating view.
-- `decide()` projection (at `controller:1691-1697` and any other callsite that expects a valid view): catch, log, and terminalize the job as `unknown` with `_mark_execution_unknown_and_cleanup`. If `decide()` reaches the projection and the request has `kind="unknown"`, the plugin's internal state is inconsistent — terminalize to fail-closed.
+Implementation details per callsite:
+
+- **`_project_pending_escalation` (poll path):** catch the exception, log at critical level with `job_id` and `request_id`, call `self._registry.signal_internal_abort(request.request_id, reason="unknown_kind_in_escalation_projection")`, return `None`. The current poll result omits `pending_escalation` (the escalation was never legitimately constructible); subsequent polls observe the terminal `status="unknown"` after the worker's abort-path writes land.
+- **`decide()` path:** under the Packet 1 async contract (see §DelegationDecisionResult — new shape), `decide()` no longer projects a pending-escalation view into its return value — the new shape is `{decision_accepted, job_id, request_id}` and `poll()` is the sole observation surface. `decide()` therefore has no remaining `_project_request_to_view` callsite in its normal path. If an intermediate helper re-introduces projection (during implementation or future packets), it follows the same rule: catch `UnknownKindInEscalationProjection`, log, call `signal_internal_abort(request_id, reason="unknown_kind_in_escalation_projection")`, then fall through to a rejection (`request_already_decided` or a new `internal_invariant_violation` reason — the specific rejection shape is deferred to the packet that adds the callsite). `decide()` itself in Packet 1 does not need this guard, but the exception-type is spec'd so future callsites cannot bypass it.
+
+**What the caller observes.** The observation sequence for a poll-triggered internal abort is:
+
+1. Poll #1 triggers projection, sees invariant violation, signals abort, returns `DelegationPollResult(job=<current-snapshot>, pending_escalation=None, inspection=None, detail=None)`. The `job.status` may still be `needs_escalation` at this exact observation (the worker has not yet processed the abort signal). The caller sees "no actionable escalation surface" for this job state, which is the honest reflection of the current snapshot.
+2. The worker wakes on `InternalAbort(reason)`, executes the abort sequence (see §Internal abort coordination), terminalizes the job as `unknown`.
+3. Poll #2 (any subsequent poll) sees `job.status="unknown"`, `pending_escalation=None`. The caller observes the terminal state.
+
+This is eventually consistent — the window where `status="needs_escalation"` and `pending_escalation=None` are both observed is bounded by the worker's wake-to-cleanup latency (single-threaded sequence, no I/O besides JSONL appends). Callers that poll repeatedly see the state settle. Callers that decide() against the original `request_id` in that window receive `request_already_decided` (registry entry was transitioned by `signal_internal_abort`).
 
 **`_project_pending_escalation` rewrite (job-anchored, tombstone-guarded):**
 
@@ -1146,12 +1326,18 @@ def _project_pending_escalation(
     try:
         return self._project_request_to_view(request)
     except UnknownKindInEscalationProjection as exc:
-        logger.error(
-            "delegation.poll: unknown-kind leaked to escalation projection; "
-            "returning None",
+        logger.critical(
+            "delegation.poll: unknown-kind in escalation projection; "
+            "signaling worker-coordinated internal abort",
             extra={"job_id": job.job_id, "request_id": request.request_id, "cause": str(exc)},
         )
-        return None
+        self._registry.signal_internal_abort(
+            request.request_id,
+            reason="unknown_kind_in_escalation_projection",
+        )
+        return None   # Worker terminalizes the job on its own thread via the
+                      # abort-path wake branch (see §Internal abort coordination).
+                      # Subsequent polls observe job.status="unknown".
 ```
 
 The helper is **job-anchored** (takes `DelegationJob`), not collaboration-anchored — the authority chain starts at `poll(job_id)` at `:901-902`. Callers update to pass the job object.
@@ -1173,9 +1359,11 @@ Packet 1 touches three sections of `contracts.md`. The update set is load-bearin
 | Parked (parkable capture) | `DelegationEscalation` | `{"job": {...}, "pending_escalation": {...}, "agent_context": "...", "escalated": true}` | Existing shape; unchanged. |
 | Turn completed without capture | plain `DelegationJob` | `{"job_id": "...", "status": "completed", ...}` | No `pending_escalation` key; no `escalated: true` marker. |
 | Unknown-kind parse failure | plain `DelegationJob` | `{"job_id": "...", "status": "unknown", ...}` | No `pending_escalation` key; no `escalated: true` marker; no new `outcome` field. |
-| Worker exception / capture timeout | N/A — raises | MCP tool error (`DelegationStartError`) | Not a successful response body. |
+| Start-wait budget elapsed | plain `DelegationJob` | `{"job_id": "...", "status": "running", ...}` | No `pending_escalation` key; no `escalated: true` marker. Synchronous handshake budget elapsed without a terminal outcome signal; caller polls for eventual outcome. NOT a worker failure (see `StartWaitElapsed` in §Capture-ready handshake). |
+| Worker exception (pre-capture) | N/A — raises | MCP tool error (`DelegationStartError`, `reason="worker_failed_before_capture"`) | Not a successful response body. |
+| Parked projection invariant violation | N/A — raises | MCP tool error (`DelegationStartError`, `reason="parked_projection_invariant_violation"`) | Plugin-side invariant mismatch after `Parked` signal; worker owns async cleanup via `signal_internal_abort` (see §Internal abort coordination). Not a successful response body. |
 
-The MCP serializer at `mcp_server.py:443-450` requires no change: the existing `isinstance(result, DelegationEscalation)` branch handles the parked case; the `asdict(result)` fallthrough handles the plain-`DelegationJob` cases.
+The MCP serializer at `mcp_server.py:443-450` requires no change: the existing `isinstance(result, DelegationEscalation)` branch handles the parked case; the `asdict(result)` fallthrough handles all plain-`DelegationJob` cases (`status ∈ {completed, unknown, running}`). The MCP JSON-shape tests must cover each of the three status values — the `running` case is the one Packet 1 newly exercises.
 
 **§Pending Escalation View (`contracts.md:325-334`):** tighten the `kind` enum from four literals to three: `command_approval`, `file_change`, `request_user_input`. Add a note: "`unknown` is a valid `PendingRequestKind` at the store/audit layer but cannot appear in a `PendingEscalationView` under Packet 1 — such requests terminalize the job instead (see §Unknown-kind contract in the design spec)."
 
@@ -1244,6 +1432,27 @@ Per OB-1:
 - No "decision applied" field anywhere.
 - No "resolution accepted by App Server" observation.
 - No heuristic inference ("dispatch succeeded AND continuation observed within N seconds → probably applied") in plugin records. Such inferences belong in analytics tools that consume the audit trail, not in the plugin's durable state.
+
+### Sanitization rules for error-string fields
+
+`PendingServerRequest` carries two forensic string fields: `dispatch_error` (set when `dispatch_result="failed"`) and `internal_abort_reason` (set by the internal-abort worker wake branch). Neither field is a log sink. Both are bounded, sanitized summaries suitable for long-lived persistence in JSONL records that may be replayed across plugin versions.
+
+**Format:**
+
+```
+"<ExceptionClassName>: <message>"
+```
+
+- `ExceptionClassName` is the exception's `type(exc).__name__` (e.g., `RuntimeError`, `BrokenPipeError`).
+- `message` is `str(exc)` truncated to **200 characters**, with trailing `...` elision if truncation occurred. Newlines and control characters are replaced with `\n` / `\t` / escaped Unicode so the stored string is always a single JSONL-safe line.
+- No traceback. No `exc.__dict__`. No `exc.args` dump. No payload fragments.
+- For `internal_abort_reason` specifically, the `reason` argument is already a short identifier-style string chosen from a controlled vocabulary (`"parked_projection_invariant_violation"`, `"unknown_kind_in_escalation_projection"`, and future additions from this design). The sanitizer still applies — truncate at 200 characters and strip control characters — as a belt-and-suspenders guard against callers who pass free-form text.
+
+**Combined cap:** 256 characters per field, including the class-name prefix. Any field value longer than 256 characters after the rules above is a coding bug (a too-long class name); the sanitizer truncates and logs a warning.
+
+**Why bounded and sanitized.** These fields land in JSONL records read by replay on every plugin startup. Unbounded error strings risk (a) memory / disk bloat from degenerate error messages, (b) JSONL line corruption from embedded control characters, (c) accidental leakage of captured payload data into long-lived forensic state. Bounding also makes grep/audit queries over the field practical: operators looking for a specific failure class can match on the prefix without unbounded scan costs.
+
+**Why not more.** A full traceback is a log-time convenience, not a forensic artifact; it belongs in the process log stream, not in the durable store. An operator investigating a failure reads the log stream for the traceback and cross-references via the store's `request_id` / `job_id`. The store field answers "what class of failure was this" for aggregate analytics; the log answers "exactly where in code did it happen" for one-off triage.
 
 ### Timeout audit event
 
@@ -1371,17 +1580,34 @@ Mirrors the existing capture-time kind distinctions at `delegation_controller.py
 
 ### Timeout record fields
 
-For cancel-capable kinds:
+For cancel-capable kinds — dispatch-succeeded branch:
 
 ```
-PendingServerRequest after timeout dispatch:
+PendingServerRequest after cancel-dispatch (success):
   resolution_action: None                         # operator did not decide
   response_payload: {"decision": "cancel"}        # what was dispatched
   response_dispatch_at: "<iso>"                   # when respond() was called
-  dispatch_result: "succeeded" | "failed"         # transport outcome
+  dispatch_result: "succeeded"                    # transport write returned
+  dispatch_error: None                            # no error
   resolved_at: None                               # not resolved — timed out
   timed_out: True                                 # circumstance marker
   status: "canceled"                              # wire lifecycle
+```
+
+For cancel-capable kinds — dispatch-failed branch (see §Timeout path cancel-dispatch try/except):
+
+```
+PendingServerRequest after cancel-dispatch (failure):
+  resolution_action: None                         # operator did not decide
+  response_payload: {"decision": "cancel"}        # attempted payload (preserved for forensics)
+  response_dispatch_at: "<iso>"                   # when respond() was called
+  dispatch_result: "failed"                       # transport raised
+  dispatch_error: "<ExceptionClass>: <bounded msg>"  # sanitized, bounded (see §Observability)
+  resolved_at: None                               # not resolved — timed out and dispatch failed
+  timed_out: True                                 # circumstance marker
+  status: "canceled"                              # wire lifecycle
+# Job status terminalizes to "unknown" (not "failed", per OB-1): plugin cannot
+# verify whether App Server applied the cancel.
 ```
 
 For non-cancel-capable kinds:
@@ -1392,6 +1618,7 @@ PendingServerRequest after timeout interrupt:
   response_payload: None                          # no dispatch occurred
   response_dispatch_at: None
   dispatch_result: None
+  dispatch_error: None
   resolved_at: None
   timed_out: True
   status: "canceled"
@@ -1405,8 +1632,10 @@ PendingServerRequest after timeout interrupt:
 - `PendingRequestStore.record_response_dispatch` — round-trip through append + replay
 - `PendingRequestStore.mark_resolved` — status transition + timestamp set
 - `PendingRequestStore.record_protocol_echo` — signals tuple + timestamp
-- `PendingRequestStore.record_timeout` — timed_out flag + status=canceled atomicity
+- `PendingRequestStore.record_timeout` — timed_out flag + status=canceled atomicity; all four dispatch-field combinations (interrupted-path None-tuple, cancel-dispatch-succeeded, cancel-dispatch-failed-with-error, replay consistency on each)
 - `PendingRequestStore.record_dispatch_failure` — single-append atomicity of {dispatch_result=failed, status=canceled, resolved_at=None, resolution_action, response_payload, response_dispatch_at, dispatch_error}; partial-write replay never yields dispatch_result=failed + status=pending
+- `PendingRequestStore.record_internal_abort` — single-append atomicity of {status=canceled, internal_abort_reason, resolution_action=None, response_payload=None, response_dispatch_at=None, dispatch_result=None, resolved_at=None}; replay round-trips the internal_abort_reason; partial-write replay never yields internal_abort_reason set + status=pending
+- Sanitization rules (§Observability): `dispatch_error` and `internal_abort_reason` strings pass through the sanitizer; verify truncation at 200 chars + `...` elision, class-name prefix, newline escaping, combined 256-char cap, warning-log on over-cap values
 - `DelegationJobStore.update_parked_request` — set, then clear, then replay consistency
 
 **Integration tests (worker thread lifecycle):**
@@ -1414,11 +1643,15 @@ PendingServerRequest after timeout interrupt:
 - Worker parks on registry; MCP main thread responsive to concurrent poll
 - Worker wakes on `decide()`; dispatches respond; transitions status
 - Worker wakes on timeout; dispatches cancel; records timed_out
-- Worker wakes on `decide()`; `session.respond()` raises `BrokenPipeError`; `record_dispatch_failure` captures forensic fields; job terminalizes as `unknown`; `poll()` exposes `dispatch_result="failed"` and `job.status="unknown"`
+- Worker wakes on `decide()`; `session.respond()` raises `BrokenPipeError`; `record_dispatch_failure` captures forensic fields; job terminalizes as `unknown`; `poll()` returns `job.status="unknown"` (MCP-visible surface); verify forensic fields (`dispatch_result="failed"`, `dispatch_error=<sanitized>`, `resolved_at=None`) by direct `PendingRequestStore.get(rid)` inspection — `PendingEscalationView` does not carry forensic fields, so `poll()` cannot expose them.
+- Timeout cancel-dispatch transport failure: worker wakes on timeout for a cancel-capable kind; `session.respond(rid, {"decision": "cancel"})` raises `BrokenPipeError`; verify `record_timeout(..., dispatch_result="failed", dispatch_error=<sanitized>)` is called; verify `PendingRequestStore.get(rid)` shows `timed_out=True`, `dispatch_result="failed"`, `dispatch_error` matches sanitization format, `status="canceled"`; verify `poll()` returns `job.status="unknown"` (OB-1: transport failure at timeout → unknown, not canceled-job).
 - Worker exception during park; cleanup runs; registry entry discarded; late decide rejects via `job_not_awaiting_decision`
 - Worker exception post-wake; cleanup runs; turn fails; `_mark_execution_unknown_and_cleanup` executes
 - Start-wait budget elapsed with healthy slow worker: force `START_OUTCOME_WAIT_SECONDS` to elapse before the worker signals; verify `start()` returns `DelegationJob(status="running")` (not a raise); verify subsequent `poll()` observes the eventual escalation/completion/unknown outcome the worker signals later; verify the late `announce_*` call does not raise on the worker thread
 - Concurrent signal-vs-budget race: induce worker `announce_parked` at the exact moment the main-thread timer synthesizes `StartWaitElapsed`; assert exactly one path resolves (Parked escalation OR running-return), never both, and durable state is consistent with whichever path won
+- Parked projection invariant violation (F1): simulate a Parked signal followed by a null projection (monkeypatch `_project_pending_escalation` or arrange a store race that clears the request between signal and projection); verify `start()` calls `registry.signal_internal_abort(rid, "parked_projection_invariant_violation")`; verify `start()` raises `DelegationStartError(reason="parked_projection_invariant_violation")` (distinct from `worker_failed_before_capture`); verify the worker's abort-path wake branch then runs and `poll()` eventually returns `job.status="unknown"`; verify `PendingRequestStore.get(rid)` shows `internal_abort_reason="parked_projection_invariant_violation"` via direct read.
+- Unknown-kind poll projection abort (F5): construct a `PendingServerRequest` with `kind="unknown"` and a job whose `parked_request_id` points at it (e.g., a pre-Packet-1 JSONL replay); call `poll()`; verify `_project_pending_escalation` catches `UnknownKindInEscalationProjection`; verify `registry.signal_internal_abort(rid, "unknown_kind_in_escalation_projection")` is called; verify poll #1 returns `DelegationPollResult(pending_escalation=None)` with the CURRENT job status; verify worker's abort-path wake branch runs; verify poll #2 returns `job.status="unknown"`; verify `PendingRequestStore.get(rid)` shows `internal_abort_reason="unknown_kind_in_escalation_projection"` via direct read.
+- Internal-abort CAS-loss race: main thread observes an invariant violation and calls `signal_internal_abort(rid, reason)` concurrently with a `decide()` call that wins the reservation CAS; verify `signal_internal_abort` returns `False` (no-op); verify `decide()` proceeds normally and the operator's decision commits; verify no `internal_abort_reason` is written to the store (operator path wins over abort path once durable intent is in flight).
 
 **End-to-end tests (MCP boundary):**
 - Full deferred-approval flow: MCP `codex.delegate.start` → capture → park → MCP `codex.delegate.poll` returns escalation → MCP `codex.delegate.decide` → dispatch → turn completes → final poll returns completion
@@ -1435,8 +1668,9 @@ PendingServerRequest after timeout interrupt:
 **Observability tests:**
 - OB-1: no test/assertion ever claims "decision applied" based on transport success alone
 - Protocol echo: persisted tuple matches signals observed in notifications
-- Timeout: `approval_timeout` audit event fires; `timed_out=True` on record
-- Dispatch failure: `dispatch_failed` audit event fires; `dispatch_result="failed"` on record; `resolved_at=None`; terminal `job.status="unknown"` (not `"failed"`, per OB-1 — transport failure does not mean dispatch failure from App Server's perspective)
+- Timeout: `approval_timeout` audit event fires; `timed_out=True` on record; audit event payload includes `dispatch_result` (for cancel-capable paths) so analytics can distinguish succeeded vs failed dispatch at timeout
+- Dispatch failure: `dispatch_failed` audit event fires; `dispatch_result="failed"` on record; `dispatch_error` set and sanitized; `resolved_at=None`; terminal `job.status="unknown"` (not `"failed"`, per OB-1 — transport failure does not mean dispatch failure from App Server's perspective)
+- Internal abort: `internal_abort` audit event fires with `reason` field; `internal_abort_reason` set on record; `status="canceled"`; `resolution_action=None`; terminal `job.status="unknown"` (the plugin could not dispatch any decision, so application-side state is unknown per OB-1)
 
 **Public contract tests (`codex.delegate.start` JSON shape + escalation-view kind narrowing):**
 - Parse-failure return: `codex.delegate.start` of a delegation whose first captured request has `kind="unknown"` returns a plain `DelegationJob` JSON object with `status="unknown"`; assert the response has NO `pending_escalation` key, NO `escalated: true` marker, and NO new `outcome` field.
