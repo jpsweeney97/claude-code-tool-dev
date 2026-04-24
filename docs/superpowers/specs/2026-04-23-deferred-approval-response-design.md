@@ -988,9 +988,10 @@ decide(rid)
                                                                   _verify_post_turn_signals
                                                               store.record_protocol_echo(rid, ...)
                                                               _finalize_turn normally
-                                                              # Captured-Request Terminal Guard re-reads the
-                                                              # request, sees status="resolved", and derives
-                                                              # final_status="completed" from turn_result.status.
+                                                              # Captured-Request Terminal Guard reads the request
+                                                              # once into request_snapshot, sees snapshot.status=
+                                                              # "resolved", and derives final_status="completed"
+                                                              # from turn_result.status.
                                                               # The kind-based escalation branch is skipped
                                                               # because the request is already terminal. See
                                                               # §`_finalize_turn` Captured-Request Terminal Guard.
@@ -1082,9 +1083,10 @@ MAIN                          REGISTRY                        WORKER
                                                                    # longer applies (session is closed).
                                                               loop continues    # only on the success sub-branch above
                                                               # Subsequent turn/completed triggers _finalize_turn;
-                                                              # Captured-Request Terminal Guard re-reads the
-                                                              # request, sees status="canceled" (from record_timeout
-                                                              # above), and derives final_status="canceled".
+                                                              # Captured-Request Terminal Guard reads the request
+                                                              # once into request_snapshot, sees snapshot.status=
+                                                              # "canceled" (from record_timeout above), and derives
+                                                              # final_status="canceled".
                                                               # The kind-based escalation branch is skipped because
                                                               # the request is already terminal. See §`_finalize_turn`
                                                               # Captured-Request Terminal Guard.
@@ -1333,7 +1335,12 @@ Set when worker begins parking; cleared post-respond cleanup. The job's durable 
 
 **Packet 1 expands `JobStatus` from 6 literals to 7** by adding `"canceled"`, and expands `DelegationTerminalStatus` from 3 literals to 4 by adding `"canceled"`. This is a real public-contract addition, not a local pseudocode convention — every guard, map, list, and contract text that enumerates the terminal set must admit `"canceled"`.
 
-**Origin.** `"canceled"` is the terminal state for the §Timeout path (non-cancel-capable kind) interrupt-succeeded sub-branch (C2-A, sentinel reason `"timeout_interrupt_succeeded"`). It is distinct from `"unknown"` (used for the interrupt-failed sub-branch) because the plugin has a verified cancel (App Server acknowledged `interrupt_turn`), not an unverified transport failure. Collapsing both sub-branches to `"unknown"` would erase this forensic distinction — see §Timeout path "Why the split job-status outcome is correct (OB-1 applied)."
+**Origin.** `"canceled"` has **two origins** under Packet 1, both producing a verified cancel:
+
+1. The §Timeout path (non-cancel-capable kind) interrupt-succeeded sub-branch (C2-A, sentinel reason `"timeout_interrupt_succeeded"`). Worker terminalizes the job via sentinel bypass before `_finalize_turn` runs; App Server acknowledged `interrupt_turn`.
+2. The §Timeout path (cancel-capable kinds) cancel-dispatch-succeeded sub-branch. Worker calls `session.respond({"decision": "cancel"})` successfully, writes `record_timeout(..., dispatch_result="succeeded")` (which sets `request.status="canceled"`), returns `None`, and the main thread reaches `_finalize_turn` with `request_snapshot.status="canceled"`. The §`_finalize_turn` Captured-Request Terminal Guard maps this to `DelegationJob.status="canceled"` per the Request-to-job terminal mapping table.
+
+Both are distinct from `"unknown"` (used for the interrupt-failed sub-branch and for unverified-transport-failure branches) because both origins produce a **verified** cancel — App Server acknowledged either `interrupt_turn` (origin 1) or the worker's `respond({"decision": "cancel"})` dispatch (origin 2). Collapsing either sub-branch to `"unknown"` would erase this forensic distinction — see §Timeout path "Why the split job-status outcome is correct (OB-1 applied)."
 
 **Type-level extension:**
 
@@ -1737,11 +1744,22 @@ Concrete breakage if the guard is absent:
 - **Happy decide-success on `command_approval` or `file_change`:** worker calls `mark_resolved`, clears `parked_request_id`, returns `None`. `_run_turn` continues to `turn/completed(status="completed")`. `_finalize_turn` sees `captured_request.kind in _CANCEL_CAPABLE_KINDS` and wrongly sets `final_status="needs_escalation"`, overwriting the successful dispatch with a phantom escalation.
 - **Timeout-cancel-dispatch-success on `command_approval` or `file_change`:** worker calls `record_timeout(..., dispatch_result="succeeded")`, sets request `status="canceled"`, clears `parked_request_id`, returns `None`. `_run_turn` continues to `turn/completed(status="interrupted")`. `_finalize_turn` wrongly sets `final_status="needs_escalation"`, silently discarding the verified cancel.
 
-**The rule.** `_finalize_turn`'s captured-request branch re-reads the authoritative `PendingServerRequest` via `pending_request_store.get(captured_request.request_id)` as its FIRST status-derivation step. If the re-read returns a record whose `status` is terminal (`resolved` or `canceled`), the finalizer derives `final_status` from that terminal state via the mapping below — not from `captured_request.kind`. Only when the re-read returns a `pending` record, or the store returns `None` (tombstone race), does the finalizer fall through to the existing kind-based escalation logic.
+**The rule — one authoritative snapshot.** `_finalize_turn`'s captured-request branch performs **exactly one** request-status read at the top of the branch, and that single snapshot is the authority for final-status derivation:
+
+```python
+request_snapshot = pending_request_store.get(captured_request.request_id)
+# request_snapshot.status is the authoritative input for BOTH
+# the D4 blind-write suppression decision AND the terminal-guard
+# status mapping. No second read may feed either decision.
+```
+
+**The one-snapshot invariant:** only one request-status read may participate in final-status derivation. Later reads are permitted only for return-shape hydration (non-status fields such as `resolved_at`, `dispatch_result`, `protocol_echo_*`) and must not feed the terminal-guard decision. This invariant prevents the R14 ordering bug in which a D4 mutation written between a first read (for D4 gating) and a second read (for status derivation) would corrupt the derivation: specifically, a `pending` request with non-None `captured_request.kind` would otherwise be promoted to `resolved` by D4 and then misclassified as `completed`/`unknown` by a post-D4 re-read, bypassing the `pending` fall-through.
+
+**The derivation:** if `request_snapshot.status` is terminal (`resolved` or `canceled`), the finalizer derives `final_status` from that terminal state via the mapping below — not from `captured_request.kind`. Only when `request_snapshot.status == "pending"` or `request_snapshot is None` (tombstone race) does the finalizer fall through to the existing kind-based escalation logic.
 
 **Request-to-job terminal mapping:**
 
-| Re-read `request.status` | `turn_result.status` | `final_status` |
+| `request_snapshot.status` | `turn_result.status` | `final_status` |
 |---|---|---|
 | `"resolved"` | `"completed"` | `"completed"` |
 | `"resolved"` | `"interrupted"` or `"failed"` | `"unknown"` |
@@ -1755,9 +1773,19 @@ Rationale per row:
 - `canceled + any` → `canceled`. The request was canceled on the worker path (timeout-cancel-dispatch-succeeded is the only path under Packet 1 that reaches `_finalize_turn` with `request.status="canceled"`; every other cancel-writing path terminalizes via `_WorkerTerminalBranchSignal` — see the path table below). Matching `DelegationJob.status` is `"canceled"` per §JobStatus='canceled' propagation.
 - `pending` OR `None` → fall through. Under Packet 1 this should not occur (every capture path writes a terminal request status before the finalizer runs), but the fallback preserves the pre-Packet-1 kind-based escalation semantics as defense-in-depth. A log warning is emitted when this branch fires so the anomaly is observable.
 
-**Why re-read from the store, not inspect the snapshot arg.** `captured_request` is the snapshot that `_execute_live_turn` passed in — captured at parking time, before the worker's terminal writes. Its `status` field still reads `pending`. The authoritative signal lives on the store record that the worker mutated via `mark_resolved` or `record_timeout`. The re-read is the direct check of "is this request still in-flight?" and is symmetric with the tombstone guard inside `_project_pending_escalation` (which also reads `request.status` rather than trusting snapshot fields).
+**Why `request_snapshot` reads the store, not `captured_request`.** `captured_request` is the struct that `_execute_live_turn` passed into `_finalize_turn` — captured at parking time, before the worker's terminal writes. Its `status` field still reads `pending`. The authoritative signal lives on the store record that the worker mutated via `mark_resolved` or `record_timeout`. The `request_snapshot = pending_request_store.get(captured_request.request_id)` call is the direct check of "is this request still in-flight?" and is symmetric with the tombstone guard inside `_project_pending_escalation` (which also reads the store's `request.status` rather than trusting struct fields passed in by the caller). The one-snapshot invariant (above) then ensures this single store read is the sole authority for final-status derivation — no second `pending_request_store.get(...).status` may participate.
 
-**D4 blind-write suppression.** The existing D4 carve-out at `delegation_controller.py:1467-1470` unconditionally calls `self._pending_request_store.update_status(captured_request.request_id, "resolved")` before status derivation. Under Packet 1, this would overwrite the worker's `"canceled"` write (from `record_timeout` on the timeout-cancel-dispatch-succeeded path) with `"resolved"`, breaking the atomicity the `record_timeout` mutator contract guarantees and corrupting the analytics split between resolved-and-canceled outcomes on that path. The terminal guard therefore suppresses the D4 write when the re-read shows a terminal request: if `request.status in ("resolved", "canceled")`, skip the `update_status` call entirely. For the fall-through `pending` case, the D4 write still applies as before.
+**D4 blind-write suppression (single-snapshot form).** The existing D4 carve-out at `delegation_controller.py:1467-1470` unconditionally calls `self._pending_request_store.update_status(captured_request.request_id, "resolved")` before status derivation. Under Packet 1, this would overwrite the worker's `"canceled"` write (from `record_timeout` on the timeout-cancel-dispatch-succeeded path) with `"resolved"`, breaking the atomicity the `record_timeout` mutator contract guarantees and corrupting the analytics split between resolved-and-canceled outcomes on that path.
+
+Under the one-snapshot rule, the D4 decision reads `request_snapshot.status` (never a fresh `get`):
+
+| `request_snapshot.status` | D4 action | Terminal-guard decision |
+|---|---|---|
+| `"resolved"` or `"canceled"` | **Skip D4** — worker already wrote terminal state; a D4 write would either be redundant (`resolved`) or corrupt the worker's terminal write (`canceled`). | Map via Request-to-job terminal mapping table above. |
+| `"pending"` | D4 **may** write `update_status(request_id, "resolved")` for legacy fall-through semantics. **Final-status derivation still treats the authoritative status as the pre-D4 `"pending"` snapshot** and falls through to kind-based logic — the D4 write does not retroactively promote the snapshot. | Fall through to kind-based logic (existing `if captured_request.kind in _CANCEL_CAPABLE_KINDS` branch). |
+| `None` (tombstone race) | **Skip D4** — no record to promote. Log the anomaly. | Fall through to kind-based logic. |
+
+The critical property: the snapshot is frozen at the first read. Any D4 mutation that follows is visible to future store reads but invisible to the captured snapshot, so the terminal-guard decision derives from the pre-D4 observation. This is why the invariant is "one snapshot governs," not "two reads agree."
 
 **Which paths hit the finalizer, which bypass it:**
 
@@ -1779,16 +1807,32 @@ The guard is only load-bearing for the two **Yes** rows with a terminal request:
 
 **Callsite change summary (additions to the §Unknown-kind contract Callsite change summary above):**
 
-- `delegation_controller.py:1467-1470` — before the D4 `update_status(request_id, "resolved")` call, re-read the request via `pending_request_store.get(request_id)`. If `request.status in ("resolved", "canceled")`, skip the D4 write. The D4 branch retains its existing semantics only for the fall-through `pending` case.
-- `delegation_controller.py:1473-1478` — add the terminal guard as the FIRST status-derivation check. Re-read `pending_request_store.get(captured_request.request_id)`. If the record is terminal (`resolved` or `canceled`), set `final_status` per the Request-to-job terminal mapping table above and skip the kind-based escalation branch entirely. Only fall through to the existing kind-based logic (`if captured_request.kind in _CANCEL_CAPABLE_KINDS` per the Unknown-kind contract's Callsite change summary) when the re-read returns `pending` or the record is `None`. This change is compatible with — and sits strictly above — the R12 `interrupted_by_unknown` routing to `final_status="unknown"`: an unknown-kind parse-failure path persists the audit request as `pending`, so the terminal guard does not fire and the existing unknown-kind branch still applies.
+- `delegation_controller.py:1467-1478` — restructure the captured-request branch around a single snapshot read at the top:
+
+  ```python
+  request_snapshot = self._pending_request_store.get(
+      captured_request.request_id
+  )
+  ```
+
+  Consume this snapshot (not any fresh re-read) for three decisions, in order:
+
+  1. **D4 write** (replaces the unconditional D4 at `:1467-1470`): only write `update_status(request_id, "resolved")` when `request_snapshot.status == "pending"`. Skip when `request_snapshot.status in ("resolved", "canceled")` or `request_snapshot is None`.
+  2. **Terminal-guard mapping** (replaces the kind-based check at `:1473-1478`): when `request_snapshot.status in ("resolved", "canceled")`, set `final_status` per the Request-to-job terminal mapping table above and skip the existing kind-based escalation branch entirely.
+  3. **Fall-through** (preserves existing semantics): when `request_snapshot.status == "pending"` or `request_snapshot is None`, proceed to the kind-based logic (`if captured_request.kind in _CANCEL_CAPABLE_KINDS` per the Unknown-kind contract's Callsite change summary). For the `None` case, emit a log warning noting the anomalous tombstone state.
+
+  Any later reads within the finalizer are permitted **only** for return-shape hydration (non-status fields — `resolved_at`, `dispatch_result`, `protocol_echo_*`) and must not feed the terminal-guard decision. This is the one-snapshot invariant stated above; future maintainers must not introduce a second `pending_request_store.get(captured_request.request_id)` whose `.status` re-enters the derivation.
+
+  This change is compatible with — and sits strictly above — the R12 `interrupted_by_unknown` routing to `final_status="unknown"`: an unknown-kind parse-failure path persists the audit request as `pending`, so the terminal guard does not fire (snapshot is `pending`) and the existing unknown-kind branch still applies via fall-through.
 
 **Tests to add:**
 
-- Decide-success terminal guard (happy path): arrange `decide(approve)` on a `command_approval` request; let the worker run the full success sequence (`mark_resolved`, `update_parked_request(None)`, `registry.discard`, handler returns `None`); stage `turn/completed(status="completed")`; verify `_finalize_turn` re-reads the request, sees `status="resolved"`, and sets `final_status="completed"` (not `"needs_escalation"`); verify `poll()` returns `job.status="completed"`; verify NO escalation audit event was written post-decide.
-- Timeout-cancel-dispatch-succeeded terminal guard: arrange a `file_change` request that times out; worker calls `session.respond({"decision": "cancel"})` successfully, then `record_timeout(..., dispatch_result="succeeded")`; stage `turn/completed(status="interrupted")`; verify `_finalize_turn` re-reads the request, sees `status="canceled"`, and sets `final_status="canceled"` (not `"needs_escalation"`); verify `poll()` returns `job.status="canceled"`; verify `_emit_terminal_outcome_if_needed` emits `DelegationOutcomeRecord` with `terminal_status="canceled"`.
-- D4 blind-write suppression: arrange a timeout-cancel-dispatch-succeeded path (as above); before `_finalize_turn`'s D4 branch, verify `PendingRequestStore.get(rid).status == "canceled"`; after `_finalize_turn` returns, verify `PendingRequestStore.get(rid).status` is still `"canceled"` (NOT overwritten to `"resolved"`); confirm by inspecting the store's journal that no `update_status(rid, "resolved")` record was written in the finalizer window.
-- Post-dispatch turn fault (OB-1 fallback): arrange decide-success followed by `turn/completed(status="failed")` (simulates a post-dispatch fault in App Server); verify `_finalize_turn` re-reads, sees `request.status="resolved"` + `turn_result.status="failed"`, and sets `final_status="unknown"` (OB-1: transport applied the decision but turn-level outcome is unverified); verify `poll()` returns `job.status="unknown"`.
-- Anomalous captured+pending fallback: construct a synthetic trace where `captured_request` is non-None and not parse-failed, but `pending_request_store.get(request_id).status == "pending"` at finalizer time (should not happen under Packet 1, but defends against future changes); verify the finalizer falls through to the existing kind-based escalation logic without raising; verify a log warning is emitted noting the anomalous state.
+- Decide-success terminal guard (happy path): arrange `decide(approve)` on a `command_approval` request; let the worker run the full success sequence (`mark_resolved`, `update_parked_request(None)`, `registry.discard`, handler returns `None`); stage `turn/completed(status="completed")`; verify `_finalize_turn` reads the request once into `request_snapshot`, observes `request_snapshot.status="resolved"`, and sets `final_status="completed"` (not `"needs_escalation"`); verify `poll()` returns `job.status="completed"`; verify NO escalation audit event was written post-decide.
+- Timeout-cancel-dispatch-succeeded terminal guard: arrange a `file_change` request that times out; worker calls `session.respond({"decision": "cancel"})` successfully, then `record_timeout(..., dispatch_result="succeeded")`; stage `turn/completed(status="interrupted")`; verify `_finalize_turn` reads the request once into `request_snapshot`, observes `request_snapshot.status="canceled"`, and sets `final_status="canceled"` (not `"needs_escalation"`); verify `poll()` returns `job.status="canceled"`; verify `_emit_terminal_outcome_if_needed` emits `DelegationOutcomeRecord` with `terminal_status="canceled"`.
+- D4 blind-write suppression (snapshot-terminal case): arrange a timeout-cancel-dispatch-succeeded path (as above); before `_finalize_turn`'s captured-request branch, verify `PendingRequestStore.get(rid).status == "canceled"`; after `_finalize_turn` returns, verify `PendingRequestStore.get(rid).status` is still `"canceled"` (NOT overwritten to `"resolved"`); confirm by inspecting the store's journal that no `update_status(rid, "resolved")` record was written in the finalizer window.
+- One-snapshot invariant enforcement: instrument `PendingRequestStore.get(request_id=<rid>)` with a call counter during `_finalize_turn`; run any of the captured-request paths (decide-success, timeout-cancel-dispatch-succeeded, anomalous pending); assert the counter for that `rid` increments **exactly once** from within the captured-request branch for the purpose of status derivation (hydration reads for non-status fields are permitted only if they use a distinct access pattern that the test harness recognizes as non-derivation). This test protects the one-snapshot invariant against future regressions that might reintroduce a `.status` re-read between D4 and the terminal guard.
+- Post-dispatch turn fault (OB-1 fallback): arrange decide-success followed by `turn/completed(status="failed")` (simulates a post-dispatch fault in App Server); verify `_finalize_turn` reads `request_snapshot` once, observes `request_snapshot.status="resolved"` + `turn_result.status="failed"`, and sets `final_status="unknown"` (OB-1: transport applied the decision but turn-level outcome is unverified); verify `poll()` returns `job.status="unknown"`.
+- Anomalous captured+pending fallback (one-snapshot semantics): construct a synthetic trace where `captured_request` is non-None and not parse-failed, but `pending_request_store.get(request_id).status == "pending"` at finalizer entry (should not happen under Packet 1, but defends against future changes); verify `_finalize_turn` reads `request_snapshot` once, observes `request_snapshot.status="pending"`, writes D4 `update_status(rid, "resolved")` as legacy fall-through behavior, and **still** falls through to the existing kind-based escalation logic based on the pre-D4 `request_snapshot.status="pending"` (NOT a post-D4 re-read that would see `"resolved"`); verify the kind-based branch then produces `final_status="needs_escalation"` for `captured_request.kind in _CANCEL_CAPABLE_KINDS` without raising; verify a log warning is emitted noting the anomalous state; verify `PendingRequestStore.get(rid).status == "resolved"` after `_finalize_turn` returns (D4 wrote through), confirming the derivation and the D4 side effect are on different authorities.
 
 ### Rejection reasons (unchanged)
 
@@ -1806,7 +1850,7 @@ No additions needed.
 ### poll() — unchanged shape
 
 `DelegationPollResult` retains its current fields. Post-dispatch observations reach the caller via:
-- `job.status` transitions (`needs_escalation → running → completed | failed | canceled | unknown`). `canceled` is reached only via the non-cancel timeout interrupt-succeeded branch (see §JobStatus='canceled' propagation); it is the verified-cancel terminal state, distinct from `unknown` which is the unverified-failure terminal state.
+- `job.status` transitions (`needs_escalation → running → completed | failed | canceled | unknown`). `canceled` is reached via **either** (a) the non-cancel timeout interrupt-succeeded branch (via `_WorkerTerminalBranchSignal(reason="timeout_interrupt_succeeded")`), or (b) cancel-capable timeout with successful cancel dispatch (mapped by the §`_finalize_turn` Captured-Request Terminal Guard) — see §JobStatus='canceled' propagation. Both origins are verified-cancel terminal states, distinct from `unknown` which is the unverified-failure terminal state.
 - `PendingEscalationView` (updated for the current parked request, if any)
 - Later inspection surfaces for `PendingServerRequest.dispatch_result`, `resolved_at`, `protocol_echo_*` (not added to `PendingEscalationView` — see §Observability)
 
