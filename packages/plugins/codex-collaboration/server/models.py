@@ -19,7 +19,13 @@ PendingRequestKind = Literal[
 TurnStatus = Literal["completed", "interrupted", "failed"]
 PendingRequestStatus = Literal["pending", "resolved", "canceled"]
 JobStatus = Literal[
-    "queued", "running", "needs_escalation", "completed", "failed", "unknown"
+    "queued",
+    "running",
+    "needs_escalation",
+    "completed",
+    "failed",
+    "canceled",
+    "unknown",
 ]
 PromotionState = Literal[
     "pending",
@@ -33,7 +39,7 @@ PromotionState = Literal[
 ]
 DecisionAction = Literal["approve", "deny"]
 ConsultWorkflow = Literal["consult", "review"]
-DelegationTerminalStatus = Literal["completed", "failed", "unknown"]
+DelegationTerminalStatus = Literal["completed", "failed", "canceled", "unknown"]
 DecisionRejectedReason = Literal[
     "invalid_decision",
     "job_not_found",

@@ -104,6 +104,7 @@ logger = logging.getLogger(__name__)
 _TERMINAL_STATUS_MAP: dict[str, DelegationTerminalStatus] = {
     "completed": "completed",
     "failed": "failed",
+    "canceled": "canceled",
     "unknown": "unknown",
 }
 
