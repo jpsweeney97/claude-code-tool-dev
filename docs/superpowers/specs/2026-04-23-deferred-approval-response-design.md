@@ -864,6 +864,8 @@ WORKER on synthetic timeout wake:
 
 **Why cross-thread "intent durable before signal" does not apply here.** In the decide path, main writes `intent` and worker writes `dispatched/completed` — two threads must coordinate so `intent` lands first. In the timeout path, the timer writes nothing to the journal; the worker writes the entire `intent → dispatched → completed` sequence on a single thread. There is no cross-thread race to protect. The narrower invariant ("intent durable before the next-phase record for the same idempotency key") is preserved by local sequencing. The `decision=None` on timeout intent/dispatched records is the human-readable discriminator for "this record came from a timer, not an operator decide" — combined with the `PendingServerRequest.timed_out=True` marker and the `action="approval_timeout"` audit event (best-effort, IO-5).
 
+**Intent durability under failure (timeout path).** Parallel to the dispatch-failure statement in §Dispatch failure path: the worker writes `approval_resolution.intent` (decision=None) first, then `dispatched`, then `record_timeout`. If the worker crashes after `dispatched` but before `record_timeout` lands, cold-start recovery writes `completed` with `completion_origin="recovered_unresolved"` and demotes the job — and the `timed_out=True` marker plus any `interrupt_error` captured in the timer-thread's try/except are both lost. That loss is acceptable only because it is a strict subset of the "process crashed" recovery boundary already documented in §Recovery: the plugin cannot distinguish "worker crashed during `session.interrupt_turn`" from "worker crashed during `record_timeout`" after the fact, and both collapse to the same caller-visible outcome (`job.status="unknown"` via recovery). If a future packet needs tighter forensic guarantees for the timeout path, the fix is to move `record_timeout` before `session.interrupt_turn` (writing `timed_out=True`/`status="canceled"` first, then the best-effort interrupt, then a separate `record_interrupt_error` mutator) — explicitly out of Packet 1 scope because the current symmetric-loss behavior matches the dispatch-failure path's already-documented and accepted semantics.
+
 ### Dispatch failure path (`session.respond()` raises)
 
 This is the failure mode where the operator's decision was accepted and the reservation was committed, but the worker's subsequent `session.respond(...)` call raises — most commonly `BrokenPipeError` from a Codex subprocess that died mid-turn (wrapped into `RuntimeError` at `jsonrpc_client.py:123-130`). Packet 1 makes this path auditable rather than invisible.
@@ -1137,7 +1139,7 @@ def record_internal_abort(
     # timed_out remains False (this is not a timeout; reason names the cause).
 ```
 
-Dedicated methods, not a generic `update(**fields)`. Matches existing store style at `pending_request_store.py:29-69` and keeps replay's `op` dispatch enumerable. `record_timeout`, `record_dispatch_failure`, and `record_internal_abort` are structurally parallel: each captures a terminal circumstance (timer fired / transport raised / plugin-invariant violation) plus the `status="canceled"` transition in a single atomic append. The three are orthogonal on the `PendingServerRequest` field axes (`timed_out`, `dispatch_result`, `internal_abort_reason` respectively) so any audit query that joins on them never conflates the causes.
+Dedicated methods, not a generic `update(**fields)`. Matches existing store style at `pending_request_store.py:29-69` and keeps replay's `op` dispatch enumerable. `record_timeout`, `record_dispatch_failure`, and `record_internal_abort` are structurally parallel: each captures a terminal circumstance (timer fired / transport raised / plugin-invariant violation) plus the `status="canceled"` transition in a single atomic append. Each mutator anchors on one primary circumstance axis — `record_timeout` on `timed_out`, `record_dispatch_failure` on `dispatch_result`, `record_internal_abort` on `internal_abort_reason` — and those three primary axes are mutually exclusive by construction, so any audit query that joins on them never conflates the causes. `record_timeout` additionally writes the `interrupt_error` sub-axis when `session.interrupt_turn` raises on the non-cancel path; that sub-axis is always paired with `timed_out=True` (the anchoring invariant) and is mutually exclusive with `dispatch_error` — the two annotate different transport surfaces (interrupt vs. respond). See §Observability field-orthogonality paragraph for the full axis table.
 
 **DelegationJobStore addition:**
 
@@ -1391,7 +1393,35 @@ def _project_request_to_view(
 
 Implementation details per callsite:
 
-- **`poll()` callsite:** wraps `_project_pending_escalation(job)` in `try/except UnknownKindInEscalationProjection`. On catch: log at critical level with `job_id` and `request_id`, call `self._registry.signal_internal_abort(request_id, reason="unknown_kind_in_escalation_projection")`, proceed with `pending_escalation=None` in the poll result (the escalation was never legitimately constructible); subsequent polls observe the terminal `status="unknown"` after the worker's abort-path writes land. The helper itself is pure — poll() owns the signaling reason so that a future packet that adds a new projection callsite (e.g., an amendment-admission view) can choose its own reason without the helper pre-committing one.
+- **`poll()` callsite:** wraps `_project_pending_escalation(job)` in `try/except UnknownKindInEscalationProjection`. **A `None` return from the helper is a legitimate no-view result** (terminal job guard, `parked_request_id is None`, tombstone guard) and does NOT trigger abort signaling — only a caught `UnknownKindInEscalationProjection` signals. On catch: log at critical level with `job_id` and `request_id`, call `self._registry.signal_internal_abort(request_id, reason="unknown_kind_in_escalation_projection")`, proceed with `pending_escalation=None` in the poll result (the escalation was never legitimately constructible); subsequent polls observe the terminal `status="unknown"` after the worker's abort-path writes land. The helper itself is pure — poll() owns the signaling reason so that a future packet that adds a new projection callsite (e.g., an amendment-admission view) can choose its own reason without the helper pre-committing one.
+
+    ```python
+    # poll() projection-handling segment (parallel to start()'s Parked-arm wrapper):
+    try:
+        escalation_view = self._project_pending_escalation(job)
+    except UnknownKindInEscalationProjection as exc:
+        logger.critical(
+            "delegation.poll: unknown-kind in escalation projection; "
+            "signaling worker-coordinated internal abort",
+            extra={
+                "job_id": job.job_id,
+                "request_id": job.parked_request_id,       # non-None here: the exception
+                                                            # implies the helper's pre-checks
+                                                            # passed (pending request exists)
+                "cause": str(exc),
+            },
+        )
+        self._registry.signal_internal_abort(
+            job.parked_request_id,
+            reason="unknown_kind_in_escalation_projection",
+        )
+        escalation_view = None
+    # escalation_view is None in BOTH the legitimate-no-view case (no signal fired) and the
+    # caught-exception case (signal already fired above). The caller sees pending_escalation=None
+    # uniformly; the durable distinction between the two paths lives on the
+    # PendingServerRequest.internal_abort_reason field (set only by the worker's subsequent
+    # record_internal_abort write on the exception path).
+    ```
 - **`decide()` path:** under the Packet 1 async contract (see §DelegationDecisionResult — new shape), `decide()` no longer projects a pending-escalation view into its return value — the new shape is `{decision_accepted, job_id, request_id}` and `poll()` is the sole observation surface. `decide()` therefore has no remaining `_project_request_to_view` callsite in its normal path. If an intermediate helper re-introduces projection (during implementation or future packets), it follows the same rule: catch `UnknownKindInEscalationProjection`, log, call `signal_internal_abort(request_id, reason="unknown_kind_in_escalation_projection")`, then fall through to a rejection (`request_already_decided` or a new `internal_invariant_violation` reason — the specific rejection shape is deferred to the packet that adds the callsite). `decide()` itself in Packet 1 does not need this guard, but the exception-type is spec'd so future callsites cannot bypass it.
 
 **What the caller observes.** The observation sequence depends on which operation wins the CAS at the registry entry when `poll()` issues `signal_internal_abort` on a caught `UnknownKindInEscalationProjection` (the helper is pure; poll() owns the signaling — see §Projection helper rewrites):
@@ -1610,7 +1640,7 @@ A future inspection surface (not Packet 1) may expose the forensic fields.
 
 The journal validator at `packages/plugins/codex-collaboration/server/journal.py:124-136` (intent) and `:137-157` (dispatched) currently enforces `isinstance(record.get("decision"), str)` — i.e., `decision` is required to be a non-None string for any `approval_resolution` record. Under the current codebase, every write passes `decision=DecisionAction` literal so this holds.
 
-Packet 1 introduces timeout `approval_resolution.intent` and `dispatched` records with `decision=None` (non-operator origin). The validator must relax the `decision` check on those two branches to:
+Packet 1 introduces `approval_resolution.intent` and `dispatched` records with `decision=None` on two non-operator wake paths — timeout wake and internal-abort wake (the `PendingServerRequest` fields `timed_out` and `internal_abort_reason` discriminate the two at the store layer). The validator must relax the `decision` check on those two branches to:
 
 ```python
 elif op == "approval_resolution" and phase == "intent":
