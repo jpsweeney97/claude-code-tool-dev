@@ -366,9 +366,10 @@ def _sanitize_error_string(exc: BaseException) -> str:
     Format: "<ExceptionClassName>: <bounded, escaped message>". Used by the
     three PendingServerRequest forensic fields (dispatch_error,
     interrupt_error, internal_abort_reason). Per spec §Sanitization rules:
-    message truncated at 200 chars with "..." elision, newlines/tabs escaped,
-    total length bounded at 256 chars. A too-long class name triggers a
-    further truncation and a warning log.
+    raw message truncated at 200 chars pre-escape with "..." elision;
+    escaping (newlines/tabs via unicode_escape) may inflate this, which
+    the 256-char combined cap absorbs. An over-long class name or
+    sufficient escape-inflation triggers the cap with a warning log.
     """
     class_name = type(exc).__name__
     raw = str(exc)
@@ -408,8 +409,9 @@ feat(delegate): add _sanitize_error_string helper for forensic fields (T-2026042
 
 Module-private helper that produces bounded, JSONL-safe forensic strings
 for dispatch_error, interrupt_error, and internal_abort_reason fields.
-Class-prefix format, 200-char message cap with ellipsis, newline escape,
-256-char combined cap. Per spec §Sanitization rules.
+Class-prefix format, 200-char raw-message cap with ellipsis (pre-escape),
+newline/tab escape that may inflate, 256-char combined cap as backstop.
+Per spec §Sanitization rules.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
