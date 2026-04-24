@@ -322,10 +322,18 @@ def test_sanitize_strips_newlines_and_control_chars() -> None:
 
 def test_sanitize_caps_total_at_256_chars() -> None:
     # Over-long class name triggers the combined cap.
-    class ExceptionClassWithAVeryVeryVeryVeryLongName(RuntimeError):
+    class ExceptionClassWithAVeryVeryVeryVeryVeryVeryVeryLongName(RuntimeError):
         pass
 
-    exc = ExceptionClassWithAVeryVeryVeryVeryLongName("x" * 400)
+    exc = ExceptionClassWithAVeryVeryVeryVeryVeryVeryVeryLongName("x" * 400)
+    # Guard: prove the fixture actually exceeds the cap before sanitization.
+    # class_name (55) + ": " (2) + truncated_message (203) = 260 > 256.
+    # This tripwire prevents future edits from accidentally returning the
+    # fixture to a vacuous pass (where the 200-char message cap alone would
+    # keep combined length under 256 regardless of _SANITIZE_TOTAL_CAP).
+    unbounded = f"{type(exc).__name__}: {'x' * 200}..."
+    assert len(unbounded) > 256
+
     out = _sanitize_error_string(exc)
     assert len(out) <= 256
 
