@@ -59,6 +59,7 @@ import logging
 import subprocess
 import tempfile
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
@@ -190,6 +191,31 @@ class UnknownKindInEscalationProjection(Exception):
     """
 
     pass
+
+
+@dataclass(frozen=True)
+class _WorkerTerminalBranchSignal(Exception):
+    """Private sentinel raised by the server-request handler to terminalize
+    the worker turn after the branch's own cleanup has already run.
+
+    The handler raises this AFTER performing its branch's own cleanup:
+      - writing any final approval_resolution.completed record
+      - calling update_parked_request(job_id, None)
+      - discarding the per-request registry entry
+      - calling _mark_execution_unknown_and_cleanup (closes session, marks job)
+      (or the timeout-success analog: _persist_job_transition(..., "canceled"))
+
+    Caught in _execute_live_turn's new except clause BEFORE the generic
+    except Exception; MUST NOT escape _execute_live_turn as a raw exception
+    or be caught by the worker runner — doing so would produce
+    announce_worker_failed for a handler-terminalized branch.
+
+    Six call sites with distinct reason literals per spec §Worker
+    terminal-branch signaling primitive — see the table at "Where it is
+    raised."
+    """
+
+    reason: str
 
 
 class _ControlPlaneLike(Protocol):
