@@ -16,6 +16,15 @@ HandleStatus = Literal["active", "completed", "crashed", "unknown"]
 PendingRequestKind = Literal[
     "command_approval", "file_change", "request_user_input", "unknown"
 ]
+# PendingRequestKind stays 4 literals — "unknown" is still a valid PERSISTED kind
+# (parse-failure audit record). EscalatableRequestKind is the narrower subset
+# that may appear in PendingEscalationView. Under Packet 1, kind="unknown"
+# terminalizes the job before reaching any escalation projection.
+EscalatableRequestKind = Literal[
+    "command_approval",
+    "file_change",
+    "request_user_input",
+]
 TurnStatus = Literal["completed", "interrupted", "failed"]
 PendingRequestStatus = Literal["pending", "resolved", "canceled"]
 JobStatus = Literal[
@@ -453,7 +462,7 @@ class PendingEscalationView:
     """
 
     request_id: str
-    kind: PendingRequestKind
+    kind: EscalatableRequestKind
     requested_scope: dict[str, Any]
     available_decisions: tuple[str, ...] = ()
 
