@@ -842,6 +842,33 @@ class DelegationController:
                 approval_policy=self._approval_policy,
                 server_request_handler=_server_request_handler,
             )
+        except _WorkerTerminalBranchSignal as signal:
+            # Handler already performed branch cleanup. Do NOT call
+            # _mark_execution_unknown_and_cleanup (that would double-clean).
+            logger.info(
+                "worker terminal-branch signal caught. job_id=%r reason=%s",
+                job_id,
+                signal.reason,
+            )
+            if signal.reason == "unknown_kind_interrupt_transport_failure":
+                # Pre-capture terminal transport failure. Surface to main thread
+                # via DelegationStartError; the worker runner's generic
+                # `except Exception` will catch and fire announce_worker_failed
+                # with the explicit reason preserved.
+                raise DelegationStartError(
+                    reason="unknown_kind_interrupt_transport_failure",
+                    cause=None,
+                )
+            # Post-decide / post-Parked branches. Job is already in its terminal
+            # state. Return the stored job — _finalize_turn is BYPASSED because
+            # captured_request and turn_result would be stale / meaningless
+            # post-terminalization.
+            stored = self._job_store.get(job_id)
+            assert stored is not None, (
+                f"_execute_live_turn sentinel-catch invariant: job_id={job_id!r} "
+                f"stored record missing after sentinel reason={signal.reason!r}"
+            )
+            return stored
         except Exception:
             self._mark_execution_unknown_and_cleanup(
                 job_id=job_id,
@@ -1012,7 +1039,12 @@ class DelegationController:
     def _load_or_materialize_inspection(
         self, job: DelegationJob
     ) -> ArtifactInspectionSnapshot | None:
-        if job.status not in ("completed", "failed", "unknown"):
+        if job.status not in ("completed", "failed", "canceled", "unknown"):
+            return None
+        # Canceled jobs have no artifacts — the worker was interrupted before
+        # they could be produced. Return None immediately without calling
+        # materialize_snapshot / reconstruct_from_artifacts.
+        if job.status == "canceled":
             return None
         existing = self._artifact_store.load_snapshot(job=job)
         if existing is not None:
