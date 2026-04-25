@@ -1855,7 +1855,7 @@ class DelegationController:
             answers=answers,
         )
         try:
-            follow_up = self._execute_live_turn(
+            self._execute_live_turn(
                 job_id=job_id,
                 collaboration_id=job.collaboration_id,
                 runtime_id=job.runtime_id,
@@ -1877,12 +1877,6 @@ class DelegationController:
                 session_id=self._session_id,
             )
             self._decided_request_ids.add(request_id)
-            if isinstance(follow_up, DelegationEscalation):
-                return DelegationDecisionResult(
-                    decision_accepted=True,
-                    job_id=job_id,
-                    request_id=request_id,
-                )
             return DelegationDecisionResult(
                 decision_accepted=True,
                 job_id=job_id,
