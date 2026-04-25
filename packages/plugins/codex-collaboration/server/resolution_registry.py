@@ -60,9 +60,15 @@ Resolution = DecisionResolution | InternalAbort
 @dataclass(frozen=True)
 class ReservationToken:
     """Opaque handle returned by reserve() and consumed by exactly one
-    subsequent commit_signal or abort_reservation call. Carries a generation
-    counter so stale tokens (entry discarded and re-registered) cannot
-    commit_signal into a different entry's state.
+    subsequent commit_signal or abort_reservation call.
+
+    The generation field is a per-register monotonic counter on the
+    registry. It enables commit_signal/abort_reservation to detect a
+    stale token whose entry was discarded and re-registered with the
+    same request_id between reserve and commit: the new entry carries
+    a strictly larger generation, so the stale token's generation no
+    longer matches and the operation is rejected without affecting
+    the new entry's state.
     """
 
     request_id: str
@@ -97,6 +103,7 @@ class ResolutionRegistry:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._entries: dict[str, _RegistryEntry] = {}
+        self._next_generation = 0
         # Per-job capture-ready channel is added in Task 12.
 
     # --- per-request API -----------------------------------------------------
@@ -115,9 +122,11 @@ class ResolutionRegistry:
         with self._lock:
             if request_id in self._entries:
                 raise RuntimeError(
-                    f"ResolutionRegistry.register: duplicate request_id. "
+                    f"ResolutionRegistry.register failed: duplicate request_id. "
                     f"Got: {request_id!r:.100}"
                 )
+            self._next_generation += 1
+            generation = self._next_generation
             event = threading.Event()
             entry = _RegistryEntry(
                 request_id=request_id,
@@ -125,7 +134,7 @@ class ResolutionRegistry:
                 kind=kind,
                 timeout_seconds=timeout_seconds,
                 state="awaiting",
-                generation=0,
+                generation=generation,
                 event=event,
             )
             entry.timer = threading.Timer(
@@ -190,6 +199,9 @@ class ResolutionRegistry:
     def wait(self, request_id: str) -> Resolution:
         """Worker blocks here post-register; returns when commit_signal or
         signal_internal_abort fires the entry's event.
+
+        Caller must invoke discard(request_id) after consuming the returned
+        resolution; otherwise the entry persists in the registry indefinitely.
         """
         with self._lock:
             entry = self._entries.get(request_id)

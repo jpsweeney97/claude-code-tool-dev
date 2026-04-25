@@ -189,19 +189,92 @@ def test_timer_fires_synthetic_timeout_resolution() -> None:
 
 
 def test_late_timer_against_decided_entry_is_noop() -> None:
-    # Timer tries to reserve an entry that's already been decided — must be a
-    # no-op (no journal, no wake, no side effect).
+    """Late timer firing on a decided entry is a no-op: the worker receives
+    the operator's resolution exactly once, and the entry does not return
+    to awaiting.
+    """
     reg = ResolutionRegistry()
     reg.register("r1", job_id="j1", kind="command_approval", timeout_seconds=0.5)
-    # Operator wins.
-    token = reg.reserve(
-        "r1", DecisionResolution(payload={}, kind="command_approval")
+
+    operator_resolution = DecisionResolution(
+        payload={"decision": "accept"}, kind="command_approval"
     )
+    result: list[Resolution] = []
+
+    def worker() -> None:
+        result.append(reg.wait("r1"))
+
+    t = threading.Thread(target=worker)
+    t.start()
+    time.sleep(0.05)
+    token = reg.reserve("r1", operator_resolution)
     assert token is not None
     reg.commit_signal(token)
-    # Let the timer fire — it should observe non-awaiting state via
-    # reserve() returning None and no-op.
+    t.join(timeout=2.0)
+    assert not t.is_alive()
+    assert len(result) == 1
+    assert result[0] == operator_resolution
+    # Now wait for the would-be late timer to fire — must be a no-op.
     time.sleep(0.7)
-    # Registry still reflects the operator's decision (no state change).
-    assert "r1" in reg._entries
+    # Worker received exactly one resolution (no double-wake).
+    assert len(result) == 1
+    assert result[0] == operator_resolution
+    # Entry remains in consuming state — never returns to awaiting.
     assert reg._is_awaiting("r1") is False
+
+
+def test_stale_token_after_discard_and_reregister_is_rejected() -> None:
+    """Generation counter rejects stale tokens whose entry was discarded
+    and re-registered with the same request_id.
+
+    Pins the F4 closeout protection: without per-register generation
+    increments, the old token would silently commit_signal into the
+    new entry's state, polluting the new reservation.
+    """
+    reg = ResolutionRegistry()
+
+    # Step 1: register + reserve, capture the OLD token.
+    reg.register("r1", job_id="j1", kind="command_approval", timeout_seconds=900)
+    old_resolution = DecisionResolution(
+        payload={"decision": "accept"}, kind="command_approval"
+    )
+    old_token = reg.reserve("r1", old_resolution)
+    assert old_token is not None
+
+    # Step 2: discard the entry (without commit/abort).
+    reg.discard("r1")
+
+    # Step 3: re-register the same request_id.
+    reg.register("r1", job_id="j1", kind="command_approval", timeout_seconds=900)
+
+    # Step 4: reserve on the new entry, capture the NEW token.
+    new_resolution = DecisionResolution(
+        payload={"decision": "deny"}, kind="command_approval"
+    )
+    new_token = reg.reserve("r1", new_resolution)
+    assert new_token is not None
+    assert new_token.generation != old_token.generation
+
+    # Step 5: stale commit on the old token must not affect the new entry.
+    reg.commit_signal(old_token)
+
+    # Step 6: spawn a worker — it should still be blocked because the new
+    # entry remains in reserved state (old token's commit was rejected).
+    result: list[Resolution] = []
+
+    def worker() -> None:
+        result.append(reg.wait("r1"))
+
+    t = threading.Thread(target=worker)
+    t.start()
+    time.sleep(0.05)
+    assert t.is_alive()  # worker has not been woken
+    assert len(result) == 0
+
+    # Step 7: commit the new token; worker receives the new resolution
+    # (not the stale old one).
+    reg.commit_signal(new_token)
+    t.join(timeout=2.0)
+    assert not t.is_alive()
+    assert len(result) == 1
+    assert result[0] == new_resolution
