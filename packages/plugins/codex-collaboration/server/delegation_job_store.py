@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any, get_args
 
@@ -184,6 +184,23 @@ class DelegationJobStore:
             }
         )
 
+    def update_parked_request(
+        self, job_id: str, parked_request_id: str | None
+    ) -> None:
+        """Set or clear the durable selector for which request this job's
+        worker is currently parked on.
+
+        Worker writes on park (rid) and on post-respond cleanup (None).
+        Packet 1 §parked_request_id.
+        """
+        self._append(
+            {
+                "op": "update_parked_request",
+                "job_id": job_id,
+                "parked_request_id": parked_request_id,
+            }
+        )
+
     def _append(self, record: dict[str, Any]) -> None:
         with self._store_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record, sort_keys=True) + "\n")
@@ -307,4 +324,11 @@ class DelegationJobStore:
                     if promotion_attempt is not None and type(promotion_attempt) is int:
                         updates["promotion_attempt"] = promotion_attempt
                     jobs[job_id] = DelegationJob(**updates)
+                elif op == "update_parked_request":
+                    jid = record.get("job_id")
+                    if jid in jobs:
+                        jobs[jid] = replace(
+                            jobs[jid],
+                            parked_request_id=record.get("parked_request_id"),
+                        )
         return jobs

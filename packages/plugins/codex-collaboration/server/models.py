@@ -416,6 +416,7 @@ class DelegationJob:
     status: JobStatus = "queued"
     artifact_paths: tuple[str, ...] = ()
     artifact_hash: str | None = None
+    parked_request_id: str | None = None
 
 
 @dataclass(frozen=True)
