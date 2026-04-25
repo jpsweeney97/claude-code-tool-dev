@@ -109,6 +109,10 @@ _TERMINAL_STATUS_MAP: dict[str, DelegationTerminalStatus] = {
     "unknown": "unknown",
 }
 
+_ESCALATABLE_REQUEST_KINDS: frozenset[str] = frozenset(
+    {"command_approval", "file_change", "request_user_input"}
+)
+
 _SANITIZE_MESSAGE_CAP = 200
 _SANITIZE_TOTAL_CAP = 256
 
@@ -959,7 +963,22 @@ class DelegationController:
     def _project_request_to_view(
         self, request: PendingServerRequest
     ) -> PendingEscalationView:
-        """Project a PendingServerRequest to the caller-visible PendingEscalationView."""
+        """Project a PendingServerRequest to the caller-visible PendingEscalationView.
+
+        Raises UnknownKindInEscalationProjection if request.kind is not in the
+        escalatable set. Under Packet 1, caller control flow should prevent
+        this (unknown-kind requests terminalize the job before reaching any
+        projection callsite). The runtime guard is a belt-and-suspenders check
+        against dynamic construction paths (JSONL replay of pre-Packet-1 records,
+        future callsites that bypass the type system).
+        """
+        if request.kind not in _ESCALATABLE_REQUEST_KINDS:
+            raise UnknownKindInEscalationProjection(
+                f"EscalatableRequestKind violation: request_id={request.request_id!r} "
+                f"kind={request.kind!r:.100}. Under Packet 1, kind='unknown' "
+                f"must never reach escalation projection; such jobs are "
+                f"terminalized via the Unknown-kind contract."
+            )
         return PendingEscalationView(
             request_id=request.request_id,
             kind=request.kind,
@@ -968,14 +987,26 @@ class DelegationController:
         )
 
     def _project_pending_escalation(
-        self, collaboration_id: str
+        self, job: DelegationJob
     ) -> PendingEscalationView | None:
-        requests = self._pending_request_store.list_by_collaboration_id(
-            collaboration_id
-        )
-        if not requests:
+        """Project a job's parked request into a view. PURE — no side effects.
+
+        Returns None for legitimate no-view states (terminal, unparked,
+        tombstone). Re-raises UnknownKindInEscalationProjection for invariant
+        violations so each callsite owns its own abort-signaling and rejection
+        semantics. The helper never calls signal_internal_abort and never logs
+        critical errors; those concerns live at callsites (poll(), start()'s
+        escalation-return branch) because the appropriate reason and
+        caller-facing response differ between them.
+        """
+        if job.status in ("completed", "failed", "canceled", "unknown"):
             return None
-        return self._project_request_to_view(requests[-1])
+        if job.parked_request_id is None:
+            return None
+        request = self._pending_request_store.get(job.parked_request_id)
+        if request is None or request.status != "pending":
+            return None
+        return self._project_request_to_view(request)
 
     def _load_or_materialize_inspection(
         self, job: DelegationJob
@@ -1032,9 +1063,7 @@ class DelegationController:
         refreshed = self._job_store.get(job_id) or job
         pending_escalation = None
         if refreshed.status == "needs_escalation":
-            pending_escalation = self._project_pending_escalation(
-                refreshed.collaboration_id
-            )
+            pending_escalation = self._project_pending_escalation(refreshed)
 
         detail = None
         if refreshed.status == "failed":
