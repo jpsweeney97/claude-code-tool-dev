@@ -34,6 +34,13 @@ Running list of deferred items discovered during execution of Packet 1 (T-202604
 | B7.1 | Unused `import pytest` in `test_pending_request_store_mutators.py` (no `pytest.*` symbol used in file) — same pattern as A4 | End-of-phase polish | Task 7 code quality review |
 | B7.2 | Variable name inconsistency in `_replay`: `update_status` branch uses `req_id`; the 3 new branches (`mark_resolved`, `record_response_dispatch`, `record_protocol_echo`) use `rid`. Normalize on a future polish pass | End-of-phase polish | Task 7 code quality review |
 
+### From Phase B Task 8
+
+| # | Item | Lands at / How to resolve | Source |
+|---|---|---|---|
+| B8.1 | Style asymmetry between `record_response_dispatch` replay (line 294, reads `dispatch_result=record.get(...)`) and `record_dispatch_failure` replay (line 327, hardcodes `dispatch_result="failed"`). Both mutators write the value unconditionally, so behavior matches under normal flow; under hand-edit JSONL corruption the read-path drifts to `None` while the hardcode stays `"failed"`. Tautological-but-safe; pick one style on a future pass. | End-of-phase polish | Task 8 code quality review |
+| B8.2 | No explicit reopen round-trip tests for `record_timeout` and `record_dispatch_failure` in `test_pending_request_store_atomic_mutators.py`. Only `test_record_internal_abort_round_trip_via_replay` instantiates a fresh `PendingRequestStore` to force file-open replay; the other two paths exercise replay via same-instance `store.get()`. Same `_replay()` code path; gap is the `__init__` (mkdir + store_path) coverage, already exercised by the abort round-trip. | End-of-phase test polish | Task 8 code quality review |
+
 ---
 
 ## Closed items
