@@ -106,6 +106,17 @@ class PendingRequestStore:
                                 record.get("available_decisions", ())
                             ),
                             status=record.get("status", "pending"),
+                            resolution_action=record.get("resolution_action"),
+                            response_payload=record.get("response_payload"),
+                            response_dispatch_at=record.get("response_dispatch_at"),
+                            dispatch_result=record.get("dispatch_result"),
+                            dispatch_error=record.get("dispatch_error"),
+                            interrupt_error=record.get("interrupt_error"),
+                            resolved_at=record.get("resolved_at"),
+                            protocol_echo_signals=tuple(record.get("protocol_echo_signals", ())),
+                            protocol_echo_observed_at=record.get("protocol_echo_observed_at"),
+                            timed_out=record.get("timed_out", False),
+                            internal_abort_reason=record.get("internal_abort_reason"),
                         )
                     except (KeyError, TypeError):
                         continue

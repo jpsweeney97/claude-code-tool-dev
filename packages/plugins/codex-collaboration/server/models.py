@@ -289,6 +289,10 @@ class PendingServerRequest:
     The execution approval-routing layer preserves request-relevant payloads
     opaquely in ``requested_scope``. Normalized request-scope comparison is a
     later T-05 concern and is intentionally not implemented here.
+
+    Packet 1 (T-20260423-02) adds 11 nullable/safe-default fields for the
+    deferred-approval lifecycle. All new fields are back-compatible: legacy
+    records replay with None / empty-tuple / False defaults.
     """
 
     request_id: str
@@ -301,6 +305,18 @@ class PendingServerRequest:
     requested_scope: dict[str, Any]
     available_decisions: tuple[str, ...] = ()
     status: PendingRequestStatus = "pending"
+    # Packet 1: deferred-resolution lifecycle
+    resolution_action: Literal["approve", "deny"] | None = None
+    response_payload: dict[str, Any] | None = None
+    response_dispatch_at: str | None = None
+    dispatch_result: Literal["succeeded", "failed"] | None = None
+    dispatch_error: str | None = None
+    interrupt_error: str | None = None
+    resolved_at: str | None = None
+    protocol_echo_signals: tuple[str, ...] = ()
+    protocol_echo_observed_at: str | None = None
+    timed_out: bool = False
+    internal_abort_reason: str | None = None
 
 
 @dataclass(frozen=True)
