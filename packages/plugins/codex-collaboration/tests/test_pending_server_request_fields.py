@@ -86,3 +86,53 @@ def test_existing_records_replay_cleanly_with_none_defaults(tmp_path) -> None:
     assert replayed.resolution_action is None
     assert replayed.protocol_echo_signals == ()
     assert replayed.timed_out is False
+
+
+def test_new_fields_survive_update_status_roundtrip(tmp_path) -> None:
+    """Fields added in Packet 1 must survive an update_status op on replay.
+    Without `replace(...)` in the update_status branch, the reconstructed
+    record would silently reset new fields to defaults."""
+    from server.pending_request_store import PendingRequestStore
+
+    store = PendingRequestStore(plugin_data_path=tmp_path, session_id="s1")
+    # Write a record with a new-field value set directly via the create op.
+    # (The store.create method is used because it's the real write path;
+    # mutators for new fields land in Tasks 7-8.)
+    import json
+    seeded_record = {
+        "op": "create",
+        "request_id": "r-seed",
+        "runtime_id": "rt1",
+        "collaboration_id": "c1",
+        "codex_thread_id": "t1",
+        "codex_turn_id": "tu1",
+        "item_id": "i1",
+        "kind": "command_approval",
+        "requested_scope": {},
+        "available_decisions": [],
+        "status": "pending",
+        "resolution_action": "approve",
+        "timed_out": True,
+        "protocol_echo_signals": ["serverRequest/resolved"],
+    }
+    store._store_path.write_text(
+        json.dumps(seeded_record, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+    # Pre-condition: new-field values present after initial replay.
+    before = store.get("r-seed")
+    assert before is not None
+    assert before.resolution_action == "approve"
+    assert before.timed_out is True
+    assert before.protocol_echo_signals == ("serverRequest/resolved",)
+
+    # Act: an update_status event arrives.
+    store.update_status("r-seed", "resolved")
+
+    # Assert: new-field values must still be present (not reset to defaults).
+    after = store.get("r-seed")
+    assert after is not None
+    assert after.status == "resolved"
+    assert after.resolution_action == "approve"  # would be None with the old bug
+    assert after.timed_out is True  # would be False with the old bug
+    assert after.protocol_echo_signals == ("serverRequest/resolved",)  # would be ()

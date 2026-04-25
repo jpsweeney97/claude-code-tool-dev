@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any, get_args
 
@@ -132,17 +132,5 @@ class PendingRequestStore:
                         continue
                     if req_id not in requests:
                         continue
-                    existing = requests[req_id]
-                    requests[req_id] = PendingServerRequest(
-                        request_id=existing.request_id,
-                        runtime_id=existing.runtime_id,
-                        collaboration_id=existing.collaboration_id,
-                        codex_thread_id=existing.codex_thread_id,
-                        codex_turn_id=existing.codex_turn_id,
-                        item_id=existing.item_id,
-                        kind=existing.kind,
-                        requested_scope=existing.requested_scope,
-                        available_decisions=existing.available_decisions,
-                        status=status,
-                    )
+                    requests[req_id] = replace(requests[req_id], status=status)
         return requests
