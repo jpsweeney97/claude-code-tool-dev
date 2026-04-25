@@ -211,11 +211,10 @@ class PendingRequestStore:
                 elif op == "record_protocol_echo":
                     rid = record.get("request_id")
                     if rid in requests:
+                        raw_signals = record.get("protocol_echo_signals") or ()
                         requests[rid] = replace(
                             requests[rid],
-                            protocol_echo_signals=tuple(
-                                record.get("protocol_echo_signals", ())
-                            ),
+                            protocol_echo_signals=tuple(raw_signals),
                             protocol_echo_observed_at=record.get(
                                 "protocol_echo_observed_at"
                             ),

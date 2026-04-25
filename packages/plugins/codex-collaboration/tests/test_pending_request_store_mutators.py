@@ -101,3 +101,30 @@ def test_mutators_round_trip_across_replay(tmp_path) -> None:
     assert result.dispatch_result == "succeeded"
     assert result.protocol_echo_signals == ("x",)
     assert result.protocol_echo_observed_at == "t3"
+
+
+def test_record_protocol_echo_replay_handles_null_signals(tmp_path) -> None:
+    """A JSONL record with protocol_echo_signals=null must not crash replay."""
+    import json
+
+    store = PendingRequestStore(plugin_data_path=tmp_path, session_id="s1")
+    store.create(_make_pending())
+    # Inject a corrupted record (null signals) directly into the JSONL log.
+    with store._store_path.open("a", encoding="utf-8") as handle:
+        handle.write(
+            json.dumps(
+                {
+                    "op": "record_protocol_echo",
+                    "request_id": "r1",
+                    "protocol_echo_signals": None,
+                    "protocol_echo_observed_at": "2026-04-24T12:00:00Z",
+                }
+            )
+            + "\n"
+        )
+
+    reopened = PendingRequestStore(plugin_data_path=tmp_path, session_id="s1")
+    result = reopened.get("r1")
+    assert result is not None
+    assert result.protocol_echo_signals == ()
+    assert result.protocol_echo_observed_at == "2026-04-24T12:00:00Z"
