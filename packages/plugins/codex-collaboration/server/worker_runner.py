@@ -4,9 +4,11 @@ Packet 1 (T-20260423-02). One worker thread per deferred-approval turn.
 The worker:
   - Invokes _execute_live_turn (which, post-Task 16, contains the
     rewritten handler that parks on the registry).
-  - Translates a normal return (DelegationJob | DelegationEscalation) into
-    the appropriate announce_* signal on the capture-ready channel.
-  - Translates an unhandled exception into announce_worker_failed.
+  - Emits announce_turn_completed_empty as a fallthrough if the handler
+    did not already signal during the turn. The handler itself emits
+    announce_parked / announce_turn_terminal_without_escalation during
+    the turn; the worker runner emits announce_worker_failed only on
+    unhandled exceptions.
 
 The worker owns IO-1 (exclusive session ownership) + IO-3 (single-writer
 to pending_request_store + its own DelegationJob row).

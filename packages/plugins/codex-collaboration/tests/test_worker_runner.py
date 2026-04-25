@@ -25,7 +25,6 @@ from tests.test_delegation_controller import _build_controller  # type: ignore[i
 
 
 def _make_running_job(
-    controller,
     job_store,
     runtime_registry,
     fake_session,
@@ -126,7 +125,7 @@ def test_execute_live_turn_catches_worker_terminal_branch_signal_post_branch(
     """
     (
         controller,
-        control_plane,
+        _control_plane,
         _worktree_manager,
         job_store,
         _lineage,
@@ -142,7 +141,6 @@ def test_execute_live_turn_catches_worker_terminal_branch_signal_post_branch(
     )
 
     _make_running_job(
-        controller,
         job_store,
         runtime_registry,
         mock_session,
@@ -191,7 +189,6 @@ def test_execute_live_turn_catches_worker_terminal_branch_signal_post_branch(
 
 def test_execute_live_turn_catches_worker_terminal_branch_signal_pre_capture_reraises_as_delegation_start_error(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Pre-capture sentinel: re-raises DelegationStartError with matching reason
@@ -199,7 +196,7 @@ def test_execute_live_turn_catches_worker_terminal_branch_signal_pre_capture_rer
     """
     (
         controller,
-        control_plane,
+        _control_plane,
         _worktree_manager,
         job_store,
         _lineage,
@@ -214,7 +211,6 @@ def test_execute_live_turn_catches_worker_terminal_branch_signal_pre_capture_rer
     )
 
     _make_running_job(
-        controller,
         job_store,
         runtime_registry,
         mock_session,

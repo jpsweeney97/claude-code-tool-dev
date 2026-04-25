@@ -846,7 +846,7 @@ class DelegationController:
             # Handler already performed branch cleanup. Do NOT call
             # _mark_execution_unknown_and_cleanup (that would double-clean).
             logger.info(
-                "worker terminal-branch signal caught. job_id=%r reason=%s",
+                "worker terminal-branch signal caught. job_id=%r reason=%r",
                 job_id,
                 signal.reason,
             )
