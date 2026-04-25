@@ -27,6 +27,13 @@ Running list of deferred items discovered during execution of Packet 1 (T-202604
 | B6.1 | `test_has_resolution_action_field` is redundant with `test_default_values_are_safe` — both assert `req.resolution_action is None` on a default-constructed instance. Consider removing or repurposing to test a non-default value | End-of-phase polish | Task 6 code quality review |
 | B6.2 | Inline `import json` inside `test_existing_records_replay_cleanly_with_none_defaults` and `test_new_fields_survive_update_status_roundtrip` — style-divergent from module-level imports used elsewhere in the file | End-of-phase polish | Task 6 code quality review |
 
+### From Phase B Task 7
+
+| # | Item | Lands at / How to resolve | Source |
+|---|---|---|---|
+| B7.1 | Unused `import pytest` in `test_pending_request_store_mutators.py` (no `pytest.*` symbol used in file) — same pattern as A4 | End-of-phase polish | Task 7 code quality review |
+| B7.2 | Variable name inconsistency in `_replay`: `update_status` branch uses `req_id`; the 3 new branches (`mark_resolved`, `record_response_dispatch`, `record_protocol_echo`) use `rid`. Normalize on a future polish pass | End-of-phase polish | Task 7 code quality review |
+
 ---
 
 ## Closed items
@@ -36,6 +43,10 @@ _(Move items here when resolved, with the commit SHA that resolved them)_
 ### From Phase B Task 6
 
 - **[Resolved `3fbba140`]** `update_status` replay branch silently dropped 11 new fields. Originally triaged as carry-forward; code quality review upgraded to Critical-in-Task-6-scope. Fixed via `dataclasses.replace` + round-trip test.
+
+### From Phase B Task 7
+
+- **[Resolved `b623548b`]** `record_protocol_echo` replay branch crashed all store reads on `protocol_echo_signals: null` JSONL records (`tuple(None)` raises `TypeError`). Code quality reviewer flagged as Important I-1; fixed in-scope per Phase A protocol via `record.get(...) or ()` plus null-injection regression test.
 
 ---
 
