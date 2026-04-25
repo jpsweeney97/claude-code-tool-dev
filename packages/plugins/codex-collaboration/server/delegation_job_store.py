@@ -263,10 +263,7 @@ class DelegationJobStore:
                         continue
                     if job_id not in jobs:
                         continue
-                    existing = jobs[job_id]
-                    jobs[job_id] = DelegationJob(
-                        **{**asdict(existing), "status": status}
-                    )
+                    jobs[job_id] = replace(jobs[job_id], status=status)
                 elif op == "update_status_and_promotion":
                     job_id = record.get("job_id")
                     status = record.get("status")
@@ -279,14 +276,7 @@ class DelegationJobStore:
                         continue
                     if job_id not in jobs:
                         continue
-                    existing = jobs[job_id]
-                    jobs[job_id] = DelegationJob(
-                        **{
-                            **asdict(existing),
-                            "status": status,
-                            "promotion_state": promotion_state,
-                        }
-                    )
+                    jobs[job_id] = replace(jobs[job_id], status=status, promotion_state=promotion_state)
                 elif op == "update_artifacts":
                     job_id = record.get("job_id")
                     artifact_paths = record.get("artifact_paths")
@@ -297,14 +287,10 @@ class DelegationJobStore:
                         continue
                     if not isinstance(artifact_paths, list):
                         continue
-                    artifact_paths = tuple(artifact_paths)
-                    existing = jobs[job_id]
-                    jobs[job_id] = DelegationJob(
-                        **{
-                            **asdict(existing),
-                            "artifact_paths": artifact_paths,
-                            "artifact_hash": artifact_hash,
-                        }
+                    jobs[job_id] = replace(
+                        jobs[job_id],
+                        artifact_paths=tuple(artifact_paths),
+                        artifact_hash=artifact_hash,
                     )
                 elif op == "update_promotion_state":
                     job_id = record.get("job_id")
@@ -316,19 +302,19 @@ class DelegationJobStore:
                         continue
                     if not _is_valid_promotion_state(promotion_state):
                         continue
-                    existing = jobs[job_id]
-                    updates: dict[str, Any] = {
-                        **asdict(existing),
-                        "promotion_state": promotion_state,
-                    }
                     if promotion_attempt is not None and type(promotion_attempt) is int:
-                        updates["promotion_attempt"] = promotion_attempt
-                    jobs[job_id] = DelegationJob(**updates)
-                elif op == "update_parked_request":
-                    jid = record.get("job_id")
-                    if jid in jobs:
-                        jobs[jid] = replace(
-                            jobs[jid],
-                            parked_request_id=record.get("parked_request_id"),
+                        jobs[job_id] = replace(
+                            jobs[job_id],
+                            promotion_state=promotion_state,
+                            promotion_attempt=promotion_attempt,
                         )
+                    else:
+                        jobs[job_id] = replace(jobs[job_id], promotion_state=promotion_state)
+                elif op == "update_parked_request":
+                    job_id = record.get("job_id")
+                    if not isinstance(job_id, str):
+                        continue
+                    if job_id not in jobs:
+                        continue
+                    jobs[job_id] = replace(jobs[job_id], parked_request_id=record.get("parked_request_id"))
         return jobs
