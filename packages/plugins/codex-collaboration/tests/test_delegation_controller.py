@@ -1708,6 +1708,7 @@ def test_decide_approve_resumes_runtime_and_returns_completed_result(
     assert result.request_id == "42"
     # Post-dispatch state observed via poll(), not decide() result (Packet 1).
     poll = controller.poll(job_id="job-1")
+    assert isinstance(poll, DelegationPollResult)
     assert poll.job.status == "completed"
     assert poll.pending_escalation is None
     assert registry.lookup("rt-1") is None
@@ -1749,6 +1750,7 @@ def test_decide_approve_can_reescalate_with_new_pending_request(tmp_path: Path) 
     assert result.request_id == "42"
     # Post-dispatch re-escalation state observed via poll(), not decide() result (Packet 1).
     poll = controller.poll(job_id="job-1")
+    assert isinstance(poll, DelegationPollResult)
     assert poll.job.status == "needs_escalation"
     assert poll.pending_escalation is not None
     assert poll.pending_escalation.request_id == "99"
@@ -1782,6 +1784,7 @@ def test_decide_deny_marks_job_failed_and_closes_runtime(tmp_path: Path) -> None
     assert result.request_id == "42"
     # Post-dispatch state observed via poll(), not decide() result (Packet 1).
     poll = controller.poll(job_id="job-1")
+    assert isinstance(poll, DelegationPollResult)
     assert poll.job.status == "failed"
     assert poll.pending_escalation is None
     assert job_store.get("job-1") is not None
@@ -2370,6 +2373,7 @@ def test_decide_rejects_stale_request_id_after_reescalation(tmp_path: Path) -> N
     assert approve_result.decision_accepted is True
     # Re-escalation observable via poll(), not decide() result (Packet 1).
     re_esc_poll = controller.poll(job_id="job-1")
+    assert isinstance(re_esc_poll, DelegationPollResult)
     assert re_esc_poll.pending_escalation is not None
     assert re_esc_poll.pending_escalation.request_id == "99"
 
