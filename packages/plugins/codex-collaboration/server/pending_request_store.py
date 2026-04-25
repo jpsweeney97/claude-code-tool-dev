@@ -125,6 +125,91 @@ class PendingRequestStore:
             }
         )
 
+    def record_timeout(
+        self,
+        request_id: str,
+        *,
+        response_payload: dict[str, Any] | None,
+        response_dispatch_at: str | None,
+        dispatch_result: Literal["succeeded", "failed"] | None,
+        dispatch_error: str | None,
+        interrupt_error: str | None = None,
+    ) -> None:
+        """Atomic timeout record: timed_out=True + status=canceled in single append.
+
+        Per spec §Timeout record fields:
+          - Cancel-capable kind, dispatch succeeded:
+              payload={"decision":"cancel"}, at=<iso>, result="succeeded", error=None, interrupt_error=None
+          - Cancel-capable kind, dispatch failed:
+              payload={"decision":"cancel"}, at=<iso>, result="failed",
+              error=<sanitized>, interrupt_error=None
+          - Non-cancel-capable kind, interrupt succeeded:
+              payload=None, at=None, result=None, error=None, interrupt_error=None
+          - Non-cancel-capable kind, interrupt failed:
+              payload=None, at=None, result=None, error=None, interrupt_error=<sanitized>
+        """
+        self._append(
+            {
+                "op": "record_timeout",
+                "request_id": request_id,
+                "timed_out": True,
+                "status": "canceled",
+                "resolution_action": None,
+                "response_payload": response_payload,
+                "response_dispatch_at": response_dispatch_at,
+                "dispatch_result": dispatch_result,
+                "dispatch_error": dispatch_error,
+                "interrupt_error": interrupt_error,
+            }
+        )
+
+    def record_dispatch_failure(
+        self,
+        request_id: str,
+        *,
+        action: Literal["approve", "deny"],
+        payload: dict[str, Any],
+        dispatch_at: str,
+        dispatch_error: str,
+    ) -> None:
+        """Atomic dispatch-failure record: status=canceled + dispatch_result=failed
+        + resolution_action + response_payload + response_dispatch_at + dispatch_error
+        in a single append. Used when session.respond() raises on the operator-decide
+        path. resolved_at stays None (the operator decision was NOT applied).
+        """
+        self._append(
+            {
+                "op": "record_dispatch_failure",
+                "request_id": request_id,
+                "status": "canceled",
+                "dispatch_result": "failed",
+                "dispatch_error": dispatch_error,
+                "resolution_action": action,
+                "response_payload": payload,
+                "response_dispatch_at": dispatch_at,
+                "resolved_at": None,
+            }
+        )
+
+    def record_internal_abort(self, request_id: str, *, reason: str) -> None:
+        """Atomic internal-abort record: status=canceled + internal_abort_reason
+        + resolution_action=None + payload fields cleared, in a single append.
+        Used when the worker wakes on InternalAbort (plugin-invariant violation).
+        """
+        self._append(
+            {
+                "op": "record_internal_abort",
+                "request_id": request_id,
+                "status": "canceled",
+                "internal_abort_reason": reason,
+                "resolution_action": None,
+                "response_payload": None,
+                "response_dispatch_at": None,
+                "dispatch_result": None,
+                "resolved_at": None,
+            }
+        )
+
     def _append(self, record: dict[str, Any]) -> None:
         with self._store_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record, sort_keys=True) + "\n")
@@ -218,5 +303,45 @@ class PendingRequestStore:
                             protocol_echo_observed_at=record.get(
                                 "protocol_echo_observed_at"
                             ),
+                        )
+                elif op == "record_timeout":
+                    rid = record.get("request_id")
+                    if rid in requests:
+                        requests[rid] = replace(
+                            requests[rid],
+                            timed_out=True,
+                            status="canceled",
+                            resolution_action=None,
+                            response_payload=record.get("response_payload"),
+                            response_dispatch_at=record.get("response_dispatch_at"),
+                            dispatch_result=record.get("dispatch_result"),
+                            dispatch_error=record.get("dispatch_error"),
+                            interrupt_error=record.get("interrupt_error"),
+                        )
+                elif op == "record_dispatch_failure":
+                    rid = record.get("request_id")
+                    if rid in requests:
+                        requests[rid] = replace(
+                            requests[rid],
+                            status="canceled",
+                            dispatch_result="failed",
+                            dispatch_error=record.get("dispatch_error"),
+                            resolution_action=record.get("resolution_action"),
+                            response_payload=record.get("response_payload"),
+                            response_dispatch_at=record.get("response_dispatch_at"),
+                            resolved_at=None,
+                        )
+                elif op == "record_internal_abort":
+                    rid = record.get("request_id")
+                    if rid in requests:
+                        requests[rid] = replace(
+                            requests[rid],
+                            status="canceled",
+                            internal_abort_reason=record.get("internal_abort_reason"),
+                            resolution_action=None,
+                            response_payload=None,
+                            response_dispatch_at=None,
+                            dispatch_result=None,
+                            resolved_at=None,
                         )
         return requests
