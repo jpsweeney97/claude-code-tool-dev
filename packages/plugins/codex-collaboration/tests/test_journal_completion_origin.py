@@ -142,3 +142,49 @@ def test_legacy_records_without_field_replay_as_none(tmp_path: Path) -> None:
     found = journal.check_idempotency("k1", session_id="s1")
     assert found is not None
     assert found.completion_origin is None
+
+
+def test_completion_origin_unknown_string_value_rejected(tmp_path: Path) -> None:
+    """completion_origin must be one of the declared Literal values; arbitrary
+    strings are schema violations surfaced via check_health()."""
+    journal = OperationJournal(plugin_data_path=tmp_path)
+    bad = OperationJournalEntry(
+        idempotency_key="k1",
+        operation="approval_resolution",
+        phase="completed",
+        collaboration_id="c1",
+        created_at="t",
+        repo_root="/tmp",
+        job_id="j1",
+        request_id="r1",
+        decision="approve",
+        completion_origin="garbage",  # type: ignore[arg-type]
+    )
+    journal.write_phase(bad, session_id="s1")
+    diagnostics = journal.check_health(session_id="s1")
+    violations = diagnostics.schema_violations
+    assert len(violations) == 1
+    assert "completion_origin" in violations[0].detail
+
+
+def test_completion_origin_non_string_rejected(tmp_path: Path) -> None:
+    """completion_origin non-string non-None values are rejected by the
+    optional-string type check, surfaced via check_health()."""
+    journal = OperationJournal(plugin_data_path=tmp_path)
+    bad = OperationJournalEntry(
+        idempotency_key="k1",
+        operation="approval_resolution",
+        phase="completed",
+        collaboration_id="c1",
+        created_at="t",
+        repo_root="/tmp",
+        job_id="j1",
+        request_id="r1",
+        decision="approve",
+        completion_origin=42,  # type: ignore[arg-type]
+    )
+    journal.write_phase(bad, session_id="s1")
+    diagnostics = journal.check_health(session_id="s1")
+    violations = diagnostics.schema_violations
+    assert len(violations) == 1
+    assert "completion_origin" in violations[0].detail

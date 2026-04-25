@@ -57,8 +57,10 @@ _JOURNAL_OPTIONAL_STR = (
     "job_id",
     "request_id",
     "decision",
+    "completion_origin",
 )
 _JOURNAL_OPTIONAL_INT = ("turn_sequence", "context_size")
+_VALID_COMPLETION_ORIGINS = frozenset(("worker_completed", "recovered_unresolved"))
 
 
 def _journal_callback(
@@ -80,6 +82,11 @@ def _journal_callback(
         val = record.get(name)
         if val is not None and type(val) is not int:
             raise SchemaViolation(f"{name} is not an int")
+    completion_origin = record.get("completion_origin")
+    if completion_origin is not None and completion_origin not in _VALID_COMPLETION_ORIGINS:
+        raise SchemaViolation(
+            f"unknown completion_origin value: {completion_origin!r}"
+        )
     # Per-operation+phase conditional requirements.
     # Recovery (dialogue.py:446-592) relies on these fields existing for
     # specific operation+phase combinations. Without enforcement, type-valid
