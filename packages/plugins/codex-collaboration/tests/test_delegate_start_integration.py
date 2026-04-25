@@ -894,9 +894,24 @@ def test_delegate_decide_approve_end_to_end_through_mcp_dispatch(
     )
 
     decide_payload = json.loads(decide_response["result"]["content"][0]["text"])
-    assert decide_payload["decision"] == "approve"
-    assert decide_payload["resumed"] is True
-    assert decide_payload["job"]["status"] == "completed"
+    # Packet 1 (T-20260423-02): decide response is the 3-field shape.
+    assert set(decide_payload.keys()) == {"decision_accepted", "job_id", "request_id"}
+    assert decide_payload["decision_accepted"] is True
+    # Post-dispatch job state observed via poll(), not decide() result.
+    job_id = start_payload["job"]["job_id"]
+    poll_response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {
+                "name": "codex.delegate.poll",
+                "arguments": {"job_id": job_id},
+            },
+        }
+    )
+    poll_payload = json.loads(poll_response["result"]["content"][0]["text"])
+    assert poll_payload["job"]["status"] == "completed"
 
 
 def test_delegate_decide_deny_end_to_end_through_mcp_dispatch(tmp_path: Path) -> None:
@@ -940,9 +955,24 @@ def test_delegate_decide_deny_end_to_end_through_mcp_dispatch(tmp_path: Path) ->
     )
 
     decide_payload = json.loads(decide_response["result"]["content"][0]["text"])
-    assert decide_payload["decision"] == "deny"
-    assert decide_payload["resumed"] is False
-    assert decide_payload["job"]["status"] == "failed"
+    # Packet 1 (T-20260423-02): decide response is the 3-field shape.
+    assert set(decide_payload.keys()) == {"decision_accepted", "job_id", "request_id"}
+    assert decide_payload["decision_accepted"] is True
+    # Post-dispatch job state observed via poll(), not decide() result.
+    job_id = start_payload["job"]["job_id"]
+    poll_response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {
+                "name": "codex.delegate.poll",
+                "arguments": {"job_id": job_id},
+            },
+        }
+    )
+    poll_payload = json.loads(poll_response["result"]["content"][0]["text"])
+    assert poll_payload["job"]["status"] == "failed"
 
 
 # ---------------------------------------------------------------------------
@@ -1077,23 +1107,39 @@ def test_decide_reescalation_uses_pending_escalation_key(tmp_path: Path) -> None
     )
 
     decide_payload = json.loads(decide_response["result"]["content"][0]["text"])
-    assert decide_payload["resumed"] is True
+    # Packet 1 (T-20260423-02): decide response is the 3-field shape only.
+    assert set(decide_payload.keys()) == {"decision_accepted", "job_id", "request_id"}
+    assert decide_payload["decision_accepted"] is True
+    assert "pending_escalation" not in decide_payload
+    assert "pending_request" not in decide_payload
 
-    # New contract: re-escalation uses "pending_escalation".
-    assert "pending_escalation" in decide_payload, (
-        "decide must use 'pending_escalation' key"
+    # Re-escalation is observable via poll(), not decide() (Packet 1).
+    poll_response = server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {
+                "name": "codex.delegate.poll",
+                "arguments": {"job_id": job_id},
+            },
+        }
     )
-    assert "pending_request" not in decide_payload, (
-        "decide must not use 'pending_request' key"
+    poll_payload = json.loads(poll_response["result"]["content"][0]["text"])
+    assert "pending_escalation" in poll_payload, (
+        "poll must use 'pending_escalation' key"
+    )
+    assert "pending_request" not in poll_payload, (
+        "poll must not use 'pending_request' key"
     )
 
-    esc = decide_payload["pending_escalation"]
+    esc = poll_payload["pending_escalation"]
     assert esc["request_id"] == "99"
     assert esc["kind"] == "unknown"
     assert "available_decisions" in esc
 
     # No internal IDs leaked.
-    _assert_no_internal_ids(decide_payload, "pending_escalation")
+    _assert_no_internal_ids(poll_payload, "pending_escalation")
 
 
 # -----------------------------------------------------------------------------

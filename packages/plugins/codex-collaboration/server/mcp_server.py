@@ -458,8 +458,6 @@ class McpServer:
             controller = self._ensure_delegation_controller()
             return asdict(controller.discard(job_id=arguments["job_id"]))
         if name == "codex.delegate.decide":
-            from .models import DelegationDecisionResult
-
             controller = self._ensure_delegation_controller()
             raw_answers = arguments.get("answers")
             answers = None
@@ -502,17 +500,6 @@ class McpServer:
                 decision=arguments["decision"],
                 answers=answers,
             )
-            if isinstance(result, DelegationDecisionResult):
-                payload = {
-                    "job": asdict(result.job),
-                    "decision": result.decision,
-                    "resumed": result.resumed,
-                }
-                if result.pending_escalation is not None:
-                    payload["pending_escalation"] = asdict(result.pending_escalation)
-                if result.agent_context is not None:
-                    payload["agent_context"] = result.agent_context
-                return payload
             return asdict(result)
         raise ValueError(f"Unknown tool: {name!r:.100}")
 

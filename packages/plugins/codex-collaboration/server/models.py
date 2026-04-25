@@ -455,13 +455,21 @@ class DelegationEscalation:
 
 @dataclass(frozen=True)
 class DelegationDecisionResult:
-    """Returned by codex.delegate.decide after approve or deny."""
+    """Returned by codex.delegate.decide.
 
-    job: DelegationJob
-    decision: DecisionAction
-    resumed: bool
-    pending_escalation: PendingEscalationView | None = None
-    agent_context: str | None = None
+    Packet 1 (T-20260423-02) result shape: decision_accepted, job_id,
+    request_id. Post-dispatch state, including any re-escalation that
+    follows an approve, is observed via codex.delegate.poll, not embedded
+    in this result.
+
+    Breaking change from the pre-Packet-1 shape. Callers that previously
+    read `pending_escalation` or `agent_context` from decide's response
+    must switch to poll().
+    """
+
+    decision_accepted: bool
+    job_id: str
+    request_id: str
 
 
 @dataclass(frozen=True)

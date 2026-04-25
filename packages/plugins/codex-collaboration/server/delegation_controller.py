@@ -1840,9 +1840,9 @@ class DelegationController:
                 )
                 self._decided_request_ids.add(request_id)
                 return DelegationDecisionResult(
-                    job=updated_job,
-                    decision="deny",
-                    resumed=False,
+                    decision_accepted=True,
+                    job_id=job_id,
+                    request_id=request_id,
                 )
             except Exception as exc:
                 raise CommittedDecisionFinalizationError(
@@ -1879,16 +1879,14 @@ class DelegationController:
             self._decided_request_ids.add(request_id)
             if isinstance(follow_up, DelegationEscalation):
                 return DelegationDecisionResult(
-                    job=follow_up.job,
-                    decision="approve",
-                    resumed=True,
-                    pending_escalation=follow_up.pending_escalation,
-                    agent_context=follow_up.agent_context,
+                    decision_accepted=True,
+                    job_id=job_id,
+                    request_id=request_id,
                 )
             return DelegationDecisionResult(
-                job=follow_up,
-                decision="approve",
-                resumed=True,
+                decision_accepted=True,
+                job_id=job_id,
+                request_id=request_id,
             )
         except Exception as exc:
             raise CommittedDecisionFinalizationError(

@@ -1703,10 +1703,13 @@ def test_decide_approve_resumes_runtime_and_returns_completed_result(
     )
 
     assert isinstance(result, DelegationDecisionResult)
-    assert result.decision == "approve"
-    assert result.resumed is True
-    assert result.pending_escalation is None
-    assert result.job.status == "completed"
+    assert result.decision_accepted is True
+    assert result.job_id == "job-1"
+    assert result.request_id == "42"
+    # Post-dispatch state observed via poll(), not decide() result (Packet 1).
+    poll = controller.poll(job_id="job-1")
+    assert poll.job.status == "completed"
+    assert poll.pending_escalation is None
     assert registry.lookup("rt-1") is None
     handle = lineage.get("collab-1")
     assert handle is not None and handle.status == "completed"
@@ -1741,11 +1744,14 @@ def test_decide_approve_can_reescalate_with_new_pending_request(tmp_path: Path) 
     )
 
     assert isinstance(result, DelegationDecisionResult)
-    assert result.decision == "approve"
-    assert result.resumed is True
-    assert result.pending_escalation is not None
-    assert result.pending_escalation.request_id == "99"
-    assert result.job.status == "needs_escalation"
+    assert result.decision_accepted is True
+    assert result.job_id == "job-1"
+    assert result.request_id == "42"
+    # Post-dispatch re-escalation state observed via poll(), not decide() result (Packet 1).
+    poll = controller.poll(job_id="job-1")
+    assert poll.job.status == "needs_escalation"
+    assert poll.pending_escalation is not None
+    assert poll.pending_escalation.request_id == "99"
     assert registry.lookup("rt-1") is not None
     stored = prs.get("99")
     assert stored is not None and stored.status == "resolved"
@@ -1771,10 +1777,13 @@ def test_decide_deny_marks_job_failed_and_closes_runtime(tmp_path: Path) -> None
     )
 
     assert isinstance(result, DelegationDecisionResult)
-    assert result.decision == "deny"
-    assert result.resumed is False
-    assert result.pending_escalation is None
-    assert result.job.status == "failed"
+    assert result.decision_accepted is True
+    assert result.job_id == "job-1"
+    assert result.request_id == "42"
+    # Post-dispatch state observed via poll(), not decide() result (Packet 1).
+    poll = controller.poll(job_id="job-1")
+    assert poll.job.status == "failed"
+    assert poll.pending_escalation is None
     assert job_store.get("job-1") is not None
     assert registry.lookup("rt-1") is None
     handle = lineage.get("collab-1")
@@ -2358,8 +2367,11 @@ def test_decide_rejects_stale_request_id_after_reescalation(tmp_path: Path) -> N
         decision="approve",
     )
     assert isinstance(approve_result, DelegationDecisionResult)
-    assert approve_result.pending_escalation is not None
-    assert approve_result.pending_escalation.request_id == "99"
+    assert approve_result.decision_accepted is True
+    # Re-escalation observable via poll(), not decide() result (Packet 1).
+    re_esc_poll = controller.poll(job_id="job-1")
+    assert re_esc_poll.pending_escalation is not None
+    assert re_esc_poll.pending_escalation.request_id == "99"
 
     # Now try to use the stale request_id "42" to decide the new escalation
     result = controller.decide(

@@ -285,52 +285,19 @@ def test_operation_journal_entry_job_id_defaults_to_none() -> None:
 
 
 def test_delegation_decision_result_shape() -> None:
-    from server.models import (
-        DelegationDecisionResult,
-        DelegationJob,
-        PendingEscalationView,
-        PendingServerRequest,
-    )
+    # Packet 1 (T-20260423-02): 3-field shape only. Pre-Packet-1 fields
+    # (job, decision, resumed, pending_escalation, agent_context) removed.
+    from server.models import DelegationDecisionResult
 
-    job = DelegationJob(
-        job_id="job-1",
-        runtime_id="rt-1",
-        collaboration_id="collab-1",
-        base_commit="abc123",
-        worktree_path="/tmp/wk",
-        promotion_state="pending",
-        status="completed",
-    )
-    request = PendingServerRequest(
-        request_id="req-1",
-        runtime_id="rt-1",
-        collaboration_id="collab-1",
-        codex_thread_id="thr-1",
-        codex_turn_id="turn-1",
-        item_id="item-1",
-        kind="command_approval",
-        requested_scope={"command": "make test"},
-        status="resolved",
-    )
-
-    view = PendingEscalationView(
-        request_id=request.request_id,
-        kind=request.kind,
-        requested_scope=request.requested_scope,
-        available_decisions=("approve", "deny"),
-    )
     result = DelegationDecisionResult(
-        job=job,
-        decision="approve",
-        resumed=True,
-        pending_escalation=view,
-        agent_context="Need approval",
+        decision_accepted=True,
+        job_id="job-1",
+        request_id="req-1",
     )
 
-    assert result.job.job_id == "job-1"
-    assert result.decision == "approve"
-    assert result.resumed is True
-    assert result.pending_escalation is view
+    assert result.decision_accepted is True
+    assert result.job_id == "job-1"
+    assert result.request_id == "req-1"
 
 
 def test_decision_rejected_response_shape() -> None:
