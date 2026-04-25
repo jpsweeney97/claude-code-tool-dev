@@ -1420,8 +1420,9 @@ def test_start_with_two_requests_responds_to_both(tmp_path: Path) -> None:
         "Phase G (Task 17): _finalize_turn L6 callsite calls _project_request_to_view "
         "directly with kind='unknown' (parse-failed request); the Task 14 guard raises "
         "UnknownKindInEscalationProjection there. Task 17 will add unknown-kind "
-        "handling at the L6 callsite. D4 carve-out (parse failures stay 'pending') "
-        "is covered by test_start_with_unparseable_request_creates_causal_record_status."
+        "handling at the L6 callsite. No current sibling coverage for the D4 "
+        "parse-failure carve-out (any path exercising unknown-kind capture hits the "
+        "same Mode A break); coverage restored at Task 17."
     )
 )
 def test_start_with_unparseable_request_creates_minimal_causal_record(
@@ -2376,8 +2377,9 @@ def test_recover_startup_marks_dispatched_approval_resolution_unknown(
         "UnknownKindInEscalationProjection, which decide() wraps into "
         "CommittedDecisionFinalizationError before approve_result is returned. "
         "Task 17 (Phase G) will add start()/decide() unknown-kind handling at the L6 "
-        "callsite; until then, stale-request_id rejection is covered by "
-        "test_decide_rejects_stale_request_id_after_escalation (command_approval path)."
+        "callsite. No current sibling coverage for the request_already_decided "
+        "rejection invariant (which intrinsically requires multi-decide flow that "
+        "hits Mode A in the interregnum); coverage restored at Task 17."
     )
 )
 def test_decide_rejects_stale_request_id_after_reescalation(tmp_path: Path) -> None:
