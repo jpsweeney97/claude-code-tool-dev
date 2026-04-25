@@ -1989,6 +1989,7 @@ class DelegationController:
                     job_id=entry.job_id,
                     request_id=entry.request_id,
                     decision=entry.decision,
+                    completion_origin="recovered_unresolved",
                 ),
                 session_id=self._session_id,
             )

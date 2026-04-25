@@ -2183,6 +2183,78 @@ def test_recover_startup_marks_intent_only_approval_resolution_unknown(
     assert journal.list_unresolved(session_id="sess-1") == []
 
 
+def test_recover_startup_closes_orphaned_none_decision_intent(
+    tmp_path: Path,
+) -> None:
+    """Recovery must close an orphaned approval_resolution.intent with
+    decision=None (timeout-wake or internal-abort-wake origin) by
+    writing a phase='completed' record with
+    completion_origin='recovered_unresolved', WITHOUT raising.
+
+    This is the decision=None mirror of the existing sibling test at
+    tests/test_delegation_controller.py:2129
+    (test_recover_startup_marks_intent_only_approval_resolution_unknown),
+    which covers the operator-origin case (decision='approve',
+    recovered as job.status='unknown'). For decision=None
+    (non-operator origin), Packet 1 closes the record explicitly
+    as completion_origin='recovered_unresolved' instead of
+    marking unknown.
+    """
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, _cp, _wm, job_store, lineage_store, journal, _r, _prs = (
+        _build_controller(tmp_path)
+    )
+
+    job_store.create(
+        DelegationJob(
+            job_id="job-1",
+            runtime_id="rt-1",
+            collaboration_id="collab-1",
+            base_commit="head-abc",
+            worktree_path=str(tmp_path / "wk"),
+            promotion_state=None,
+            status="needs_escalation",
+        )
+    )
+    lineage_store.create(
+        CollaborationHandle(
+            collaboration_id="collab-1",
+            capability_class="execution",
+            runtime_id="rt-1",
+            codex_thread_id="thr-1",
+            claude_session_id="sess-1",
+            repo_root=str(repo_root),
+            created_at=journal.timestamp(),
+            status="active",
+        )
+    )
+    journal.write_phase(
+        OperationJournalEntry(
+            idempotency_key="42:recovered",
+            operation="approval_resolution",
+            phase="intent",
+            collaboration_id="collab-1",
+            created_at=journal.timestamp(),
+            repo_root=str(repo_root),
+            job_id="job-1",
+            request_id="42",
+            decision=None,  # timeout-wake / internal-abort-wake origin
+        ),
+        session_id="sess-1",
+    )
+
+    # Act: recovery must complete without raising
+    controller.recover_startup()
+
+    # Assert: journal contains the new completed record
+    found = journal.check_idempotency("42:recovered", session_id="sess-1")
+    assert found is not None
+    assert found.phase == "completed"
+    assert found.completion_origin == "recovered_unresolved"
+
+
 def test_recover_startup_marks_dispatched_approval_resolution_unknown(
     tmp_path: Path,
 ) -> None:

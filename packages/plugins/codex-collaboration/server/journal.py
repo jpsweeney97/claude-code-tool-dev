@@ -130,9 +130,10 @@ def _journal_callback(
             raise SchemaViolation(
                 "approval_resolution at intent requires request_id (string)"
             )
-        if not isinstance(record.get("decision"), str):
+        decision = record.get("decision")
+        if decision is not None and not isinstance(decision, str):
             raise SchemaViolation(
-                "approval_resolution at intent requires decision (string)"
+                "approval_resolution at intent requires decision to be a string or None"
             )
     elif op == "approval_resolution" and phase == "dispatched":
         if not isinstance(record.get("job_id"), str):
@@ -143,9 +144,10 @@ def _journal_callback(
             raise SchemaViolation(
                 "approval_resolution at dispatched requires request_id (string)"
             )
-        if not isinstance(record.get("decision"), str):
+        decision = record.get("decision")
+        if decision is not None and not isinstance(decision, str):
             raise SchemaViolation(
-                "approval_resolution at dispatched requires decision (string)"
+                "approval_resolution at dispatched requires decision to be a string or None"
             )
         if not isinstance(record.get("runtime_id"), str):
             raise SchemaViolation(
@@ -177,6 +179,7 @@ def _journal_callback(
         job_id=record.get("job_id"),
         request_id=record.get("request_id"),
         decision=record.get("decision"),
+        completion_origin=record.get("completion_origin"),
     )
     return (entry.idempotency_key, entry)
 

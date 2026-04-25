@@ -393,6 +393,12 @@ class OperationJournalEntry:
     job_id: str | None = None  # job_creation and approval_resolution
     request_id: str | None = None  # approval_resolution only
     decision: str | None = None  # approval_resolution only
+    # Packet 1: narrow provenance annotation on phase="completed" records.
+    # "worker_completed" = worker wrote the completed record.
+    # "recovered_unresolved" = cold-start recovery wrote the completed record
+    #   to close an orphaned unresolved operation.
+    # None = legacy record (pre-Packet-1) — back-compat read semantics.
+    completion_origin: Literal["worker_completed", "recovered_unresolved"] | None = None
 
 
 @dataclass(frozen=True)
