@@ -55,6 +55,10 @@ _(Move items here when resolved, with the commit SHA that resolved them)_
 
 - **[Resolved `b623548b`]** `record_protocol_echo` replay branch crashed all store reads on `protocol_echo_signals: null` JSONL records (`tuple(None)` raises `TypeError`). Code quality reviewer flagged as Important I-1; fixed in-scope per Phase A protocol via `record.get(...) or ()` plus null-injection regression test.
 
+### From Phase B Task 9 + closeout
+
+- **[Resolved `c6bf834c`]** `DelegationJobStore._replay` used `asdict(existing)` + dict-spread, recursively coercing `artifact_paths` from `tuple` to `list` before reconstructing `DelegationJob`. Python doesn't runtime-validate generic types, so the dataclass silently accepted the list, violating the `tuple[str, ...]` field contract on every normal-path `update_status` / `update_status_and_promotion` / `update_promotion_state` replay. Symptom was bounded — one spurious `update_artifacts` write per poll at `delegation_controller.py:988` — but the type-contract violation was load-bearing for Phase B's replay-preservation principle. Discovered by Task 9 code-quality reviewer (P1, Important — pre-existing). Fixed in Phase B closeout by migrating all five replay branches to `dataclasses.replace()`, plus three regression tests asserting `type(retrieved.artifact_paths) is tuple` after each affected branch's replay. Same closeout commit also bundled Task 9 cleanup: `jid` → `job_id` rename and `isinstance(job_id, str)` guard for symmetry with the migrated branches (covers what would otherwise have been B9.1/B9.2/B9.3 carry-forward items).
+
 ---
 
 ## How to add an item
