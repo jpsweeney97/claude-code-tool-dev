@@ -19,12 +19,13 @@ from server.models import (
 # Module-local helpers (matching package precedent per W4: no conftest fixtures).
 # _build_controller is already module-local in test_delegation_controller.py; we
 # import it directly to avoid duplicating the 50-line helper.
+from server.pending_request_store import PendingRequestStore
 from tests.test_delegation_controller import _build_controller
 
 
 def _build_controller_for_helpers(
     tmp_path: Path,
-) -> tuple[DelegationController, object]:
+) -> tuple[DelegationController, PendingRequestStore]:
     """Thin wrapper that returns (controller, prs) for helper-level tests."""
     controller, _cp, _wm, _js, _ls, _j, _registry, prs = _build_controller(tmp_path)
     return controller, prs

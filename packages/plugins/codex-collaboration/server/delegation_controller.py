@@ -61,7 +61,7 @@ import tempfile
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from typing import Any, Callable, Protocol, cast
 
 from .approval_router import parse_pending_server_request
 from .delegation_job_store import DelegationJobStore
@@ -87,6 +87,7 @@ from .models import (
     DelegationTerminalStatus,
     DiscardRejectedResponse,
     DiscardResult,
+    EscalatableRequestKind,
     JobBusyResponse,
     JobStatus,
     OperationJournalEntry,
@@ -981,7 +982,7 @@ class DelegationController:
             )
         return PendingEscalationView(
             request_id=request.request_id,
-            kind=request.kind,
+            kind=cast(EscalatableRequestKind, request.kind),
             requested_scope=request.requested_scope,
             available_decisions=self._PLUGIN_DECISIONS,
         )
