@@ -337,7 +337,7 @@ class ResolutionRegistry:
         with self._lock:
             channel = self._capture_channels.get(job_id)
             if channel is None or channel.resolved:
-                logger.info(
+                logger.warning(
                     "late capture-ready signal ignored. job_id=%r kind=%s",
                     job_id,
                     type(outcome).__name__,
@@ -371,7 +371,13 @@ class ResolutionRegistry:
         with self._lock:
             channel_now = self._capture_channels.get(job_id)
             if channel_now is None:
-                # Defensive — should not happen under current code.
+                # Defensive: unreachable under current code — nothing pops
+                # _capture_channels between this method's two lock acquisitions.
+                # Kept as future-proofing in case an admin path introduces
+                # external channel discard (e.g., a discard_capture_channel
+                # helper) that could race with wait_for_parked. Returning
+                # StartWaitElapsed() preserves synchronous start-wait semantics
+                # if such a race ever materializes.
                 return StartWaitElapsed()
             if not signaled or channel_now.outcome is None:
                 channel_now.outcome = StartWaitElapsed()

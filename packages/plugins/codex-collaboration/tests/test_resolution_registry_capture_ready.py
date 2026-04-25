@@ -5,6 +5,8 @@ from __future__ import annotations
 import threading
 import time
 
+import pytest
+
 from server.resolution_registry import (
     Parked,
     ParkedCaptureResult,
@@ -76,6 +78,7 @@ def test_announce_turn_completed_empty_surfaces_variant() -> None:
     time.sleep(0.05)
     reg.announce_turn_completed_empty("j1")
     t.join(timeout=3.0)
+    assert not t.is_alive()
     assert isinstance(result[0], TurnCompletedWithoutCapture)
 
 
@@ -93,6 +96,7 @@ def test_announce_turn_terminal_without_escalation() -> None:
         "j1", status="unknown", reason="unknown_kind_parse_failure", request_id="r-audit"
     )
     t.join(timeout=3.0)
+    assert not t.is_alive()
     assert isinstance(result[0], TurnTerminalWithoutEscalation)
     assert result[0].job_status == "unknown"
     assert result[0].reason == "unknown_kind_parse_failure"
@@ -111,6 +115,7 @@ def test_announce_worker_failed_surfaces_exception() -> None:
     time.sleep(0.05)
     reg.announce_worker_failed("j1", error=RuntimeError("boom"))
     t.join(timeout=3.0)
+    assert not t.is_alive()
     assert isinstance(result[0], WorkerFailed)
     assert isinstance(result[0].error, RuntimeError)
 
@@ -154,5 +159,32 @@ def test_capture_ready_channels_are_per_job() -> None:
     reg.announce_turn_completed_empty("j2")
     t1.join(timeout=3.0)
     t2.join(timeout=3.0)
+    assert not t1.is_alive()
+    assert not t2.is_alive()
     assert isinstance(results["j1"], Parked)
     assert isinstance(results["j2"], TurnCompletedWithoutCapture)
+
+
+def test_wait_for_parked_duplicate_job_id_raises() -> None:
+    """Second wait_for_parked on a job_id whose channel is already in flight
+    raises RuntimeError with the project-convention error format. Pins the
+    public error surface for duplicate-detection.
+    """
+    reg = ResolutionRegistry()
+
+    # Spawn the first wait so the channel is registered and in-flight.
+    def first_wait() -> None:
+        reg.wait_for_parked("j1", timeout_seconds=2.0)
+
+    t1 = threading.Thread(target=first_wait)
+    t1.start()
+    time.sleep(0.05)
+
+    # Second wait on the same job_id must raise.
+    with pytest.raises(RuntimeError, match="wait_for_parked failed: duplicate"):
+        reg.wait_for_parked("j1", timeout_seconds=0.1)
+
+    # Cleanup: wake the first wait so the test suite does not hang.
+    reg.announce_turn_completed_empty("j1")
+    t1.join(timeout=3.0)
+    assert not t1.is_alive()
