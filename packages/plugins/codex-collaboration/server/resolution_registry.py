@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from .models import EscalatableRequestKind
@@ -52,6 +52,57 @@ class InternalAbort:
 
 
 Resolution = DecisionResolution | InternalAbort
+
+
+# -------------------------------------------------------------------- capture-ready outcomes
+
+
+@dataclass(frozen=True)
+class Parked:
+    request_id: str
+
+
+@dataclass(frozen=True)
+class TurnCompletedWithoutCapture:
+    pass
+
+
+@dataclass(frozen=True)
+class TurnTerminalWithoutEscalation:
+    """Terminal non-escalation outcome. Worker persisted terminal job status
+    before signaling. start() returns a plain DelegationJob — does NOT raise.
+    """
+
+    job_status: Literal["unknown"]
+    reason: str
+    request_id: str | None
+
+
+@dataclass(frozen=True)
+class WorkerFailed:
+    """Genuine worker-side exception. NOT used for unknown-kind parse
+    failures — those use TurnTerminalWithoutEscalation.
+    """
+
+    error: Exception
+
+
+@dataclass(frozen=True)
+class StartWaitElapsed:
+    """Synchronous start-wait budget elapsed without a terminal outcome.
+    Worker may still be valid-running; caller polls for eventual outcome.
+    """
+
+    pass
+
+
+ParkedCaptureResult = (
+    Parked
+    | TurnCompletedWithoutCapture
+    | TurnTerminalWithoutEscalation
+    | WorkerFailed
+    | StartWaitElapsed
+)
 
 
 # -------------------------------------------------------------------- reservation token
@@ -96,6 +147,17 @@ class _RegistryEntry:
     timer: threading.Timer | None = None
 
 
+# -------------------------------------------------------------------- per-job capture-ready entry
+
+
+@dataclass
+class _CaptureReadyChannel:
+    job_id: str
+    event: threading.Event = field(default_factory=threading.Event)
+    outcome: ParkedCaptureResult | None = None
+    resolved: bool = False  # True once wait_for_parked has returned any outcome
+
+
 # -------------------------------------------------------------------- registry
 
 
@@ -104,7 +166,7 @@ class ResolutionRegistry:
         self._lock = threading.Lock()
         self._entries: dict[str, _RegistryEntry] = {}
         self._next_generation = 0
-        # Per-job capture-ready channel is added in Task 12.
+        self._capture_channels: dict[str, _CaptureReadyChannel] = {}
 
     # --- per-request API -----------------------------------------------------
 
@@ -242,6 +304,83 @@ class ResolutionRegistry:
             event = entry.event
         event.set()
         return True
+
+    # --- per-job capture-ready API ------------------------------------------
+
+    def announce_parked(self, job_id: str, *, request_id: str) -> None:
+        self._deliver_capture_outcome(job_id, Parked(request_id=request_id))
+
+    def announce_turn_completed_empty(self, job_id: str) -> None:
+        self._deliver_capture_outcome(job_id, TurnCompletedWithoutCapture())
+
+    def announce_turn_terminal_without_escalation(
+        self,
+        job_id: str,
+        *,
+        status: Literal["unknown"],
+        reason: str,
+        request_id: str | None,
+    ) -> None:
+        self._deliver_capture_outcome(
+            job_id,
+            TurnTerminalWithoutEscalation(
+                job_status=status, reason=reason, request_id=request_id
+            ),
+        )
+
+    def announce_worker_failed(self, job_id: str, *, error: Exception) -> None:
+        self._deliver_capture_outcome(job_id, WorkerFailed(error=error))
+
+    def _deliver_capture_outcome(
+        self, job_id: str, outcome: ParkedCaptureResult
+    ) -> None:
+        with self._lock:
+            channel = self._capture_channels.get(job_id)
+            if channel is None or channel.resolved:
+                logger.info(
+                    "late capture-ready signal ignored. job_id=%r kind=%s",
+                    job_id,
+                    type(outcome).__name__,
+                )
+                return
+            channel.outcome = outcome
+            channel.resolved = True
+            event = channel.event
+        event.set()
+
+    def wait_for_parked(
+        self, job_id: str, *, timeout_seconds: float
+    ) -> ParkedCaptureResult:
+        """Main thread blocks here during start().
+
+        O1=(b) lifecycle: this method removes the channel from
+        `_capture_channels` under the registry lock before returning,
+        regardless of outcome variant. Late announce_* calls after this
+        return observe `channel is None` in `_deliver_capture_outcome`
+        and warn-and-noop without raising.
+        """
+        with self._lock:
+            if job_id in self._capture_channels:
+                raise RuntimeError(
+                    f"ResolutionRegistry.wait_for_parked failed: duplicate "
+                    f"job_id. Got: {job_id!r:.100}"
+                )
+            channel = _CaptureReadyChannel(job_id=job_id)
+            self._capture_channels[job_id] = channel
+        signaled = channel.event.wait(timeout=timeout_seconds)
+        with self._lock:
+            channel_now = self._capture_channels.get(job_id)
+            if channel_now is None:
+                # Defensive — should not happen under current code.
+                return StartWaitElapsed()
+            if not signaled or channel_now.outcome is None:
+                channel_now.outcome = StartWaitElapsed()
+                channel_now.resolved = True
+            outcome = channel_now.outcome
+            # O1=(b) pop-on-return: remove the channel under the lock so
+            # late announce_* calls observe channel-is-None and no-op.
+            self._capture_channels.pop(job_id, None)
+        return outcome
 
     # --- timer callback ------------------------------------------------------
 
