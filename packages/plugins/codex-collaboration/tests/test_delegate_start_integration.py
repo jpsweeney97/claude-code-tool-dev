@@ -6,6 +6,8 @@ import hashlib
 import json
 import logging
 import subprocess
+import threading
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -28,17 +30,17 @@ from server.models import (
 from server.pending_request_store import PendingRequestStore
 from server.worktree_manager import WorktreeManager
 
-_TASK_18_DECIDE_SIGNAL_REASON = (
-    "Phase G Task 18: decide() does not yet route through "
-    "ResolutionRegistry.reserve() + commit_signal(). Without "
-    "commit_signal, the worker stays parked in registry.wait() and "
-    "decide(approve)/decide(deny)/decide(re-escalate)/CAS-stale paths "
-    "cannot signal the worker through the canonical Task-18 mechanism. "
-    "Some assertions might mechanically pass under legacy decide() "
-    "(e.g., deny local-finalization at delegation_controller.py:~2446) "
-    "but would do so via the old non-async-decide code path. Skip is "
-    "preserved for audit discipline: Task 18's reserve+commit_signal "
-    "is the canonical signal mechanism for these assertions."
+_TASK_19_FINALIZER_GUARD_REASON = (
+    "Phase H Task 19: _finalize_turn does not yet apply the "
+    "Captured-Request Terminal Guard. Without the guard's "
+    "resolved/canceled request-snapshot mapping at spec §1762-1767, "
+    "_finalize_turn misclassifies decide-success and timeout-cancel-"
+    "success captures as needs_escalation via the kind-based branch "
+    "at delegation_controller.py:~2367 (Task 17 L11 preserved this "
+    "branch as Task 19 territory per W2 narrowing). Tests asserting "
+    "post-resume final_status='completed' / 'canceled' / 'unknown' or "
+    "DelegationOutcomeRecord shape cannot pass without the guard. "
+    "Skip preserved until Task 19 lands the spec §1738-1808 rewrite."
 )
 
 
@@ -852,7 +854,7 @@ def test_delegate_poll_needs_escalation_returns_projected_request(
     assert "codex_thread_id" not in json.dumps(poll_payload["pending_escalation"])
 
 
-@pytest.mark.skip(reason=_TASK_18_DECIDE_SIGNAL_REASON)
+@pytest.mark.skip(reason=_TASK_19_FINALIZER_GUARD_REASON)
 def test_delegate_decide_approve_end_to_end_through_mcp_dispatch(
     tmp_path: Path,
 ) -> None:
@@ -929,7 +931,7 @@ def test_delegate_decide_approve_end_to_end_through_mcp_dispatch(
     assert poll_payload["job"]["status"] == "completed"
 
 
-@pytest.mark.skip(reason=_TASK_18_DECIDE_SIGNAL_REASON)
+@pytest.mark.skip(reason=_TASK_19_FINALIZER_GUARD_REASON)
 def test_delegate_decide_deny_end_to_end_through_mcp_dispatch(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     _init_repo(repo_root)
@@ -1059,7 +1061,6 @@ def test_start_escalation_uses_pending_escalation_key(tmp_path: Path) -> None:
     _assert_no_internal_ids(payload, "pending_escalation")
 
 
-@pytest.mark.skip(reason=_TASK_18_DECIDE_SIGNAL_REASON)
 def test_decide_reescalation_uses_pending_escalation_key(tmp_path: Path) -> None:
     """codex.delegate.decide re-escalation must use 'pending_escalation', not 'pending_request'."""
     repo_root = tmp_path / "repo"
@@ -1088,17 +1089,53 @@ def test_decide_reescalation_uses_pending_escalation_key(tmp_path: Path) -> None
     job_id = start_payload["job"]["job_id"]
 
     # Wire up re-escalation on the resume turn.
+    # Adjudication D (Round-6): mutate the active list rather than reassign;
+    # the worker's _ConfigurableStubSession.run_execution_turn for-loop
+    # iterator is bound to the original list object. Append (don't replace)
+    # so the iterator picks up the new request after rid=42's commit_signal
+    # wakes it. Use a parkable kind (request_user_input) per spec §1717:
+    # unknown-kind never escalates under Packet 1; only EscalatableRequestKind
+    # literals park. Build the request_user_input msg inline since this
+    # integration-test module does not export a _request_user_input_request_msg
+    # helper.
     controller = server._ensure_delegation_controller()
     entry = controller._runtime_registry.lookup(start_payload["job"]["runtime_id"])
     assert entry is not None
     stub = entry.session
-    stub._server_requests = [_permissions_request_msg(request_id=99)]
+    rid_99_msg: dict[str, Any] = {
+        "id": 99,
+        "method": "item/tool/requestUserInput",
+        "params": {
+            "itemId": "item-2",
+            "threadId": "thr-exec-stub",
+            "turnId": "turn-stub",
+            "questions": [],
+        },
+    }
+    stub._server_requests.append(rid_99_msg)
+    # _StubSession does not define respond(); calling entry.session.respond(...)
+    # would raise AttributeError → dispatch-failed sentinel → terminates the
+    # turn before re-park. Stub respond as a no-op so the worker's
+    # dispatch-success path can fire.
+    stub.respond = lambda request_id, payload: None
     stub._turn_result = TurnExecutionResult(
         turn_id="turn-stub-2",
         status="interrupted",
         agent_message="Need another approval.",
         notifications=(),
     )
+    # Pre-seed the PSR record for rid=99: the worker's parkable-capture
+    # branch at delegation_controller.py:1029-1031 only creates the FIRST
+    # captured request's PSR per turn. Out-of-Task-18-scope per W16. See
+    # Round-6 addendum.
+    from server.approval_router import parse_pending_server_request
+
+    parsed_99 = parse_pending_server_request(
+        rid_99_msg,
+        runtime_id=start_payload["job"]["runtime_id"],
+        collaboration_id=start_payload["job"]["collaboration_id"],
+    )
+    _prs.create(parsed_99)
 
     # Extract request_id from the start escalation payload.
     # After projection, this comes from pending_escalation (not pending_request).
@@ -1131,18 +1168,32 @@ def test_decide_reescalation_uses_pending_escalation_key(tmp_path: Path) -> None
     assert "pending_request" not in decide_payload
 
     # Re-escalation is observable via poll(), not decide() (Packet 1).
-    poll_response = server.handle_request(
-        {
-            "jsonrpc": "2.0",
-            "id": 3,
-            "method": "tools/call",
-            "params": {
-                "name": "codex.delegate.poll",
-                "arguments": {"job_id": job_id},
-            },
-        }
+    # Bounded polling: decide() returns after commit_signal; the worker
+    # progresses asynchronously toward re-park on rid=99. Poll up to 5s.
+    poll_payload: dict[str, Any] | None = None
+    for _ in range(100):
+        poll_response = server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {
+                    "name": "codex.delegate.poll",
+                    "arguments": {"job_id": job_id},
+                },
+            }
+        )
+        candidate_payload = json.loads(
+            poll_response["result"]["content"][0]["text"]
+        )
+        candidate_esc = candidate_payload.get("pending_escalation")
+        if candidate_esc is not None and candidate_esc.get("request_id") == "99":
+            poll_payload = candidate_payload
+            break
+        time.sleep(0.05)
+    assert poll_payload is not None, (
+        "re-escalation on rid=99 did not materialize within the polling budget"
     )
-    poll_payload = json.loads(poll_response["result"]["content"][0]["text"])
     assert "pending_escalation" in poll_payload, (
         "poll must use 'pending_escalation' key"
     )
@@ -1152,11 +1203,25 @@ def test_decide_reescalation_uses_pending_escalation_key(tmp_path: Path) -> None
 
     esc = poll_payload["pending_escalation"]
     assert esc["request_id"] == "99"
-    assert esc["kind"] == "unknown"
+    # Round-6 adjudication: rid=99 is request_user_input (parkable per spec
+    # §1717). Original test asserted kind=="unknown" which was the
+    # pre-Packet-1 unknown-kind escalation behavior; under Packet 1
+    # unknown-kind requests do NOT escalate (§1717: "Request NEVER
+    # registered, NEVER parked"). Updated kind reflects the new spec.
+    assert esc["kind"] == "request_user_input"
     assert "available_decisions" in esc
 
     # No internal IDs leaked.
     _assert_no_internal_ids(poll_payload, "pending_escalation")
+
+    # Drain the rid=99 worker park so the daemon thread exits before the
+    # next test runs (see Round-6 addendum on cross-test thread leakage).
+    controller._registry.signal_internal_abort("99", reason="test_teardown_drain")
+    worker_threads = [
+        t for t in threading.enumerate() if t.name == f"delegation-worker-{job_id}"
+    ]
+    for t in worker_threads:
+        t.join(timeout=5.0)
 
 
 # -----------------------------------------------------------------------------

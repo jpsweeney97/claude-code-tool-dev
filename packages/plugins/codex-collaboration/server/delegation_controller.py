@@ -65,10 +65,7 @@ from typing import Any, Callable, Protocol, assert_never, cast
 
 from .approval_router import parse_pending_server_request
 from .delegation_job_store import DelegationJobStore
-from .execution_prompt_builder import (
-    build_execution_resume_turn_text,
-    build_execution_turn_text,
-)
+from .execution_prompt_builder import build_execution_turn_text
 from .execution_runtime_registry import ExecutionRuntimeEntry, ExecutionRuntimeRegistry
 from .journal import OperationJournal
 from .lineage_store import LineageStore
@@ -392,7 +389,6 @@ class DelegationController:
         self._head_commit_resolver = head_commit_resolver or _resolve_head_commit
         self._uuid_factory = uuid_factory or (lambda: str(uuid.uuid4()))
         self._promotion_callback = promotion_callback
-        self._decided_request_ids: set[str] = set()
         self._registry: ResolutionRegistry = ResolutionRegistry()
 
     def start(
@@ -2502,23 +2498,6 @@ class DelegationController:
                 job_id=job_id,
                 request_id=request_id,
             )
-        if request_id in self._decided_request_ids:
-            return self._reject_decision(
-                reason="request_already_decided",
-                detail=(
-                    "Delegation decide failed: request was already decided. "
-                    f"Got: {request_id!r:.100}"
-                ),
-                job_id=job_id,
-                request_id=request_id,
-            )
-        if decision == "deny" and answers:
-            return self._reject_decision(
-                reason="answers_not_allowed",
-                detail="Delegation decide failed: deny does not accept answers. Got: 'answers'",
-                job_id=job_id,
-                request_id=request_id,
-            )
         if (
             request.kind == "request_user_input"
             and decision == "approve"
@@ -2557,102 +2536,45 @@ class DelegationController:
                 request_id=request_id,
             )
 
+        # Build the App Server response payload on the main thread (kind- and
+        # decision-sensitive; see _build_response_payload). The worker
+        # receives a fully-formed payload via DecisionResolution.payload and
+        # dispatches it through session.respond without further shaping
+        # (spec §1699).
+        payload = self._build_response_payload(
+            decision=decision,
+            answers=answers,
+            request=request,
+        )
+        resolution = DecisionResolution(payload=payload, kind=request.kind)
+
+        # Step 2: atomic CAS awaiting → reserved. None means another caller
+        # (or the timeout timer) already claimed the slot.
+        token = self._registry.reserve(request_id, resolution)
+        if token is None:
+            return self._reject_decision(
+                reason="request_already_decided",
+                detail=(
+                    "Delegation decide failed: request was already decided. "
+                    f"Got: {request_id!r:.100}"
+                ),
+                job_id=job_id,
+                request_id=request_id,
+            )
+
+        # Step 3: durable journal intent. THIS is the authority-making step —
+        # on success, the operation is committed regardless of subsequent
+        # plugin-side behavior (spec §345). On failure, abort_reservation
+        # restores 'awaiting' so a retry or the timer can claim the slot,
+        # and the original exception re-raises (spec §324).
         idempotency_key = f"{request_id}:{decision}"
         created_at = self._journal.timestamp()
-        self._journal.write_phase(
-            OperationJournalEntry(
-                idempotency_key=idempotency_key,
-                operation="approval_resolution",
-                phase="intent",
-                collaboration_id=job.collaboration_id,
-                created_at=created_at,
-                repo_root=handle.repo_root,
-                job_id=job_id,
-                request_id=request_id,
-                decision=decision,
-            ),
-            session_id=self._session_id,
-        )
-        self._journal.append_audit_event(
-            AuditEvent(
-                event_id=self._uuid_factory(),
-                timestamp=self._journal.timestamp(),
-                actor="claude",
-                action="approve",
-                collaboration_id=job.collaboration_id,
-                runtime_id=job.runtime_id,
-                job_id=job_id,
-                request_id=request_id,
-                decision=decision,
-            )
-        )
-        self._journal.write_phase(
-            OperationJournalEntry(
-                idempotency_key=idempotency_key,
-                operation="approval_resolution",
-                phase="dispatched",
-                collaboration_id=job.collaboration_id,
-                created_at=created_at,
-                repo_root=handle.repo_root,
-                codex_thread_id=handle.codex_thread_id,
-                runtime_id=job.runtime_id,
-                job_id=job_id,
-                request_id=request_id,
-                decision=decision,
-            ),
-            session_id=self._session_id,
-        )
-
-        if decision == "deny":
-            try:
-                self._persist_job_transition(job_id, "failed")
-                self._emit_terminal_outcome_if_needed(job_id)
-                self._lineage_store.update_status(job.collaboration_id, "completed")
-                self._runtime_registry.release(job.runtime_id)
-                entry.session.close()
-                self._journal.write_phase(
-                    OperationJournalEntry(
-                        idempotency_key=idempotency_key,
-                        operation="approval_resolution",
-                        phase="completed",
-                        collaboration_id=job.collaboration_id,
-                        created_at=created_at,
-                        repo_root=handle.repo_root,
-                        job_id=job_id,
-                        request_id=request_id,
-                        decision=decision,
-                    ),
-                    session_id=self._session_id,
-                )
-                self._decided_request_ids.add(request_id)
-                return DelegationDecisionResult(
-                    decision_accepted=True,
-                    job_id=job_id,
-                    request_id=request_id,
-                )
-            except Exception as exc:
-                raise CommittedDecisionFinalizationError(
-                    "Delegation decide committed deny but local finalization failed: "
-                    f"{exc}. The deny decision has been audited."
-                ) from exc
-
-        prompt_text = build_execution_resume_turn_text(
-            pending_request=request,
-            answers=answers,
-        )
         try:
-            self._execute_live_turn(
-                job_id=job_id,
-                collaboration_id=job.collaboration_id,
-                runtime_id=job.runtime_id,
-                worktree_path=Path(job.worktree_path),
-                prompt_text=prompt_text,
-            )
             self._journal.write_phase(
                 OperationJournalEntry(
                     idempotency_key=idempotency_key,
                     operation="approval_resolution",
-                    phase="completed",
+                    phase="intent",
                     collaboration_id=job.collaboration_id,
                     created_at=created_at,
                     repo_root=handle.repo_root,
@@ -2662,17 +2584,99 @@ class DelegationController:
                 ),
                 session_id=self._session_id,
             )
-            self._decided_request_ids.add(request_id)
-            return DelegationDecisionResult(
-                decision_accepted=True,
-                job_id=job_id,
-                request_id=request_id,
+        except BaseException:
+            self._registry.abort_reservation(token)
+            raise
+
+        # Step 4: commit + signal. Irreversible; worker wakes here. Per spec
+        # §325 (and L14), commit_signal is a local threading.Event.set() +
+        # state mutation — failure indicates a plugin-critical bug, not a
+        # recoverable error. NO try/except wraps this line.
+        self._registry.commit_signal(token)
+
+        # Step 5: audit — post-commit, non-gating. Audit failure is logged as
+        # a warning and does not affect the return value (spec §326 +
+        # IO-5). action=decision (caller's "approve"/"deny") fixes a
+        # pre-existing hardcoded action="approve" bug at the prior callsite
+        # — incidental to the required relocation per spec §1654.
+        try:
+            self._journal.append_audit_event(
+                AuditEvent(
+                    event_id=self._uuid_factory(),
+                    timestamp=self._journal.timestamp(),
+                    actor="claude",
+                    action=decision,
+                    collaboration_id=job.collaboration_id,
+                    runtime_id=job.runtime_id,
+                    job_id=job_id,
+                    request_id=request_id,
+                    decision=decision,
+                )
             )
-        except Exception as exc:
-            raise CommittedDecisionFinalizationError(
-                "Delegation decide committed but local finalization failed: "
-                f"{exc}. Blind retry may duplicate follow-up execution."
-            ) from exc
+        except Exception:
+            logger.warning(
+                "delegation.decide: audit emission failed post-commit; "
+                "decision is durable",
+                extra={
+                    "job_id": job_id,
+                    "request_id": request_id,
+                    "decision": decision,
+                },
+                exc_info=True,
+            )
+
+        return DelegationDecisionResult(
+            decision_accepted=True,
+            job_id=job_id,
+            request_id=request_id,
+        )
+
+    def _build_response_payload(
+        self,
+        *,
+        decision: DecisionAction | str,
+        answers: dict[str, tuple[str, ...]] | None,
+        request: PendingServerRequest,
+    ) -> dict[str, Any]:
+        """Map (decision, kind) → App Server response payload.
+
+        Authoritative 6-row binding contract per spec §Response payload
+        mapping table at design.md:1667-1672:
+
+          approve × command_approval → {"decision": "accept"}
+          approve × file_change      → {"decision": "accept"}
+          approve × request_user_input → {"answers": <validated answers dict>}
+          deny    × command_approval → {"decision": "decline"}
+          deny    × file_change      → {"decision": "decline"}
+          deny    × request_user_input → {"answers": {}}  (empty-fallback)
+
+        request_user_input approve wire shape (Path A): per pinned-version
+        fixture
+        tests/fixtures/codex-app-server/0.117.0/ToolRequestUserInputResponse.json,
+        each answer is wrapped as {<qid>: {"answers": [<string>...]}}.
+        Validation above guarantees decision in {"approve", "deny"} and
+        kind in EscalatableRequestKind, so the final RuntimeError is a
+        defensive invariant guard for unexpected combinations.
+        """
+        kind = request.kind
+        if decision == "approve":
+            if kind == "command_approval" or kind == "file_change":
+                return {"decision": "accept"}
+            if kind == "request_user_input":
+                wrapped: dict[str, Any] = {
+                    qid: {"answers": list(values)}
+                    for qid, values in (answers or {}).items()
+                }
+                return {"answers": wrapped}
+        elif decision == "deny":
+            if kind == "command_approval" or kind == "file_change":
+                return {"decision": "decline"}
+            if kind == "request_user_input":
+                return {"answers": {}}
+        raise RuntimeError(
+            "_build_response_payload: unexpected decision/kind combination. "
+            f"Got: decision={decision!r}, kind={kind!r}"
+        )
 
     def recover_startup(self) -> None:
         """Consume unresolved job_creation journal records into durable terminal state.
