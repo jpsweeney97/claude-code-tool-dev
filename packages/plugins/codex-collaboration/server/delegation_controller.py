@@ -99,9 +99,12 @@ from .models import (
     TurnExecutionResult,
 )
 from .pending_request_store import PendingRequestStore
+from .resolution_registry import DecisionResolution, InternalAbort, ResolutionRegistry
 from .runtime import AppServerRuntimeSession, build_workspace_write_sandbox_policy
 
 logger = logging.getLogger(__name__)
+
+_APPROVAL_OPERATOR_WINDOW_SECONDS: float = 900  # 15 minutes; configurable via env later
 
 _TERMINAL_STATUS_MAP: dict[str, DelegationTerminalStatus] = {
     "completed": "completed",
@@ -378,6 +381,7 @@ class DelegationController:
         self._uuid_factory = uuid_factory or (lambda: str(uuid.uuid4()))
         self._promotion_callback = promotion_callback
         self._decided_request_ids: set[str] = set()
+        self._registry: ResolutionRegistry = ResolutionRegistry()
 
     def start(
         self,
@@ -761,6 +765,7 @@ class DelegationController:
             f"ExecutionRuntimeRegistry invariant violation: runtime_id={runtime_id!r} "
             "not found during live turn execution"
         )
+        registry = self._registry  # in-memory cross-thread registry (IO-2)
 
         def _server_request_handler(
             message: dict[str, Any],
@@ -776,9 +781,18 @@ class DelegationController:
                     collaboration_id=collaboration_id,
                 )
             except Exception:
+                # --- Unknown-kind parse failure branch ---
+                # Cleanup obligations: no registry entry (pre-capture), no
+                # parked_request_id (not yet set). Obligations that apply:
+                #   - write final completed record: NO (unknown-kind has no
+                #     approval_resolution lifecycle; audit PSR is the artifact)
+                #   - update_parked_request(None): n/a (not yet set)
+                #   - registry.discard: n/a (no registry entry for unknown-kind)
+                #   - _mark_execution_unknown_and_cleanup: YES (on interrupt failure)
+                # Sentinel reason: unknown_kind_interrupt_transport_failure (pre-capture).
                 logger.warning(
-                    "Server request parse failed; creating minimal causal record "
-                    "(D4 carve-out). Wire id=%r, method=%r",
+                    "Server request parse failed; creating minimal causal record. "
+                    "Wire id=%r, method=%r",
                     message.get("id"),
                     message.get("method", ""),
                     exc_info=True,
@@ -802,37 +816,313 @@ class DelegationController:
                     captured_request = minimal
                     captured_request_parse_failed = True
                 interrupted_by_unknown = True
-                entry = self._runtime_registry.lookup(runtime_id)
-                if entry is not None:
-                    entry.session.interrupt_turn(
-                        thread_id=entry.thread_id,
-                        turn_id=None,
-                    )
-                return None
+                interrupt_entry = self._runtime_registry.lookup(runtime_id)
+                try:
+                    if interrupt_entry is not None:
+                        interrupt_entry.session.interrupt_turn(
+                            thread_id=interrupt_entry.thread_id,
+                            turn_id=None,
+                        )
+                except Exception as interrupt_exc:
+                    # Unknown-kind interrupt transport failure — pre-capture sentinel.
+                    # spec §invariant table row 6: n/a for completed journal write,
+                    # update_parked_request, registry.discard; YES for cleanup helper.
+                    # interrupt_entry is non-None here: interrupt_turn only raises
+                    # inside the `if interrupt_entry is not None:` guard above.
+                    if interrupt_entry is not None:
+                        self._mark_execution_unknown_and_cleanup(
+                            job_id=job_id,
+                            collaboration_id=collaboration_id,
+                            runtime_id=runtime_id,
+                            entry=interrupt_entry,
+                        )
+                    raise _WorkerTerminalBranchSignal(reason="unknown_kind_interrupt_transport_failure") from interrupt_exc
+                # Interrupt succeeded — persist terminal unknown and signal.
+                # L10: handler returns None; _finalize_turn's D4 carve-out handles.
+                self._persist_job_transition(job_id, "unknown")
+                self._emit_terminal_outcome_if_needed(job_id)
+                try:
+                    self._lineage_store.update_status(collaboration_id, "unknown")
+                except Exception:
+                    logger.exception("lineage_store.update_status (unknown-kind interrupt) failed")
+                registry.announce_turn_terminal_without_escalation(
+                    job_id,
+                    status="unknown",
+                    reason="unknown_kind_parse_failure",
+                    request_id=minimal.request_id,
+                )
+                return None  # suppress auto-respond; turn loop exits post-interrupt
 
             if (
                 parsed.kind not in _CANCEL_CAPABLE_KINDS
                 and parsed.kind not in _KNOWN_DENIAL_KINDS
             ):
+                # Known-parsed kind not in the Packet 1 parkable set — interrupt path
+                # (defense-in-depth; spec classifies all server-request kinds as one
+                # of the four escalatable literals).
                 if captured_request is None:
                     self._pending_request_store.create(parsed)
                     captured_request = parsed
                 interrupted_by_unknown = True
-                entry = self._runtime_registry.lookup(runtime_id)
-                if entry is not None:
-                    entry.session.interrupt_turn(
-                        thread_id=entry.thread_id,
+                interrupt_entry = self._runtime_registry.lookup(runtime_id)
+                if interrupt_entry is not None:
+                    interrupt_entry.session.interrupt_turn(
+                        thread_id=interrupt_entry.thread_id,
                         turn_id=None,
                     )
                 return None
 
+            # --- Parkable capture (command_approval | file_change | request_user_input) ---
             if captured_request is None:
                 self._pending_request_store.create(parsed)
                 captured_request = parsed
 
-            if parsed.kind in _CANCEL_CAPABLE_KINDS:
-                return {"decision": "cancel"}
-            return {"answers": {}}
+            # Durable writes before handshake signal per spec §Worker sequence step L5:
+            #   create → update_parked_request(SET) → persist needs_escalation →
+            #   registry.register → announce_parked → wait
+            self._job_store.update_parked_request(job_id, parsed.request_id)
+            self._persist_job_transition(job_id, "needs_escalation")
+            registry.register(
+                parsed.request_id,
+                job_id=job_id,
+                kind=cast(EscalatableRequestKind, parsed.kind),
+                timeout_seconds=_APPROVAL_OPERATOR_WINDOW_SECONDS,
+            )
+            registry.announce_parked(job_id, request_id=parsed.request_id)
+
+            # Block until operator decide, timer, or internal abort.
+            resolution = registry.wait(parsed.request_id)
+
+            if isinstance(resolution, InternalAbort):
+                # --- Internal abort branch ---
+                # Cleanup obligations (spec §invariant table row 1 — internal_abort):
+                #   - write approval_resolution intent + dispatched + completed journal: YES
+                #   - update_parked_request(None): YES
+                #   - registry.discard: YES
+                #   - _mark_execution_unknown_and_cleanup: YES (job → unknown)
+                # Sentinel reason: "internal_abort".
+                now = self._journal.timestamp()
+                self._journal.write_phase(
+                    OperationJournalEntry(
+                        idempotency_key=f"approval_resolution:{job_id}:{parsed.request_id}",
+                        operation="approval_resolution",
+                        phase="intent",
+                        collaboration_id=collaboration_id,
+                        created_at=now,
+                        repo_root=self._repo_root_for_journal(job_id),
+                        job_id=job_id,
+                        request_id=parsed.request_id,
+                        decision=None,  # non-operator origin
+                    ),
+                    session_id=self._session_id,
+                )
+                self._journal.write_phase(
+                    OperationJournalEntry(
+                        idempotency_key=f"approval_resolution:{job_id}:{parsed.request_id}",
+                        operation="approval_resolution",
+                        phase="dispatched",
+                        collaboration_id=collaboration_id,
+                        created_at=self._journal.timestamp(),
+                        repo_root=self._repo_root_for_journal(job_id),
+                        job_id=job_id,
+                        request_id=parsed.request_id,
+                        runtime_id=runtime_id,
+                        codex_thread_id=entry.thread_id,
+                        decision=None,
+                    ),
+                    session_id=self._session_id,
+                )
+                self._pending_request_store.record_internal_abort(
+                    parsed.request_id, reason=resolution.reason
+                )
+                self._job_store.update_parked_request(job_id, None)
+                self._journal.write_phase(
+                    OperationJournalEntry(
+                        idempotency_key=f"approval_resolution:{job_id}:{parsed.request_id}",
+                        operation="approval_resolution",
+                        phase="completed",
+                        collaboration_id=collaboration_id,
+                        created_at=self._journal.timestamp(),
+                        repo_root=self._repo_root_for_journal(job_id),
+                        job_id=job_id,
+                        request_id=parsed.request_id,
+                        completion_origin="worker_completed",
+                    ),
+                    session_id=self._session_id,
+                )
+                try:
+                    self._journal.append_audit_event(
+                        AuditEvent(
+                            event_id=self._uuid_factory(),
+                            timestamp=self._journal.timestamp(),
+                            actor="system",
+                            action="internal_abort",
+                            collaboration_id=collaboration_id,
+                            runtime_id=runtime_id,
+                            job_id=job_id,
+                            request_id=parsed.request_id,
+                        )
+                    )
+                except Exception:
+                    logger.warning("audit internal_abort append failed", exc_info=True)
+                registry.discard(parsed.request_id)
+                self._mark_execution_unknown_and_cleanup(
+                    job_id=job_id,
+                    collaboration_id=collaboration_id,
+                    runtime_id=runtime_id,
+                    entry=entry,
+                )
+                raise _WorkerTerminalBranchSignal(reason="internal_abort")
+
+            # resolution is DecisionResolution from here down.
+            assert isinstance(resolution, DecisionResolution)
+
+            if resolution.is_timeout:
+                # --- Timeout branches (delegated to _handle_timeout_wake) ---
+                # _handle_timeout_wake returns True on cancel-capable-success sub-branch
+                # (handler returns None; turn continues to turn/completed; _finalize_turn
+                # terminal guard at Task 19 maps the canceled snapshot). All other
+                # sub-branches raise _WorkerTerminalBranchSignal.
+                continue_turn = self._handle_timeout_wake(
+                    entry=entry,
+                    job_id=job_id,
+                    collaboration_id=collaboration_id,
+                    runtime_id=runtime_id,
+                    request=parsed,
+                    registry=registry,
+                )
+                if continue_turn:
+                    return None
+                raise AssertionError(
+                    "_handle_timeout_wake invariant: must return True or raise "
+                    "_WorkerTerminalBranchSignal; neither happened"
+                )
+
+            # --- Operator decide branch (DecisionResolution, is_timeout=False) ---
+            # Cleanup obligations (spec §invariant table row 2 — dispatch_failed,
+            # or rows 1-path for decide-success):
+            #   dispatch-success: record_response_dispatch + mark_resolved +
+            #     update_parked_request(None) + completed journal + registry.discard
+            #     → return None (handler exits; turn continues to turn/completed; Task 19)
+            #   dispatch-failure: record_dispatch_failure + update_parked_request(None) +
+            #     completed journal + audit + registry.discard +
+            #     _mark_execution_unknown_and_cleanup → sentinel "dispatch_failed"
+            decision_action = resolution.payload.get("resolution_action", "approve")
+            response_payload = resolution.payload.get("response_payload", {})
+            self._job_store.update_status_and_promotion(
+                job_id, status="running", promotion_state=None
+            )
+            self._journal.write_phase(
+                OperationJournalEntry(
+                    idempotency_key=f"approval_resolution:{job_id}:{parsed.request_id}",
+                    operation="approval_resolution",
+                    phase="dispatched",
+                    collaboration_id=collaboration_id,
+                    created_at=self._journal.timestamp(),
+                    repo_root=self._repo_root_for_journal(job_id),
+                    job_id=job_id,
+                    request_id=parsed.request_id,
+                    runtime_id=runtime_id,
+                    codex_thread_id=entry.thread_id,
+                    decision=decision_action,
+                ),
+                session_id=self._session_id,
+            )
+            dispatch_at = self._journal.timestamp()
+            try:
+                entry.session.respond(parsed.request_id, response_payload)
+            except Exception as respond_exc:
+                # Dispatch-failure branch.
+                # Cleanup obligations (spec §invariant table row 2 — dispatch_failed):
+                #   - record_dispatch_failure: YES
+                #   - update_parked_request(None): YES
+                #   - completed journal with worker_completed origin: YES
+                #   - audit dispatch_failed: YES (best-effort)
+                #   - registry.discard: YES
+                #   - _mark_execution_unknown_and_cleanup: YES (job → unknown)
+                # Sentinel reason: "dispatch_failed".
+                self._pending_request_store.record_dispatch_failure(
+                    parsed.request_id,
+                    action=decision_action,
+                    payload=response_payload,
+                    dispatch_at=dispatch_at,
+                    dispatch_error=_sanitize_error_string(respond_exc),
+                )
+                self._job_store.update_parked_request(job_id, None)
+                self._journal.write_phase(
+                    OperationJournalEntry(
+                        idempotency_key=f"approval_resolution:{job_id}:{parsed.request_id}",
+                        operation="approval_resolution",
+                        phase="completed",
+                        collaboration_id=collaboration_id,
+                        created_at=self._journal.timestamp(),
+                        repo_root=self._repo_root_for_journal(job_id),
+                        job_id=job_id,
+                        request_id=parsed.request_id,
+                        completion_origin="worker_completed",
+                    ),
+                    session_id=self._session_id,
+                )
+                try:
+                    self._journal.append_audit_event(
+                        AuditEvent(
+                            event_id=self._uuid_factory(),
+                            timestamp=self._journal.timestamp(),
+                            actor="system",
+                            action="dispatch_failed",
+                            collaboration_id=collaboration_id,
+                            runtime_id=runtime_id,
+                            job_id=job_id,
+                            request_id=parsed.request_id,
+                        )
+                    )
+                except Exception:
+                    logger.warning("audit dispatch_failed append failed", exc_info=True)
+                registry.discard(parsed.request_id)
+                self._mark_execution_unknown_and_cleanup(
+                    job_id=job_id,
+                    collaboration_id=collaboration_id,
+                    runtime_id=runtime_id,
+                    entry=entry,
+                )
+                raise _WorkerTerminalBranchSignal(reason="dispatch_failed") from respond_exc
+
+            # Dispatch succeeded (decide-success, finalizer-routed).
+            # Cleanup obligations (spec §invariant table row 1 — dispatch_failed=n/a,
+            # decide-success path):
+            #   - record_response_dispatch + mark_resolved: YES
+            #   - update_parked_request(None): YES
+            #   - completed journal with worker_completed origin: YES
+            #   - registry.discard: YES
+            #   - _mark_execution_unknown_and_cleanup: NO (turn continues naturally)
+            # Handler returns None → turn continues to turn/completed → _finalize_turn
+            # (Task 19 Captured-Request Terminal Guard maps request_snapshot.status).
+            self._pending_request_store.record_response_dispatch(
+                parsed.request_id,
+                action=decision_action,
+                payload=response_payload,
+                dispatch_at=dispatch_at,
+            )
+            self._pending_request_store.mark_resolved(
+                parsed.request_id, resolved_at=self._journal.timestamp()
+            )
+            self._job_store.update_parked_request(job_id, None)
+            self._journal.write_phase(
+                OperationJournalEntry(
+                    idempotency_key=f"approval_resolution:{job_id}:{parsed.request_id}",
+                    operation="approval_resolution",
+                    phase="completed",
+                    collaboration_id=collaboration_id,
+                    created_at=self._journal.timestamp(),
+                    repo_root=self._repo_root_for_journal(job_id),
+                    job_id=job_id,
+                    request_id=parsed.request_id,
+                    completion_origin="worker_completed",
+                ),
+                session_id=self._session_id,
+            )
+            registry.discard(parsed.request_id)
+            return None  # let the turn continue to turn/completed naturally
 
         try:
             turn_result = entry.session.run_execution_turn(
@@ -984,6 +1274,285 @@ class DelegationController:
             f"was just updated but get() returned None"
         )
         return updated
+
+    def _repo_root_for_journal(self, job_id: str) -> str:
+        """Resolve the repo_root string for journal entries from the lineage handle."""
+        job = self._job_store.get(job_id)
+        if job is None:
+            return ""
+        handle = self._lineage_store.get(job.collaboration_id)
+        return handle.repo_root if handle is not None else ""
+
+    def _handle_timeout_wake(
+        self,
+        *,
+        entry: ExecutionRuntimeEntry,
+        job_id: str,
+        collaboration_id: str,
+        runtime_id: str,
+        request: PendingServerRequest,
+        registry: ResolutionRegistry,
+    ) -> bool:
+        """Handle the worker's wake from the registry timer.
+
+        Kind-sensitive dispatch per spec §Kind-sensitive timeout dispatch:
+          - command_approval / file_change (cancel-capable) → respond({"decision": "cancel"})
+          - request_user_input (non-cancel-capable) → session.interrupt_turn (no respond)
+
+        Return contract:
+          - Returns True on cancel-capable-success sub-branch (caller's handler
+            returns None so the turn continues to turn/completed; _finalize_turn's
+            Captured-Request Terminal Guard at Task 19 maps the canceled snapshot).
+          - Raises _WorkerTerminalBranchSignal with a branch-specific reason on
+            every other sub-branch (timeout_cancel_dispatch_failed, timeout_interrupt_succeeded,
+            timeout_interrupt_failed). The sentinel bypass fires; _finalize_turn is NOT invoked.
+
+        Defensive AssertionError at bottom (W9): request.kind must be in the
+        upstream _CANCEL_CAPABLE_KINDS | _KNOWN_DENIAL_KINDS filter set.
+        """
+        now = self._journal.timestamp()
+        self._journal.write_phase(
+            OperationJournalEntry(
+                idempotency_key=f"approval_resolution:{job_id}:{request.request_id}",
+                operation="approval_resolution",
+                phase="intent",
+                collaboration_id=collaboration_id,
+                created_at=now,
+                repo_root=self._repo_root_for_journal(job_id),
+                job_id=job_id,
+                request_id=request.request_id,
+                decision=None,  # non-operator origin
+            ),
+            session_id=self._session_id,
+        )
+        self._job_store.update_status_and_promotion(
+            job_id, status="running", promotion_state=None
+        )
+        self._journal.write_phase(
+            OperationJournalEntry(
+                idempotency_key=f"approval_resolution:{job_id}:{request.request_id}",
+                operation="approval_resolution",
+                phase="dispatched",
+                collaboration_id=collaboration_id,
+                created_at=self._journal.timestamp(),
+                repo_root=self._repo_root_for_journal(job_id),
+                job_id=job_id,
+                request_id=request.request_id,
+                runtime_id=runtime_id,
+                codex_thread_id=entry.thread_id,
+                decision=None,
+            ),
+            session_id=self._session_id,
+        )
+
+        if request.kind in ("command_approval", "file_change"):
+            # Cancel-capable: respond({"decision": "cancel"}).
+            dispatch_at = self._journal.timestamp()
+            try:
+                entry.session.respond(request.request_id, {"decision": "cancel"})
+            except Exception as respond_exc:
+                # Cleanup obligations (spec §invariant table row 4 —
+                # timeout_cancel_dispatch_failed):
+                #   - record_timeout(dispatch_result="failed"): YES
+                #   - update_parked_request(None): YES
+                #   - completed journal with worker_completed origin: YES (via helper)
+                #   - audit approval_timeout: YES (best-effort, via helper)
+                #   - registry.discard: YES
+                #   - _mark_execution_unknown_and_cleanup: YES (job → unknown)
+                # Sentinel reason: "timeout_cancel_dispatch_failed".
+                self._pending_request_store.record_timeout(
+                    request.request_id,
+                    response_payload={"decision": "cancel"},
+                    response_dispatch_at=dispatch_at,
+                    dispatch_result="failed",
+                    dispatch_error=_sanitize_error_string(respond_exc),
+                )
+                self._job_store.update_parked_request(job_id, None)
+                self._write_completion_and_audit_timeout(
+                    job_id=job_id,
+                    collaboration_id=collaboration_id,
+                    runtime_id=runtime_id,
+                    request_id=request.request_id,
+                    dispatch_result="failed",
+                    dispatch_error=_sanitize_error_string(respond_exc),
+                )
+                registry.discard(request.request_id)
+                self._mark_execution_unknown_and_cleanup(
+                    job_id=job_id,
+                    collaboration_id=collaboration_id,
+                    runtime_id=runtime_id,
+                    entry=entry,
+                )
+                raise _WorkerTerminalBranchSignal(reason="timeout_cancel_dispatch_failed") from respond_exc
+            # Cancel dispatch succeeded (cancel-success, finalizer-routed).
+            # Cleanup obligations (spec §invariant table row 2 — timeout-cancel-success):
+            #   - record_timeout(dispatch_result="succeeded"): YES
+            #   - update_parked_request(None): YES
+            #   - completed journal with worker_completed origin: YES (via helper)
+            #   - registry.discard: YES
+            #   - _mark_execution_unknown_and_cleanup: NO (turn continues naturally to
+            #     turn/completed; _finalize_turn's Captured-Request Terminal Guard at
+            #     Task 19 maps the canceled request snapshot to DelegationJob.status="canceled")
+            self._pending_request_store.record_timeout(
+                request.request_id,
+                response_payload={"decision": "cancel"},
+                response_dispatch_at=dispatch_at,
+                dispatch_result="succeeded",
+                dispatch_error=None,
+            )
+            self._job_store.update_parked_request(job_id, None)
+            self._write_completion_and_audit_timeout(
+                job_id=job_id,
+                collaboration_id=collaboration_id,
+                runtime_id=runtime_id,
+                request_id=request.request_id,
+                dispatch_result="succeeded",
+                dispatch_error=None,
+            )
+            registry.discard(request.request_id)
+            return True  # caller returns None from the handler; turn continues
+
+        if request.kind == "request_user_input":
+            # Non-cancel-capable: interrupt_turn only — no respond.
+            try:
+                entry.session.interrupt_turn(
+                    thread_id=entry.thread_id, turn_id=None
+                )
+            except Exception as interrupt_exc:
+                # Cleanup obligations (spec §invariant table row 6 —
+                # timeout_interrupt_failed):
+                #   - record_timeout(interrupt_error=<sanitized>): YES
+                #   - update_parked_request(None): YES
+                #   - completed journal with worker_completed origin: YES (via helper)
+                #   - registry.discard: YES
+                #   - _mark_execution_unknown_and_cleanup: YES (job → unknown)
+                # Sentinel reason: "timeout_interrupt_failed".
+                self._pending_request_store.record_timeout(
+                    request.request_id,
+                    response_payload=None,
+                    response_dispatch_at=None,
+                    dispatch_result=None,
+                    dispatch_error=None,
+                    interrupt_error=_sanitize_error_string(interrupt_exc),
+                )
+                self._job_store.update_parked_request(job_id, None)
+                self._write_completion_and_audit_timeout(
+                    job_id=job_id,
+                    collaboration_id=collaboration_id,
+                    runtime_id=runtime_id,
+                    request_id=request.request_id,
+                    dispatch_result=None,
+                    dispatch_error=_sanitize_error_string(interrupt_exc),
+                )
+                registry.discard(request.request_id)
+                self._mark_execution_unknown_and_cleanup(
+                    job_id=job_id,
+                    collaboration_id=collaboration_id,
+                    runtime_id=runtime_id,
+                    entry=entry,
+                )
+                raise _WorkerTerminalBranchSignal(reason="timeout_interrupt_failed") from interrupt_exc
+            # Interrupt succeeded.
+            # Cleanup obligations (spec §invariant table row 5 —
+            # timeout_interrupt_succeeded):
+            #   - record_timeout(interrupt_error=None): YES
+            #   - update_parked_request(None): YES
+            #   - completed journal with worker_completed origin: YES (via helper)
+            #   - registry.discard: YES
+            #   - inline cancel cleanup (NOT _mark_execution_unknown_and_cleanup):
+            #     _persist_job_transition("canceled") + _emit_terminal_outcome_if_needed +
+            #     lineage_store.update_status("completed") + runtime_registry.release +
+            #     entry.session.close()
+            # Sentinel reason: "timeout_interrupt_succeeded".
+            self._pending_request_store.record_timeout(
+                request.request_id,
+                response_payload=None,
+                response_dispatch_at=None,
+                dispatch_result=None,
+                dispatch_error=None,
+                interrupt_error=None,
+            )
+            self._job_store.update_parked_request(job_id, None)
+            self._write_completion_and_audit_timeout(
+                job_id=job_id,
+                collaboration_id=collaboration_id,
+                runtime_id=runtime_id,
+                request_id=request.request_id,
+                dispatch_result=None,
+                dispatch_error=None,
+            )
+            registry.discard(request.request_id)
+            # Inline cancel-cleanup sequence — NOT _mark_execution_unknown_and_cleanup.
+            # cancel is verified (interrupt succeeded), so lineage gets "completed",
+            # not "unknown". Symmetry with _mark_execution_unknown_and_cleanup explicit.
+            self._persist_job_transition(job_id, "canceled")
+            self._emit_terminal_outcome_if_needed(job_id)
+            try:
+                self._lineage_store.update_status(collaboration_id, "completed")
+            except Exception:
+                logger.exception("lineage_store.update_status (cancel) failed")
+            try:
+                self._runtime_registry.release(runtime_id)
+            except Exception:
+                logger.exception("runtime_registry.release (cancel) failed")
+            try:
+                entry.session.close()
+            except Exception:
+                logger.exception("entry.session.close (cancel) failed")
+            raise _WorkerTerminalBranchSignal(reason="timeout_interrupt_succeeded")
+
+        # Any other kind must not reach here — upstream filter (_CANCEL_CAPABLE_KINDS |
+        # _KNOWN_DENIAL_KINDS) should have excluded it. Raise defensively (W9 required).
+        raise AssertionError(
+            f"_handle_timeout_wake: unexpected kind={request.kind!r}"
+        )
+
+    def _write_completion_and_audit_timeout(
+        self,
+        *,
+        job_id: str,
+        collaboration_id: str,
+        runtime_id: str,
+        request_id: str,
+        dispatch_result: str | None,
+        dispatch_error: str | None,
+    ) -> None:
+        """Write the approval_resolution completed journal entry and best-effort
+        audit event for any timeout sub-branch.
+
+        Shared by all four timeout sub-branches (cancel-dispatch-succeeded,
+        cancel-dispatch-failed, interrupt-succeeded, interrupt-failed).
+        Always writes completion_origin=worker_completed (closes C10.4 per L7).
+        """
+        self._journal.write_phase(
+            OperationJournalEntry(
+                idempotency_key=f"approval_resolution:{job_id}:{request_id}",
+                operation="approval_resolution",
+                phase="completed",
+                collaboration_id=collaboration_id,
+                created_at=self._journal.timestamp(),
+                repo_root=self._repo_root_for_journal(job_id),
+                job_id=job_id,
+                request_id=request_id,
+                completion_origin="worker_completed",
+            ),
+            session_id=self._session_id,
+        )
+        try:
+            self._journal.append_audit_event(
+                AuditEvent(
+                    event_id=self._uuid_factory(),
+                    timestamp=self._journal.timestamp(),
+                    actor="system",
+                    action="approval_timeout",
+                    collaboration_id=collaboration_id,
+                    runtime_id=runtime_id,
+                    job_id=job_id,
+                    request_id=request_id,
+                )
+            )
+        except Exception:
+            logger.warning("audit approval_timeout append failed", exc_info=True)
 
     # Plugin-level decisions exposed by codex.delegate.decide.
     _PLUGIN_DECISIONS: tuple[str, ...] = ("approve", "deny")
