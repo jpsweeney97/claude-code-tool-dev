@@ -824,11 +824,16 @@ class DelegationController:
                             turn_id=None,
                         )
                 except Exception as interrupt_exc:
-                    # Unknown-kind interrupt transport failure — pre-capture sentinel.
-                    # spec §invariant table row 6: n/a for completed journal write,
-                    # update_parked_request, registry.discard; YES for cleanup helper.
-                    # interrupt_entry is non-None here: interrupt_turn only raises
-                    # inside the `if interrupt_entry is not None:` guard above.
+                    # --- Unknown-kind interrupt transport failure (pre-capture) ---
+                    # Cleanup obligations (spec §invariant table row 6 —
+                    # unknown_kind_interrupt_transport_failure):
+                    #   - completed journal write: n/a
+                    #   - update_parked_request(None): n/a
+                    #   - registry.discard: n/a
+                    #   - _mark_execution_unknown_and_cleanup: YES (job → unknown)
+                    # Sentinel reason: "unknown_kind_interrupt_transport_failure".
+                    # Note: interrupt_entry is non-None here — interrupt_turn only
+                    # raises inside the `if interrupt_entry is not None:` guard above.
                     if interrupt_entry is not None:
                         self._mark_execution_unknown_and_cleanup(
                             job_id=job_id,
@@ -1373,8 +1378,6 @@ class DelegationController:
                     collaboration_id=collaboration_id,
                     runtime_id=runtime_id,
                     request_id=request.request_id,
-                    dispatch_result="failed",
-                    dispatch_error=_sanitize_error_string(respond_exc),
                 )
                 registry.discard(request.request_id)
                 self._mark_execution_unknown_and_cleanup(
@@ -1406,8 +1409,6 @@ class DelegationController:
                 collaboration_id=collaboration_id,
                 runtime_id=runtime_id,
                 request_id=request.request_id,
-                dispatch_result="succeeded",
-                dispatch_error=None,
             )
             registry.discard(request.request_id)
             return True  # caller returns None from the handler; turn continues
@@ -1441,8 +1442,6 @@ class DelegationController:
                     collaboration_id=collaboration_id,
                     runtime_id=runtime_id,
                     request_id=request.request_id,
-                    dispatch_result=None,
-                    dispatch_error=_sanitize_error_string(interrupt_exc),
                 )
                 registry.discard(request.request_id)
                 self._mark_execution_unknown_and_cleanup(
@@ -1478,8 +1477,6 @@ class DelegationController:
                 collaboration_id=collaboration_id,
                 runtime_id=runtime_id,
                 request_id=request.request_id,
-                dispatch_result=None,
-                dispatch_error=None,
             )
             registry.discard(request.request_id)
             # Inline cancel-cleanup sequence — NOT _mark_execution_unknown_and_cleanup.
@@ -1514,8 +1511,6 @@ class DelegationController:
         collaboration_id: str,
         runtime_id: str,
         request_id: str,
-        dispatch_result: str | None,
-        dispatch_error: str | None,
     ) -> None:
         """Write the approval_resolution completed journal entry and best-effort
         audit event for any timeout sub-branch.

@@ -28,6 +28,16 @@ from server.models import (
 from server.pending_request_store import PendingRequestStore
 from server.worktree_manager import WorktreeManager
 
+_TASK_17_DEADLOCK_REASON = (
+    "Phase G Task 17: Task 16's _server_request_handler now blocks on "
+    "registry.wait(...) for parkable requests. Pre-Task-17 controller.start() "
+    "is synchronous (no worker thread, no wait_for_parked()), so "
+    "announce_parked drops silently and the handler hangs until the "
+    "_APPROVAL_OPERATOR_WINDOW_SECONDS=900 timer fires. Task 17 wires public "
+    "start()/decide() through spawn_worker + wait_for_parked, restoring "
+    "the synchronous-return contract this test asserts."
+)
+
 
 def test_delegation_factory_builds_controller(tmp_path: Path, monkeypatch) -> None:
     # Ensure scripts dir is importable
@@ -551,17 +561,7 @@ def _permissions_request_msg(
     }
 
 
-@pytest.mark.skip(
-    reason=(
-        "Phase G Task 17: Task 16's _server_request_handler now blocks on "
-        "registry.wait(...) for parkable requests. Pre-Task-17 controller.start() "
-        "is synchronous (no worker thread, no wait_for_parked()), so "
-        "announce_parked drops silently and the handler hangs until the "
-        "_APPROVAL_OPERATOR_WINDOW_SECONDS=900 timer fires. Task 17 wires public "
-        "start()/decide() through spawn_worker + wait_for_parked, restoring "
-        "the synchronous-return contract this test asserts."
-    )
-)
+@pytest.mark.skip(reason=_TASK_17_DEADLOCK_REASON)
 def test_e2e_command_approval_produces_escalation(tmp_path: Path) -> None:
     """Full path: start → turn dispatch → command approval → cancel → DelegationEscalation."""
     repo_root = tmp_path / "repo"
@@ -678,17 +678,7 @@ def test_e2e_unknown_request_kind_interrupts_and_escalates(tmp_path: Path) -> No
     assert persisted_job.status == "needs_escalation"
 
 
-@pytest.mark.skip(
-    reason=(
-        "Phase G Task 17: Task 16's _server_request_handler now blocks on "
-        "registry.wait(...) for parkable requests. Pre-Task-17 controller.start() "
-        "is synchronous (no worker thread, no wait_for_parked()), so "
-        "announce_parked drops silently and the handler hangs until the "
-        "_APPROVAL_OPERATOR_WINDOW_SECONDS=900 timer fires. Task 17 wires public "
-        "start()/decide() through spawn_worker + wait_for_parked, restoring "
-        "the synchronous-return contract this test asserts."
-    )
-)
+@pytest.mark.skip(reason=_TASK_17_DEADLOCK_REASON)
 def test_e2e_busy_gate_blocks_when_job_needs_escalation(tmp_path: Path) -> None:
     """A job in needs_escalation is still active → busy gate blocks second start."""
     repo_root = tmp_path / "repo"
@@ -876,17 +866,7 @@ def test_delegate_poll_needs_escalation_returns_projected_request(
     assert "codex_thread_id" not in json.dumps(poll_payload["pending_escalation"])
 
 
-@pytest.mark.skip(
-    reason=(
-        "Phase G Task 17: Task 16's _server_request_handler now blocks on "
-        "registry.wait(...) for parkable requests. Pre-Task-17 controller.start() "
-        "is synchronous (no worker thread, no wait_for_parked()), so "
-        "announce_parked drops silently and the handler hangs until the "
-        "_APPROVAL_OPERATOR_WINDOW_SECONDS=900 timer fires. Task 17 wires public "
-        "start()/decide() through spawn_worker + wait_for_parked, restoring "
-        "the synchronous-return contract this test asserts."
-    )
-)
+@pytest.mark.skip(reason=_TASK_17_DEADLOCK_REASON)
 def test_delegate_decide_approve_end_to_end_through_mcp_dispatch(
     tmp_path: Path,
 ) -> None:
@@ -963,17 +943,7 @@ def test_delegate_decide_approve_end_to_end_through_mcp_dispatch(
     assert poll_payload["job"]["status"] == "completed"
 
 
-@pytest.mark.skip(
-    reason=(
-        "Phase G Task 17: Task 16's _server_request_handler now blocks on "
-        "registry.wait(...) for parkable requests. Pre-Task-17 controller.start() "
-        "is synchronous (no worker thread, no wait_for_parked()), so "
-        "announce_parked drops silently and the handler hangs until the "
-        "_APPROVAL_OPERATOR_WINDOW_SECONDS=900 timer fires. Task 17 wires public "
-        "start()/decide() through spawn_worker + wait_for_parked, restoring "
-        "the synchronous-return contract this test asserts."
-    )
-)
+@pytest.mark.skip(reason=_TASK_17_DEADLOCK_REASON)
 def test_delegate_decide_deny_end_to_end_through_mcp_dispatch(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     _init_repo(repo_root)
@@ -1061,17 +1031,7 @@ def _assert_no_internal_ids(payload: dict[str, Any], key: str) -> None:
         )
 
 
-@pytest.mark.skip(
-    reason=(
-        "Phase G Task 17: Task 16's _server_request_handler now blocks on "
-        "registry.wait(...) for parkable requests. Pre-Task-17 controller.start() "
-        "is synchronous (no worker thread, no wait_for_parked()), so "
-        "announce_parked drops silently and the handler hangs until the "
-        "_APPROVAL_OPERATOR_WINDOW_SECONDS=900 timer fires. Task 17 wires public "
-        "start()/decide() through spawn_worker + wait_for_parked, restoring "
-        "the synchronous-return contract this test asserts."
-    )
-)
+@pytest.mark.skip(reason=_TASK_17_DEADLOCK_REASON)
 def test_start_escalation_uses_pending_escalation_key(tmp_path: Path) -> None:
     """codex.delegate.start escalation must use 'pending_escalation', not 'pending_request'."""
     repo_root = tmp_path / "repo"

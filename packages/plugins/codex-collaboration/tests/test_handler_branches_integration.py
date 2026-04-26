@@ -859,8 +859,6 @@ def test_write_completion_and_audit_timeout_writes_worker_completed(
         collaboration_id="collab-h-1",
         runtime_id="rt-h-1",
         request_id="req-audit-1",
-        dispatch_result="succeeded",
-        dispatch_error=None,
     )
 
     # Journal should have a completed phase with worker_completed origin.
@@ -928,8 +926,6 @@ def test_write_completion_and_audit_timeout_audit_failure_logs_warning(
             collaboration_id="collab-h-1",
             runtime_id="rt-h-1",
             request_id="req-audit-2",
-            dispatch_result=None,
-            dispatch_error=None,
         )
 
     assert "audit approval_timeout append failed" in caplog.text
