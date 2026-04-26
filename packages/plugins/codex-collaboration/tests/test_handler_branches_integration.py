@@ -536,17 +536,6 @@ def test_internal_abort_on_unknown_kind_poll_projection_abort(
     mock_registry.discard.assert_called_once_with("42")
 
 
-@pytest.mark.skip(
-    reason=(
-        "Phase G Task 17: _finalize_turn's status-derivation branch at line ~2211 calls "
-        "_project_request_to_view with kind='unknown' (interrupted_by_unknown=True path), "
-        "raising UnknownKindInEscalationProjection. The convergence map noted the D4 carve-out "
-        "as handling this case (L10), but the live _finalize_turn does not yet have the "
-        "carve-out that skips _project_request_to_view for interrupted_by_unknown+parse_failed. "
-        "This is the same barrier as Mode A skip-decorators (test_start_with_unparseable_request). "
-        "Task 17 adds the unknown-kind L6 callsite handling that resolves this path."
-    )
-)
 def test_unknown_kind_parse_failure_terminalizes_unknown(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

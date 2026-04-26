@@ -61,7 +61,7 @@ import tempfile
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Protocol, cast
+from typing import Any, Callable, Protocol, assert_never, cast
 
 from .approval_router import parse_pending_server_request
 from .delegation_job_store import DelegationJobStore
@@ -99,12 +99,24 @@ from .models import (
     TurnExecutionResult,
 )
 from .pending_request_store import PendingRequestStore
-from .resolution_registry import DecisionResolution, InternalAbort, ResolutionRegistry
+from .resolution_registry import (
+    DecisionResolution,
+    InternalAbort,
+    Parked,
+    ParkedCaptureResult,
+    ResolutionRegistry,
+    StartWaitElapsed,
+    TurnCompletedWithoutCapture,
+    TurnTerminalWithoutEscalation,
+    WorkerFailed,
+)
+from .worker_runner import spawn_worker
 from .runtime import AppServerRuntimeSession, build_workspace_write_sandbox_policy
 
 logger = logging.getLogger(__name__)
 
 _APPROVAL_OPERATOR_WINDOW_SECONDS: float = 900  # 15 minutes; configurable via env later
+START_OUTCOME_WAIT_SECONDS: float = 30  # synchronous start-wait budget; not a wedge detector
 
 _TERMINAL_STATUS_MAP: dict[str, DelegationTerminalStatus] = {
     "completed": "completed",
@@ -734,13 +746,150 @@ class DelegationController:
             objective=objective,
             worktree_path=str(worktree_path),
         )
-        return self._execute_live_turn(
+        spawn_worker(
+            controller=self,
+            registry=self._registry,
             job_id=job_id,
             collaboration_id=collaboration_id,
             runtime_id=runtime_id,
             worktree_path=worktree_path,
             prompt_text=prompt_text,
         )
+        outcome = self._registry.wait_for_parked(
+            job_id, timeout_seconds=START_OUTCOME_WAIT_SECONDS
+        )
+        return self._dispatch_parked_capture_outcome(
+            outcome=outcome,
+            job_id=job_id,
+            collaboration_id=collaboration_id,
+        )
+
+    def _dispatch_parked_capture_outcome(
+        self,
+        *,
+        outcome: ParkedCaptureResult,
+        job_id: str,
+        collaboration_id: str,
+    ) -> "DelegationJob | DelegationEscalation":
+        """Translate a ParkedCaptureResult into start()'s return value or raise.
+
+        Exhaustive match over all 5 variants. Uses assert_never as the final
+        arm so Pyright enforces exhaustiveness at compile time and runtime
+        catches any unhandled extension.
+        """
+        match outcome:
+            case Parked(request_id=request_id):
+                # Registry invariant: Parked implies the job exists and has
+                # parked_request_id set. The pre-worker `job` object (from
+                # job_store.create) has parked_request_id=None and would yield
+                # a null projection — look up the refreshed job.
+                job = self._job_store.get(job_id)
+                assert job is not None, (
+                    f"start(): Parked outcome but job_id={job_id!r} not in store"
+                )
+                try:
+                    pending_escalation = self._project_pending_escalation(job)
+                except UnknownKindInEscalationProjection as exc:
+                    # Narrow catch — UnknownKindInEscalationProjection is the
+                    # specific exception _project_pending_escalation promises to
+                    # re-raise for invariant violations. Do NOT catch bare
+                    # Exception here (would mask unrelated bugs as protocol
+                    # violations and leak the worker with a misleading abort).
+                    # Per spec §Capture-ready handshake: collapse both
+                    # invariant-violation sub-cases (raise AND null) to the
+                    # same broad reason — "Parked fired but no view can be built."
+                    logger.critical(
+                        "delegation.start: unknown-kind in parked projection",
+                        extra={
+                            "job_id": job_id,
+                            "request_id": request_id,
+                            "cause": str(exc),
+                        },
+                    )
+                    # L8: signal the worker BEFORE raising — worker is blocked
+                    # in registry.wait(); without this signal it leaks indefinitely.
+                    self._registry.signal_internal_abort(
+                        request_id, reason="parked_projection_invariant_violation"
+                    )
+                    raise DelegationStartError(
+                        reason="parked_projection_invariant_violation",
+                        cause=None,
+                    )
+                if pending_escalation is None:
+                    # Worker announced Parked, so the job's parked_request_id
+                    # should be set and request should be live. None return here
+                    # means the projection hit a "legitimate no-view" state
+                    # (terminal status / unparked / tombstone) that should NOT
+                    # have been reachable given the Parked signal — state-machine
+                    # invariant violation.
+                    logger.critical(
+                        "delegation.start: Parked signal but null escalation projection",
+                        extra={"job_id": job_id, "request_id": request_id},
+                    )
+                    # L8: signal before raise.
+                    self._registry.signal_internal_abort(
+                        request_id, reason="parked_projection_invariant_violation"
+                    )
+                    raise DelegationStartError(
+                        reason="parked_projection_invariant_violation",
+                        cause=None,
+                    )
+                return DelegationEscalation(
+                    job=job,
+                    pending_escalation=pending_escalation,
+                    agent_context=None,  # deferred: worker still inside turn
+                )
+
+            case TurnCompletedWithoutCapture():
+                # Worker completed the turn without parking on any request.
+                # _finalize_turn has already written terminal state.
+                completed_job = self._job_store.get(job_id)
+                assert completed_job is not None, (
+                    f"start(): TurnCompletedWithoutCapture but job_id={job_id!r} not in store"
+                )
+                return completed_job
+
+            case TurnTerminalWithoutEscalation():
+                # Worker terminalized the job (e.g., unknown-kind parse failure)
+                # before signaling. start() returns normally — does NOT raise.
+                terminal_job = self._job_store.get(job_id)
+                assert terminal_job is not None, (
+                    f"start(): TurnTerminalWithoutEscalation but job_id={job_id!r} not in store"
+                )
+                return terminal_job
+
+            case WorkerFailed(error=exc):
+                # Worker raised an unhandled exception. _mark_execution_unknown_and_cleanup
+                # has already run; job is "unknown".
+                # L7: reason-preservation rule — if the worker raised an explicit
+                # DelegationStartError, propagate its reason intact rather than
+                # collapsing to the generic fallback.
+                if isinstance(exc, DelegationStartError) and exc.reason:
+                    raise exc
+                raise DelegationStartError(
+                    reason="worker_failed_before_capture",
+                    cause=exc,
+                )
+
+            case StartWaitElapsed():
+                # Synchronous start-wait budget elapsed. Worker may be executing
+                # a valid long-running turn. Return the running job; caller polls
+                # for eventual outcome.
+                logger.warning(
+                    "delegation.start: start-wait budget elapsed; returning running job",
+                    extra={
+                        "job_id": job_id,
+                        "collaboration_id": collaboration_id,
+                    },
+                )
+                running_job = self._job_store.get(job_id)
+                assert running_job is not None, (
+                    f"start(): StartWaitElapsed but job_id={job_id!r} not in store"
+                )
+                return running_job
+
+            case _:
+                assert_never(outcome)
 
     def _execute_live_turn(
         self,
@@ -2206,8 +2355,19 @@ class DelegationController:
                 )
 
             # Job status derivation.
-            if captured_request.kind in _CANCEL_CAPABLE_KINDS or interrupted_by_unknown:
-                final_status: JobStatus = "needs_escalation"
+            # L11 (Task 17): unknown-kind interrupted requests cannot be
+            # projected into a PendingEscalationView (kind='unknown' raises
+            # UnknownKindInEscalationProjection from _project_request_to_view).
+            # Spec §Unknown-kind contract (design.md:1705-1736, lines 1725-1727)
+            # routes interrupted_by_unknown to final_status='unknown' so it
+            # flows to the existing non-escalation return below — preserving
+            # _emit_terminal_outcome_if_needed + runtime release + session close.
+            # The cancel-capable terminal-mapping branch is UNCHANGED (W2 —
+            # Task 19 owns the Captured-Request Terminal Guard rewrite).
+            if interrupted_by_unknown:
+                final_status: JobStatus = "unknown"
+            elif captured_request.kind in _CANCEL_CAPABLE_KINDS:
+                final_status = "needs_escalation"
             elif turn_result.status == "completed":
                 final_status = "completed"
             else:

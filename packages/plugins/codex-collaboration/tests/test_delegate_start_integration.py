@@ -28,14 +28,17 @@ from server.models import (
 from server.pending_request_store import PendingRequestStore
 from server.worktree_manager import WorktreeManager
 
-_TASK_17_DEADLOCK_REASON = (
-    "Phase G Task 17: Task 16's _server_request_handler now blocks on "
-    "registry.wait(...) for parkable requests. Pre-Task-17 controller.start() "
-    "is synchronous (no worker thread, no wait_for_parked()), so "
-    "announce_parked drops silently and the handler hangs until the "
-    "_APPROVAL_OPERATOR_WINDOW_SECONDS=900 timer fires. Task 17 wires public "
-    "start()/decide() through spawn_worker + wait_for_parked, restoring "
-    "the synchronous-return contract this test asserts."
+_TASK_18_DECIDE_SIGNAL_REASON = (
+    "Phase G Task 18: decide() does not yet route through "
+    "ResolutionRegistry.reserve() + commit_signal(). Without "
+    "commit_signal, the worker stays parked in registry.wait() and "
+    "decide(approve)/decide(deny)/decide(re-escalate)/CAS-stale paths "
+    "cannot signal the worker through the canonical Task-18 mechanism. "
+    "Some assertions might mechanically pass under legacy decide() "
+    "(e.g., deny local-finalization at delegation_controller.py:~2446) "
+    "but would do so via the old non-async-decide code path. Skip is "
+    "preserved for audit discipline: Task 18's reserve+commit_signal "
+    "is the canonical signal mechanism for these assertions."
 )
 
 
@@ -561,7 +564,6 @@ def _permissions_request_msg(
     }
 
 
-@pytest.mark.skip(reason=_TASK_17_DEADLOCK_REASON)
 def test_e2e_command_approval_produces_escalation(tmp_path: Path) -> None:
     """Full path: start → turn dispatch → command approval → cancel → DelegationEscalation."""
     repo_root = tmp_path / "repo"
@@ -603,20 +605,15 @@ def test_e2e_command_approval_produces_escalation(tmp_path: Path) -> None:
     # agent_context captured (may be None but key must be present).
     assert "agent_context" in payload
 
-    # Store confirms resolved status matches the returned object.
+    # Request persisted (status remains 'pending' until decide() resumes the
+    # parked worker; _finalize_turn's D4 update is deferred under the async
+    # model). Bucket B tests cover post-decide D4 resolution.
     stored = prs.get("42")
     assert stored is not None
-    assert stored.status == "resolved"
 
-    # Escalation audit event emitted.
-    audit_lines = [
-        json.loads(line)
-        for line in (plugin_data / "audit" / "events.jsonl").read_text().splitlines()
-        if line.strip()
-    ]
-    escalation_events = [e for e in audit_lines if e.get("action") == "escalate"]
-    assert len(escalation_events) == 1
-    assert escalation_events[0]["request_id"] == "42"
+    # Escalation audit events fire from _finalize_turn, also deferred until
+    # decide() under the async model — the worker is currently parked in
+    # registry.wait(). Bucket B tests cover post-decide audit emission.
 
     # Job persisted with needs_escalation status.
     job_id = payload["job"]["job_id"]
@@ -625,16 +622,14 @@ def test_e2e_command_approval_produces_escalation(tmp_path: Path) -> None:
     assert persisted_job.status == "needs_escalation"
 
 
-@pytest.mark.skip(
-    reason=(
-        "Phase G (Task 17): _finalize_turn L6 callsite calls _project_request_to_view "
-        "directly with kind='unknown'; the Task 14 guard raises "
-        "UnknownKindInEscalationProjection, which surfaces as isError in MCP response. "
-        "Task 17 will add unknown-kind handling at the L6 callsite."
-    )
-)
 def test_e2e_unknown_request_kind_interrupts_and_escalates(tmp_path: Path) -> None:
-    """Unknown request kind (permissions) → turn interrupt → needs_escalation."""
+    """Unknown request kind (permissions) → turn interrupt → terminal status='unknown'.
+
+    Post-Task-17 (L11 carve-out): unknown-kind interrupted requests cannot be
+    projected into a PendingEscalationView. start() returns the plain terminal
+    DelegationJob with status='unknown' — no 'escalated'/'pending_escalation'
+    keys in the MCP payload. Causal record is the persisted PendingServerRequest.
+    """
     repo_root = tmp_path / "repo"
     _init_repo(repo_root)
 
@@ -661,24 +656,23 @@ def test_e2e_unknown_request_kind_interrupts_and_escalates(tmp_path: Path) -> No
     assert "isError" not in response["result"]
     payload = json.loads(response["result"]["content"][0]["text"])
 
-    assert payload["escalated"] is True
-    assert payload["job"]["status"] == "needs_escalation"
-    assert payload["pending_escalation"]["kind"] == "unknown"
-    assert payload["pending_escalation"]["request_id"] == "99"
+    # Terminal job, NOT escalation — no 'escalated' key in payload.
+    assert "escalated" not in payload
+    assert "pending_escalation" not in payload
+    assert payload["status"] == "unknown"
 
-    # Pending request persisted (unknown kind → status resolved, D4 rule for
-    # successful parse with unknown kind).
+    # Pending request persisted with raw method preserved.
     stored = prs.get("99")
     assert stored is not None
+    assert stored.kind == "unknown"
     assert stored.status == "resolved"
 
-    # Job persisted in needs_escalation.
-    persisted_job = job_store.get(payload["job"]["job_id"])
+    # Job persisted with status="unknown".
+    persisted_job = job_store.get(payload["job_id"])
     assert persisted_job is not None
-    assert persisted_job.status == "needs_escalation"
+    assert persisted_job.status == "unknown"
 
 
-@pytest.mark.skip(reason=_TASK_17_DEADLOCK_REASON)
 def test_e2e_busy_gate_blocks_when_job_needs_escalation(tmp_path: Path) -> None:
     """A job in needs_escalation is still active → busy gate blocks second start."""
     repo_root = tmp_path / "repo"
@@ -802,14 +796,6 @@ def test_delegate_poll_completed_job_materializes_snapshot_through_mcp(
     assert len(poll_payload["inspection"]["artifact_paths"]) == 3
 
 
-@pytest.mark.skip(
-    reason=(
-        "Phase G/F: poll().pending_escalation is None during the pre-Phase-G interregnum "
-        "because parked_request_id is unset (update_parked_request not yet wired, W1). "
-        "Helper-shape coverage moves to test_projection_helpers.py. "
-        "Phase F/G will restore poll-based pending_escalation observability."
-    )
-)
 def test_delegate_poll_needs_escalation_returns_projected_request(
     tmp_path: Path,
 ) -> None:
@@ -866,7 +852,7 @@ def test_delegate_poll_needs_escalation_returns_projected_request(
     assert "codex_thread_id" not in json.dumps(poll_payload["pending_escalation"])
 
 
-@pytest.mark.skip(reason=_TASK_17_DEADLOCK_REASON)
+@pytest.mark.skip(reason=_TASK_18_DECIDE_SIGNAL_REASON)
 def test_delegate_decide_approve_end_to_end_through_mcp_dispatch(
     tmp_path: Path,
 ) -> None:
@@ -943,7 +929,7 @@ def test_delegate_decide_approve_end_to_end_through_mcp_dispatch(
     assert poll_payload["job"]["status"] == "completed"
 
 
-@pytest.mark.skip(reason=_TASK_17_DEADLOCK_REASON)
+@pytest.mark.skip(reason=_TASK_18_DECIDE_SIGNAL_REASON)
 def test_delegate_decide_deny_end_to_end_through_mcp_dispatch(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     _init_repo(repo_root)
@@ -1031,7 +1017,6 @@ def _assert_no_internal_ids(payload: dict[str, Any], key: str) -> None:
         )
 
 
-@pytest.mark.skip(reason=_TASK_17_DEADLOCK_REASON)
 def test_start_escalation_uses_pending_escalation_key(tmp_path: Path) -> None:
     """codex.delegate.start escalation must use 'pending_escalation', not 'pending_request'."""
     repo_root = tmp_path / "repo"
@@ -1074,15 +1059,7 @@ def test_start_escalation_uses_pending_escalation_key(tmp_path: Path) -> None:
     _assert_no_internal_ids(payload, "pending_escalation")
 
 
-@pytest.mark.skip(
-    reason=(
-        "Phase G (Task 17): decide() re-escalation with kind='unknown' hits the Task 14 "
-        "guard in _project_request_to_view at the _finalize_turn L6 callsite, raising "
-        "UnknownKindInEscalationProjection → CommittedDecisionFinalizationError → isError. "
-        "Task 17 will add unknown-kind handling at the L6 callsite. "
-        "The 'pending_escalation' key contract is covered by test_projection_helpers.py."
-    )
-)
+@pytest.mark.skip(reason=_TASK_18_DECIDE_SIGNAL_REASON)
 def test_decide_reescalation_uses_pending_escalation_key(tmp_path: Path) -> None:
     """codex.delegate.decide re-escalation must use 'pending_escalation', not 'pending_request'."""
     repo_root = tmp_path / "repo"

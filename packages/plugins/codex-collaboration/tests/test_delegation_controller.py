@@ -15,7 +15,7 @@ from typing import Any, Callable
 import pytest
 
 from server.artifact_store import ArtifactStore
-from server.delegation_controller import DelegationController
+from server.delegation_controller import DelegationController, DelegationStartError
 from server.delegation_job_store import DelegationJobStore
 from server.execution_runtime_registry import ExecutionRuntimeRegistry
 from server.journal import OperationJournal
@@ -40,14 +40,17 @@ from server.models import (
 )
 from server.pending_request_store import PendingRequestStore
 
-_TASK_17_DEADLOCK_REASON = (
-    "Phase G Task 17: Task 16's _server_request_handler now blocks on "
-    "registry.wait(...) for parkable requests. Pre-Task-17 controller.start() "
-    "is synchronous (no worker thread, no wait_for_parked()), so "
-    "announce_parked drops silently and the handler hangs until the "
-    "_APPROVAL_OPERATOR_WINDOW_SECONDS=900 timer fires. Task 17 wires public "
-    "start()/decide() through spawn_worker + wait_for_parked, restoring "
-    "the synchronous-return contract this test asserts."
+_TASK_18_DECIDE_SIGNAL_REASON = (
+    "Phase G Task 18: decide() does not yet route through "
+    "ResolutionRegistry.reserve() + commit_signal(). Without "
+    "commit_signal, the worker stays parked in registry.wait() and "
+    "decide(approve)/decide(deny)/decide(re-escalate)/CAS-stale paths "
+    "cannot signal the worker through the canonical Task-18 mechanism. "
+    "Some assertions might mechanically pass under legacy decide() "
+    "(e.g., deny local-finalization at delegation_controller.py:~2446) "
+    "but would do so via the old non-async-decide code path. Skip is "
+    "preserved for audit discipline: Task 18's reserve+commit_signal "
+    "is the canonical signal mechanism for these assertions."
 )
 
 
@@ -427,7 +430,6 @@ def test_start_uses_caller_provided_base_commit(tmp_path: Path) -> None:
     assert worktree_manager.calls[0][1] == "explicit-sha"
 
 
-@pytest.mark.skip(reason=_TASK_17_DEADLOCK_REASON)
 def test_start_returns_busy_response_when_active_job_exists(tmp_path: Path) -> None:
     """Second start() is rejected when the first produced a needs_escalation job."""
     repo_root = tmp_path / "repo"
@@ -1333,13 +1335,21 @@ def _permissions_request(
     }
 
 
-@pytest.mark.skip(reason=_TASK_17_DEADLOCK_REASON)
 def test_start_with_command_approval_returns_escalation(tmp_path: Path) -> None:
-    """command_approval → cancel response → DelegationEscalation with needs_escalation."""
+    """command_approval → handler parks → DelegationEscalation.
+
+    Post-Task-17 (async model): the handler announces parked and then blocks
+    on registry.wait(). start() returns DelegationEscalation with
+    agent_context=None (deferred-escalation semantics per spec §Capture-ready
+    handshake — the worker is still inside the turn so turn_result.agent_message
+    does not yet exist). The request status remains 'pending' until decide()
+    resumes the worker and _finalize_turn runs the D4 update. Escalation audit
+    events fire from _finalize_turn, also deferred until decide().
+    """
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, control_plane, _wm, job_store, _ls, journal, registry, prs = (
+    controller, control_plane, _wm, _job_store, _ls, _journal, registry, prs = (
         _build_controller(tmp_path)
     )
 
@@ -1351,44 +1361,31 @@ def test_start_with_command_approval_returns_escalation(tmp_path: Path) -> None:
     assert result.job.status == "needs_escalation"
     assert result.pending_escalation.kind == "command_approval"
     assert result.pending_escalation.request_id == "42"
-    assert result.agent_context is not None
+    # Deferred-escalation: agent_context=None for the Parked path.
+    assert result.agent_context is None
 
-    # Pending request was persisted and resolved (D4).
+    # Request persisted (status 'pending' until decide() resumes worker).
     stored = prs.get("42")
     assert stored is not None
-    assert stored.status == "resolved"
 
-    # Escalation audit event emitted.
-    events_path = journal.plugin_data_path / "audit" / "events.jsonl"
-    lines = [
-        json.loads(line)
-        for line in events_path.read_text().splitlines()
-        if line.strip()
-    ]
-    escalation_events = [e for e in lines if e.get("action") == "escalate"]
-    assert len(escalation_events) == 1
-    assert escalation_events[0]["request_id"] == "42"
-
-    # Runtime kept live for needs_escalation — NOT released, NOT closed.
+    # Runtime kept live for needs_escalation — worker is parked in registry.wait().
     assert registry.lookup("rt-1") is not None
     assert not control_plane._sessions[0].closed
 
 
-@pytest.mark.skip(
-    reason=(
-        "Phase G (Task 17): _finalize_turn L6 callsite calls _project_request_to_view "
-        "directly with kind='unknown' (permissions request); the Task 14 guard raises "
-        "UnknownKindInEscalationProjection there. Task 17 will add unknown-kind "
-        "handling at the L6 callsite so start() can return a DelegationEscalation "
-        "with kind='unknown'. Direct-store coverage: prs.get('99').status='resolved'."
-    )
-)
 def test_start_with_unknown_request_interrupts_and_escalates(tmp_path: Path) -> None:
-    """Unknown kind (e.g., permissions) → interrupt → needs_escalation."""
+    """Unknown kind (e.g., permissions) → interrupt → terminal status='unknown'.
+
+    Post-Task-17 (L11 carve-out): unknown-kind interrupted requests cannot be
+    projected into a PendingEscalationView. _finalize_turn now routes
+    interrupted_by_unknown to final_status='unknown' and start() returns the
+    plain terminal job — no escalation is built. Causal record lives on the
+    persisted PendingServerRequest(kind='unknown') audit entry.
+    """
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, control_plane, _wm, job_store, _ls, _j, registry, prs = (
+    controller, control_plane, _wm, job_store, _ls, _j, _registry, prs = (
         _build_controller(tmp_path)
     )
 
@@ -1396,21 +1393,20 @@ def test_start_with_unknown_request_interrupts_and_escalates(tmp_path: Path) -> 
 
     result = controller.start(repo_root=repo_root, objective="Deploy")
 
-    assert isinstance(result, DelegationEscalation)
-    assert result.job.status == "needs_escalation"
-    assert result.pending_escalation.kind == "unknown"
-    assert result.pending_escalation.request_id == "99"
+    # Unknown-kind interrupt → terminal job, NOT escalation.
+    assert isinstance(result, DelegationJob)
+    assert result.status == "unknown"
+    assert result.job_id == "job-1"
 
-    # Pending request persisted and resolved (D4 — parse succeeded, kind unknown).
+    # Pending request persisted (parse succeeded, kind="unknown" via _METHOD_TO_KIND
+    # default). D4 update_status("resolved") still fires for parseable requests
+    # because captured_request_parse_failed is False on this path.
     stored = prs.get("99")
     assert stored is not None
+    assert stored.kind == "unknown"
     assert stored.status == "resolved"
 
-    # Runtime kept live.
-    assert registry.lookup("rt-1") is not None
 
-
-@pytest.mark.skip(reason=_TASK_17_DEADLOCK_REASON)
 def test_start_with_two_requests_responds_to_both(tmp_path: Path) -> None:
     """Second request gets a response but is NOT separately persisted."""
     repo_root = tmp_path / "repo"
@@ -1433,20 +1429,17 @@ def test_start_with_two_requests_responds_to_both(tmp_path: Path) -> None:
     assert result.pending_escalation.request_id == "1"
 
 
-@pytest.mark.skip(
-    reason=(
-        "Phase G (Task 17): _finalize_turn L6 callsite calls _project_request_to_view "
-        "directly with kind='unknown' (parse-failed request); the Task 14 guard raises "
-        "UnknownKindInEscalationProjection there. Task 17 will add unknown-kind "
-        "handling at the L6 callsite. No current sibling coverage for the D4 "
-        "parse-failure carve-out (any path exercising unknown-kind capture hits the "
-        "same Mode A break); coverage restored at Task 17."
-    )
-)
 def test_start_with_unparseable_request_creates_minimal_causal_record(
     tmp_path: Path,
 ) -> None:
-    """Parse failure → minimal record with status="pending" (D4 carve-out)."""
+    """Parse failure → minimal record with status="pending" (D4 carve-out).
+
+    Post-Task-17 (L11 carve-out): the worker handler emits
+    announce_turn_terminal_without_escalation after creating the minimal
+    PendingServerRequest(kind='unknown') and interrupting the turn. start()
+    receives TurnTerminalWithoutEscalation and returns the plain terminal job.
+    The minimal causal record is the persisted PendingServerRequest itself.
+    """
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
@@ -1459,18 +1452,18 @@ def test_start_with_unparseable_request_creates_minimal_causal_record(
 
     result = controller.start(repo_root=repo_root, objective="Build")
 
-    assert isinstance(result, DelegationEscalation)
-    assert result.job.status == "needs_escalation"
-    assert result.pending_escalation.kind == "unknown"
-    assert result.pending_escalation.request_id == "77"
-    assert result.pending_escalation.requested_scope == {
-        "raw_method": "item/unknown/broken"
-    }
+    # Parse-failure path → terminal job, NOT escalation.
+    assert isinstance(result, DelegationJob)
+    assert result.status == "unknown"
+    assert result.job_id == "job-1"
 
+    # Minimal causal record persisted with raw method preserved.
     # D4 carve-out: parse failures stay "pending" — NOT updated to "resolved".
     stored = prs.get("77")
     assert stored is not None
+    assert stored.kind == "unknown"
     assert stored.status == "pending"
+    assert stored.requested_scope == {"raw_method": "item/unknown/broken"}
 
 
 def test_start_with_no_server_requests_returns_delegation_job(tmp_path: Path) -> None:
@@ -1498,17 +1491,25 @@ def test_start_turn_dispatch_failure_marks_job_unknown_and_cleans_up(
     tmp_path: Path,
 ) -> None:
     """If run_execution_turn() raises, the job is marked unknown, the runtime
-    is released, and the session is closed — not left stuck running."""
+    is released, and the session is closed — not left stuck running.
+
+    Post-Task-17: the worker thread catches the unhandled exception and signals
+    WorkerFailed; start() raises DelegationStartError(reason='worker_failed_before_capture')
+    with the original exception chained on .cause (L7 reason-preservation rule).
+    """
     controller, control_plane, _, job_store, _, _, registry, _ = _build_controller(
         tmp_path
     )
     control_plane._next_raise_on_turn = RuntimeError("transport died")
 
-    with pytest.raises(RuntimeError, match="transport died"):
+    with pytest.raises(DelegationStartError) as exc_info:
         controller.start(
             repo_root=tmp_path / "repo",
             objective="Should fail",
         )
+    assert exc_info.value.reason == "worker_failed_before_capture"
+    assert isinstance(exc_info.value.cause, RuntimeError)
+    assert "transport died" in str(exc_info.value.cause)
 
     # Job should be "unknown", not stuck "running".
     jobs = job_store.list_active()
@@ -1519,13 +1520,23 @@ def test_start_turn_dispatch_failure_marks_job_unknown_and_cleans_up(
     assert control_plane._sessions[0].closed
 
 
-@pytest.mark.skip(reason=_TASK_17_DEADLOCK_REASON)
+@pytest.mark.skip(reason=_TASK_18_DECIDE_SIGNAL_REASON)
 def test_start_post_turn_finalization_failure_marks_job_unknown_and_cleans_up(
     tmp_path: Path,
 ) -> None:
     """If a post-turn local write (e.g. audit emit) raises after
     run_execution_turn() succeeds, the job is still marked unknown and
-    the runtime is released."""
+    the runtime is released.
+
+    Bucket B reclassification (Task 17 BLOCKED-resume, post-feat audit):
+    under the async model _finalize_turn runs on the worker thread AFTER
+    decide() commits and resumes the worker — NOT during start(). The
+    sabotaged escalation-audit second call (intended to fail _finalize_turn)
+    is unreachable from start() because the handler parks BEFORE _finalize_turn
+    runs. Verifying this failure path requires the Task-18 decide() rewrite
+    (reserve + commit_signal cycle), so the test is reclassified from Bucket A
+    to Bucket B.
+    """
     controller, control_plane, _, job_store, _, journal, registry, _ = (
         _build_controller(tmp_path)
     )
@@ -1566,11 +1577,14 @@ def test_start_post_turn_finalization_failure_marks_job_unknown_and_cleans_up(
 
     journal.append_audit_event = _exploding_audit_on_second  # type: ignore[assignment]
 
-    with pytest.raises(OSError, match="disk full"):
+    with pytest.raises(DelegationStartError) as exc_info:
         controller.start(
             repo_root=tmp_path / "repo",
             objective="Audit failure test",
         )
+    assert exc_info.value.reason == "worker_failed_before_capture"
+    assert isinstance(exc_info.value.cause, OSError)
+    assert "disk full" in str(exc_info.value.cause)
 
     # Job should be "unknown", not stuck "running" or "needs_escalation".
     jobs = job_store.list_active()
@@ -1581,21 +1595,25 @@ def test_start_post_turn_finalization_failure_marks_job_unknown_and_cleans_up(
     assert control_plane._sessions[0].closed
 
 
-@pytest.mark.skip(reason=_TASK_17_DEADLOCK_REASON)
 def test_start_with_request_user_input_completed_returns_delegation_job(
     tmp_path: Path,
 ) -> None:
-    """request_user_input + completed turn → DelegationJob, not DelegationEscalation.
+    """request_user_input → handler parks → start() returns DelegationEscalation.
 
-    When a no-cancel known kind (request_user_input) is captured but the turn
-    completes normally, the job is completed — not escalated. The runtime is
-    released, the session is closed, the pending request is resolved, and no
-    escalation audit event is emitted.
+    Post-Task-17 (async model): request_user_input is a parkable kind
+    (member of _KNOWN_DENIAL_KINDS). The handler parks on registry.wait()
+    BEFORE the turn loop can continue to "completed", so start() returns
+    DelegationEscalation immediately after announce_parked. The worker stays
+    parked in registry.wait() until decide() commits. The test name is
+    preserved for git-blame continuity; the async assertions reflect the
+    deferred-decide semantics. Runtime stays live; the request status remains
+    "pending" until decide() resumes the worker (D4 update_status('resolved')
+    runs inside _finalize_turn AFTER the turn resumes).
     """
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, control_plane, _wm, job_store, _ls, journal, registry, prs = (
+    controller, control_plane, _wm, _job_store, _ls, _journal, registry, prs = (
         _build_controller(tmp_path)
     )
 
@@ -1603,40 +1621,37 @@ def test_start_with_request_user_input_completed_returns_delegation_job(
 
     result = controller.start(repo_root=repo_root, objective="Summarize")
 
-    # Returns a plain DelegationJob, not a DelegationEscalation.
-    assert isinstance(result, DelegationJob)
-    assert result.status == "completed"
+    # Async model: parked → escalation, NOT terminal completed.
+    assert isinstance(result, DelegationEscalation)
+    assert result.job.status == "needs_escalation"
+    assert result.pending_escalation.kind == "request_user_input"
+    assert result.pending_escalation.request_id == "55"
 
-    # Pending request was persisted and resolved (D4).
+    # Request persisted (status remains "pending" until decide resumes worker
+    # and _finalize_turn runs the D4 update).
     stored = prs.get("55")
     assert stored is not None
-    assert stored.status == "resolved"
+    assert stored.kind == "request_user_input"
 
-    # Runtime released and session closed — not kept live.
-    assert registry.lookup("rt-1") is None
-    assert control_plane._sessions[0].closed
-
-    # No escalation audit event emitted.
-    events_path = journal.plugin_data_path / "audit" / "events.jsonl"
-    lines = [
-        json.loads(line)
-        for line in events_path.read_text().splitlines()
-        if line.strip()
-    ]
-    escalation_events = [e for e in lines if e.get("action") == "escalate"]
-    assert len(escalation_events) == 0
+    # Runtime kept live for the parked worker — decide() will resume.
+    assert registry.lookup("rt-1") is not None
 
 
-@pytest.mark.skip(reason=_TASK_17_DEADLOCK_REASON)
 def test_later_parse_failure_does_not_prevent_captured_request_resolution(
     tmp_path: Path,
 ) -> None:
-    """First request parses fine, second message fails parse → first resolved.
+    """First request parses fine → handler parks → start() returns escalation.
 
-    The captured_request_parse_failed flag should only apply to the captured
-    (first) request. A later malformed message should still trigger
-    interrupted_by_unknown (escalation), but the successfully-parsed first
-    request must still be marked resolved.
+    Post-Task-17 (async model): the first parseable command_approval request
+    causes the handler to park on registry.wait() BEFORE the turn loop can
+    dispatch any later message. Under the synchronous-handler legacy model,
+    BOTH messages would have been dispatched and the second's parse failure
+    would have been the trigger for interrupted_by_unknown. Under async, only
+    the first message is processed during start(); the parked worker awaits
+    decide(). The test is preserved for git-blame continuity and renamed-
+    semantics: it now verifies that a parseable first request reaches the
+    parked-escalation state cleanly. The "later parse failure" handling is
+    covered by post-decide turn-resume tests (Bucket B, deferred to Task 18).
     """
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
@@ -1645,12 +1660,13 @@ def test_later_parse_failure_does_not_prevent_captured_request_resolution(
         tmp_path
     )
 
-    # First message: parseable command_approval. Second: unparseable.
+    # First message: parseable command_approval (parks the worker).
+    # Second message: unparseable — never reached during start() because the
+    # handler parks in registry.wait() after the first message.
     control_plane._next_session_requests = [
         _command_approval_request(request_id=10, item_id="item-ok"),
         {"id": 11, "method": "broken/method", "params": "not-a-dict"},
     ]
-    # The second message triggers interrupt, so the turn ends interrupted.
     control_plane._next_turn_result = TurnExecutionResult(
         turn_id="turn-1",
         status="interrupted",
@@ -1659,20 +1675,20 @@ def test_later_parse_failure_does_not_prevent_captured_request_resolution(
 
     result = controller.start(repo_root=repo_root, objective="Mixed")
 
-    # Should escalate (interrupted_by_unknown from the second message).
+    # Parked on the first message.
     assert isinstance(result, DelegationEscalation)
     assert result.job.status == "needs_escalation"
+    assert result.pending_escalation.request_id == "10"
 
-    # The FIRST request (successfully parsed) must be resolved — not left
-    # pending due to a later message's parse failure.
+    # First request persisted (status pending until decide() resumes worker
+    # and _finalize_turn runs D4 update).
     stored = prs.get("10")
     assert stored is not None
-    assert stored.status == "resolved"
 
-    # Only the first request was persisted (first-capture semantics).
+    # Second request never dispatched (handler parked before it could be).
     assert prs.get("11") is None
 
-    # Runtime kept live for escalation.
+    # Runtime kept live for the parked worker.
     assert registry.lookup("rt-1") is not None
 
 
@@ -1690,7 +1706,6 @@ def test_start_completed_job_marks_execution_handle_completed(tmp_path: Path) ->
     assert handle.status == "completed"
 
 
-@pytest.mark.skip(reason=_TASK_17_DEADLOCK_REASON)
 def test_start_escalation_keeps_execution_handle_active(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
@@ -1713,7 +1728,7 @@ def test_start_escalation_keeps_execution_handle_active(tmp_path: Path) -> None:
 # -----------------------------------------------------------------------------
 
 
-@pytest.mark.skip(reason=_TASK_17_DEADLOCK_REASON)
+@pytest.mark.skip(reason=_TASK_18_DECIDE_SIGNAL_REASON)
 def test_decide_approve_resumes_runtime_and_returns_completed_result(
     tmp_path: Path,
 ) -> None:
@@ -1758,16 +1773,7 @@ def test_decide_approve_resumes_runtime_and_returns_completed_result(
     assert handle is not None and handle.status == "completed"
 
 
-@pytest.mark.skip(
-    reason=(
-        "Phase G/F: _finalize_turn L6 callsite calls _project_request_to_view directly "
-        "with the re-escalation request (kind='unknown'); the Task 14 guard now raises "
-        "UnknownKindInEscalationProjection, which decide() wraps into "
-        "CommittedDecisionFinalizationError. Task 17 (Phase G) will add "
-        "start()/decide() unknown-kind handling at the L6 callsite; Phase F/G will "
-        "wire parked_request_id for poll-based observability."
-    )
-)
+@pytest.mark.skip(reason=_TASK_18_DECIDE_SIGNAL_REASON)
 def test_decide_approve_can_reescalate_with_new_pending_request(tmp_path: Path) -> None:
     from server.models import DelegationDecisionResult
 
@@ -1811,7 +1817,7 @@ def test_decide_approve_can_reescalate_with_new_pending_request(tmp_path: Path) 
     assert stored is not None and stored.status == "resolved"
 
 
-@pytest.mark.skip(reason=_TASK_17_DEADLOCK_REASON)
+@pytest.mark.skip(reason=_TASK_18_DECIDE_SIGNAL_REASON)
 def test_decide_deny_marks_job_failed_and_closes_runtime(tmp_path: Path) -> None:
     from server.models import DelegationDecisionResult
 
@@ -1857,7 +1863,7 @@ def test_decide_deny_marks_job_failed_and_closes_runtime(tmp_path: Path) -> None
     assert approval_events[0]["request_id"] == "42"
 
 
-@pytest.mark.skip(reason=_TASK_17_DEADLOCK_REASON)
+@pytest.mark.skip(reason=_TASK_18_DECIDE_SIGNAL_REASON)
 def test_decide_deny_emits_terminal_outcome(tmp_path: Path) -> None:
     """Deny decisions must write a delegation_terminal record to outcomes.jsonl."""
     repo_root = tmp_path / "repo"
@@ -1889,7 +1895,6 @@ def test_decide_deny_emits_terminal_outcome(tmp_path: Path) -> None:
     assert terminal_records[0]["terminal_status"] == "failed"
 
 
-@pytest.mark.skip(reason=_TASK_17_DEADLOCK_REASON)
 def test_decide_rejects_when_runtime_is_missing(tmp_path: Path) -> None:
     from server.models import DecisionRejectedResponse
 
@@ -1916,7 +1921,6 @@ def test_decide_rejects_when_runtime_is_missing(tmp_path: Path) -> None:
     assert result.reason == "runtime_unavailable"
 
 
-@pytest.mark.skip(reason=_TASK_17_DEADLOCK_REASON)
 def test_decide_rejects_invalid_decision_value(tmp_path: Path) -> None:
     from server.models import DecisionRejectedResponse
 
@@ -1939,7 +1943,6 @@ def test_decide_rejects_invalid_decision_value(tmp_path: Path) -> None:
     assert result.reason == "invalid_decision"
 
 
-@pytest.mark.skip(reason=_TASK_17_DEADLOCK_REASON)
 def test_decide_request_user_input_requires_answers(tmp_path: Path) -> None:
     from server.models import DecisionRejectedResponse
 
@@ -2006,7 +2009,6 @@ def test_decide_rejects_job_not_awaiting_decision(tmp_path: Path) -> None:
     assert result.reason == "job_not_awaiting_decision"
 
 
-@pytest.mark.skip(reason=_TASK_17_DEADLOCK_REASON)
 def test_decide_rejects_request_not_found(tmp_path: Path) -> None:
     from server.models import DecisionRejectedResponse
 
@@ -2028,7 +2030,6 @@ def test_decide_rejects_request_not_found(tmp_path: Path) -> None:
     assert result.reason == "request_not_found"
 
 
-@pytest.mark.skip(reason=_TASK_17_DEADLOCK_REASON)
 def test_decide_rejects_request_job_mismatch(tmp_path: Path) -> None:
     from server.models import DecisionRejectedResponse
 
@@ -2065,7 +2066,6 @@ def test_decide_rejects_request_job_mismatch(tmp_path: Path) -> None:
     assert result.reason == "request_job_mismatch"
 
 
-@pytest.mark.skip(reason=_TASK_17_DEADLOCK_REASON)
 def test_decide_rejects_deny_with_answers(tmp_path: Path) -> None:
     from server.models import DecisionRejectedResponse
 
@@ -2088,7 +2088,6 @@ def test_decide_rejects_deny_with_answers(tmp_path: Path) -> None:
     assert result.reason == "answers_not_allowed"
 
 
-@pytest.mark.skip(reason=_TASK_17_DEADLOCK_REASON)
 def test_decide_rejects_answers_for_non_request_user_input(tmp_path: Path) -> None:
     from server.models import DecisionRejectedResponse
 
@@ -2159,7 +2158,7 @@ def test_recover_startup_marks_orphaned_needs_escalation_job_and_handle_unknown(
     assert recovered_handle.status == "unknown"
 
 
-@pytest.mark.skip(reason=_TASK_17_DEADLOCK_REASON)
+@pytest.mark.skip(reason=_TASK_18_DECIDE_SIGNAL_REASON)
 def test_decide_approve_turn_failure_raises_committed_decision_finalization_error(
     tmp_path: Path,
 ) -> None:
@@ -2403,18 +2402,7 @@ def test_recover_startup_marks_dispatched_approval_resolution_unknown(
     assert journal.list_unresolved(session_id="sess-1") == []
 
 
-@pytest.mark.skip(
-    reason=(
-        "Phase G/F: _finalize_turn L6 callsite calls _project_request_to_view directly "
-        "with the re-escalation request (kind='unknown'); the Task 14 guard now raises "
-        "UnknownKindInEscalationProjection, which decide() wraps into "
-        "CommittedDecisionFinalizationError before approve_result is returned. "
-        "Task 17 (Phase G) will add start()/decide() unknown-kind handling at the L6 "
-        "callsite. No current sibling coverage for the request_already_decided "
-        "rejection invariant (which intrinsically requires multi-decide flow that "
-        "hits Mode A in the interregnum); coverage restored at Task 17."
-    )
-)
+@pytest.mark.skip(reason=_TASK_18_DECIDE_SIGNAL_REASON)
 def test_decide_rejects_stale_request_id_after_reescalation(tmp_path: Path) -> None:
     from server.models import DecisionRejectedResponse, DelegationDecisionResult
 
@@ -2461,7 +2449,7 @@ def test_decide_rejects_stale_request_id_after_reescalation(tmp_path: Path) -> N
     assert result.reason == "request_already_decided"
 
 
-@pytest.mark.skip(reason=_TASK_17_DEADLOCK_REASON)
+@pytest.mark.skip(reason=_TASK_18_DECIDE_SIGNAL_REASON)
 def test_decide_approve_post_turn_journal_failure_raises_committed_decision_finalization_error(
     tmp_path: Path,
 ) -> None:
@@ -2513,7 +2501,7 @@ def test_decide_approve_post_turn_journal_failure_raises_committed_decision_fina
     assert job.status == "completed"
 
 
-@pytest.mark.skip(reason=_TASK_17_DEADLOCK_REASON)
+@pytest.mark.skip(reason=_TASK_18_DECIDE_SIGNAL_REASON)
 def test_decide_deny_post_commit_failure_raises_committed_decision_finalization_error(
     tmp_path: Path,
 ) -> None:
@@ -2565,7 +2553,6 @@ def test_start_completed_job_sets_promotion_state_pending(tmp_path: Path) -> Non
     assert persisted.promotion_state == "pending"
 
 
-@pytest.mark.skip(reason=_TASK_17_DEADLOCK_REASON)
 def test_start_escalation_keeps_promotion_state_none(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
@@ -2623,15 +2610,6 @@ def test_poll_rehydrates_store_from_cached_snapshot_when_artifacts_are_missing(
     assert persisted.artifact_hash == first.inspection.artifact_hash
 
 
-@pytest.mark.skip(
-    reason=(
-        "Phase G/F: requires worker-driven update_parked_request to wire "
-        "parked_request_id, plus pre-tombstone window for "
-        "_project_pending_escalation to project a live escalation. "
-        "Interregnum projection returns None; helper-shape coverage moves "
-        "to test_projection_helpers.py."
-    )
-)
 def test_poll_needs_escalation_projects_pending_request_without_raw_ids(
     tmp_path: Path,
 ) -> None:
@@ -3946,8 +3924,15 @@ class TestTerminalOutcomeEmission:
 
         cp._next_raise_on_turn = RuntimeError("turn dispatch failure")
 
-        with pytest.raises(RuntimeError, match="turn dispatch failure"):
+        # Post-Task-17: worker exception is wrapped as DelegationStartError(
+        # reason='worker_failed_before_capture'); cause carries the original
+        # RuntimeError. _mark_execution_unknown_and_cleanup still runs on the
+        # worker thread and emits the terminal outcome BEFORE the wrap.
+        with pytest.raises(DelegationStartError) as exc_info:
             controller.start(repo_root=repo_root)
+        assert exc_info.value.reason == "worker_failed_before_capture"
+        assert isinstance(exc_info.value.cause, RuntimeError)
+        assert "turn dispatch failure" in str(exc_info.value.cause)
 
         outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
         assert outcomes_path.exists(), (
