@@ -602,8 +602,8 @@ def test_e2e_command_approval_produces_escalation(tmp_path: Path) -> None:
     assert payload["pending_escalation"]["kind"] == "command_approval"
     assert payload["pending_escalation"]["request_id"] == "42"
 
-    # agent_context captured (may be None but key must be present).
-    assert "agent_context" in payload
+    # Deferred-escalation: agent_context=None for the Parked path.
+    assert payload["agent_context"] is None
 
     # Request persisted (status remains 'pending' until decide() resumes the
     # parked worker; _finalize_turn's D4 update is deferred under the async

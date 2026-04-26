@@ -1536,6 +1536,10 @@ def test_start_post_turn_finalization_failure_marks_job_unknown_and_cleans_up(
     runs. Verifying this failure path requires the Task-18 decide() rewrite
     (reserve + commit_signal cycle), so the test is reclassified from Bucket A
     to Bucket B.
+
+    Body assertions use the `worker_failed_before_capture` fallback shape,
+    which is NOT the expected Task-18 failure path; the entire body must
+    be rewritten when Task 18 unblocks this test.
     """
     controller, control_plane, _, job_store, _, journal, registry, _ = (
         _build_controller(tmp_path)

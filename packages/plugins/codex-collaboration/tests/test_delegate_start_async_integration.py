@@ -169,43 +169,6 @@ def test_start_returns_plain_job_for_unknown_kind_parse_failure(
 
 
 # ---------------------------------------------------------------------------
-# Variant 5: StartWaitElapsed — synchronous start-wait budget elapses.
-# ---------------------------------------------------------------------------
-
-
-def test_start_returns_running_job_on_start_wait_elapsed(
-    tmp_path: Path,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """Worker capture-ready signal arrives after the start-wait budget
-    elapses → start() returns DelegationJob(status='running'). Does NOT raise.
-
-    Exercises the StartWaitElapsed arm via direct dispatch: rather than time-
-    racing a real worker, inject the StartWaitElapsed outcome into
-    _dispatch_parked_capture_outcome and assert the dispatch path returns the
-    running job and logs the budget-elapsed warning.
-    """
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir()
-    controller, _cp, _wm, job_store, _ls, _j, _r, _prs = _build_controller(tmp_path)
-    _seed_running_job(job_store, job_id="job-running-1", status="running")
-
-    with caplog.at_level("WARNING", logger="server.delegation_controller"):
-        result = controller._dispatch_parked_capture_outcome(  # type: ignore[attr-defined]
-            outcome=StartWaitElapsed(),
-            job_id="job-running-1",
-            collaboration_id="collab-1",
-        )
-
-    assert isinstance(result, DelegationJob)
-    assert result.status == "running"
-    assert result.job_id == "job-running-1"
-    assert any(
-        "start-wait budget elapsed" in record.getMessage() for record in caplog.records
-    )
-
-
-# ---------------------------------------------------------------------------
 # Variant 4: WorkerFailed (default fallback reason).
 # ---------------------------------------------------------------------------
 
@@ -215,8 +178,6 @@ def test_start_raises_for_worker_failed_before_capture(tmp_path: Path) -> None:
     falls through to the generic fallback → start() raises
     DelegationStartError(reason='worker_failed_before_capture').
     """
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir()
     controller, _cp, _wm, _js, _ls, _j, _r, _prs = _build_controller(tmp_path)
 
     opaque_exc = RuntimeError("transport crash with no DelegationStartError shape")
@@ -247,8 +208,6 @@ def test_start_raises_with_reason_preservation_for_unknown_kind_interrupt(
     → WorkerFailed arm preserves the precise reason rather than collapsing
     to 'worker_failed_before_capture' (L7 reason-preservation rule).
     """
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir()
     controller, _cp, _wm, _js, _ls, _j, _r, _prs = _build_controller(tmp_path)
 
     classified = DelegationStartError(
@@ -270,6 +229,41 @@ def test_start_raises_with_reason_preservation_for_unknown_kind_interrupt(
 
 
 # ---------------------------------------------------------------------------
+# Variant 5: StartWaitElapsed — synchronous start-wait budget elapses.
+# ---------------------------------------------------------------------------
+
+
+def test_start_returns_running_job_on_start_wait_elapsed(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Worker capture-ready signal arrives after the start-wait budget
+    elapses → start() returns DelegationJob(status='running'). Does NOT raise.
+
+    Exercises the StartWaitElapsed arm via direct dispatch: rather than time-
+    racing a real worker, inject the StartWaitElapsed outcome into
+    _dispatch_parked_capture_outcome and assert the dispatch path returns the
+    running job and logs the budget-elapsed warning.
+    """
+    controller, _cp, _wm, job_store, _ls, _j, _r, _prs = _build_controller(tmp_path)
+    _seed_running_job(job_store, job_id="job-running-1", status="running")
+
+    with caplog.at_level("WARNING", logger="server.delegation_controller"):
+        result = controller._dispatch_parked_capture_outcome(  # type: ignore[attr-defined]
+            outcome=StartWaitElapsed(),
+            job_id="job-running-1",
+            collaboration_id="collab-1",
+        )
+
+    assert isinstance(result, DelegationJob)
+    assert result.status == "running"
+    assert result.job_id == "job-running-1"
+    assert any(
+        "start-wait budget elapsed" in record.getMessage() for record in caplog.records
+    )
+
+
+# ---------------------------------------------------------------------------
 # Variant 1 invariant-violation: Parked + projection returns None.
 # ---------------------------------------------------------------------------
 
@@ -282,8 +276,6 @@ def test_start_signals_internal_abort_on_parked_projection_null(
     start() calls signal_internal_abort BEFORE raising (L8) →
     raises DelegationStartError(reason='parked_projection_invariant_violation').
     """
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir()
     controller, _cp, _wm, job_store, _ls, _j, _r, _prs = _build_controller(tmp_path)
 
     _seed_running_job(
@@ -329,8 +321,6 @@ def test_start_signals_internal_abort_on_parked_projection_raise(
     with the SAME broad reason (L8, spec §Capture-ready handshake) →
     raises DelegationStartError(reason='parked_projection_invariant_violation').
     """
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir()
     controller, _cp, _wm, job_store, _ls, _j, _r, _prs = _build_controller(tmp_path)
 
     _seed_running_job(

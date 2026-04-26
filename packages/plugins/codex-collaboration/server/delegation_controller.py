@@ -110,8 +110,8 @@ from .resolution_registry import (
     TurnTerminalWithoutEscalation,
     WorkerFailed,
 )
-from .worker_runner import spawn_worker
 from .runtime import AppServerRuntimeSession, build_workspace_write_sandbox_policy
+from .worker_runner import spawn_worker
 
 logger = logging.getLogger(__name__)
 
