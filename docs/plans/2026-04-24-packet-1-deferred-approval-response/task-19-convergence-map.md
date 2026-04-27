@@ -579,4 +579,8 @@ All 4 fixes applied in closeout-fix `4409b23c`. Suite unchanged at 1040/0/0.
 
 **Implementation notes (from implementer report):** All G18.1 tests required `session.respond` stubbing — `_FakeSession` and `_ConfigurableStubSession` default `respond=None` causes `TypeError` when the worker dispatches `session.respond(rid, payload)`. Deny audit assertion updated from `action="approve"` to `action="deny"` to match Task 18's L7a incidental fix. Both observations are environment-specific to the test fakes, not spec or code defects.
 
-All locks (L1-L11) and watchpoints (W1-W12) verified. Phase H Task 19 COMPLETE.
+All locks (L1-L11) and watchpoints (W1-W12) verified.
+
+Post-closeout independent review (user) identified one additional gap: F16.1 side-effect uniqueness assertions counted `session.close`, `runtime.release`, and `lineage.update_status` but NOT the job-store terminal transition — the fourth non-deduped signal required by L8.2. Fix at `f1fd24ba`: added `job_store.update_status_and_promotion` counting wrapper filtered to the expected terminal status (`"completed"` / `"canceled"`) in both F16.1 tests. Filtering excludes intermediate lifecycle transitions (`queued → running`). Suite unchanged at 1040/0/0.
+
+Phase H Task 19 COMPLETE.
