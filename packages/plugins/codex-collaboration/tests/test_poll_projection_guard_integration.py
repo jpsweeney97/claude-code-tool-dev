@@ -154,9 +154,7 @@ def test_poll_returns_null_escalation_on_unknown_kind_parked_request(
         reason="unknown_kind_in_escalation_projection",
     )
 
-    critical_records = [
-        r for r in caplog.records if r.levelno == logging.CRITICAL
-    ]
+    critical_records = [r for r in caplog.records if r.levelno == logging.CRITICAL]
     assert len(critical_records) == 1
     record = critical_records[0]
     assert "delegation.poll: unknown-kind in escalation projection" in record.message
@@ -211,9 +209,7 @@ def test_poll_returns_null_escalation_even_when_signal_returns_false(
         reason="unknown_kind_in_escalation_projection",
     )
 
-    critical_records = [
-        r for r in caplog.records if r.levelno == logging.CRITICAL
-    ]
+    critical_records = [r for r in caplog.records if r.levelno == logging.CRITICAL]
     assert len(critical_records) == 1
     record = critical_records[0]
     assert record.__dict__["abort_signaled"] is False
