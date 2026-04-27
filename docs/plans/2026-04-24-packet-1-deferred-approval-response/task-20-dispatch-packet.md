@@ -9,7 +9,7 @@
 
 ## Mission
 
-Add a `try/except UnknownKindInEscalationProjection` around the `_project_pending_escalation` call in `poll()` at `delegation_controller.py:1828`. On catch: log critical, call `self._registry.signal_internal_abort(...)`, set `pending_escalation = None`. Return the normal `DelegationPollResult` with null escalation. Write tests proving the callsite catch.
+Add a `try/except UnknownKindInEscalationProjection` around the `_project_pending_escalation` call in `poll()` at `delegation_controller.py:1828`. On catch: call `self._registry.signal_internal_abort(...)` (capture return as `abort_signaled`), log critical with `abort_signaled` in extra, set `pending_escalation = None`. Return the normal `DelegationPollResult` with null escalation. Write tests proving the callsite catch.
 
 This is the poll-side complement to the `start()` catch at `:788-813`. The `start()` catch raises `DelegationStartError`; the `poll()` catch returns `DelegationPollResult(pending_escalation=None)` because poll is observational, not transactional.
 

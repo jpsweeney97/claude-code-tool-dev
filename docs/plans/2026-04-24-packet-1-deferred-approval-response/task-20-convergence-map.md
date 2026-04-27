@@ -81,6 +81,7 @@ Two test categories, both synchronous — no async timing, no race windows:
 | `poll()` with unknown-kind parked request returns `DelegationPollResult(pending_escalation=None)` | Pass |
 | `signal_internal_abort` called with `reason="unknown_kind_in_escalation_projection"` | Pass |
 | `signal_internal_abort` return value does not affect result shape | Pass |
+| CRITICAL log records `abort_signaled=True` (abort-win) and `abort_signaled=False` (CAS-loss) | Pass (Tests 1 + 2) |
 | `poll()` with normal-kind parked request returns projected view | Pass (regression) |
 | Full suite ≥ 1040 + N new | Pass |
 | `_project_pending_escalation` body diff = 0 lines | L8 |
