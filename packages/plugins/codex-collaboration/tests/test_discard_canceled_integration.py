@@ -49,6 +49,23 @@ def test_discard_canceled_with_applied_promotion_state_rejects(tmp_path: Path) -
     assert result.reason == "job_not_discardable"
 
 
+def test_discard_canceled_with_rollback_needed_promotion_state_rejects(
+    tmp_path: Path,
+) -> None:
+    """Discard rejects a canceled job with rollback_needed promotion_state."""
+    controller, job_store, _journal, _repo, job_id, _hash, _cb = (
+        _build_promote_scenario(tmp_path)
+    )
+    job_store.update_status_and_promotion(
+        job_id, status="canceled", promotion_state="rollback_needed"
+    )
+
+    result = controller.discard(job_id=job_id)
+
+    assert isinstance(result, DiscardRejectedResponse)
+    assert result.reason == "job_not_discardable"
+
+
 def test_discard_canceled_writes_audit_event(tmp_path: Path) -> None:
     """Discarding a canceled job writes an audit event with action='discard'."""
     controller, job_store, journal, _repo, job_id, _hash, _cb = _build_promote_scenario(
