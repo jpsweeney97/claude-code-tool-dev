@@ -11,7 +11,7 @@ import json
 import os
 from dataclasses import asdict, replace
 from pathlib import Path
-from typing import Any, Literal, get_args
+from typing import Any, Literal, cast, get_args
 
 from .models import PendingRequestStatus, PendingServerRequest
 
@@ -274,7 +274,7 @@ class PendingRequestStore:
                         continue
                     if req_id not in requests:
                         continue
-                    requests[req_id] = replace(requests[req_id], status=status)
+                    requests[req_id] = replace(requests[req_id], status=cast(PendingRequestStatus, status))
                 elif op == "mark_resolved":
                     rid = record.get("request_id")
                     if rid in requests:

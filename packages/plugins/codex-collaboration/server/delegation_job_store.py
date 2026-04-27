@@ -10,7 +10,7 @@ import json
 import os
 from dataclasses import asdict, replace
 from pathlib import Path
-from typing import Any, get_args
+from typing import Any, cast, get_args
 
 from .models import DelegationJob, JobStatus, PromotionState
 
@@ -263,7 +263,7 @@ class DelegationJobStore:
                         continue
                     if job_id not in jobs:
                         continue
-                    jobs[job_id] = replace(jobs[job_id], status=status)
+                    jobs[job_id] = replace(jobs[job_id], status=cast(JobStatus, status))
                 elif op == "update_status_and_promotion":
                     job_id = record.get("job_id")
                     status = record.get("status")
@@ -276,7 +276,7 @@ class DelegationJobStore:
                         continue
                     if job_id not in jobs:
                         continue
-                    jobs[job_id] = replace(jobs[job_id], status=status, promotion_state=promotion_state)
+                    jobs[job_id] = replace(jobs[job_id], status=cast(JobStatus, status), promotion_state=promotion_state)
                 elif op == "update_artifacts":
                     job_id = record.get("job_id")
                     artifact_paths = record.get("artifact_paths")
