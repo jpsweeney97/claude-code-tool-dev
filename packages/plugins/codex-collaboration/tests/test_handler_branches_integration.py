@@ -944,8 +944,9 @@ def test_unknown_kind_parse_failure_lineage_status_is_unknown(
     assert handle.status == "unknown", (
         f"Lineage handle status must be 'unknown' to agree with job status; "
         f"got {handle.status!r}. The non-escalation tail in _finalize_turn "
-        f"must branch on final_status, mirroring "
-        f"_mark_execution_unknown_and_cleanup."
+        f"must branch on interrupted_by_unknown (NOT final_status — that "
+        f"would over-correct the resolved-snapshot L11-T2/T3 case), "
+        f"mirroring _mark_execution_unknown_and_cleanup."
     )
 
 
@@ -1026,8 +1027,9 @@ def test_unknown_kind_unrecognized_method_lineage_status_is_unknown(
     assert handle.status == "unknown", (
         f"Lineage handle status must be 'unknown' to agree with job status; "
         f"got {handle.status!r}. The non-escalation tail in _finalize_turn "
-        f"must branch on final_status, mirroring "
-        f"_mark_execution_unknown_and_cleanup."
+        f"must branch on interrupted_by_unknown (NOT final_status — that "
+        f"would over-correct the resolved-snapshot L11-T2/T3 case), "
+        f"mirroring _mark_execution_unknown_and_cleanup."
     )
 
 

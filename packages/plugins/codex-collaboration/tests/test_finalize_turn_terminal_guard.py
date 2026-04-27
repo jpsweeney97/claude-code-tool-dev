@@ -257,6 +257,13 @@ def test_l11_t3_resolved_failed_produces_unknown(tmp_path: Path) -> None:
 
     assert isinstance(result, DelegationJob)
     assert result.status == "unknown"
+    # L6.1: lineage stays "completed" for unknown terminal — the operator
+    # decision was verified (resolved snapshot); only the post-decision turn
+    # outcome is unverified, so the asymmetric job/lineage split applies.
+    # Mirrors the L11-T2 assertion for the failed-turn half of the contract.
+    handle = lineage.get("collab-h-1")
+    assert handle is not None
+    assert handle.status == "completed"
 
 
 def test_l11_t4_canceled_produces_canceled(tmp_path: Path) -> None:
