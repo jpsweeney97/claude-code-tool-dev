@@ -46,20 +46,22 @@ Read BEFORE writing any code. Pre-read guard: if a source contradicts the conver
             try:
                 pending_escalation = self._project_pending_escalation(refreshed)
             except UnknownKindInEscalationProjection as exc:
+                abort_signaled = False
+                if refreshed.parked_request_id is not None:
+                    abort_signaled = self._registry.signal_internal_abort(
+                        refreshed.parked_request_id,
+                        reason="unknown_kind_in_escalation_projection",
+                    )
                 logger.critical(
                     "delegation.poll: unknown-kind in escalation projection; "
-                    "signaling worker-coordinated internal abort",
+                    "signaled worker-coordinated internal abort",
                     extra={
                         "job_id": refreshed.job_id,
                         "request_id": refreshed.parked_request_id,
                         "cause": str(exc),
+                        "abort_signaled": abort_signaled,
                     },
                 )
-                if refreshed.parked_request_id is not None:
-                    self._registry.signal_internal_abort(
-                        refreshed.parked_request_id,
-                        reason="unknown_kind_in_escalation_projection",
-                    )
                 pending_escalation = None
 ```
 
@@ -99,6 +101,7 @@ Assert:
 - `result.pending_escalation is None`
 - `result.job.status == "needs_escalation"` (poll does not mutate job status)
 - `mock_registry.signal_internal_abort.assert_called_once_with("request_id", reason="unknown_kind_in_escalation_projection")`
+- `caplog` contains one CRITICAL record matching `"delegation.poll: unknown-kind in escalation projection"` with extra fields `job_id`, `request_id`, `cause`, and `abort_signaled=True`
 
 ### Test 2: `test_poll_returns_null_escalation_even_when_signal_returns_false`
 
@@ -107,6 +110,7 @@ Same setup as Test 1, but `signal_internal_abort.return_value = False` (simulate
 Assert:
 - Result shape identical: `DelegationPollResult(pending_escalation=None)`
 - Proves L4: response not conditioned on signal return
+- `caplog` contains one CRITICAL record with `abort_signaled=False` — proves the CAS-loss branch is observable (spec §1978: Branch B's "only artifact is a log line recording the `False` return")
 
 ### Test 3: `test_poll_normal_kind_still_projects_escalation`
 
