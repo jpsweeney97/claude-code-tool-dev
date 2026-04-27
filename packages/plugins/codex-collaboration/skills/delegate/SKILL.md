@@ -133,6 +133,7 @@ Terminal states are excluded from `active_delegation`. Reachable only via explic
 |---|---|
 | `queued` / `running` | Render job_id, status, base_commit. "Run `/delegate` to check progress." |
 | `needs_escalation` | Render escalation (step 6f). |
+| `canceled` | Render `poll.detail` and inspection snapshot if available. "Decision dispatch was canceled (typically a timeout or transport failure). `/delegate discard` to clear, then start a new delegation if you still need the work, or `/delegate poll {job_id}` to inspect artifacts." |
 | `failed` / `unknown` | Render `poll.detail` and inspection snapshot if available. "Inspect artifacts. `/delegate discard` to clear, then start a new delegation if needed." |
 | `completed` with null `promotion_state` | **Inconsistent state.** Excluded from `active_delegation` and the busy gate — reachable only via explicit `/delegate poll {job_id}`. Report: "Job completed but promotion state is missing. This is a legacy or corrupted state that cannot be promoted or discarded. Inspect artifacts manually via `/delegate poll {job_id}`. To clear, the job store entry must be resolved outside the skill." Do NOT render promote/discard choices. |
 
@@ -287,7 +288,7 @@ If `job_id` provided: pass it to Gate 1 as the target. If not: Gate 1 uses `acti
 2. If `job_id` provided: use it. If not: extract `active_delegation.job_id` from status. If no active delegation: "No active delegation." **Stop.**
 3. Call `mcp__plugin_codex-collaboration_codex-collaboration__codex.delegate.discard` with `job_id`.
 4. If success: render terminal state via state router (step 6a).
-5. If typed rejection (`job_not_discardable`): render rejection. Explain allowed states: discard accepts `promotion_state` in `{pending, prechecks_failed}`, or `status` in `{failed, unknown}` with null `promotion_state`. Post-mutation states (`applied`, `rollback_needed`) require recovery, not discard.
+5. If typed rejection (`job_not_discardable`): render rejection. Explain allowed states: discard accepts `promotion_state` in `{pending, prechecks_failed}`, or `status` in `{failed, unknown, canceled}` with null `promotion_state`. Post-mutation states (`applied`, `rollback_needed`) require recovery, not discard.
 
 ## Failure Handling
 
