@@ -22,12 +22,12 @@ from unittest.mock import MagicMock
 import pytest
 
 from server.delegation_job_store import DelegationJobStore
-from server.execution_runtime_registry import ExecutionRuntimeRegistry
 from server.lineage_store import LineageStore
 from server.models import (
     CollaborationHandle,
     DelegationJob,
     DelegationPollResult,
+    PendingRequestKind,
     PendingServerRequest,
 )
 from server.resolution_registry import ResolutionRegistry
@@ -86,7 +86,7 @@ def _seed_pending_request(
     request_id: str = "req-p-1",
     collaboration_id: str = "collab-p-1",
     runtime_id: str = "rt-p-1",
-    kind: str = "unknown",
+    kind: PendingRequestKind = "unknown",
 ) -> None:
     """Create a PendingServerRequest in the store."""
     request = PendingServerRequest(
