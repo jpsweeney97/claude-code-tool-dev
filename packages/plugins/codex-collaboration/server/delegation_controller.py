@@ -2633,8 +2633,8 @@ class DelegationController:
         # produces {"answers": {}} indistinguishable from deny × RUI).
         resolution = DecisionResolution(
             payload=payload,
-            kind=request.kind,
-            action=decision,
+            kind=cast(EscalatableRequestKind, request.kind),
+            action=cast(DecisionAction, decision),
         )
 
         # Step 2: atomic CAS awaiting → reserved. None means another caller
