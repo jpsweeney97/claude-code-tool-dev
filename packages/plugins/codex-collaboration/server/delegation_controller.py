@@ -2357,37 +2357,75 @@ class DelegationController:
         _CANCEL_CAPABLE_KINDS = frozenset({"command_approval", "file_change"})
 
         if captured_request is not None:
-            # D6 diagnostic — only when we have a parseable request with
-            # wire-correlated IDs.
+            # Step 1. D6 diagnostic — only when we have a parseable request
+            # with wire-correlated IDs (existing guard).
             if not captured_request_parse_failed:
                 _verify_post_turn_signals(
                     notifications=turn_result.notifications,
                     request_id=captured_request.request_id,
                     item_id=captured_request.item_id,
                 )
-                # D4: mark wire request resolved (parse failures stay pending).
-                self._pending_request_store.update_status(
-                    captured_request.request_id, "resolved"
-                )
 
-            # Job status derivation.
-            # L11 (Task 17): unknown-kind interrupted requests cannot be
-            # projected into a PendingEscalationView (kind='unknown' raises
-            # UnknownKindInEscalationProjection from _project_request_to_view).
-            # Spec §Unknown-kind contract (design.md:1705-1736, lines 1725-1727)
-            # routes interrupted_by_unknown to final_status='unknown' so it
-            # flows to the existing non-escalation return below — preserving
-            # _emit_terminal_outcome_if_needed + runtime release + session close.
-            # The cancel-capable terminal-mapping branch is UNCHANGED (W2 —
-            # Task 19 owns the Captured-Request Terminal Guard rewrite).
-            if interrupted_by_unknown:
-                final_status: JobStatus = "unknown"
-            elif captured_request.kind in _CANCEL_CAPABLE_KINDS:
-                final_status = "needs_escalation"
-            elif turn_result.status == "completed":
-                final_status = "completed"
+            # Step 2. Snapshot read (L1) — one authoritative derivation-status
+            # read. This snapshot governs both D4 gating and terminal-status
+            # derivation. No second .status read may feed either decision.
+            request_snapshot = self._pending_request_store.get(
+                captured_request.request_id
+            )
+
+            # Step 3. D4 conditional write + warning discipline (L2).
+            if not captured_request_parse_failed:
+                if request_snapshot is None:
+                    # Tombstone race — record evicted; skip D4.
+                    logger.warning(
+                        "Finalizer terminal guard: tombstone — "
+                        "pending_request_store.get(%r) returned None; "
+                        "request record missing at finalization time",
+                        captured_request.request_id,
+                    )
+                elif request_snapshot.status == "pending":
+                    # Anomalous fall-through: under Packet 1, every
+                    # non-parse-failed capture path should have written a
+                    # terminal status before the finalizer runs. Log and
+                    # preserve legacy D4 behavior on pending fall-through.
+                    logger.warning(
+                        "Finalizer terminal guard: anomalous pending — "
+                        "request %r still has status='pending' at "
+                        "finalization time; writing D4 resolved and "
+                        "falling through to kind-based derivation",
+                        captured_request.request_id,
+                    )
+                    self._pending_request_store.update_status(
+                        captured_request.request_id, "resolved"
+                    )
+                # else: resolved or canceled — happy path, skip D4.
+
+            # Step 4. Terminal-guard derivation (L3) — resolved/canceled
+            # snapshots produce final_status from the mapping table.
+            # Spec §_finalize_turn Captured-Request Terminal Guard
+            # (design.md:1762-1767).
+            if request_snapshot is not None and request_snapshot.status == "resolved":
+                if turn_result.status == "completed":
+                    final_status: JobStatus = "completed"
+                elif turn_result.status == "interrupted":
+                    final_status = "unknown"
+                elif turn_result.status == "failed":
+                    final_status = "unknown"
+                else:
+                    final_status = "unknown"  # defensive — spec :1772 OB-1
+            elif request_snapshot is not None and request_snapshot.status == "canceled":
+                final_status = "canceled"
             else:
-                final_status = "needs_escalation"
+                # Step 5. Kind-based fall-through (L4) — pending/None paths.
+                # a. L11 (Task 17): unknown-kind carve-out FIRST.
+                if interrupted_by_unknown:
+                    final_status = "unknown"
+                elif captured_request.kind in _CANCEL_CAPABLE_KINDS:
+                    final_status = "needs_escalation"
+                elif turn_result.status == "completed":
+                    final_status = "completed"
+                else:
+                    final_status = "needs_escalation"
 
             updated_job = self._persist_job_transition(job_id, final_status)
 

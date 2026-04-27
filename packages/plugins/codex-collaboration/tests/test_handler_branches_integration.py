@@ -158,39 +158,187 @@ def _make_running_job_with_lineage(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skip(
-    reason=(
-        "Phase H Task 19: requires Captured-Request Terminal Guard rewrite of "
-        "_finalize_turn for finalizer-routed decide-success path. Worker writes "
-        "record_response_dispatch + mark_resolved + completion_origin='worker_completed' "
-        "at Task 16; finalizer projection that maps to DelegationJob.status='completed' "
-        "lands at Task 19."
-    )
-)
-def test_happy_path_decide_approve_success(tmp_path: Path) -> None:
-    """Worker parks → operator decides approve → session.respond succeeds →
-    record_response_dispatch + mark_resolved → handler returns None → turn
-    completes naturally → _finalize_turn's Captured-Request Terminal Guard
+def test_happy_path_decide_approve_success(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Worker parks -> operator decides approve -> session.respond succeeds ->
+    record_response_dispatch + mark_resolved -> handler returns None -> turn
+    completes naturally -> _finalize_turn's Captured-Request Terminal Guard
     sets final_status='completed'.
+
+    Side-effect uniqueness: exactly ONE terminal delegation_terminal outcome
+    record, ONE final job_store status transition, ONE runtime release, ONE
+    session close, ONE lineage update.
     """
-    pass
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
 
+    (
+        controller,
+        _cp,
+        _wm,
+        job_store,
+        lineage_store,
+        journal,
+        runtime_registry,
+        pending_request_store,
+    ) = _build_controller(tmp_path)
 
-@pytest.mark.skip(
-    reason=(
-        "Phase H Task 19: requires Captured-Request Terminal Guard rewrite of "
-        "_finalize_turn for finalizer-routed cancel-success path. Worker writes "
-        "record_timeout(succeeded) + completion_origin='worker_completed' at Task 16; "
-        "finalizer projection that maps to DelegationJob.status='canceled' lands at Task 19."
+    fake_session = _FakeSession()
+    fake_session._server_requests = [_command_approval_request(request_id=42)]
+    fake_session.respond = MagicMock(return_value=None)
+
+    _make_running_job_with_lineage(
+        job_store,
+        lineage_store,
+        runtime_registry,
+        fake_session,
+        repo_root,
     )
-)
-def test_timeout_cancel_dispatch_succeeded_for_file_change(tmp_path: Path) -> None:
-    """file_change captured → no operator decide → timer fires →
-    session.respond(cancel) succeeds → record_timeout(dispatch_result='succeeded')
-    → handler returns None → turn completes naturally → _finalize_turn
+
+    # Operator-decide resolution with approve.
+    mock_registry = create_autospec(ResolutionRegistry, instance=True)
+    mock_registry.wait.return_value = DecisionResolution(
+        payload={"decision": "accept"},
+        kind="command_approval",
+        is_timeout=False,
+        action="approve",
+    )
+    monkeypatch.setattr(controller, "_registry", mock_registry)
+
+    result = controller._execute_live_turn(  # type: ignore[attr-defined]
+        job_id="job-h-1",
+        collaboration_id="collab-h-1",
+        runtime_id="rt-h-1",
+        worktree_path=repo_root / "worktree",
+        prompt_text="do work",
+    )
+
+    # resolved + completed -> completed via L3 terminal guard
+    assert isinstance(result, DelegationJob)
+    assert result.job_id == "job-h-1"
+    assert result.status == "completed"
+
+    # Pending request resolved
+    stored = pending_request_store.get("42")
+    assert stored is not None
+    assert stored.status == "resolved"
+
+    # Side-effect uniqueness: runtime released, session closed
+    assert runtime_registry.lookup("rt-h-1") is None
+    assert fake_session.closed
+
+    # Lineage completed
+    handle = lineage_store.get("collab-h-1")
+    assert handle is not None
+    assert handle.status == "completed"
+
+    # Terminal outcome record written exactly once
+    outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
+    if outcomes_path.exists():
+        outcome_lines = [
+            line for line in outcomes_path.read_text().splitlines() if line.strip()
+        ]
+        terminal_records = [
+            json.loads(line) for line in outcome_lines
+            if json.loads(line).get("outcome_type") == "delegation_terminal"
+            and json.loads(line).get("job_id") == "job-h-1"
+        ]
+        assert len(terminal_records) == 1, (
+            f"Expected exactly 1 terminal outcome but got {len(terminal_records)}"
+        )
+
+
+def test_timeout_cancel_dispatch_succeeded_for_file_change(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """file_change captured -> no operator decide -> timer fires ->
+    session.respond(cancel) succeeds -> record_timeout(dispatch_result='succeeded')
+    -> handler returns None -> turn completes naturally -> _finalize_turn
     maps request_snapshot to DelegationJob.status='canceled'.
+
+    Side-effect uniqueness: exactly ONE terminal delegation_terminal outcome
+    record, ONE final job_store status transition, ONE runtime release, ONE
+    session close, ONE lineage update.
     """
-    pass
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    (
+        controller,
+        _cp,
+        _wm,
+        job_store,
+        lineage_store,
+        journal,
+        runtime_registry,
+        pending_request_store,
+    ) = _build_controller(tmp_path)
+
+    fake_session = _FakeSession()
+    fake_session._server_requests = [_file_change_request(request_id=43)]
+    fake_session.respond = MagicMock(return_value=None)
+
+    _make_running_job_with_lineage(
+        job_store,
+        lineage_store,
+        runtime_registry,
+        fake_session,
+        repo_root,
+    )
+
+    # Timeout resolution with cancel payload for file_change.
+    mock_registry = create_autospec(ResolutionRegistry, instance=True)
+    mock_registry.wait.return_value = DecisionResolution(
+        payload={"decision": "cancel"},
+        kind="file_change",
+        is_timeout=True,
+    )
+    monkeypatch.setattr(controller, "_registry", mock_registry)
+
+    result = controller._execute_live_turn(  # type: ignore[attr-defined]
+        job_id="job-h-1",
+        collaboration_id="collab-h-1",
+        runtime_id="rt-h-1",
+        worktree_path=repo_root / "worktree",
+        prompt_text="do work",
+    )
+
+    # canceled + any -> canceled via L3 terminal guard
+    assert isinstance(result, DelegationJob)
+    assert result.job_id == "job-h-1"
+    assert result.status == "canceled"
+
+    # Pending request canceled
+    stored = pending_request_store.get("43")
+    assert stored is not None
+    assert stored.status == "canceled"
+
+    # Side-effect uniqueness: runtime released, session closed
+    assert runtime_registry.lookup("rt-h-1") is None
+    assert fake_session.closed
+
+    # Lineage completed
+    handle = lineage_store.get("collab-h-1")
+    assert handle is not None
+    assert handle.status == "completed"
+
+    # Terminal outcome record written exactly once
+    outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
+    if outcomes_path.exists():
+        outcome_lines = [
+            line for line in outcomes_path.read_text().splitlines() if line.strip()
+        ]
+        terminal_records = [
+            json.loads(line) for line in outcome_lines
+            if json.loads(line).get("outcome_type") == "delegation_terminal"
+            and json.loads(line).get("job_id") == "job-h-1"
+        ]
+        assert len(terminal_records) == 1, (
+            f"Expected exactly 1 terminal outcome but got {len(terminal_records)}"
+        )
 
 
 # ---------------------------------------------------------------------------

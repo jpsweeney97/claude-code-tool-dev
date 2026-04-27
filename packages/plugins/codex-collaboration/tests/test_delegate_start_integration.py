@@ -30,19 +30,6 @@ from server.models import (
 from server.pending_request_store import PendingRequestStore
 from server.worktree_manager import WorktreeManager
 
-_TASK_19_FINALIZER_GUARD_REASON = (
-    "Phase H Task 19: _finalize_turn does not yet apply the "
-    "Captured-Request Terminal Guard. Without the guard's "
-    "resolved/canceled request-snapshot mapping at spec §1762-1767, "
-    "_finalize_turn misclassifies decide-success and timeout-cancel-"
-    "success captures as needs_escalation via the kind-based branch "
-    "at delegation_controller.py:~2367 (Task 17 L11 preserved this "
-    "branch as Task 19 territory per W2 narrowing). Tests asserting "
-    "post-resume final_status='completed' / 'canceled' / 'unknown' or "
-    "DelegationOutcomeRecord shape cannot pass without the guard. "
-    "Skip preserved until Task 19 lands the spec §1738-1808 rewrite."
-)
-
 
 def test_delegation_factory_builds_controller(tmp_path: Path, monkeypatch) -> None:
     # Ensure scripts dir is importable
@@ -854,10 +841,10 @@ def test_delegate_poll_needs_escalation_returns_projected_request(
     assert "codex_thread_id" not in json.dumps(poll_payload["pending_escalation"])
 
 
-@pytest.mark.skip(reason=_TASK_19_FINALIZER_GUARD_REASON)
 def test_delegate_decide_approve_end_to_end_through_mcp_dispatch(
     tmp_path: Path,
 ) -> None:
+    """End-to-end via codex.delegate.decide MCP; bounded-poll for completed."""
     repo_root = tmp_path / "repo"
     _init_repo(repo_root)
 
@@ -887,6 +874,7 @@ def test_delegate_decide_approve_end_to_end_through_mcp_dispatch(
     assert entry is not None
     stub = entry.session
     stub._server_requests = []
+    stub.respond = lambda request_id, payload: None
     stub._turn_result = TurnExecutionResult(
         turn_id="turn-stub-2",
         status="completed",
@@ -911,28 +899,36 @@ def test_delegate_decide_approve_end_to_end_through_mcp_dispatch(
     )
 
     decide_payload = json.loads(decide_response["result"]["content"][0]["text"])
-    # Packet 1 (T-20260423-02): decide response is the 3-field shape.
     assert set(decide_payload.keys()) == {"decision_accepted", "job_id", "request_id"}
     assert decide_payload["decision_accepted"] is True
-    # Post-dispatch job state observed via poll(), not decide() result.
+
+    # Bounded-poll for job completion (5s/50ms per L9 budget)
     job_id = start_payload["job"]["job_id"]
-    poll_response = server.handle_request(
-        {
-            "jsonrpc": "2.0",
-            "id": 3,
-            "method": "tools/call",
-            "params": {
-                "name": "codex.delegate.poll",
-                "arguments": {"job_id": job_id},
-            },
-        }
-    )
-    poll_payload = json.loads(poll_response["result"]["content"][0]["text"])
+    deadline = time.monotonic() + 5.0
+    poll_payload = None
+    while time.monotonic() < deadline:
+        poll_response = server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {
+                    "name": "codex.delegate.poll",
+                    "arguments": {"job_id": job_id},
+                },
+            }
+        )
+        poll_payload = json.loads(poll_response["result"]["content"][0]["text"])
+        if poll_payload["job"]["status"] == "completed":
+            break
+        time.sleep(0.05)
+
+    assert poll_payload is not None
     assert poll_payload["job"]["status"] == "completed"
 
 
-@pytest.mark.skip(reason=_TASK_19_FINALIZER_GUARD_REASON)
 def test_delegate_decide_deny_end_to_end_through_mcp_dispatch(tmp_path: Path) -> None:
+    """End-to-end deny via MCP; job status is completed (NOT failed)."""
     repo_root = tmp_path / "repo"
     _init_repo(repo_root)
 
@@ -956,6 +952,13 @@ def test_delegate_decide_deny_end_to_end_through_mcp_dispatch(tmp_path: Path) ->
     )
     start_payload = json.loads(start_response["result"]["content"][0]["text"])
 
+    # Stub respond on the session so deny -> decline dispatch succeeds
+    controller = server._ensure_delegation_controller()
+    entry = controller._runtime_registry.lookup(start_payload["job"]["runtime_id"])
+    assert entry is not None
+    deny_stub = entry.session
+    deny_stub.respond = lambda request_id, payload: None
+
     decide_response = server.handle_request(
         {
             "jsonrpc": "2.0",
@@ -973,24 +976,32 @@ def test_delegate_decide_deny_end_to_end_through_mcp_dispatch(tmp_path: Path) ->
     )
 
     decide_payload = json.loads(decide_response["result"]["content"][0]["text"])
-    # Packet 1 (T-20260423-02): decide response is the 3-field shape.
     assert set(decide_payload.keys()) == {"decision_accepted", "job_id", "request_id"}
     assert decide_payload["decision_accepted"] is True
-    # Post-dispatch job state observed via poll(), not decide() result.
+
+    # Bounded-poll for job completion (5s/50ms per L9 budget)
     job_id = start_payload["job"]["job_id"]
-    poll_response = server.handle_request(
-        {
-            "jsonrpc": "2.0",
-            "id": 3,
-            "method": "tools/call",
-            "params": {
-                "name": "codex.delegate.poll",
-                "arguments": {"job_id": job_id},
-            },
-        }
-    )
-    poll_payload = json.loads(poll_response["result"]["content"][0]["text"])
-    assert poll_payload["job"]["status"] == "failed"
+    deadline = time.monotonic() + 5.0
+    poll_payload = None
+    while time.monotonic() < deadline:
+        poll_response = server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {
+                    "name": "codex.delegate.poll",
+                    "arguments": {"job_id": job_id},
+                },
+            }
+        )
+        poll_payload = json.loads(poll_response["result"]["content"][0]["text"])
+        if poll_payload["job"]["status"] == "completed":
+            break
+        time.sleep(0.05)
+
+    assert poll_payload is not None
+    assert poll_payload["job"]["status"] == "completed"
 
 
 # ---------------------------------------------------------------------------
