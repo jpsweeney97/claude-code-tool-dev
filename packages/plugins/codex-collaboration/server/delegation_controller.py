@@ -1825,7 +1825,26 @@ class DelegationController:
         refreshed = self._job_store.get(job_id) or job
         pending_escalation = None
         if refreshed.status == "needs_escalation":
-            pending_escalation = self._project_pending_escalation(refreshed)
+            try:
+                pending_escalation = self._project_pending_escalation(refreshed)
+            except UnknownKindInEscalationProjection as exc:
+                abort_signaled = False
+                if refreshed.parked_request_id is not None:
+                    abort_signaled = self._registry.signal_internal_abort(
+                        refreshed.parked_request_id,
+                        reason="unknown_kind_in_escalation_projection",
+                    )
+                logger.critical(
+                    "delegation.poll: unknown-kind in escalation projection; "
+                    "signaled worker-coordinated internal abort",
+                    extra={
+                        "job_id": refreshed.job_id,
+                        "request_id": refreshed.parked_request_id,
+                        "cause": str(exc),
+                        "abort_signaled": abort_signaled,
+                    },
+                )
+                pending_escalation = None
 
         detail = None
         if refreshed.status == "failed":
