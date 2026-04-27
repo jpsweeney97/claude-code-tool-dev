@@ -115,8 +115,8 @@ Assert:
 DONE at <SHA>.
 Suite: <passed>/<skipped>/<failed> in <seconds>.
 Verified:
-  rg '"canceled"' packages/plugins/codex-collaboration/server/delegation_controller.py | grep _discardable context → "canceled" in status tuple
-  git diff --exit-code 47628f20..HEAD -- packages/plugins/codex-collaboration/server/delegation_controller.py — only hunks in `def discard` (docstring + gate)
+  rg -n -C 2 '_discardable|"canceled"' packages/plugins/codex-collaboration/server/delegation_controller.py → "canceled" visible in the gate tuple context
+  git diff 47628f20..HEAD -- packages/plugins/codex-collaboration/server/delegation_controller.py → only hunks in `def discard` (docstring + gate); no hunks outside discard
   git diff --exit-code 47628f20..HEAD -- docs/superpowers/specs/codex-collaboration/contracts.md → empty (no changes)
   uv run --package codex-collaboration ruff check packages/plugins/codex-collaboration/server/delegation_controller.py packages/plugins/codex-collaboration/tests/test_discard_canceled_integration.py → passed
   uv run --package codex-collaboration ruff format --check packages/plugins/codex-collaboration/tests/test_discard_canceled_integration.py → already formatted
