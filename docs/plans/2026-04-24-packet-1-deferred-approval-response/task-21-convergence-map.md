@@ -33,7 +33,7 @@
 
 | # | Lock | Rationale |
 |---|---|---|
-| L1 | Production change is ONLY adding `"canceled"` to the status tuple at `:2325`. No other line in `discard()` changes. | Spec §1377: "Expand the status branch to `status in ('failed', 'unknown', 'canceled')`." Minimal change. |
+| L1 | The only executable change in `discard()` is adding `"canceled"` to the status tuple at `:2325`. The only other allowed `discard()` hunk is the W1 docstring update at `:2312-2314`. No other lines change. | Spec §1377: "Expand the status branch to `status in ('failed', 'unknown', 'canceled')`." Minimal change. |
 | L2 | Post-mutation promotion states (`applied`, `rollback_needed`) still reject regardless of status. The `promotion_state in ("pending", "prechecks_failed")` branch and the `promotion_state is None` predicate are untouched. | Spec §1377: "a canceled job that has somehow acquired a non-null promotion_state still rejects with `job_not_discardable` under the existing rule." |
 | L3 | Tests follow the established `_build_promote_scenario` + `update_status_and_promotion` pattern. No plan-placeholder fixture names. | Package convention per existing discard tests at `:3307-3393`. |
 | L4 | No modifications to `poll()`, `start()`, `decide()`, `_finalize_turn`, or any helper. | Task 21 boundary — `discard()` is independent of the projection/signal path (L9 from Task 20). |

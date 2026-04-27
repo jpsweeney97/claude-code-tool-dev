@@ -104,10 +104,9 @@ Assert:
 Setup: Same as Test 1 (canceled + null promotion_state). Execute discard.
 
 Assert:
-- Read `journal._audit_path` (the JSONL file)
+- Read `journal.plugin_data_path / "audit" / "events.jsonl"` (the public path; do NOT use `journal._audit_path`)
 - Parse lines as JSON
 - Find at least one record where `action == "discard"` and `job_id` matches
-- The audit path is at `<journal.plugin_data_path>/audit/events.jsonl`
 
 ## Reporting Contract
 
@@ -150,5 +149,5 @@ Evidence: <file:line, what was observed, what conflicts>
 5. Implement the production change (docstring + gate tuple)
 6. Write test file with 3 tests
 7. Run: `uv run --package codex-collaboration ruff format packages/plugins/codex-collaboration/tests/test_discard_canceled_integration.py`
-8. Run: `uv run --package codex-collaboration pytest packages/plugins/codex-collaboration/ -x 2>&1 | tail -20`
+8. Run: `bash -c 'set -o pipefail; uv run --package codex-collaboration pytest packages/plugins/codex-collaboration/ -x 2>&1 | tail -20'`
 9. Report per DONE/BLOCKED template
