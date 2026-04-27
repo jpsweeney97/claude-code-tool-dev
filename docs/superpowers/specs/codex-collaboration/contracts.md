@@ -70,7 +70,7 @@ A unit of autonomous execution work. One job = one execution runtime = one workt
 | `worktree_path` | path | Absolute path to the isolated worktree |
 | `promotion_state` | enum? | Null until promotion lifecycle becomes applicable. Set to `pending` when a job reaches `status=completed` and has not been promoted or discarded. Values: `pending`, `prechecks_passed`, `applied`, `verified`, `prechecks_failed`, `rollback_needed`, `rolled_back`, `discarded` — lifecycle governed by [promotion-protocol.md §Promotion State Machine](promotion-protocol.md#promotion-state-machine). Upgraded implementations must accept legacy records with `promotion_state="pending"` on non-completed jobs and must not interpret them as promotion-eligible solely from that legacy value. |
 | `promotion_attempt` | integer | Controller-owned monotonic counter for promotion journal replay. Starts at `0` when the job is created and increments before each new `codex.delegate.promote` attempt writes its `promotion` journal `intent` phase. |
-| `status` | enum | `queued`, `running`, `needs_escalation`, `completed`, `failed`, `unknown` |
+| `status` | enum | `queued`, `running`, `needs_escalation`, `completed`, `failed`, `canceled`, `unknown`. `canceled` is a terminal state reached via the non-cancel timeout interrupt-succeeded branch OR the cancel-capable timeout with successful cancel-dispatch; distinct from `unknown` (which indicates unverified transport failure). See §JobStatus='canceled' propagation in the design spec. Migration: pre-Packet-1 JSONL records have no `canceled` entries; post-Packet-1 runtime-generated records may carry the new literal. |
 | `artifact_paths` | list\[path\] | Absolute paths to persisted inspection artifacts materialized by `codex.delegate.poll`. Empty until poll first materializes inspection data. |
 | `artifact_hash` | string? | Hash of the reviewed artifact set for a completed job. Null until `codex.delegate.poll` has materialized a reviewable completed-job snapshot. See [promotion-protocol.md §Artifact Hash Integrity](promotion-protocol.md#artifact-hash-integrity). |
 
@@ -264,6 +264,12 @@ Returned by `codex.delegate.discard` on success.
 |---|---|---|
 | `job` | [DelegationJob](#delegationjob) | Updated job after the discard path finished |
 
+**Admissibility:** Discardable when `promotion_state in ("pending", "prechecks_failed")` OR when `status in ("failed", "unknown", "canceled")` with null `promotion_state`. Post-mutation states (`applied`, `rollback_needed`) remain non-discardable regardless of status.
+
+Rationale: the `list_user_attention_required` surface includes canceled jobs under §JobStatus='canceled' propagation; the discard contract must offer the matching close path or the "retry-or-dismiss" UX promise is unbacked.
+
+Migration guidance: existing discard callers observing `DiscardRejectedResponse(reason="job_not_discardable")` on a canceled job may now see `DiscardResult` instead; no caller relied on the rejection as a signal (canceled never reached discardability under pre-Packet-1 semantics — it was not a valid job status at all), so this is a strict behavior widening without regression risk.
+
 ### Job Busy
 
 Returned by `codex.delegate.start` when a user-attention-required job exists. The widened busy gate blocks when any non-terminal job requires user attention — not just runtime-active (running/queued/needs_escalation) jobs. This includes completed jobs awaiting review, failed/unknown jobs needing inspection, and partial promotion states. See [recovery-and-journal.md §Concurrency Limits](recovery-and-journal.md#concurrency-limits).
@@ -286,6 +292,21 @@ Returned by `codex.delegate.start` when the first execution turn triggers a serv
 | `agent_context` | string? | Best-effort agent message from the interrupted turn |
 | `escalated` | boolean | Always `true` |
 
+### Start Success Outcomes
+
+`codex.delegate.start` returns one of four success shapes or raises. The MCP serializer maps each internal outcome to a wire JSON shape.
+
+| Internal outcome | Return type | MCP JSON shape |
+|---|---|---|
+| Parked (parkable capture) | `DelegationEscalation` | `{"job": {...}, "pending_escalation": {...}, "agent_context": "...", "escalated": true}` |
+| Turn completed without capture | plain `DelegationJob` | `{"job_id": "...", "status": "completed", ...}` (no `pending_escalation`, no `escalated`) |
+| Unknown-kind parse failure | plain `DelegationJob` | `{"job_id": "...", "status": "unknown", ...}` (no `pending_escalation`, no `escalated`) |
+| Start-wait budget elapsed | plain `DelegationJob` | `{"job_id": "...", "status": "running", ...}` (caller polls; NOT a failure) |
+| Worker exception (pre-capture) | N/A — raises | MCP tool error: `DelegationStartError` with text prefix `worker_failed_before_capture` |
+| Parked projection invariant violation | N/A — raises | MCP tool error: `DelegationStartError` with text prefix `parked_projection_invariant_violation` |
+
+**Text-prefix recoverability.** MCP clients that need to branch on the reason can parse the leading token of the error text up to the first `": "`. A structured `reason` field on the MCP wire is deferred to a future packet.
+
 ### Decision Rejection
 
 Returned by `codex.delegate.decide` when the caller asks to resolve an escalation
@@ -301,15 +322,19 @@ that cannot be handled under the opening-slice constraints.
 
 ### Decide Result
 
-Returned by `codex.delegate.decide` on success.
+Returned by `codex.delegate.decide` on success. Post-Packet 1 (T-20260423-02): `decide()` uses an async acceptance model — it returns once the operator's decision has been accepted for dispatch (journal intent durable, reservation committed). Dispatch completion is observed asynchronously via `codex.delegate.poll`.
 
 | Field | Type | Description |
 |---|---|---|
-| `job` | [DelegationJob](#delegationjob) | Updated job after the decision path finished |
-| `decision` | enum | `approve` or `deny` |
-| `resumed` | boolean | `true` only when approve dispatched a follow-up turn |
-| `pending_escalation` | [Pending Escalation View](#pending-escalation-view)? | Present only when the resumed turn hit another escalation |
-| `agent_context` | string? | Best-effort agent message from the resumed turn when present |
+| `decision_accepted` | boolean | Always `true` on success |
+| `job_id` | string | Job the decision was applied to |
+| `request_id` | string | Request that was resolved |
+
+**Accepted-for-dispatch, not applied.** The response indicates the plugin has committed the decision to the operation journal and signaled the worker to dispatch it. The plugin does NOT claim the App Server has applied the decision. Post-dispatch observations come through poll.
+
+**poll is the sole observation surface for post-decide state.** Between `decide()` returning and the worker completing `job.status → running`, `poll()` may transiently show the pre-decide `pending_escalation`; callers should trust decide()'s `decision_accepted=true` as authoritative.
+
+**Rejection (DecisionRejectedResponse):** unchanged. Reasons continue to be `invalid_decision`, `job_not_found`, `job_not_awaiting_decision`, `request_not_found`, `request_job_mismatch`, `request_already_decided`, `runtime_unavailable`, `answers_required`, `answers_not_allowed`.
 
 ### Poll Rejection
 
@@ -329,7 +354,7 @@ Caller-visible projection returned by `codex.delegate.start`, `codex.delegate.po
 | Field | Type | Description |
 |---|---|---|
 | `request_id` | string | Plugin request identifier |
-| `kind` | enum | `command_approval`, `file_change`, `request_user_input`, `unknown` |
+| `kind` | enum | `command_approval`, `file_change`, `request_user_input`. `unknown` is a valid `PendingRequestKind` at the store/audit layer but cannot appear in a `PendingEscalationView` under Packet 1 — such requests terminalize the job instead (see §Unknown-kind contract in the design spec). |
 | `requested_scope` | object | Opaque request payload needed for resolution |
 | `available_decisions` | list\[string\] | Valid resolution options |
 
@@ -376,7 +401,7 @@ Present when a delegation job requires user attention (in-flight, completed awai
 | Field | Type | Description |
 |---|---|---|
 | `job_id` | string | Unique job identifier |
-| `status` | enum | Job runtime status: `queued`, `running`, `needs_escalation`, `completed`, `failed`, `unknown` |
+| `status` | enum | Job runtime status: `queued`, `running`, `needs_escalation`, `completed`, `failed`, `canceled`, `unknown` |
 | `promotion_state` | enum? | Promotion lifecycle state: `pending`, `prechecks_passed`, `prechecks_failed`, `applied`, `rollback_needed`, `verified`, `discarded`, `rolled_back`. Null for pre-completion jobs. Legacy/corrupt records may have `pending` on non-completed jobs (the skill's state router falls through to Tier 4 for these). |
 | `base_commit` | string | Git commit the delegation branched from |
 | `artifact_hash` | string? | SHA-256 of inspection artifacts. Null until first poll after completion materializes them. |
