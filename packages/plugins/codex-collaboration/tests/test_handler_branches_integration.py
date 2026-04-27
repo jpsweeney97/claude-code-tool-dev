@@ -441,12 +441,15 @@ def test_dispatch_failure_on_operator_decide(
         repo_root,
     )
 
-    # Operator-decide resolution (is_timeout=False).
+    # Operator-decide resolution (is_timeout=False). Per Task 18 fix:
+    # `payload` is the bare App Server payload; `action` carries the operator
+    # verb so the worker can record_dispatch_failure(action="approve", ...).
     mock_registry = create_autospec(ResolutionRegistry, instance=True)
     mock_registry.wait.return_value = DecisionResolution(
-        payload={"resolution_action": "approve", "response_payload": {"decision": "accept"}},
+        payload={"decision": "accept"},
         kind="command_approval",
         is_timeout=False,
+        action="approve",
     )
     monkeypatch.setattr(controller, "_registry", mock_registry)
 

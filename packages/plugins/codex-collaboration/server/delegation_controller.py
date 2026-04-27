@@ -61,7 +61,7 @@ import tempfile
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Protocol, assert_never, cast
+from typing import Any, Callable, Literal, Protocol, assert_never, cast
 
 from .approval_router import parse_pending_server_request
 from .delegation_job_store import DelegationJobStore
@@ -1023,9 +1023,18 @@ class DelegationController:
                 return None
 
             # --- Parkable capture (command_approval | file_change | request_user_input) ---
-            if captured_request is None:
-                self._pending_request_store.create(parsed)
-                captured_request = parsed
+            # Re-park semantics (Task 18 fix): every parkable server-request in
+            # the turn gets its own PSR record so poll()'s
+            # _project_pending_escalation can resolve the new rid after a decide
+            # → respond → re-escalation cycle. The earlier `if captured_request
+            # is None` gate was a Task 16 oversight that left re-parks
+            # registered in the resolution registry but absent from the
+            # PendingRequestStore, breaking poll() projection (Round-6
+            # convergence-map addendum). `captured_request` always tracks the
+            # MOST RECENTLY captured request for _finalize_turn's terminal-guard
+            # mapping per Task 19.
+            self._pending_request_store.create(parsed)
+            captured_request = parsed
 
             # Durable writes before handshake signal per spec §Worker sequence step L5:
             #   create → update_parked_request(SET) → persist needs_escalation →
@@ -1157,8 +1166,19 @@ class DelegationController:
             #   dispatch-failure: record_dispatch_failure + update_parked_request(None) +
             #     completed journal + audit + registry.discard +
             #     _mark_execution_unknown_and_cleanup → sentinel "dispatch_failed"
-            decision_action = resolution.payload.get("resolution_action", "approve")
-            response_payload = resolution.payload.get("response_payload", {})
+            #
+            # Wire-shape contract (spec §1665, §1699): resolution.payload IS the
+            # bare App Server payload — pass it verbatim to session.respond. The
+            # operator action is carried separately on resolution.action (see
+            # DecisionResolution docstring); recovery-from-payload-shape is unsafe
+            # because approve × RUI with empty answers is indistinguishable from
+            # deny × RUI under the wire shape ({"answers": {}}).
+            response_payload = resolution.payload
+            assert resolution.action is not None, (
+                "operator-decide branch requires DecisionResolution.action; "
+                f"got is_timeout={resolution.is_timeout!r}, payload={resolution.payload!r}"
+            )
+            decision_action: Literal["approve", "deny"] = resolution.action
             self._job_store.update_status_and_promotion(
                 job_id, status="running", promotion_state=None
             )
@@ -2546,7 +2566,17 @@ class DelegationController:
             answers=answers,
             request=request,
         )
-        resolution = DecisionResolution(payload=payload, kind=request.kind)
+        # `payload` is the bare App Server payload (e.g., {"decision":"accept"}).
+        # `action` carries the operator decision verb so the worker resume path
+        # can pass it to record_response_dispatch / record_dispatch_failure /
+        # OperationJournalEntry.decision without inferring it from payload
+        # structure (which is ambiguous: approve × RUI with empty `answers`
+        # produces {"answers": {}} indistinguishable from deny × RUI).
+        resolution = DecisionResolution(
+            payload=payload,
+            kind=request.kind,
+            action=decision,
+        )
 
         # Step 2: atomic CAS awaiting → reserved. None means another caller
         # (or the timeout timer) already claimed the slot.

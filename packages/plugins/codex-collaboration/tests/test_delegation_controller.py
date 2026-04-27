@@ -1815,25 +1815,11 @@ def test_decide_approve_can_reescalate_with_new_pending_request(tmp_path: Path) 
         agent_message="Need another escalation.",
         notifications=(),
     )
-    # Pre-seed the PSR record for rid=99. The worker handler's parkable-
-    # capture branch at delegation_controller.py:1029-1031 only creates
-    # the FIRST captured request's PSR record per turn (the
-    # `if captured_request is None` gate); subsequent re-park requests
-    # register in the resolution registry but skip the PSR.create.
-    # poll()'s _project_pending_escalation requires a PSR record to project,
-    # so without pre-seeding the rid=99 PSR, the projection returns None
-    # even though the registry shows rid=99 in 'awaiting'. Pre-seeding
-    # mirrors what production worker code WOULD write if its re-park
-    # gating were lifted — that lifting is out of Task 18 scope per W16
-    # (do not modify _execute_live_turn body). See Round-6 addendum.
-    from server.approval_router import parse_pending_server_request
-
-    parsed_99 = parse_pending_server_request(
-        _request_user_input_request(request_id=99, item_id="item-2"),
-        runtime_id="rt-1",
-        collaboration_id="collab-1",
-    )
-    prs.create(parsed_99)
+    # Production worker now handles re-park PSR.create unconditionally per
+    # Task 18 closeout fix: the parkable-capture branch at
+    # delegation_controller.py:1025-1037 calls _pending_request_store.create
+    # for every parkable server-request in the turn, not just the first. No
+    # test-side pre-seeding required.
 
     result = controller.decide(
         job_id="job-1",
@@ -2471,19 +2457,8 @@ def test_decide_rejects_stale_request_id_after_reescalation(tmp_path: Path) -> N
         agent_message="Need another escalation.",
         notifications=(),
     )
-    # Pre-seed the PSR record for rid=99 because the worker's parkable-
-    # capture branch at delegation_controller.py:1029-1031 only creates
-    # the FIRST captured request's PSR per turn (the
-    # `if captured_request is None` gate). poll()'s projection requires a
-    # PSR record. Out-of-Task-18-scope per W16. See Round-6 addendum.
-    from server.approval_router import parse_pending_server_request
-
-    parsed_99 = parse_pending_server_request(
-        _request_user_input_request(request_id=99, item_id="item-2"),
-        runtime_id="rt-1",
-        collaboration_id="collab-1",
-    )
-    prs.create(parsed_99)
+    # Production worker now creates a PSR record per parkable capture
+    # unconditionally per Task 18 closeout fix; no test-side pre-seed needed.
 
     approve_result = controller.decide(
         job_id="job-1",

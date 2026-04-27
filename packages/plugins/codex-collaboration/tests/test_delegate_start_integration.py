@@ -1124,18 +1124,8 @@ def test_decide_reescalation_uses_pending_escalation_key(tmp_path: Path) -> None
         agent_message="Need another approval.",
         notifications=(),
     )
-    # Pre-seed the PSR record for rid=99: the worker's parkable-capture
-    # branch at delegation_controller.py:1029-1031 only creates the FIRST
-    # captured request's PSR per turn. Out-of-Task-18-scope per W16. See
-    # Round-6 addendum.
-    from server.approval_router import parse_pending_server_request
-
-    parsed_99 = parse_pending_server_request(
-        rid_99_msg,
-        runtime_id=start_payload["job"]["runtime_id"],
-        collaboration_id=start_payload["job"]["collaboration_id"],
-    )
-    _prs.create(parsed_99)
+    # Production worker now creates a PSR record per parkable capture
+    # unconditionally per Task 18 closeout fix; no test-side pre-seed needed.
 
     # Extract request_id from the start escalation payload.
     # After projection, this comes from pending_escalation (not pending_request).

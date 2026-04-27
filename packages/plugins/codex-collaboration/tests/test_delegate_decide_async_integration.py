@@ -37,6 +37,7 @@ from server.resolution_registry import DecisionResolution
 from tests.test_delegation_controller import (
     _build_controller,
     _command_approval_request,
+    _request_user_input_request,
 )
 
 
@@ -60,6 +61,24 @@ def _seed_parked_command_approval(
     )
     control_plane._next_session_requests = [_command_approval_request()]
     start_result = controller.start(repo_root=repo_root, objective="Fix it")
+    assert isinstance(start_result, DelegationEscalation)
+    return controller, control_plane, repo_root
+
+
+def _seed_parked_request_user_input(
+    tmp_path: Path,
+) -> tuple[DelegationController, Any, Path]:
+    """Drive controller.start() to the Parked state on a request_user_input
+    request (rid=55) and return (controller, control_plane, repo_root). The
+    worker is blocked in `registry.wait()`.
+    """
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    controller, control_plane, _wm, _js, _ls, _j, _r, _prs = _build_controller(
+        tmp_path
+    )
+    control_plane._next_session_requests = [_request_user_input_request()]
+    start_result = controller.start(repo_root=repo_root, objective="Ask the user")
     assert isinstance(start_result, DelegationEscalation)
     return controller, control_plane, repo_root
 
@@ -474,9 +493,13 @@ def test_decide_audit_event_post_commit_non_gating(
     assert isinstance(result, DelegationDecisionResult)
     assert result.decision_accepted is True
 
-    # (b) audit warning logged.
+    # (b) audit warning logged. Use getMessage() to preserve %-arg formatting
+    # and substring-match the exact decide-side warning rather than the loose
+    # "audit" substring (which would match unrelated audit-mentioning logs).
     audit_warnings = [
-        rec for rec in caplog.records if "audit" in rec.message.lower()
+        rec
+        for rec in caplog.records
+        if "audit emission failed post-commit" in rec.getMessage()
     ]
     assert audit_warnings, "expected audit warning in logs"
 
@@ -509,9 +532,128 @@ def test_decide_audit_event_post_commit_non_gating(
     this_test_worker.join(timeout=10.0)
     assert not this_test_worker.is_alive(), "worker thread did not drain"
 
-    assert any(rid == "42" for rid, _ in respond_calls), (
+    rid_42_calls = [(rid, payload) for rid, payload in respond_calls if rid == "42"]
+    assert rid_42_calls, (
         "worker did not dispatch respond — commit_signal failed to wake the "
         "worker (audit non-gating evidence missing)"
+    )
+    # L4 producer-consumer wire-shape contract (spec §1665, §1699): the worker
+    # MUST dispatch the bare App Server payload (`{"decision": "accept"}` for
+    # approve × command_approval), NOT a wrapper shape. Pinned end-to-end here
+    # to prevent regression to the old `.get("response_payload", {})` reader
+    # (which returned `{}` and silently broke the contract).
+    _, dispatched_payload = rid_42_calls[-1]
+    assert dispatched_payload == {"decision": "accept"}, (
+        "L4 wire-shape regression: expected worker to dispatch the bare App "
+        f"Server payload {{'decision': 'accept'}}, got {dispatched_payload!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test 7b — L4 producer-consumer wire-shape contract (Path 4 regression).
+#
+# Pins the end-to-end shape that `decide(...)` produces and the worker
+# dispatches via `session.respond(...)`. Covers the 3 distinct wire shapes
+# required by the L4 6-row table:
+#   approve × command_approval → {"decision": "accept"}
+#   deny    × command_approval → {"decision": "decline"}
+#   approve × request_user_input (with answers) → {"answers": {<qid>: {"answers": [...]}}}
+#
+# The bug this regression catches: the worker resume path previously read
+# `resolution.payload.get("response_payload", {})`, which returned `{}` for
+# the new bare-App-Server-payload shape, dispatching the wrong payload to
+# the App Server. spec-compliance review verified the producer (helper
+# output matches the 6-row table) but missed the consumer side; this test
+# pins both ends end-to-end.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "kind,decision,answers,rid,expected_payload",
+    [
+        ("command_approval", "approve", None, "42", {"decision": "accept"}),
+        ("command_approval", "deny", None, "42", {"decision": "decline"}),
+        (
+            "request_user_input",
+            "approve",
+            {"q1": ("yes",)},
+            "55",
+            {"answers": {"q1": {"answers": ["yes"]}}},
+        ),
+    ],
+    ids=[
+        "approve-command_approval-accept",
+        "deny-command_approval-decline",
+        "approve-request_user_input-answers",
+    ],
+)
+def test_decide_worker_dispatches_l4_payload_end_to_end(
+    tmp_path: Path,
+    kind: str,
+    decision: str,
+    answers: dict[str, tuple[str, ...]] | None,
+    rid: str,
+    expected_payload: dict[str, Any],
+) -> None:
+    """L4 wire-shape regression: assert the worker dispatches `session.respond`
+    with the EXACT bare App Server payload — no wrapper, no shape mutation.
+
+    This is the consumer-side complement to
+    test_build_response_payload_per_kind_decision (which tests the producer
+    helper in isolation). End-to-end here means: real `decide()` → real
+    `DecisionResolution` → real `commit_signal` → real worker resume path
+    → captured `session.respond(...)` invocation.
+    """
+    if kind == "command_approval":
+        controller, control_plane, _repo = _seed_parked_command_approval(tmp_path)
+    else:
+        controller, control_plane, _repo = _seed_parked_request_user_input(tmp_path)
+
+    session = control_plane._sessions[0]
+    session._server_requests = []
+    session._turn_result = TurnExecutionResult(
+        turn_id="turn-2",
+        status="completed",
+        agent_message="done",
+        notifications=(),
+    )
+
+    respond_calls: list[tuple[str, dict[str, Any]]] = []
+
+    def respond_spy(request_id: str, payload: dict[str, Any]) -> None:
+        respond_calls.append((request_id, payload))
+
+    session.respond = respond_spy
+
+    result = controller.decide(
+        job_id="job-1",
+        request_id=rid,
+        decision=decision,
+        answers=answers,
+    )
+    assert isinstance(result, DelegationDecisionResult)
+    assert result.decision_accepted is True
+
+    # Drain the worker so respond_spy captures.
+    worker_threads = [
+        t for t in threading.enumerate() if t.name == "delegation-worker-job-1"
+    ]
+    assert worker_threads, "worker thread missing"
+    this_test_worker = max(worker_threads, key=lambda t: t.ident or 0)
+    this_test_worker.join(timeout=10.0)
+    assert not this_test_worker.is_alive(), "worker thread did not drain"
+
+    matching = [
+        (call_rid, payload) for call_rid, payload in respond_calls if call_rid == rid
+    ]
+    assert matching, (
+        f"worker did not dispatch respond for rid={rid!r}; got {respond_calls!r}"
+    )
+    _, dispatched_payload = matching[-1]
+    assert dispatched_payload == expected_payload, (
+        f"L4 wire-shape contract: expected worker to dispatch "
+        f"{expected_payload!r} for {decision!r} × {kind!r}, got "
+        f"{dispatched_payload!r}"
     )
 
 

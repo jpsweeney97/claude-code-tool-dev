@@ -33,11 +33,32 @@ logger = logging.getLogger(__name__)
 class DecisionResolution:
     """Resolution delivered to the worker by decide() or by the registry's
     timeout timer.
+
+    `payload` is the bare App Server response payload — the worker dispatches
+    it verbatim through `session.respond(rid, payload)` with NO further
+    shaping or wrapping (spec §1665, §1699). The 6-row binding contract from
+    spec §Response payload mapping at design.md:1667-1672 enumerates the
+    valid shapes:
+
+        approve × command_approval / file_change → {"decision": "accept"}
+        approve × request_user_input             → {"answers": {<qid>: {"answers": [...]}}}
+        deny    × command_approval / file_change → {"decision": "decline"}
+        deny    × request_user_input             → {"answers": {}}
+        timeout × command_approval / file_change → {"decision": "cancel"} (timer-built; is_timeout=True)
+        timeout × request_user_input             → {} (interrupt path; is_timeout=True)
+
+    `action` carries the operator decision verb (`"approve"` or `"deny"`)
+    for downstream worker recordkeeping (`record_response_dispatch.action`,
+    `record_dispatch_failure.action`, `OperationJournalEntry.decision`).
+    `action is None` for non-operator origins (timeouts and timer-driven
+    cancellations); the worker MUST NOT reach the operator-decide branch
+    for those cases (the `is_timeout=True` branch handles them upstream).
     """
 
     payload: dict[str, Any]
     kind: EscalatableRequestKind
     is_timeout: bool = False
+    action: Literal["approve", "deny"] | None = None
 
 
 @dataclass(frozen=True)
