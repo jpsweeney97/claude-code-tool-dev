@@ -945,10 +945,19 @@ class DelegationController:
                 )
                 wire_id = message.get("id")
                 wire_method = message.get("method", "")
+                # Preserve the raw wire id (int|str) for transport when present;
+                # synthetic uuid fallback is used only when the App Server omitted
+                # the id entirely (out-of-spec but defensive). raw_request_id
+                # remains None for the synthetic case so wire_request_id falls
+                # back to the str-form request_id.
+                raw_wire_id: int | str | None = (
+                    wire_id if isinstance(wire_id, (int, str)) else None
+                )
+                minimal_request_id = (
+                    str(wire_id) if wire_id is not None else self._uuid_factory()
+                )
                 minimal = PendingServerRequest(
-                    request_id=str(wire_id)
-                    if wire_id is not None
-                    else self._uuid_factory(),
+                    request_id=minimal_request_id,
                     runtime_id=runtime_id,
                     collaboration_id=collaboration_id,
                     codex_thread_id="",
@@ -956,6 +965,7 @@ class DelegationController:
                     item_id="",
                     kind="unknown",
                     requested_scope={"raw_method": wire_method},
+                    raw_request_id=raw_wire_id,
                 )
                 if captured_request is None:
                     self._pending_request_store.create(minimal)
@@ -1201,7 +1211,10 @@ class DelegationController:
             )
             dispatch_at = self._journal.timestamp()
             try:
-                entry.session.respond(parsed.request_id, response_payload)
+                # wire_request_id preserves the original JSON-RPC id type
+                # (int or str) — the App Server's id equality check requires
+                # the response id match the request id type-exactly.
+                entry.session.respond(parsed.wire_request_id, response_payload)
             except Exception as respond_exc:
                 # Dispatch-failure branch.
                 # Cleanup obligations (spec §invariant table row 2 — dispatch_failed):
@@ -1520,7 +1533,8 @@ class DelegationController:
             # Cancel-capable: respond({"decision": "cancel"}).
             dispatch_at = self._journal.timestamp()
             try:
-                entry.session.respond(request.request_id, {"decision": "cancel"})
+                # wire_request_id: preserve original JSON-RPC id type (int|str).
+                entry.session.respond(request.wire_request_id, {"decision": "cancel"})
             except Exception as respond_exc:
                 # Cleanup obligations (spec §invariant table row 4 —
                 # timeout_cancel_dispatch_failed):

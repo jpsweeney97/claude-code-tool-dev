@@ -235,6 +235,13 @@ class PendingRequestStore:
                 op = record.get("op")
                 if op == "create":
                     try:
+                        raw_wire = record.get("raw_request_id")
+                        # Legacy records (pre-raw_request_id) replay with None;
+                        # wire_request_id property falls back to request_id.
+                        # Reject malformed (non-int/str) values defensively.
+                        raw_request_id: int | str | None = (
+                            raw_wire if isinstance(raw_wire, (int, str)) else None
+                        )
                         req = PendingServerRequest(
                             request_id=record["request_id"],
                             runtime_id=record["runtime_id"],
@@ -259,6 +266,7 @@ class PendingRequestStore:
                             protocol_echo_observed_at=record.get("protocol_echo_observed_at"),
                             timed_out=record.get("timed_out", False),
                             internal_abort_reason=record.get("internal_abort_reason"),
+                            raw_request_id=raw_request_id,
                         )
                     except (KeyError, TypeError):
                         continue

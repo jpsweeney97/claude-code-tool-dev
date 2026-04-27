@@ -317,6 +317,17 @@ class PendingServerRequest:
     protocol_echo_observed_at: str | None = None
     timed_out: bool = False
     internal_abort_reason: str | None = None
+    # Original JSON-RPC wire id (int or str per RequestId schema). The
+    # plugin stores ``request_id`` in str form for store/MCP correlation,
+    # but ``session.respond()`` MUST echo the wire type to satisfy the
+    # App Server's id equality check. None on legacy records — see
+    # ``wire_request_id`` property for the fallback.
+    raw_request_id: int | str | None = None
+
+    @property
+    def wire_request_id(self) -> int | str:
+        """JSON-RPC wire id for transport. Falls back to str-form ``request_id`` on legacy records."""
+        return self.raw_request_id if self.raw_request_id is not None else self.request_id
 
 
 @dataclass(frozen=True)

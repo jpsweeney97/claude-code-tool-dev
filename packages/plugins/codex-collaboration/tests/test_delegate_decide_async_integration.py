@@ -532,7 +532,13 @@ def test_decide_audit_event_post_commit_non_gating(
     this_test_worker.join(timeout=10.0)
     assert not this_test_worker.is_alive(), "worker thread did not drain"
 
-    rid_42_calls = [(rid, payload) for rid, payload in respond_calls if rid == "42"]
+    # Match by value (str(...) == "42") — wire id preservation means the
+    # captured rid is int 42 (not str "42"); the worker-dispatched signal
+    # is the same regardless of wire type. Wire-type fidelity is asserted
+    # in test_jsonrpc_wire_id_preservation.
+    rid_42_calls = [
+        (rid, payload) for rid, payload in respond_calls if str(rid) == "42"
+    ]
     assert rid_42_calls, (
         "worker did not dispatch respond — commit_signal failed to wake the "
         "worker (audit non-gating evidence missing)"
@@ -643,8 +649,14 @@ def test_decide_worker_dispatches_l4_payload_end_to_end(
     this_test_worker.join(timeout=10.0)
     assert not this_test_worker.is_alive(), "worker thread did not drain"
 
+    # Match by value (str(call_rid) == rid) — wire id preservation may
+    # leave call_rid as int (if the fixture used an int id); this filter
+    # is shape-focused, not type-focused. Wire type is covered by
+    # test_jsonrpc_wire_id_preservation.
     matching = [
-        (call_rid, payload) for call_rid, payload in respond_calls if call_rid == rid
+        (call_rid, payload)
+        for call_rid, payload in respond_calls
+        if str(call_rid) == rid
     ]
     assert matching, (
         f"worker did not dispatch respond for rid={rid!r}; got {respond_calls!r}"
@@ -811,3 +823,68 @@ def test_build_response_payload_per_kind_decision(
     )
 
     assert payload == expected_payload
+
+
+# ---------------------------------------------------------------------------
+# Test 11 — JSON-RPC wire id preservation through worker dispatch.
+#
+# Regression: the parser at approval_router.py normalizes wire id to str for
+# store/MCP correlation, but session.respond() MUST echo the original wire
+# type (int|str) per JSON-RPC 2.0 + the App Server's id equality check.
+# The fix routes the worker through PendingServerRequest.wire_request_id,
+# which surfaces the preserved raw id (or falls back to str-form on legacy
+# records). This test pins the int-id round-trip end-to-end.
+# ---------------------------------------------------------------------------
+
+
+def test_worker_respond_preserves_integer_wire_id(tmp_path: Path) -> None:
+    """An integer JSON-RPC request id must arrive at session.respond as int,
+    not str. The default `_command_approval_request()` uses int 42, so a
+    happy approve flow exercises this end-to-end.
+    """
+    controller, control_plane, _repo = _seed_parked_command_approval(tmp_path)
+
+    session = control_plane._sessions[0]
+    session._server_requests = []
+    session._turn_result = TurnExecutionResult(
+        turn_id="turn-2",
+        status="completed",
+        agent_message="done",
+        notifications=(),
+    )
+
+    respond_calls: list[tuple[int | str, dict[str, Any]]] = []
+
+    def respond_spy(request_id: int | str, payload: dict[str, Any]) -> None:
+        respond_calls.append((request_id, payload))
+
+    session.respond = respond_spy
+
+    result = controller.decide(
+        job_id="job-1",
+        request_id="42",
+        decision="approve",
+    )
+    assert isinstance(result, DelegationDecisionResult)
+    assert result.decision_accepted is True
+
+    # Drain the worker.
+    worker_threads = [
+        t for t in threading.enumerate() if t.name == "delegation-worker-job-1"
+    ]
+    this_test_worker = max(worker_threads, key=lambda t: t.ident or 0)
+    this_test_worker.join(timeout=10.0)
+    assert not this_test_worker.is_alive()
+
+    # The captured rid must be int 42 — NOT str "42". Type-strict assertion
+    # (== preserves type fidelity in Python: 42 == "42" is False).
+    assert respond_calls, f"worker did not dispatch respond; got {respond_calls!r}"
+    captured_rid, _ = respond_calls[-1]
+    assert captured_rid == 42, (
+        f"wire id preservation regression: expected int 42, got "
+        f"{captured_rid!r} (type={type(captured_rid).__name__})"
+    )
+    assert isinstance(captured_rid, int) and not isinstance(captured_rid, bool), (
+        f"wire id preservation regression: expected int type, got "
+        f"{type(captured_rid).__name__}"
+    )

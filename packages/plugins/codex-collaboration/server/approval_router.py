@@ -42,7 +42,8 @@ def parse_pending_server_request(
 ) -> PendingServerRequest:
     """Project a raw App Server request into a plugin-owned request record."""
 
-    request_id = _require_request_id(message, "id")
+    raw_request_id = _extract_wire_request_id(message, "id")
+    request_id = str(raw_request_id)
     method = _require_string(message, "method")
     params = message.get("params")
     if not isinstance(params, dict):
@@ -68,6 +69,7 @@ def parse_pending_server_request(
         kind=kind,
         requested_scope=requested_scope,
         available_decisions=available_decisions,
+        raw_request_id=raw_request_id,
     )
 
 
@@ -80,22 +82,22 @@ def _require_string(payload: dict[str, Any], key: str) -> str:
     return value
 
 
-def _require_request_id(payload: dict[str, Any], key: str) -> str:
-    """Extract a JSON-RPC request ID, normalizing to string.
+def _extract_wire_request_id(payload: dict[str, Any], key: str) -> int | str:
+    """Extract a JSON-RPC request ID preserving its wire type.
 
     The wire ``RequestId`` is ``anyOf [string, integer]`` per the App
-    Server schema (``ServerRequest.json:1475``). The plugin normalizes
-    to string at the parse boundary (D9). The stored ``request_id`` is
-    the wire request id in string form — used for ``serverRequest/resolved``
-    correlation and D6 diagnostics. The ``respond()`` transport layer
-    preserves the original wire type for the response.
+    Server schema (``ServerRequest.json:1475``). The caller stores the
+    str form in ``PendingServerRequest.request_id`` for store/MCP
+    correlation and D6 diagnostics, and stores this raw value in
+    ``raw_request_id`` for transport so ``session.respond()`` can echo
+    the original wire type — required for the App Server's id equality.
     """
     value = payload.get(key)
     if not isinstance(value, (str, int)):
         raise RuntimeError(
             f"Server request parse failed: missing {key}. Got: {value!r:.100}"
         )
-    return str(value)
+    return value
 
 
 def _resolve_available_decisions(
