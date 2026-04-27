@@ -239,6 +239,19 @@ def test_happy_path_decide_approve_success(
 
     lineage_store.update_status = _counting_lineage_update  # type: ignore[assignment]
 
+    _terminal_transition_count = 0
+    _original_update_status = job_store.update_status_and_promotion
+
+    def _counting_job_transition(
+        job_id: str, *, status: str, promotion_state: str | None = None
+    ) -> None:
+        nonlocal _terminal_transition_count
+        if status == "completed":
+            _terminal_transition_count += 1
+        _original_update_status(job_id, status=status, promotion_state=promotion_state)
+
+    job_store.update_status_and_promotion = _counting_job_transition  # type: ignore[assignment]
+
     result = controller._execute_live_turn(  # type: ignore[attr-defined]
         job_id="job-h-1",
         collaboration_id="collab-h-1",
@@ -269,6 +282,10 @@ def test_happy_path_decide_approve_success(
     assert _lineage_update_count == 1, (
         f"Expected exactly 1 lineage update_status() call but got "
         f"{_lineage_update_count}"
+    )
+    assert _terminal_transition_count == 1, (
+        f"Expected exactly 1 terminal job-store transition to 'completed' but got "
+        f"{_terminal_transition_count}"
     )
 
     # Lineage completed
@@ -378,6 +395,19 @@ def test_timeout_cancel_dispatch_succeeded_for_file_change(
 
     lineage_store.update_status = _counting_lineage_update  # type: ignore[assignment]
 
+    _terminal_transition_count = 0
+    _original_update_status = job_store.update_status_and_promotion
+
+    def _counting_job_transition(
+        job_id: str, *, status: str, promotion_state: str | None = None
+    ) -> None:
+        nonlocal _terminal_transition_count
+        if status == "canceled":
+            _terminal_transition_count += 1
+        _original_update_status(job_id, status=status, promotion_state=promotion_state)
+
+    job_store.update_status_and_promotion = _counting_job_transition  # type: ignore[assignment]
+
     result = controller._execute_live_turn(  # type: ignore[attr-defined]
         job_id="job-h-1",
         collaboration_id="collab-h-1",
@@ -408,6 +438,10 @@ def test_timeout_cancel_dispatch_succeeded_for_file_change(
     assert _lineage_update_count == 1, (
         f"Expected exactly 1 lineage update_status() call but got "
         f"{_lineage_update_count}"
+    )
+    assert _terminal_transition_count == 1, (
+        f"Expected exactly 1 terminal job-store transition to 'canceled' but got "
+        f"{_terminal_transition_count}"
     )
 
     # Lineage completed
