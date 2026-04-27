@@ -2310,8 +2310,9 @@ class DelegationController:
         """Discard a delegation job without promoting.
 
         Allowed when promotion_state in (pending, prechecks_failed), or when
-        status in (failed, unknown) and promotion_state is None (pre-mutation).
-        Post-mutation states (applied, rollback_needed) are never discardable.
+        status in (failed, unknown, canceled) and promotion_state is None
+        (pre-mutation). Post-mutation states (applied, rollback_needed) are
+        never discardable.
         """
         job = self._job_store.get(job_id)
         if job is None:
@@ -2322,7 +2323,8 @@ class DelegationController:
                 job_id=job_id,
             )
         _discardable = job.promotion_state in ("pending", "prechecks_failed") or (
-            job.status in ("failed", "unknown") and job.promotion_state is None
+            job.status in ("failed", "unknown", "canceled")
+            and job.promotion_state is None
         )
         if not _discardable:
             return DiscardRejectedResponse(
