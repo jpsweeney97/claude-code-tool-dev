@@ -907,4 +907,3 @@ EOF
 **Phase D complete.** The registry is a standalone unit with full cross-thread coordination semantics. Phase E covers serialization + projection helper updates — cheaper but foundational for the public-API rewrites in Phase F.
 
 ---
-

@@ -724,4 +724,3 @@ EOF
 **Phase A complete.** All new types, literals, and exception classes are in place. At this point the tree compiles, prior tests still pass (`uv run --package codex-collaboration pytest` should be green), and no behavior has changed. Phase B begins with the store-layer field additions and mutators.
 
 ---
-

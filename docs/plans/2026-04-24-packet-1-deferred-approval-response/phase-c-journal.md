@@ -421,4 +421,3 @@ EOF
 **Phase C complete.** Journal schema now admits `decision=None` on `intent`/`dispatched` phases and round-trips `completion_origin`; the recovery read-side tolerates orphaned intent with null decision. Store layer (Phase B) + journal (Phase C) together can represent the full Packet 1 request/job/operation state. Phase D follows with the `ResolutionRegistry` coordination primitive.
 
 ---
-

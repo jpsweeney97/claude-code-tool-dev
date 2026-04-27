@@ -349,7 +349,7 @@ Returned by `codex.delegate.poll` when the requested job cannot be found.
 
 ### Pending Escalation View
 
-Caller-visible projection returned by `codex.delegate.start`, `codex.delegate.poll`, and `codex.delegate.decide` when a job is awaiting caller action. Raw Codex IDs (`codex_thread_id`, `codex_turn_id`, `item_id`) remain internal to the control plane per [§Logical Data Model](#logical-data-model). The controller projects `PendingServerRequest` to this view before constructing any response type.
+Caller-visible projection returned by `codex.delegate.start` and `codex.delegate.poll` when a job is awaiting caller action. Raw Codex IDs (`codex_thread_id`, `codex_turn_id`, `item_id`) remain internal to the control plane per [§Logical Data Model](#logical-data-model). The controller projects `PendingServerRequest` to this view before constructing any response type. `codex.delegate.decide` does NOT return `PendingEscalationView` post-Packet 1 — it returns `DelegationDecisionResult` (accepted-for-dispatch); callers observe the next escalation via `poll()` (see §Decide).
 
 | Field | Type | Description |
 |---|---|---|

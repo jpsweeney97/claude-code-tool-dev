@@ -719,4 +719,3 @@ EOF
 **Phase H complete.** Packet 1 implementation is done.
 
 **Final verification is plan-wide, not phase-local.** After the Task 22 commit lands, run the full verification checklist in the parent manifest — see [§Final Verification in the manifest](../2026-04-24-packet-1-deferred-approval-response.md#final-verification). This is REQUIRED — Phase H completion alone does NOT satisfy plan closure. The checklist covers: full pytest suite, mypy type check, structural invariant counts (6 sentinel raise-sites, 4 terminal mapping rows, ≥14 canceled propagation touch points), dialogue-controller regression check, and integration smoke.
-

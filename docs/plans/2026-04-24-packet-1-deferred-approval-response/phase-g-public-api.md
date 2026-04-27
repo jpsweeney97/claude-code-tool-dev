@@ -577,4 +577,3 @@ EOF
 **Phase H entering carry-forward set:** F16.1 (2 unchanged) + RT.1 (unchanged) + TT.1 (newly promoted; `_FakeControlPlane` Pyright issues at multiple `tests/test_delegation_controller.py` instantiation sites) + G18.1 (newly introduced; 6 finalizer-dependent tests). F16.2 (1 retention; lineage marker) closes when G18.1 lands.
 
 ---
-

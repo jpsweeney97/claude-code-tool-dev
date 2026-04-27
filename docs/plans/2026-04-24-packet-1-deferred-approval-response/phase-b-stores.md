@@ -1148,4 +1148,3 @@ EOF
 **Phase B complete.** `PendingServerRequest` now carries all 11 new fields; its 3 success-path and 3 atomic failure-path mutators round-trip through the JSONL replay harness. `DelegationJob.parked_request_id` is wired and `DelegationJobStore.update_parked_request` is in place. The store layer can now observe — durably and atomically — every state transition Packet 1 introduces, including the critical atomicity guarantees on the failure-path mutators that the worker will lean on. Phase C follows with the journal validator relaxation for `decision=None`, after which Phase D introduces the cross-thread `ResolutionRegistry`.
 
 ---
-

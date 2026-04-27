@@ -1186,4 +1186,3 @@ EOF
 **Phase F complete.** The worker runs on its own thread and terminalizes through all 6 sentinel branches. Phase G wires the public APIs (start / decide) into the new model.
 
 ---
-
