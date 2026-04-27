@@ -561,3 +561,22 @@ Authored against HEAD `844e6f97` after Task 18 Phase G CLOSE. Spec §`_finalize_
 - Whether L8's caveat (single F16.1 test reclassified BLOCKED) should be hardened (prefer both pass) or softened (allow reclassify without BLOCKED if Task 20/21 dependency is concrete).
 
 End of Round 1.
+
+### Round 7 (2026-04-27 — post-implementation closeout)
+
+Implementation dispatched and completed at feat `1f97b333`. Suite: 1040 passed, 0 skipped (pre-Task-19: 1020 passed, 8 skipped). Census: 1020 + 12 new (8 L11 + 2 parametrized T5 sub-cases + 3 L9 = 12 collected) + 8 unskipped (6 G18.1 + 2 F16.1) = 1040.
+
+Closeout review (spec compliance + code quality) found 0 Critical, 4 required fixes:
+
+| # | Fix | Severity | Location | Resolution |
+|---|---|---|---|---|
+| F1 | F16.1 `if outcomes_path.exists():` silently passes when no outcome file written; side-effect uniqueness assertions missing (L8.2 binding form) | Required | `test_handler_branches_integration.py` both F16.1 tests | Changed to `assert outcomes_path.exists()`; added counting wrappers for `session.close()`, `registry.release()`, `lineage_store.update_status()`. Pre-parsed JSON to eliminate triple-parse. |
+| F2 | L11-T7b `get_call_count >= 1` trivially true after derivation read; no discriminating power | Required | `test_finalize_turn_terminal_guard.py:533` | Tightened to `== 2` (derivation + hydration re-read). |
+| F3 | Missing bounded-poll success assertion in deny-emits-terminal-outcome | Required | `test_delegation_controller.py:2002-2008` | Added `assert final_job.status == "completed"` after poll loop. |
+| F4 | Triple JSON parsing per outcome line | Required | `test_handler_branches_integration.py:243-247, :333-337` | Pre-parse once, filter on parsed list. |
+
+All 4 fixes applied in closeout-fix `4409b23c`. Suite unchanged at 1040/0/0.
+
+**Implementation notes (from implementer report):** All G18.1 tests required `session.respond` stubbing — `_FakeSession` and `_ConfigurableStubSession` default `respond=None` causes `TypeError` when the worker dispatches `session.respond(rid, payload)`. Deny audit assertion updated from `action="approve"` to `action="deny"` to match Task 18's L7a incidental fix. Both observations are environment-specific to the test fakes, not spec or code defects.
+
+All locks (L1-L11) and watchpoints (W1-W12) verified. Phase H Task 19 COMPLETE.

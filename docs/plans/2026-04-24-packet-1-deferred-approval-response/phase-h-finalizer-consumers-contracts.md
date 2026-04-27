@@ -10,8 +10,12 @@
 
 ## Task 19: `_finalize_turn` Captured-Request Terminal Guard (one-snapshot rule)
 
+**Status: COMPLETE.** Feat `1f97b333` (2026-04-27), fix `4409b23c` (2026-04-27), docs (this commit). Suite: 1040 passed, 0 skipped. G18.1 CLOSED, F16.1 CLOSED, F16.2 lineage CLOSED.
+
+**Stale line anchors:** The line numbers at `:14` (`delegation_controller.py:1439-1533`) and `:121` (`delegation_controller.py:1439-1533`) below are STALE — they cite pre-Task-17/18 positions. The binding line anchors are in `task-19-convergence-map.md` Live Anchors table, verified at HEAD `1f97b333`. Do not copy anchors from this section.
+
 **Files:**
-- Modify: `packages/plugins/codex-collaboration/server/delegation_controller.py:1439-1533` (rewrite `_finalize_turn`)
+- Modify: `packages/plugins/codex-collaboration/server/delegation_controller.py:1439-1533` (rewrite `_finalize_turn`) **(STALE — live anchor: `:2340-2445` pre-rewrite)**
 - Test: `packages/plugins/codex-collaboration/tests/test_finalize_turn_terminal_guard.py` (new)
 
 **Spec anchor:** §_finalize_turn Captured-Request Terminal Guard (lines ~1731-1835). This is the R14 one-snapshot rule focal point — the 6 tests in §Tests to add must map to test bodies here.
