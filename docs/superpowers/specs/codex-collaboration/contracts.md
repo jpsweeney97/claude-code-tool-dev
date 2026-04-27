@@ -327,8 +327,8 @@ Returned by `codex.delegate.decide` on success. Post-Packet 1 (T-20260423-02): `
 | Field | Type | Description |
 |---|---|---|
 | `decision_accepted` | boolean | Always `true` on success |
-| `job_id` | string | Job the decision was applied to |
-| `request_id` | string | Request that was resolved |
+| `job_id` | string | Job associated with the accepted decision |
+| `request_id` | string | Request whose decision was accepted for dispatch |
 
 **Accepted-for-dispatch, not applied.** The response indicates the plugin has committed the decision to the operation journal and signaled the worker to dispatch it. The plugin does NOT claim the App Server has applied the decision. Post-dispatch observations come through poll.
 
@@ -401,7 +401,7 @@ Present when a delegation job requires user attention (in-flight, completed awai
 | Field | Type | Description |
 |---|---|---|
 | `job_id` | string | Unique job identifier |
-| `status` | enum | Job runtime status: `queued`, `running`, `needs_escalation`, `completed`, `failed`, `canceled`, `unknown` |
+| `status` | enum | Job runtime status: `queued`, `running`, `needs_escalation`, `completed`, `failed`, `canceled`, `unknown`. See [DelegationJob.status](#delegationjob) for `canceled` definition and migration guidance. |
 | `promotion_state` | enum? | Promotion lifecycle state: `pending`, `prechecks_passed`, `prechecks_failed`, `applied`, `rollback_needed`, `verified`, `discarded`, `rolled_back`. Null for pre-completion jobs. Legacy/corrupt records may have `pending` on non-completed jobs (the skill's state router falls through to Tier 4 for these). |
 | `base_commit` | string | Git commit the delegation branched from |
 | `artifact_hash` | string? | SHA-256 of inspection artifacts. Null until first poll after completion materializes them. |
