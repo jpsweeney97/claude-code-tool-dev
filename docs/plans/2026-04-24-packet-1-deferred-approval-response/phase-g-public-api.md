@@ -541,3 +541,40 @@ EOF
 
 ---
 
+## Phase G closeout (Tasks 17 + 18 landed)
+
+> Detailed task narratives live in `carry-forward.md` under "From Phase G Task 17 + closeouts" and "From Phase G Task 18 + closeouts". This section is a compact pointer summary for plan-body readers.
+
+**Phase G CLOSES** with the Task 18 closeout-docs commit on `feature/delegate-deferred-approval-response`. Branch is 7 commits ahead of `main` post-closeout-docs (3 from Task 17: feat `8dd15971` + fix `dc90c1d9` + docs `c5829049`; 3 from Task 18: feat `2606fb03` + fix `b8e7f9ce` + docs `<this commit>`; plus 1 docs from earlier in the chain). Suite: 1020 passed / 8 skipped (6 G18.1 + 2 F16.1) / 0 failed in 123.70s.
+
+**Task 18 landed-code summary.**
+- **feat `2606fb03`:** `decide()` rewrite — validate → `_build_response_payload(decision, answers, request)` → `DecisionResolution(payload, kind, action=decision)` → `reserve()` → narrow-try journal-intent (with `abort_reservation` rollback per L7b) → `commit_signal()` BARE per L14 → audit (post-commit, non-gating, action=decision per L7a) → return `DelegationDecisionResult(decision_accepted=True, ...)`. New `_build_response_payload` helper at `:2634-2679` implements the 6-row binding contract per spec §1667-1672 (`decline` not `reject`; empty-fallback for deny on RUI). 18 acceptance tests (15 names; 18 sub-cases under parametrization) in new `tests/test_delegate_decide_async_integration.py`. L11 deletes 3 obsolete CDFE tests; L12 reclassifies 6 finalizer-dependent tests to G18.1. Constant rename `_TASK_18_DECIDE_SIGNAL_REASON` → `_TASK_19_FINALIZER_GUARD_REASON` in both test files.
+- **fix `b8e7f9ce` (Path 4):** worker payload dispatch contract correction (worker resume path read `resolution.payload.get("response_payload", {})` wrapper keys that don't exist in the new shape) + re-park PSR.create gate lift (`captured_request is None` gate at `:1029-1031` previously left re-parks registered in the resolution registry but absent from the PSR store, breaking `poll()` projection) + Round-7 regression test for the wire-shape contract end-to-end + CQ Minor #3 audit-log substring tightening. **W16 narrow adjudication:** authorized narrow fixes inside `_execute_live_turn` body for both correctness gaps; def signature unchanged; structural integrity of parkable-capture and resume sub-branches preserved.
+- **closeout-docs `<this commit>`:** `carry-forward.md` updates (G17.1 closed, Mode A fully retired, F16.2 lineage annotated, G18.1 introduced verbatim, TT.1 promoted, RT.1 unchanged); `task-18-convergence-map.md` Round-7 addendum with explicit supersession markers preserving Round-6's "out-of-Task-18 carry-forward observations" framing as historical record; `task-18-dispatch-packet.md` staged as historical artifact; this Phase-G closeout pointer.
+
+**Bucket B disposition (12 of 14 retentions).** 3 close (Mode A defer mechanism-only — production-path coverage post-Round-7 inline fix at `:1025-1037`) + 3 DELETE (obsolete CDFE per L11) + 6 RECLASSIFY to G18.1 (per L12; finalizer-dependent — Phase H Task 19 owner). Mode A row fully retires (6 of 6: 3 closed by Task 17 Bucket A + 3 closed by Task 18 post-Round-7).
+
+**F16.2 lineage annotation.** F16.2 stays Open via G18.1 lineage; closes when Task 19 lands the Captured-Request Terminal Guard rewrite.
+
+**Lock conformance summary (L1-L14 + W1-W18; full enumeration in carry-forward.md Task 18 closeout entry).** All 14 locks honored; W2 + W17 unchanged (DelegationEscalation construction sites preserved at `:833` W17-protected + `:2416` W2-protected, both UNCHANGED by Task 18). W16 narrow adjudication (Round-7) for the worker payload dispatch fix + re-park gate lift; def signature unchanged; structural integrity preserved.
+
+**Branch-matrix-with-test-coverage.** All 10 rows of the convergence map's branch matrix have direct test coverage in `tests/test_delegate_decide_async_integration.py` — happy paths (rows 1-3) covered by `test_decide_returns_3_field_result_on_success_*` + `test_build_response_payload_per_kind_decision`; CAS/journal/audit invariants (rows 4-6) covered by `test_decide_twice_*` + `test_decide_competing_reservation_*` + `test_decide_aborts_reservation_on_journal_intent_failure` + `test_decide_audit_event_post_commit_non_gating`; wire-shape contract (rows 7-8) covered by Round-7's `test_decide_worker_dispatches_l4_payload_end_to_end[3 sub-cases]`; audit-action correctness (rows 9-10) covered by `test_decide_audit_action_matches_decision_for_*`. Direct end-to-end coverage achieved.
+
+**Hang-verification (W5).** Full suite 1020p/8s/0f in 123.70s; 3-file order-independence smoke (`test_delegation_controller.py`, `test_delegate_start_integration.py`, `test_delegate_decide_async_integration.py`) passes both forward (124p/6s in 105.68s) and reverse (124p/6s in 105.51s) orderings with identical counts.
+
+**G18.1 record explicit.** 6 finalizer-dependent tests deferred to Phase H Task 19 with pre-authorized scope: renames at `:1881, :1927`, body rewrite spec for `:1525` (5-step protocol per the carry-forward.md G18.1 entry), L12 assertion-review notes for the remaining 3, constant `_TASK_19_FINALIZER_GUARD_REASON` deletion authorization in same commit. Full enumeration in carry-forward.md Open items §G18.1.
+
+**L4 Path A verification artifact.** Pinned-version Codex App Server v0.117.0 JSON Schema fixture at `packages/plugins/codex-collaboration/tests/fixtures/codex-app-server/0.117.0/ToolRequestUserInputResponse.json` defines the wire shape `{"answers": {<qid>: {"answers": [<string>...]}}}`. Ground-truth verification in `test_build_response_payload_per_kind_decision[request_user_input-approve-answers2-expected_payload2]` at `tests/test_delegate_decide_async_integration.py:612-669` (Path A option 3 — pinned-version integration test).
+
+**L7a incidental audit fix.** Audit `action=decision` fixes pre-existing hardcoded `action='approve'` bug at the relocated audit site (the old hardcoded value fired audit events with `action='approve'` for both approve AND deny because it sat BEFORE the deny/approve split). Documented as incidental to the required relocation per spec §1654.
+
+**Round-7 supersession notes.**
+- **Round-6 framed** the worker stale-wrapper-keys at `:1163-1164` (pre-fix lines) + the re-park PSR.create gate at `:1029-1031` as **out-of-Task-18 carry-forward observations** (deferred to Phase H disposition; mode A closure relied on test-side PSR.create pre-seed workarounds).
+- **Round-7 superseded** that disposition with inline fixes within Task 18 via narrow W16 adjudication. The fix preserves `_execute_live_turn`'s def signature (W16's original protection scope); body changes are bounded to resume-path payload reads (`:1160-1172`) + re-park gate lift (`:1025-1037`). W2 + W17 unchanged. Mode A row fully retires (the alternative — partial retirement implied by Round-6's "out of scope" framing — is **NOT** the final disposition).
+- **Verification evidence:** old wrapper-key reads = 0 (NEW permanent invariant); 1020 passed / 8 skipped (+3 from new parameterized regression); W3=6, W17=2, L6=0, old constant=0, new constant=8, decorators=6 unchanged.
+- **Round-6 history preserved verbatim** with explicit supersession markers per the convergence map's Restructure Record / addenda chain. The audit trail (Round-6 framing → Round-7 reclassification + fix → final disposition) IS the project record value.
+
+**Phase H entering carry-forward set:** F16.1 (2 unchanged) + RT.1 (unchanged) + TT.1 (newly promoted; `_FakeControlPlane` Pyright issues at multiple `tests/test_delegation_controller.py` instantiation sites) + G18.1 (newly introduced; 6 finalizer-dependent tests). F16.2 (1 retention; lineage marker) closes when G18.1 lands.
+
+---
+
