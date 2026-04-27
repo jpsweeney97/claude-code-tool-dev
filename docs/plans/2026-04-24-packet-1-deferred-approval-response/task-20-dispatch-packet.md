@@ -20,7 +20,8 @@ Read BEFORE writing any code. Pre-read guard: if a source contradicts the conver
 | # | Source | Path | What to read |
 |---|---|---|---|
 | 1 | **Convergence map** (binding) | `docs/plans/2026-04-24-packet-1-deferred-approval-response/task-20-convergence-map.md` | All locks L1-L9, watchpoints W1-W5, test strategy, acceptance criteria |
-| 2 | **Spec §Internal abort coordination** | `docs/superpowers/specs/2026-04-23-deferred-approval-response-design.md:347-440` | Poll callsite behavior at `:352`, `:439`. CAS race semantics at `:436`. Worker abort sequence at `:395-422`. |
+| 2a | **Spec §Projection helper rewrites** | `docs/superpowers/specs/2026-04-23-deferred-approval-response-design.md:1888-1988` | Poll callsite mechanics at `:1936-1964`. Helper purity contract at `:1892`. Observation sequence (Branch A/B) at `:1967-1981`. |
+| 2b | **Spec §Internal abort coordination** | `docs/superpowers/specs/2026-04-23-deferred-approval-response-design.md:347-440` | CAS race semantics at `:436`. Worker abort sequence at `:395-422`. Poll triggers at `:352`. |
 | 3 | **Live `poll()` method** | `packages/plugins/codex-collaboration/server/delegation_controller.py:1804-1846` | Full method body — the production change site |
 | 4 | **Live `_project_pending_escalation`** | `delegation_controller.py:1746-1766` | Pure helper; re-raises exception. DO NOT modify (L8). |
 | 5 | **Live `start()` catch precedent** | `delegation_controller.py:788-813` | Pattern reference for log structure + signal + response. Poll catch DIFFERS: no raise, returns `DelegationPollResult` instead. |
@@ -72,7 +73,7 @@ Read BEFORE writing any code. Pre-read guard: if a source contradicts the conver
 
 ## Test Obligations
 
-**New file:** `packages/plugins/codex-collaboration/tests/test_poll_projection_guard.py`
+**New file:** `packages/plugins/codex-collaboration/tests/test_poll_projection_guard_integration.py`
 
 Use the established cross-import pattern:
 ```python
@@ -85,12 +86,11 @@ Additional imports as needed from `server.models`, `server.resolution_registry`,
 
 ### Test 1: `test_poll_returns_null_escalation_on_unknown_kind_parked_request`
 
-Setup:
+Setup (direct-seed — `start()` cannot produce `kind="unknown"` + `needs_escalation` under Task 17's L11 carve-out):
 1. `_build_controller(tmp_path)` → get controller, job_store, pending_request_store, etc.
-2. Create a job via `controller.start(repo_root=...)` or direct store seeding
-3. Transition to `needs_escalation` with `parked_request_id` set
-4. Ensure the pending request store has a `PendingServerRequest(kind="unknown", status="pending")` for that request_id
-5. Monkeypatch `controller._registry` with a mock that spies on `signal_internal_abort` (return `True`)
+2. Direct-seed a job in `needs_escalation` with `parked_request_id` set. Consult `test_handler_branches_integration.py:759-817` for the pattern (`_make_running_job_with_lineage` + `job_store.update_status` + `pending_request_store.create`).
+3. Ensure the pending request store has a `PendingServerRequest(kind="unknown", status="pending")` for that request_id
+4. Monkeypatch `controller._registry` with a mock that spies on `signal_internal_abort` (return `True`)
 
 Execute: `result = controller.poll(job_id=...)`
 
@@ -128,8 +128,8 @@ DONE at <SHA>.
 Suite: <passed>/<skipped>/<failed> in <seconds>.
 Verified:
   rg "unknown_kind_in_escalation_projection" delegation_controller.py → 1 match (poll callsite)
-  rg "unknown_kind_in_escalation_projection" test_poll_projection_guard.py → ≥ 2 matches
-  git diff c53a5199..HEAD -- delegation_controller.py | grep "_project_pending_escalation" → 0 body changes
+  rg "unknown_kind_in_escalation_projection" test_poll_projection_guard_integration.py → ≥ 2 matches
+  git diff c53a5199..HEAD -- delegation_controller.py — no hunks inside `def _project_pending_escalation` or `def _project_request_to_view` (verify by visual diff review; the only hunks should be inside `def poll`)
   git diff c53a5199..HEAD -- delegation_controller.py | grep "def discard" → 0 changes
   git diff c53a5199..HEAD -- contracts.md → empty (no changes)
   Existing test at test_delegation_controller.py:2665 passes (L5)
@@ -160,10 +160,11 @@ Evidence: <file:line, what was observed, what conflicts>
 ## Begin
 
 1. Read convergence map (source 1)
-2. Read live `poll()` at `delegation_controller.py:1804-1846` (source 3)
-3. Read `_project_pending_escalation` at `:1746-1766` (source 4)
-4. Read `start()` catch precedent at `:788-813` (source 5)
-5. Implement the production change
-6. Write test file with 3 tests
-7. Run: `uv run --package codex-collaboration pytest packages/plugins/codex-collaboration/ -x 2>&1 | tail -20`
-8. Report per DONE/BLOCKED template
+2. Read spec §Projection helper rewrites at `design.md:1888-1988` (source 2a) and §Internal abort coordination at `:347-440` (source 2b)
+3. Read live `poll()` at `delegation_controller.py:1804-1846` (source 3)
+4. Read `_project_pending_escalation` at `:1746-1766` (source 4)
+5. Read `start()` catch precedent at `:788-813` (source 5)
+6. Implement the production change
+7. Write test file with 3 tests
+8. Run: `uv run --package codex-collaboration pytest packages/plugins/codex-collaboration/ -x 2>&1 | tail -20`
+9. Report per DONE/BLOCKED template

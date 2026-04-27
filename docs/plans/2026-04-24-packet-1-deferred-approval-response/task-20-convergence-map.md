@@ -11,7 +11,7 @@
 
 | Plan reference | Plan value | Live value (HEAD `c53a5199`) | Note |
 |---|---|---|---|
-| Plan §Task 20 spec anchor | "§Projection helper rewrites — poll() callsite (spec lines ~1936-1964)" | §Internal abort coordination at `design.md:347-440` | Plan anchor is fictional; that spec section does not exist at those lines |
+| Plan §Task 20 spec anchor | "§Projection helper rewrites — poll() callsite (spec lines ~1936-1964)" | §Projection helper rewrites at `design.md:1888-1988` (poll callsite at `:1936-1964`) + §Internal abort coordination at `design.md:347-440` | Plan anchor is valid (section exists at `:1888`, poll callsite at `:1936`); also read §Internal abort coordination for CAS/coordination semantics |
 | Plan §Task 20 test fixtures | `delegation_controller_fixture`, `pending_request_store_factory`, `resolution_registry_spy` | Non-existent — package uses `_build_controller` + `tmp_path` + explicit import from `test_delegation_controller.py` | Plan placeholder names must not appear in tests |
 | Plan §Task 20 `poll()` line range | `delegation_controller.py:901-945` | `delegation_controller.py:1804-1846` | Line numbers shifted by Tasks 15-19 insertions |
 
@@ -26,7 +26,7 @@
 | `UnknownKindInEscalationProjection` | `delegation_controller.py` | `:200-210` | Module-scope exception class; no import needed |
 | `start()` catch precedent | `delegation_controller.py` | `:788-813` | `except UnknownKindInEscalationProjection as exc:` → log critical → `signal_internal_abort` → raise `DelegationStartError` |
 | `signal_internal_abort` | `resolution_registry.py` | `:311-327` | CAS: `awaiting → aborted` (wakes worker with `InternalAbort`); idempotent no-op for other states |
-| `self._registry` init | `delegation_controller.py` | Task 16 `667ed20e` | `ResolutionRegistry` initialized in `__init__`; available to all controller methods |
+| `self._registry` init | `delegation_controller.py` | `:392` | `self._registry: ResolutionRegistry = ResolutionRegistry()` in `__init__`; available to all controller methods |
 | `DelegationPollResult` construction | `delegation_controller.py` | `:1841-1846` | Downstream of projection; `pending_escalation=None` is the default |
 | Worker-side abort test | `test_handler_branches_integration.py` | `:759-817` | Covers `InternalAbort(reason="unknown_kind_in_escalation_projection")` → `record_internal_abort` → sentinel path |
 | Normal-kind poll regression test | `test_delegation_controller.py` | `:2665-2681` | `test_poll_needs_escalation_projects_pending_request_without_raw_ids` — must not regress |
