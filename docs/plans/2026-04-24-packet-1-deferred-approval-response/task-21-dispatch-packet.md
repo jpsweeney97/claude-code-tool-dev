@@ -115,9 +115,11 @@ Assert:
 DONE at <SHA>.
 Suite: <passed>/<skipped>/<failed> in <seconds>.
 Verified:
-  rg '"canceled"' delegation_controller.py | grep _discardable context → "canceled" in status tuple
-  git diff 47628f20..HEAD -- delegation_controller.py — only hunks in `def discard` (docstring + gate)
-  git diff 47628f20..HEAD -- contracts.md → empty (no changes)
+  rg '"canceled"' packages/plugins/codex-collaboration/server/delegation_controller.py | grep _discardable context → "canceled" in status tuple
+  git diff --exit-code 47628f20..HEAD -- packages/plugins/codex-collaboration/server/delegation_controller.py — only hunks in `def discard` (docstring + gate)
+  git diff --exit-code 47628f20..HEAD -- docs/superpowers/specs/codex-collaboration/contracts.md → empty (no changes)
+  uv run --package codex-collaboration ruff check packages/plugins/codex-collaboration/server/delegation_controller.py packages/plugins/codex-collaboration/tests/test_discard_canceled_integration.py → passed
+  uv run --package codex-collaboration ruff format --check packages/plugins/codex-collaboration/tests/test_discard_canceled_integration.py → already formatted
   Existing discard tests at test_delegation_controller.py:3307-3393 pass (L7)
 ```
 
@@ -149,5 +151,6 @@ Evidence: <file:line, what was observed, what conflicts>
 5. Implement the production change (docstring + gate tuple)
 6. Write test file with 3 tests
 7. Run: `uv run --package codex-collaboration ruff format packages/plugins/codex-collaboration/tests/test_discard_canceled_integration.py`
-8. Run: `bash -c 'set -o pipefail; uv run --package codex-collaboration pytest packages/plugins/codex-collaboration/ -x 2>&1 | tail -20'`
-9. Report per DONE/BLOCKED template
+8. Run: `uv run --package codex-collaboration ruff check packages/plugins/codex-collaboration/server/delegation_controller.py packages/plugins/codex-collaboration/tests/test_discard_canceled_integration.py`
+9. Run: `bash -c 'set -o pipefail; uv run --package codex-collaboration pytest packages/plugins/codex-collaboration/ -x 2>&1 | tail -20'`
+10. Report per DONE/BLOCKED template

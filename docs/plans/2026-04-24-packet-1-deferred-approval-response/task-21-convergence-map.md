@@ -57,7 +57,7 @@ Three tests, all synchronous:
 |---|---|---|
 | `test_discard_canceled_with_null_promotion_state_succeeds` | `_build_promote_scenario(tmp_path)` → override to `status="canceled", promotion_state=None` | `isinstance(result, DiscardResult)` + `result.job.promotion_state == "discarded"` |
 | `test_discard_canceled_with_applied_promotion_state_rejects` | Same setup → override to `status="canceled", promotion_state="applied"` | `isinstance(result, DiscardRejectedResponse)` + `result.reason == "job_not_discardable"` |
-| `test_discard_canceled_writes_audit_event` | Same setup → override to `status="canceled", promotion_state=None` → discard | Read `journal._audit_path`, parse JSONL, find `action="discard"` record with matching `job_id` |
+| `test_discard_canceled_writes_audit_event` | Same setup → override to `status="canceled", promotion_state=None` → discard | Read `journal.plugin_data_path / "audit" / "events.jsonl"`, parse JSONL, find `action="discard"` record with matching `job_id` |
 
 ## Acceptance Criteria
 
