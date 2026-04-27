@@ -526,12 +526,11 @@ def test_l11_t7b_one_snapshot_pending_fallthrough_with_d4_mutation(
     assert post_d4.status == "resolved"
 
     # Escalation tail does a hydration re-read (the post-audit get at :2411-2413)
-    # So total get_call_count should be > 1 (derivation + hydration).
+    # so total get_call_count == 2: one derivation snapshot + one hydration.
     # The counting proxy wraps the real store, so both reads go through it.
-    # NOTE: the counting_store was installed on the controller, so the
-    # re-read for the DelegationEscalation return shape also goes through it.
-    assert counting_store.get_call_count >= 1, (
-        f"Expected at least 1 get() call but got {counting_store.get_call_count}"
+    assert counting_store.get_call_count == 2, (
+        f"Expected exactly 2 get() calls (derivation + hydration) but got "
+        f"{counting_store.get_call_count}"
     )
 
 

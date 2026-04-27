@@ -2001,11 +2001,15 @@ def test_decide_deny_emits_terminal_outcome(tmp_path: Path) -> None:
 
     # Bounded-poll for job completion
     deadline = time.monotonic() + 5.0
+    final_job = None
     while time.monotonic() < deadline:
         final_job = job_store.get("job-1")
         if final_job is not None and final_job.status == "completed":
             break
         time.sleep(0.05)
+
+    assert final_job is not None
+    assert final_job.status == "completed"
 
     # Wait for worker thread
     worker_threads = [

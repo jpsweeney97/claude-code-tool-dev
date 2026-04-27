@@ -207,6 +207,38 @@ def test_happy_path_decide_approve_success(
     )
     monkeypatch.setattr(controller, "_registry", mock_registry)
 
+    # Side-effect uniqueness instrumentation — wrap non-deduped signals
+    # with counting proxies before the call under test.
+    _close_count = 0
+    _original_close = fake_session.close
+
+    def _counting_close() -> None:
+        nonlocal _close_count
+        _close_count += 1
+        _original_close()
+
+    fake_session.close = _counting_close  # type: ignore[assignment]
+
+    _release_count = 0
+    _original_release = runtime_registry.release
+
+    def _counting_release(rid: str) -> object:
+        nonlocal _release_count
+        _release_count += 1
+        return _original_release(rid)
+
+    runtime_registry.release = _counting_release  # type: ignore[assignment]
+
+    _lineage_update_count = 0
+    _original_lineage_update = lineage_store.update_status
+
+    def _counting_lineage_update(cid: str, status: str) -> None:
+        nonlocal _lineage_update_count
+        _lineage_update_count += 1
+        _original_lineage_update(cid, status)
+
+    lineage_store.update_status = _counting_lineage_update  # type: ignore[assignment]
+
     result = controller._execute_live_turn(  # type: ignore[attr-defined]
         job_id="job-h-1",
         collaboration_id="collab-h-1",
@@ -225,29 +257,45 @@ def test_happy_path_decide_approve_success(
     assert stored is not None
     assert stored.status == "resolved"
 
-    # Side-effect uniqueness: runtime released, session closed
+    # Side-effect uniqueness: each non-deduped signal fires exactly once.
     assert runtime_registry.lookup("rt-h-1") is None
     assert fake_session.closed
+    assert _close_count == 1, (
+        f"Expected exactly 1 session.close() call but got {_close_count}"
+    )
+    assert _release_count == 1, (
+        f"Expected exactly 1 release() call but got {_release_count}"
+    )
+    assert _lineage_update_count == 1, (
+        f"Expected exactly 1 lineage update_status() call but got "
+        f"{_lineage_update_count}"
+    )
 
     # Lineage completed
     handle = lineage_store.get("collab-h-1")
     assert handle is not None
     assert handle.status == "completed"
 
+    # Exactly one job-store status transition to the terminal state.
+    final_job = job_store.get("job-h-1")
+    assert final_job is not None
+    assert final_job.status == "completed"
+
     # Terminal outcome record written exactly once
     outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
-    if outcomes_path.exists():
-        outcome_lines = [
-            line for line in outcomes_path.read_text().splitlines() if line.strip()
-        ]
-        terminal_records = [
-            json.loads(line) for line in outcome_lines
-            if json.loads(line).get("outcome_type") == "delegation_terminal"
-            and json.loads(line).get("job_id") == "job-h-1"
-        ]
-        assert len(terminal_records) == 1, (
-            f"Expected exactly 1 terminal outcome but got {len(terminal_records)}"
-        )
+    assert outcomes_path.exists(), "Terminal outcome file must exist after approve"
+    outcome_lines = [
+        line for line in outcomes_path.read_text().splitlines() if line.strip()
+    ]
+    parsed = [json.loads(line) for line in outcome_lines]
+    terminal_records = [
+        r for r in parsed
+        if r.get("outcome_type") == "delegation_terminal"
+        and r.get("job_id") == "job-h-1"
+    ]
+    assert len(terminal_records) == 1, (
+        f"Expected exactly 1 terminal outcome but got {len(terminal_records)}"
+    )
 
 
 def test_timeout_cancel_dispatch_succeeded_for_file_change(
@@ -298,6 +346,38 @@ def test_timeout_cancel_dispatch_succeeded_for_file_change(
     )
     monkeypatch.setattr(controller, "_registry", mock_registry)
 
+    # Side-effect uniqueness instrumentation — wrap non-deduped signals
+    # with counting proxies before the call under test.
+    _close_count = 0
+    _original_close = fake_session.close
+
+    def _counting_close() -> None:
+        nonlocal _close_count
+        _close_count += 1
+        _original_close()
+
+    fake_session.close = _counting_close  # type: ignore[assignment]
+
+    _release_count = 0
+    _original_release = runtime_registry.release
+
+    def _counting_release(rid: str) -> object:
+        nonlocal _release_count
+        _release_count += 1
+        return _original_release(rid)
+
+    runtime_registry.release = _counting_release  # type: ignore[assignment]
+
+    _lineage_update_count = 0
+    _original_lineage_update = lineage_store.update_status
+
+    def _counting_lineage_update(cid: str, status: str) -> None:
+        nonlocal _lineage_update_count
+        _lineage_update_count += 1
+        _original_lineage_update(cid, status)
+
+    lineage_store.update_status = _counting_lineage_update  # type: ignore[assignment]
+
     result = controller._execute_live_turn(  # type: ignore[attr-defined]
         job_id="job-h-1",
         collaboration_id="collab-h-1",
@@ -316,29 +396,45 @@ def test_timeout_cancel_dispatch_succeeded_for_file_change(
     assert stored is not None
     assert stored.status == "canceled"
 
-    # Side-effect uniqueness: runtime released, session closed
+    # Side-effect uniqueness: each non-deduped signal fires exactly once.
     assert runtime_registry.lookup("rt-h-1") is None
     assert fake_session.closed
+    assert _close_count == 1, (
+        f"Expected exactly 1 session.close() call but got {_close_count}"
+    )
+    assert _release_count == 1, (
+        f"Expected exactly 1 release() call but got {_release_count}"
+    )
+    assert _lineage_update_count == 1, (
+        f"Expected exactly 1 lineage update_status() call but got "
+        f"{_lineage_update_count}"
+    )
 
     # Lineage completed
     handle = lineage_store.get("collab-h-1")
     assert handle is not None
     assert handle.status == "completed"
 
+    # Exactly one job-store status transition to the terminal state.
+    final_job = job_store.get("job-h-1")
+    assert final_job is not None
+    assert final_job.status == "canceled"
+
     # Terminal outcome record written exactly once
     outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
-    if outcomes_path.exists():
-        outcome_lines = [
-            line for line in outcomes_path.read_text().splitlines() if line.strip()
-        ]
-        terminal_records = [
-            json.loads(line) for line in outcome_lines
-            if json.loads(line).get("outcome_type") == "delegation_terminal"
-            and json.loads(line).get("job_id") == "job-h-1"
-        ]
-        assert len(terminal_records) == 1, (
-            f"Expected exactly 1 terminal outcome but got {len(terminal_records)}"
-        )
+    assert outcomes_path.exists(), "Terminal outcome file must exist after cancel"
+    outcome_lines = [
+        line for line in outcomes_path.read_text().splitlines() if line.strip()
+    ]
+    parsed = [json.loads(line) for line in outcome_lines]
+    terminal_records = [
+        r for r in parsed
+        if r.get("outcome_type") == "delegation_terminal"
+        and r.get("job_id") == "job-h-1"
+    ]
+    assert len(terminal_records) == 1, (
+        f"Expected exactly 1 terminal outcome but got {len(terminal_records)}"
+    )
 
 
 # ---------------------------------------------------------------------------
