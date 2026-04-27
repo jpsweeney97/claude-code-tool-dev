@@ -2333,7 +2333,7 @@ def test_recover_startup_marks_intent_only_approval_resolution_unknown(
     )
     journal.write_phase(
         OperationJournalEntry(
-            idempotency_key="42:approve",
+            idempotency_key="approval_resolution:job-1:42",
             operation="approval_resolution",
             phase="intent",
             collaboration_id="collab-1",
@@ -2463,7 +2463,7 @@ def test_recover_startup_marks_dispatched_approval_resolution_unknown(
     created_at = journal.timestamp()
     journal.write_phase(
         OperationJournalEntry(
-            idempotency_key="42:approve",
+            idempotency_key="approval_resolution:job-1:42",
             operation="approval_resolution",
             phase="intent",
             collaboration_id="collab-1",
@@ -2477,7 +2477,7 @@ def test_recover_startup_marks_dispatched_approval_resolution_unknown(
     )
     journal.write_phase(
         OperationJournalEntry(
-            idempotency_key="42:approve",
+            idempotency_key="approval_resolution:job-1:42",
             operation="approval_resolution",
             phase="dispatched",
             collaboration_id="collab-1",

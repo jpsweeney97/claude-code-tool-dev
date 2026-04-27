@@ -2682,7 +2682,13 @@ class DelegationController:
         # plugin-side behavior (spec §345). On failure, abort_reservation
         # restores 'awaiting' so a retry or the timer can claim the slot,
         # and the original exception re-raises (spec §324).
-        idempotency_key = f"{request_id}:{decision}"
+        # Idempotency key MUST match the worker's dispatched/completed key
+        # (delegation_controller.py:1188/:1225/:1504/:1517) so OperationJournal
+        # groups intent → dispatched → completed under one key. A mismatched
+        # key leaves intent permanently unresolved on the happy path and
+        # forces startup recovery to write a misleading recovered_unresolved
+        # close — a forensic-correctness bug.
+        idempotency_key = f"approval_resolution:{job_id}:{request_id}"
         created_at = self._journal.timestamp()
         try:
             self._journal.write_phase(

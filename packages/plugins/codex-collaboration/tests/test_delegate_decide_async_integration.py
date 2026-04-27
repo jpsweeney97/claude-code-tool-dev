@@ -117,6 +117,70 @@ def test_decide_returns_3_field_result_on_success_approve(tmp_path: Path) -> Non
 
 
 # ---------------------------------------------------------------------------
+# Test 1b — happy decide leaves no unresolved approval_resolution.
+#
+# Regression: decide() previously wrote intent under f"{request_id}:{decision}"
+# while the worker wrote dispatched/completed under
+# f"approval_resolution:{job_id}:{request_id}". OperationJournal groups by
+# idempotency_key, so the keys diverging meant the intent was permanently
+# unresolved on the happy path — startup recovery would later close it as
+# misleading recovered_unresolved. The fix aligns decide()'s key with the
+# worker's. This test pins the grouping invariant end-to-end.
+# ---------------------------------------------------------------------------
+
+
+def test_happy_decide_leaves_no_unresolved_approval_resolution(
+    tmp_path: Path,
+) -> None:
+    """After a successful approve completes through the worker, the journal
+    must contain no unresolved approval_resolution entries (intent → dispatched
+    → completed must group under one key).
+    """
+    controller, control_plane, _repo = _seed_parked_command_approval(tmp_path)
+
+    session = control_plane._sessions[0]
+    session._server_requests = []
+    session._turn_result = TurnExecutionResult(
+        turn_id="turn-2",
+        status="completed",
+        agent_message="done",
+        notifications=(),
+    )
+
+    result = controller.decide(
+        job_id="job-1",
+        request_id="42",
+        decision="approve",
+    )
+    assert isinstance(result, DelegationDecisionResult)
+    assert result.decision_accepted is True
+
+    # Drain the worker so dispatched + completed records land.
+    worker_threads = [
+        t for t in threading.enumerate() if t.name == "delegation-worker-job-1"
+    ]
+    assert worker_threads, "worker thread missing"
+    this_test_worker = max(worker_threads, key=lambda t: t.ident or 0)
+    this_test_worker.join(timeout=10.0)
+    assert not this_test_worker.is_alive(), "worker thread did not drain"
+
+    # No approval_resolution entries should remain unresolved. Filter to
+    # approval_resolution operations specifically — other operations
+    # (job_creation, etc.) follow their own resolution patterns.
+    unresolved = controller._journal.list_unresolved(
+        session_id=controller._session_id
+    )
+    leftover_approval = [
+        entry for entry in unresolved if entry.operation == "approval_resolution"
+    ]
+    assert leftover_approval == [], (
+        "happy decide left unresolved approval_resolution entries — "
+        "decide() and worker keys are diverging again. "
+        f"Got: {[(e.idempotency_key, e.phase) for e in leftover_approval]!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Test 2 — happy deny, command_approval kind.
 # ---------------------------------------------------------------------------
 
