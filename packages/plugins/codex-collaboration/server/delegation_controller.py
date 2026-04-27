@@ -85,6 +85,7 @@ from .models import (
     DiscardRejectedResponse,
     DiscardResult,
     EscalatableRequestKind,
+    HandleStatus,
     JobBusyResponse,
     JobStatus,
     OperationJournalEntry,
@@ -2480,8 +2481,19 @@ class DelegationController:
                     agent_context=turn_result.agent_message or None,
                 )
 
-            # Non-escalation: mark handle completed, release + close and return plain job.
-            self._lineage_store.update_status(collaboration_id, "completed")
+            # Non-escalation: mark handle. Unknown-kind paths (L9/L10 — kind
+            # never validated) drive lineage to "unknown" symmetrically with
+            # job, mirroring _mark_execution_unknown_and_cleanup at :1379.
+            # Resolved-snapshot-but-interrupted/failed-turn paths (L11-T2/T3)
+            # keep lineage "completed" because the operator decision was
+            # verified — only the post-decision wrap-up is unverified
+            # (asymmetric job/lineage split, parallel to the canceled split
+            # documented in design.md:1393). The discriminator is
+            # interrupted_by_unknown, NOT final_status.
+            handle_status: HandleStatus = (
+                "unknown" if interrupted_by_unknown else "completed"
+            )
+            self._lineage_store.update_status(collaboration_id, handle_status)
             self._runtime_registry.release(runtime_id)
             entry.session.close()
             self._emit_terminal_outcome_if_needed(job_id)

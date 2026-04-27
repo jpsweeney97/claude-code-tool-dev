@@ -885,6 +885,152 @@ def test_unknown_kind_parse_failure_terminalizes_unknown(
     mock_registry.announce_turn_terminal_without_escalation.assert_called_once()
 
 
+def test_unknown_kind_parse_failure_lineage_status_is_unknown(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: L10 parse-failure path — CollaborationHandle.status must
+    end as 'unknown' to agree with DelegationJob.status per OB-1.
+
+    The worker writes lineage 'unknown' at delegation_controller.py:995. The
+    finalizer's non-escalation tail at :2484 must NOT overwrite it with
+    'completed' when the L11 carve-out (:2442-2443) derived final_status='unknown'.
+    Without the fix, the handle ends as 'completed' while the job correctly
+    ends as 'unknown' — incoherent durable state breaking the OB-1 invariant.
+    """
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    (
+        controller,
+        _cp,
+        _wm,
+        job_store,
+        lineage_store,
+        _journal,
+        runtime_registry,
+        _pending_request_store,
+    ) = _build_controller(tmp_path)
+
+    fake_session = _FakeSession()
+    fake_session._server_requests = [
+        {"id": 77, "method": "item/unknown/broken", "params": "not-a-dict"}
+    ]
+
+    _make_running_job_with_lineage(
+        job_store,
+        lineage_store,
+        runtime_registry,
+        fake_session,
+        repo_root,
+    )
+
+    mock_registry = create_autospec(ResolutionRegistry, instance=True)
+    monkeypatch.setattr(controller, "_registry", mock_registry)
+
+    result = controller._execute_live_turn(  # type: ignore[attr-defined]
+        job_id="job-h-1",
+        collaboration_id="collab-h-1",
+        runtime_id="rt-h-1",
+        worktree_path=repo_root / "worktree",
+        prompt_text="do work",
+    )
+
+    assert isinstance(result, DelegationJob)
+    assert result.status == "unknown"
+
+    handle = lineage_store.get("collab-h-1")
+    assert handle is not None
+    assert handle.status == "unknown", (
+        f"Lineage handle status must be 'unknown' to agree with job status; "
+        f"got {handle.status!r}. The non-escalation tail in _finalize_turn "
+        f"must branch on final_status, mirroring "
+        f"_mark_execution_unknown_and_cleanup."
+    )
+
+
+def test_unknown_kind_unrecognized_method_lineage_status_is_unknown(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: L9 parseable-but-unrecognized-method path —
+    CollaborationHandle.status must end as 'unknown' to agree with
+    DelegationJob.status per OB-1.
+
+    Handler at delegation_controller.py:1006-1023 sets
+    interrupted_by_unknown=True and calls interrupt_turn. It does NOT write
+    lineage. The finalizer's non-escalation tail at :2484 is the ONLY lineage
+    write on this path — without the fix, the handle lands on 'completed'
+    even though job ends 'unknown' (more severe than the L10 case, which at
+    least has the worker's earlier 'unknown' write to be overwritten).
+    """
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    (
+        controller,
+        _cp,
+        _wm,
+        job_store,
+        lineage_store,
+        _journal,
+        runtime_registry,
+        pending_request_store,
+    ) = _build_controller(tmp_path)
+
+    # Method NOT in approval_router._METHOD_TO_KIND → parsed.kind == "unknown".
+    # params is a valid dict so parse_pending_server_request succeeds (L9, not L10).
+    fake_session = _FakeSession()
+    fake_session._server_requests = [
+        {
+            "id": 99,
+            "method": "item/foo/unsupportedRequest",
+            "params": {
+                "itemId": "item-x",
+                "threadId": "thr-1",
+                "turnId": "turn-1",
+            },
+        }
+    ]
+
+    _make_running_job_with_lineage(
+        job_store,
+        lineage_store,
+        runtime_registry,
+        fake_session,
+        repo_root,
+    )
+
+    mock_registry = create_autospec(ResolutionRegistry, instance=True)
+    monkeypatch.setattr(controller, "_registry", mock_registry)
+
+    result = controller._execute_live_turn(  # type: ignore[attr-defined]
+        job_id="job-h-1",
+        collaboration_id="collab-h-1",
+        runtime_id="rt-h-1",
+        worktree_path=repo_root / "worktree",
+        prompt_text="do work",
+    )
+
+    assert isinstance(result, DelegationJob)
+    assert result.status == "unknown"
+
+    # Parsed (not minimal) PSR was created with kind='unknown'.
+    stored = pending_request_store.get("99")
+    assert stored is not None
+    assert stored.kind == "unknown"
+    assert stored.codex_thread_id == "thr-1"
+
+    handle = lineage_store.get("collab-h-1")
+    assert handle is not None
+    assert handle.status == "unknown", (
+        f"Lineage handle status must be 'unknown' to agree with job status; "
+        f"got {handle.status!r}. The non-escalation tail in _finalize_turn "
+        f"must branch on final_status, mirroring "
+        f"_mark_execution_unknown_and_cleanup."
+    )
+
+
 def test_unknown_kind_interrupt_transport_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
