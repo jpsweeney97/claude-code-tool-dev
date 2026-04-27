@@ -4268,3 +4268,74 @@ class TestRecoveryCatchup:
             if json.loads(line).get("outcome_type") == "delegation_terminal"
         ]
         assert len(terminal_records) == 1  # No duplicate
+
+    def test_recover_startup_emits_for_canceled_jobs_missing_outcome(
+        self, tmp_path: Path
+    ) -> None:
+        """Same-session canceled job whose immediate outcome emission was
+        skipped (e.g., crash between status='canceled' persistence and outcome
+        write) must be repaired by the catch-up sweep. Regression for
+        omitting 'canceled' from the catch-up status filter — Packet 1 made
+        canceled a terminal status (DelegationTerminalStatus +
+        _TERMINAL_STATUS_MAP), so the sweep must include it.
+        """
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+        (
+            controller,
+            _cp,
+            _wm,
+            job_store,
+            lineage,
+            journal,
+            _registry,
+            _prs,
+        ) = _build_controller(tmp_path)
+
+        from server.models import CollaborationHandle, DelegationJob
+
+        lineage.create(
+            CollaborationHandle(
+                collaboration_id="collab-canceled",
+                capability_class="execution",
+                runtime_id="rt-canceled",
+                codex_thread_id="thr-canceled",
+                claude_session_id="sess-1",
+                repo_root=str(repo_root),
+                created_at="2026-04-21T00:00:00Z",
+                status="completed",
+            )
+        )
+        job_store.create(
+            DelegationJob(
+                job_id="job-canceled",
+                runtime_id="rt-canceled",
+                collaboration_id="collab-canceled",
+                base_commit="abc123",
+                worktree_path=str(tmp_path / "wt"),
+                promotion_state=None,
+                status="canceled",
+            )
+        )
+
+        outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
+        assert not outcomes_path.exists() or outcomes_path.read_text().strip() == ""
+
+        controller.recover_startup()
+
+        assert outcomes_path.exists(), (
+            "Terminal outcome must be emitted for canceled jobs missing analytics"
+        )
+        lines = [
+            line
+            for line in outcomes_path.read_text(encoding="utf-8").strip().split("\n")
+            if line.strip()
+        ]
+        terminal_records = [
+            json.loads(line)
+            for line in lines
+            if json.loads(line).get("outcome_type") == "delegation_terminal"
+        ]
+        assert len(terminal_records) == 1
+        assert terminal_records[0]["job_id"] == "job-canceled"
+        assert terminal_records[0]["terminal_status"] == "canceled"

@@ -3066,8 +3066,12 @@ class DelegationController:
         # Cross-session abandoned outcomes are structurally unreachable
         # (DelegationJobStore is session-scoped). This is a documented
         # T-07 limitation, not a bug.
+        # Status set MUST mirror DelegationTerminalStatus / _TERMINAL_STATUS_MAP
+        # — Packet 1 made "canceled" a terminal status; omitting it here
+        # would leave a crashed-mid-emission canceled job permanently
+        # without DelegationOutcomeRecord(terminal_status="canceled").
         for job in self._job_store.list():
-            if job.status in ("completed", "failed", "unknown"):
+            if job.status in ("completed", "failed", "canceled", "unknown"):
                 self._emit_terminal_outcome_if_needed(job.job_id)
 
     def get_active_delegation_summary(self) -> tuple[DelegationJob | None, int]:
