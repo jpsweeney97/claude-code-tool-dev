@@ -353,3 +353,106 @@ def test_start_signals_internal_abort_on_parked_projection_raise(
     abort_spy.assert_called_once_with(
         "rid-raise-1", reason="parked_projection_invariant_violation"
     )
+
+
+# ---------------------------------------------------------------------------
+# F14 race regression: spawn_worker → wait_for_parked capture-ready race.
+# ---------------------------------------------------------------------------
+
+
+def test_start_handles_announce_parked_arriving_before_wait_for_parked(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Regression test for the spawn_worker -> wait_for_parked capture-ready
+    race.
+
+    Before F14, ``DelegationController.start()`` called ``spawn_worker(...)``
+    immediately followed by ``self._registry.wait_for_parked(...)``. The
+    capture-ready channel was created INSIDE ``wait_for_parked``, so a fast
+    worker that called ``announce_parked`` before the main thread reached
+    that line would have its signal dropped by the
+    ``_deliver_capture_outcome`` channel-is-None branch -- ``start()`` would
+    then block at the wait until ``START_OUTCOME_WAIT_SECONDS`` elapsed and
+    incorrectly return ``StartWaitElapsed`` (which projects to a running
+    DelegationJob), even though the worker had already parked.
+
+    The fix pre-registers the channel via ``open_capture_channel`` BEFORE
+    spawn_worker. This test reproduces the worst-case race deterministically
+    by patching ``spawn_worker`` to run the worker's park sequence
+    synchronously in the main thread BEFORE returning -- guaranteeing the
+    announce arrives before ``wait_for_parked``. Without the fix this test
+    would block for the full wait budget; with the fix the buffered outcome
+    is consumed immediately and ``start()`` returns ``DelegationEscalation``.
+    """
+    from server.models import PendingServerRequest
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, _cp, _wm, _js, _ls, _j, registry, prs = _build_controller(tmp_path)
+
+    # Shrink the wait budget so a regression (race not closed) fails fast
+    # rather than blocking for the production 30 s default.
+    monkeypatch.setattr(
+        "server.delegation_controller.START_OUTCOME_WAIT_SECONDS", 0.5
+    )
+
+    def synchronous_park_worker(
+        *,
+        controller: object,
+        registry: object,
+        job_id: str,
+        collaboration_id: str,
+        runtime_id: str,
+        worktree_path: Path,
+        prompt_text: str,
+    ) -> object:
+        # Mimic the worker's park persistence sequence on the calling thread,
+        # before returning. Mirrors the real handler at
+        # delegation_controller.py:1059-1073 with the minimum needed for the
+        # Parked dispatch arm to project a pending escalation:
+        #   create PSR -> update_parked_request -> persist needs_escalation
+        #   -> announce_parked.
+        # `registry.register` and `registry.wait` are deliberately omitted —
+        # this test does not exercise the operator-decide cycle, only the
+        # capture-ready handshake race surface.
+        prs.create(  # type: ignore[arg-type]
+            PendingServerRequest(
+                request_id="rid-race-1",
+                runtime_id=runtime_id,
+                collaboration_id=collaboration_id,
+                codex_thread_id="thr-race",
+                codex_turn_id="turn-race",
+                item_id="item-race",
+                kind="command_approval",
+                requested_scope={"command": ["ls"]},
+                status="pending",
+            )
+        )
+        controller._job_store.update_parked_request(  # type: ignore[attr-defined]
+            job_id, "rid-race-1"
+        )
+        controller._persist_job_transition(job_id, "needs_escalation")  # type: ignore[attr-defined]
+
+        # The race-critical line. Without F14's open_capture_channel, the
+        # channel does not exist yet at this moment -- the signal is dropped
+        # and start() blocks at wait_for_parked.
+        registry.announce_parked(job_id, request_id="rid-race-1")  # type: ignore[attr-defined]
+        return MagicMock()
+
+    monkeypatch.setattr(
+        "server.delegation_controller.spawn_worker", synchronous_park_worker
+    )
+
+    # Without F14: this call blocks for ~0.5 s then returns a running job.
+    # With F14:    this call returns immediately with a DelegationEscalation.
+    result = controller.start(repo_root=repo_root, objective="Race regression")
+
+    assert isinstance(result, DelegationEscalation), (
+        "F14 race regression: announce_parked arrived before wait_for_parked,"
+        " but start() returned a non-escalation result. The pre-open of the"
+        " capture-ready channel is missing or out of order in"
+        " DelegationController.start()."
+    )
+    assert result.pending_escalation.request_id == "rid-race-1"
+    assert result.pending_escalation.kind == "command_approval"

@@ -743,6 +743,18 @@ class DelegationController:
             objective=objective,
             worktree_path=str(worktree_path),
         )
+        # Pre-register the capture-ready channel BEFORE spawning the
+        # worker. Without this, a fast worker can call announce_parked
+        # (or any other announce_*) before this thread reaches
+        # wait_for_parked. _deliver_capture_outcome would then observe
+        # channel-is-None and drop the signal, and start() would block
+        # at wait_for_parked until START_OUTCOME_WAIT_SECONDS elapsed,
+        # incorrectly returning StartWaitElapsed for a job that had
+        # already parked or terminated. open_capture_channel is the
+        # synchronous handshake that closes this race; wait_for_parked
+        # below consumes the pre-opened channel and returns immediately
+        # if an announce_* arrived before it was reached.
+        self._registry.open_capture_channel(job_id)
         spawn_worker(
             controller=self,
             registry=self._registry,

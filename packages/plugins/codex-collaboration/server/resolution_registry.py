@@ -177,6 +177,13 @@ class _CaptureReadyChannel:
     event: threading.Event = field(default_factory=threading.Event)
     outcome: ParkedCaptureResult | None = None
     resolved: bool = False  # True once wait_for_parked has returned any outcome
+    # True once wait_for_parked has bound itself to this channel. Distinct
+    # from `resolved`: pre-opened channels (open_capture_channel) start with
+    # waiter_attached=False so an early announce_* can be buffered before
+    # the main thread reaches wait_for_parked. A second wait_for_parked
+    # call on the same job_id while waiter_attached=True is the duplicate-
+    # waiter error path; pre-open + first wait is NOT a duplicate.
+    waiter_attached: bool = False
 
 
 # -------------------------------------------------------------------- registry
@@ -369,25 +376,81 @@ class ResolutionRegistry:
             event = channel.event
         event.set()
 
+    def open_capture_channel(self, job_id: str) -> None:
+        """Pre-register a per-job capture-ready channel before the worker starts.
+
+        Required by ``DelegationController.start()`` to close the
+        spawn_worker → wait_for_parked race: without pre-registration, a
+        fast worker can call ``announce_parked`` (or any other
+        ``announce_*``) before the main thread reaches
+        ``wait_for_parked``, and ``_deliver_capture_outcome`` drops the
+        signal via its ``channel is None`` branch -- start() then sits at
+        the wait until the budget elapses and incorrectly returns
+        ``StartWaitElapsed``.
+
+        Pairs with a subsequent ``wait_for_parked(job_id, ...)`` call.
+        The waiter consumes the pre-opened channel instead of creating a
+        new one. If an ``announce_*`` arrived before ``wait_for_parked``,
+        the outcome is already buffered on the channel and the wait
+        returns immediately (the threading.Event was set by
+        _deliver_capture_outcome).
+
+        Raises ``RuntimeError`` if a channel for ``job_id`` already
+        exists (duplicate pre-open OR pre-open after a still-in-flight
+        wait). The duplicate-job invariant is the same as before; only
+        the trigger condition is refined.
+        """
+        with self._lock:
+            if job_id in self._capture_channels:
+                raise RuntimeError(
+                    f"ResolutionRegistry.open_capture_channel failed: duplicate "
+                    f"job_id. Got: {job_id!r:.100}"
+                )
+            self._capture_channels[job_id] = _CaptureReadyChannel(job_id=job_id)
+
     def wait_for_parked(
         self, job_id: str, *, timeout_seconds: float
     ) -> ParkedCaptureResult:
         """Main thread blocks here during start().
 
+        Two entry shapes are supported:
+
+        - **Pre-opened** (production path): the caller invoked
+          ``open_capture_channel(job_id)`` before spawning the worker.
+          The channel exists with ``waiter_attached=False``. This method
+          attaches the waiter and waits on the channel's event. If an
+          ``announce_*`` already fired and buffered an outcome, the event
+          is already set and ``wait`` returns immediately.
+        - **Lazy-create** (legacy / unit-test path): no prior
+          ``open_capture_channel`` call. The channel is created inline,
+          ``waiter_attached`` is set to True, then ``wait`` blocks until
+          an ``announce_*`` fires or the budget elapses. Existing direct
+          callers (registry unit tests) rely on this shape.
+
+        Duplicate-waiter detection: if the channel already exists AND
+        ``waiter_attached`` is True, another ``wait_for_parked`` call on
+        the same ``job_id`` is in flight -- raise ``RuntimeError``. A
+        pre-opened channel (``waiter_attached=False``) is NOT a duplicate
+        -- the waiter legitimately consumes it.
+
         O1=(b) lifecycle: this method removes the channel from
-        `_capture_channels` under the registry lock before returning,
-        regardless of outcome variant. Late announce_* calls after this
-        return observe `channel is None` in `_deliver_capture_outcome`
-        and warn-and-noop without raising.
+        ``_capture_channels`` under the registry lock before returning,
+        regardless of outcome variant. Late ``announce_*`` calls after
+        this return observe ``channel is None`` in
+        ``_deliver_capture_outcome`` and warn-and-noop without raising.
         """
         with self._lock:
-            if job_id in self._capture_channels:
+            channel = self._capture_channels.get(job_id)
+            if channel is None:
+                # Lazy-create path. No prior open_capture_channel.
+                channel = _CaptureReadyChannel(job_id=job_id)
+                self._capture_channels[job_id] = channel
+            elif channel.waiter_attached:
                 raise RuntimeError(
                     f"ResolutionRegistry.wait_for_parked failed: duplicate "
                     f"job_id. Got: {job_id!r:.100}"
                 )
-            channel = _CaptureReadyChannel(job_id=job_id)
-            self._capture_channels[job_id] = channel
+            channel.waiter_attached = True
         signaled = channel.event.wait(timeout=timeout_seconds)
         with self._lock:
             channel_now = self._capture_channels.get(job_id)
