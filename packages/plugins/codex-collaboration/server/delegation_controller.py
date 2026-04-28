@@ -3073,6 +3073,26 @@ class DelegationController:
         for job in self._job_store.list():
             if job.status in ("completed", "failed", "canceled", "unknown"):
                 self._emit_terminal_outcome_if_needed(job.job_id)
+                # Lineage repair for canceled jobs that crashed mid-cleanup.
+                # The verified-cancel paths write job=canceled, then outcome,
+                # then lineage="completed":
+                #   - timeout_interrupt_succeeded :1665-1668
+                #   - D4 canceled-snapshot finalizer :2466 + :2510
+                # A crash between the job and lineage writes leaves an active
+                # handle tied to a terminal job. The orphaned-active sweep at
+                # :3050 does not catch this — its filter is
+                # running/needs_escalation only. Mirror the live write
+                # ("completed") here for symmetry with verified-cancel
+                # semantics; recovery cannot distinguish the rare D4
+                # canceled+interrupted_by_unknown variant that would have
+                # written "unknown", so we accept the dominant case.
+                if job.status == "canceled":
+                    handle = self._lineage_store.get(job.collaboration_id)
+                    if handle is not None and handle.status == "active":
+                        self._lineage_store.update_status(
+                            job.collaboration_id,
+                            "completed",
+                        )
 
     def get_active_delegation_summary(self) -> tuple[DelegationJob | None, int]:
         """Return the active user-attention-required job and total count.

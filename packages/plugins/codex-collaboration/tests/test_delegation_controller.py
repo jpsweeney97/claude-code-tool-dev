@@ -4339,3 +4339,138 @@ class TestRecoveryCatchup:
         assert len(terminal_records) == 1
         assert terminal_records[0]["job_id"] == "job-canceled"
         assert terminal_records[0]["terminal_status"] == "canceled"
+
+    def test_recover_startup_repairs_active_lineage_for_canceled_jobs(
+        self, tmp_path: Path
+    ) -> None:
+        """Crash window between job=canceled persistence and lineage write
+        leaves an active handle bound to a terminal canceled job. The
+        verified-cancel paths (timeout_interrupt_succeeded :1665-1668 +
+        D4 canceled-snapshot :2466 + :2510) write job=canceled, then
+        outcome, then lineage="completed". A crash after the job write
+        but before the lineage write leaves handle.status="active".
+
+        The orphaned-active sweep (:3050) does not catch this — its
+        filter is running/needs_escalation only. The terminal-outcome
+        catch-up sweep (:3073) must repair the lineage in addition to
+        emitting the missing outcome.
+        """
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+        (
+            controller,
+            _cp,
+            _wm,
+            job_store,
+            lineage,
+            journal,
+            _registry,
+            _prs,
+        ) = _build_controller(tmp_path)
+
+        from server.models import CollaborationHandle, DelegationJob
+
+        # Seed: active handle (lineage write never landed) bound to a
+        # job already persisted as canceled (job write did land).
+        lineage.create(
+            CollaborationHandle(
+                collaboration_id="collab-canceled-active",
+                capability_class="execution",
+                runtime_id="rt-canceled-active",
+                codex_thread_id="thr-canceled-active",
+                claude_session_id="sess-1",
+                repo_root=str(repo_root),
+                created_at="2026-04-21T00:00:00Z",
+                status="active",
+            )
+        )
+        job_store.create(
+            DelegationJob(
+                job_id="job-canceled-active",
+                runtime_id="rt-canceled-active",
+                collaboration_id="collab-canceled-active",
+                base_commit="abc123",
+                worktree_path=str(tmp_path / "wt"),
+                promotion_state=None,
+                status="canceled",
+            )
+        )
+
+        outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
+        assert not outcomes_path.exists() or outcomes_path.read_text().strip() == ""
+
+        controller.recover_startup()
+
+        # Lineage repaired to "completed" mirroring the verified-cancel
+        # live write semantics.
+        repaired = lineage.get("collab-canceled-active")
+        assert repaired is not None
+        assert repaired.status == "completed", (
+            "Active handle for terminal canceled job must be repaired to"
+            " 'completed' (verified-cancel semantics)"
+        )
+
+        # Outcome emission must still happen (existing invariant).
+        assert outcomes_path.exists()
+        terminal_records = [
+            json.loads(line)
+            for line in outcomes_path.read_text(encoding="utf-8").strip().split("\n")
+            if line.strip()
+            and json.loads(line).get("outcome_type") == "delegation_terminal"
+        ]
+        assert len(terminal_records) == 1
+        assert terminal_records[0]["job_id"] == "job-canceled-active"
+        assert terminal_records[0]["terminal_status"] == "canceled"
+
+    def test_recover_startup_does_not_disturb_already_terminal_handle_for_canceled_jobs(
+        self, tmp_path: Path
+    ) -> None:
+        """Idempotency: when the canceled job's handle is already in a
+        terminal state (the live path completed both writes before any
+        crash), recovery must not re-write the lineage. Specifically,
+        a handle already at "completed" stays at "completed".
+        """
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+        (
+            controller,
+            _cp,
+            _wm,
+            job_store,
+            lineage,
+            journal,
+            _registry,
+            _prs,
+        ) = _build_controller(tmp_path)
+
+        from server.models import CollaborationHandle, DelegationJob
+
+        lineage.create(
+            CollaborationHandle(
+                collaboration_id="collab-canceled-done",
+                capability_class="execution",
+                runtime_id="rt-canceled-done",
+                codex_thread_id="thr-canceled-done",
+                claude_session_id="sess-1",
+                repo_root=str(repo_root),
+                created_at="2026-04-21T00:00:00Z",
+                status="completed",
+            )
+        )
+        job_store.create(
+            DelegationJob(
+                job_id="job-canceled-done",
+                runtime_id="rt-canceled-done",
+                collaboration_id="collab-canceled-done",
+                base_commit="abc123",
+                worktree_path=str(tmp_path / "wt"),
+                promotion_state=None,
+                status="canceled",
+            )
+        )
+
+        controller.recover_startup()
+
+        repaired = lineage.get("collab-canceled-done")
+        assert repaired is not None
+        assert repaired.status == "completed"
