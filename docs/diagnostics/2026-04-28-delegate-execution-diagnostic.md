@@ -271,15 +271,44 @@ Cleanup decision:
 
 T-01 names `["/usr/bin", "/usr/lib"]` as the narrow-grant starting point
 (`docs/tickets/2026-04-23-codex-collaboration-delegate-execution-remediation.md:84-87`).
+The matrix below extends T-01's seed with `/bin` (POSIX command location;
+distinct from `/usr/bin` on macOS — `which sh` resolves to `/bin/sh` on
+Darwin, not `/usr/bin/sh`) so the smoke objective's commands can be located.
+
 Run the levels in order; stop at the first level where the smoke artifact
 produces successfully. Each level extends the previous level — do not run
 levels in parallel.
 
+#### Pre-Matrix Discovery (run before B1)
+
+Before invoking the matrix, record the actual host paths for the smoke
+objective's commands. If any path lies outside the matrix below, prepend
+its parent root to B1 (and document the addition in the per-variant
+evidence).
+
+```bash
+for cmd in sh mkdir cat ls; do
+  printf '%s -> %s\n' "$cmd" "$(command -v "$cmd" || echo "NOT-FOUND")"
+done
+```
+
+| Command | Resolved path | Parent root | Already in matrix? | Action |
+|---|---|---|---|---|
+| `sh` | TBD | TBD | TBD | If parent root not in B1, prepend it. |
+| `mkdir` | TBD | TBD | TBD | If parent root not in B1, prepend it. |
+| `cat` | TBD | TBD | TBD | If parent root not in B1, prepend it. |
+| `ls` | TBD | TBD | TBD | If parent root not in B1, prepend it. |
+
+Recorded for the live operator environment (macOS, this repo): `which sh
+mkdir cat ls` → all under `/bin`. Hence B1 below includes `/bin`.
+
+#### Levels
+
 | Level | `readableRoots` additions | Rationale |
 |---|---|---|
-| B1 | `["/usr/bin"]` | Smallest plausible grant: shell binaries only. Tests whether shell needs *any* additional read root beyond `/bin` (already covered by `includePlatformDefaults` partial paths if present). |
-| B2 | `["/usr/bin", "/usr/lib"]` | T-01's named starting point. Adds shared library read for shell and any binary dynamic linking. |
-| B3 | `["/usr/bin", "/usr/lib", "/usr/local/bin", "/usr/local/lib"]` | Adds Homebrew / locally-built binaries common on macOS. Required if the operator's environment routes through `/usr/local/bin` (e.g., `git`, `python` from Homebrew). |
+| B1 | `["/bin", "/usr/bin"]` | POSIX command location plus userland binaries. macOS keeps `/bin` and `/usr/bin` separate (no usr-merge), and the smoke objective's `sh`, `mkdir`, `cat`, `ls` resolve to `/bin/*` on this host (verified above). Without `/bin`, B1 would fail for path-resolution reasons unrelated to sandbox correctness. |
+| B2 | `["/bin", "/usr/bin", "/usr/lib"]` | T-01's named starting point with `/bin` preserved. Adds shared library read for shell and any binary dynamic linking. |
+| B3 | `["/bin", "/usr/bin", "/usr/lib", "/usr/local/bin", "/usr/local/lib"]` | Adds Homebrew / locally-built binaries common on macOS. Required if the operator's environment routes through `/usr/local/bin` (e.g., `git`, `python` from Homebrew). |
 | B4 | B3 + `/System/Library` (macOS) or `/lib`, `/lib64` (Linux) | Adds OS-level frameworks. Required if shell or binaries link against system frameworks not covered by `/usr/lib`. |
 | B5+ | Operator-defined extensions | If B4 still does not produce the smoke artifact, the narrow-grant approach is likely insufficient. Record what's missing, then either return to Candidate A's `includePlatformDefaults: True` or document the gap as "narrow-grant infeasible for this platform." |
 
@@ -331,8 +360,11 @@ protocol for every variant before recording evidence in the per-variant block.
    capture forms — operator memory is not durable evidence.
 
 3. **Apply the patch and record pre-run state immediately.** Before invoking
-   any delegation, capture pre-run HEAD, dirty diff summary, and patch SHA into
-   the per-variant evidence block.
+   any delegation, capture pre-run HEAD, dirty diff summary, patch SHA, and
+   the **patch-applied-at timestamp** (ISO-8601 UTC, captured immediately
+   after the patch is on disk — e.g., `date -u +"%Y-%m-%dT%H:%M:%SZ"`) into
+   the per-variant evidence block. The timestamp is what step 4's
+   `Plugin process start timestamp` is compared against.
 
 4. **Reload the live runtime so it observes the patch.** A `git diff` proves
    the patch is on disk; it does **not** prove the running plugin/MCP process
@@ -359,12 +391,55 @@ protocol for every variant before recording evidence in the per-variant block.
       **not** automatically logged in any plugin-side JSONL store. Three
       acceptable observation forms:
 
-      - **Patch-embedded log emit** (preferred). Include a temporary
-        `print(f"[VARIANT-{name}] sandboxPolicy={policy!r}", file=sys.stderr)`
-        or equivalent emit in the candidate patch itself, at the call site
-        in `delegation_controller.py:1327` or at the build site in
-        `runtime.py:23`. Capture stderr/stdout for the variant's run and
-        record the emitted payload.
+      - **Patch-embedded log emit** (preferred). Include a temporary emit
+        in the candidate patch itself. The two pre-existing import sets
+        differ between sites — pick the snippet that matches the site you
+        are patching. Replace `VARIANT-LABEL` with the active variant
+        identifier (`A`, `B1`, `B2`, etc.); the label is hardcoded
+        per-variant, **not** a Python f-string variable.
+
+        **Site 1: build site, `runtime.py:23` in
+        `build_workspace_write_sandbox_policy`.** `runtime.py` does not
+        import `sys` or `logging` at module top, so the patch must add an
+        import. Insert immediately before the `return` statement:
+
+        ```python
+        # variant instrumentation (remove after diagnostic)
+        import sys
+        print(
+            f"[VARIANT-LABEL] sandboxPolicy={policy!r}",
+            file=sys.stderr,
+            flush=True,
+        )
+        ```
+
+        Replace `policy` with whichever local variable name the function
+        uses for its return value (read the patched function before
+        copying — current source assigns the dict literal directly to
+        `return`, so the patch must also extract it to a local variable
+        first).
+
+        **Site 2: call site, `delegation_controller.py:1327`.**
+        `delegation_controller.py` already imports `logging` at module
+        top (verified at the file's import block). Patch the call site
+        to extract the policy to a local, log it, then pass it through:
+
+        ```python
+        # variant instrumentation (remove after diagnostic)
+        import logging
+        _variant_logger = logging.getLogger(__name__)
+        _variant_policy = build_workspace_write_sandbox_policy(worktree_path)
+        _variant_logger.warning(
+            "[VARIANT-LABEL] sandboxPolicy=%r", _variant_policy
+        )
+        # then in the kwarg list, pass _variant_policy instead of the
+        # build_workspace_write_sandbox_policy(worktree_path) inline call:
+        # sandbox_policy=_variant_policy,
+        ```
+
+        Capture stderr/stdout (build-site emit) or the configured logging
+        sink (call-site emit) for the variant's run and paste the emitted
+        payload into the per-variant evidence block.
       - **App Server access log** if the operator's App Server build emits
         one and the path is known. Record the log path and grep for
         `turn/start` against the variant's job id timestamp.
@@ -427,9 +502,10 @@ attempt.
 | Pre-run HEAD | Required. `git rev-parse --short HEAD` immediately before applying the variant patch. | TBD |
 | Pre-run dirty diff | Required. `git status --short` before patch; must show no modifications to files the patch will touch. | TBD |
 | Patch capture form | Required. One of: inline diff (below), `.tmp/variant-<name>.patch`, or throwaway-branch commit SHA. See Variant Isolation Protocol step 2. | TBD |
+| Patch applied at | Required. ISO-8601 UTC timestamp captured immediately after applying the patch (e.g., `date -u +"%Y-%m-%dT%H:%M:%SZ"` immediately after `git apply` / `git checkout` / inline edit save). Anchors the runtime-reload chain: `Patch applied at` < `Plugin process start timestamp` is a required ordering for the variant to be valid. | TBD |
 | Policy diff / patch under test | Required. Inline `git diff` of the variant patch, or "current code (no patch)" for Baseline. If captured at a path or SHA, also paste the diff here for reviewer-readability. | TBD |
 | Plugin process PID (post-restart) | Required. PID of the plugin/MCP process **after** restart in Variant Isolation Protocol step 4. Proves the variant ran against a process that started after the patch landed. | TBD |
-| Plugin process start timestamp | Required. ISO-8601 timestamp of the post-restart process start. Capture from `ps -o lstart -p <PID>` or equivalent. Must be later than the patch-application timestamp recorded in Pre-run dirty diff. | TBD |
+| Plugin process start timestamp | Required. ISO-8601 timestamp of the post-restart process start. Capture from `ps -o lstart -p <PID>` or equivalent. Must be **later than** `Patch applied at` above; if it is earlier or equal, the running process predates the patch and the variant is invalid (rerun after a fresh restart). | TBD |
 | Observed `sandboxPolicy` payload | Required. Direct evidence the live runtime built the patched policy. One of: patch-embedded log emit at `delegation_controller.py:1327` or `runtime.py:23` capturing the dict, App Server access-log entry for the variant's `turn/start`, or ad-hoc instrumentation output. Inference from on-disk source is **not** acceptable. Paste payload literal. | TBD |
 | Runtime-proof method | Required. Which of the three observation forms (patch-embedded emit / App Server log / ad-hoc instrumentation) was used to populate "Observed `sandboxPolicy` payload". | TBD |
 | Approval policy value | Required. Controller/runtime input for this run. | TBD |
