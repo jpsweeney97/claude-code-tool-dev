@@ -176,7 +176,15 @@ class _CaptureReadyChannel:
     job_id: str
     event: threading.Event = field(default_factory=threading.Event)
     outcome: ParkedCaptureResult | None = None
-    resolved: bool = False  # True once wait_for_parked has returned any outcome
+    # True once a capture outcome has been recorded on this channel.
+    # Set by _deliver_capture_outcome when the first announce_* buffers an
+    # outcome (this can happen BEFORE wait_for_parked attaches via the
+    # open_capture_channel pre-open path), or by wait_for_parked itself
+    # when the timeout elapses without a signal (StartWaitElapsed).
+    # Read by _deliver_capture_outcome to enforce one-shot semantics:
+    # subsequent announce_* calls observe `resolved=True` and warn-and-noop
+    # without mutating channel state.
+    resolved: bool = False
     # True once wait_for_parked has bound itself to this channel. Distinct
     # from `resolved`: pre-opened channels (open_capture_channel) start with
     # waiter_attached=False so an early announce_* can be buffered before
