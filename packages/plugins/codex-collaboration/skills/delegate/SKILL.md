@@ -280,11 +280,14 @@ Poll is the only verb that allows inspecting arbitrary jobs outside the active d
 
 ### Post-acceptance flow (shared by Approve and Deny)
 
-After `decide` returns `decision_accepted: true`, surface the next observable state with a single bounded poll. Trust `decision_accepted: true` as authoritative for acceptance; the poll is for observation only.
+After `decide` returns `decision_accepted: true`, surface the next observable state via **bounded polling**. Trust `decision_accepted: true` as authoritative for acceptance; polling is for observation only.
 
-1. Call `mcp__plugin_codex-collaboration_codex-collaboration__codex.delegate.poll` with `job_id` (the same `job_id` passed to `decide`).
-2. **Same-request consuming window:** If the poll result has `pending_escalation` with `request_id` equal to the just-decided `request_id`, the worker has not yet dispatched the decision (this is expected and not an error -- contract: §Decide). Render "Decision accepted -- worker is dispatching. Run `/delegate` to check for the next state." and **Stop.** Do NOT render the just-decided escalation as a new decision prompt.
-3. **Otherwise:** Route the poll result through the state router (step 6). The state router will surface running, terminal (completed/failed/canceled/unknown), or a new escalation with a different `request_id`. **Stop** after rendering.
+1. Set the just-decided `request_id` as a suppression sentinel for this flow.
+2. Poll up to 5 times. For each attempt:
+    1. Call `mcp__plugin_codex-collaboration_codex-collaboration__codex.delegate.poll` with `job_id` (the same `job_id` passed to `decide`).
+    2. **Same-request consuming window:** If the poll result has `pending_escalation` with `request_id` equal to the suppression sentinel, the worker has not yet dispatched the decision (contract: §Decide). Suppress this result -- do NOT render the just-decided escalation as a new decision prompt -- and continue to the next poll attempt.
+    3. **First different state observed:** Route the poll result through the state router (step 6). The state router will surface running, terminal (completed / failed / canceled / unknown), or a new escalation with a different `request_id`. **Stop** after rendering. Do NOT poll again.
+3. **Budget exhausted (still consuming window after 5 polls):** Render "Decision accepted -- worker is still dispatching. Run `/delegate` to check for the next state." and **Stop.**
 4. **Never auto-chain a second decision.** If the state router renders a new escalation (different `request_id`), do NOT auto-invoke `decide`. A new escalation requires an explicit user-initiated `/delegate approve|deny` invocation -- each escalation re-runs Gate 2.
 
 ### Promote (`/delegate promote [job_id]`)
