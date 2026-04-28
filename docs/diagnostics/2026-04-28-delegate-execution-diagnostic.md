@@ -34,8 +34,8 @@ Merge-commit anchor for the assessment: `36ef13e8`
 | Operator | jpsweeney97 |
 | Date/time started | 2026-04-28T04:56:25Z |
 | Branch/worktree | `feature/delegate-execution-diagnostic-record` at `/Users/jp/Projects/active/claude-code-tool-dev` |
-| `git status --short --branch` | `## feature/delegate-execution-diagnostic-record...origin/feature/delegate-execution-diagnostic-record` (clean for diagnostic-relevant paths; 8 unrelated `docs/tickets/closed-tickets/` moves carry over from a prior session and are out of scope) |
-| `git rev-parse --short HEAD` | `46cd954e` (run-record commit on top of merge anchor `36ef13e8`) |
+| `git status --short --branch` | `## feature/delegate-execution-diagnostic-record...origin/feature/delegate-execution-diagnostic-record [ahead 1]` (clean for diagnostic-relevant paths; the `[ahead 1]` is `789607fc` not yet pushed; 8 unrelated `docs/tickets/closed-tickets/` moves carry over from a prior session and are out of scope) |
+| `git rev-parse --short HEAD` | `789607fc` (pre-execution-fill commit on top of `46cd954e` run-record-add commit, both on top of merge anchor `36ef13e8`). Re-record this field immediately before the live run if any further commits land. |
 | `codex --version` | `codex-cli 0.125.0` (raw observable; no separate App Server version exposed; do not infer a semantic App Server version from this string) |
 | Raw App Server identity / `RuntimeHandshake.user_agent` | Pending live bootstrap; record the literal value emitted by the App Server during the first handshake of this run |
 | Fixture directory | `packages/plugins/codex-collaboration/tests/fixtures/codex-app-server/0.117.0/` |
@@ -158,25 +158,53 @@ Stable forensic fields to look for:
 
 ## Host-Side Probe Baselines
 
-Record host-side existence/readability only. Do not print sensitive file
-contents.
+The probe set below covers T-01's full security boundary checklist
+(`docs/tickets/2026-04-23-codex-collaboration-delegate-execution-remediation.md:77-82`):
+`~/.ssh/`, `~/.aws/`, `~/.config/`, `.env` files outside the worktree, other
+worktrees, and the parent repo's `.git/`.
+
+Record host-side existence/readability only. Do **not** print sensitive file
+contents. `test -e` returns 0 if the path exists, 1 otherwise; the bash idiom
+below converts to a `yes`/`no` boolean for table-readability.
 
 ```bash
-for p in "$HOME/.ssh/id_rsa" "$HOME/.aws/credentials" "$HOME/.config"; do
-  test -e "$p"; echo "$p exists=$?"
-  test -r "$p"; echo "$p readable=$?"
+exists() { if test -e "$1"; then echo "yes"; else echo "no"; fi; }
+readable() { if test -r "$1"; then echo "yes"; else echo "no"; fi; }
+
+WORKTREE="/Users/jp/Projects/active/claude-code-tool-dev"
+PARENT_GIT="$WORKTREE/.git"
+OUTSIDE_ENV="$(dirname "$WORKTREE")/.env"   # adjust if your sibling .env lives elsewhere
+SIBLING_WORKTREE="TBD-pick-an-actual-path"   # e.g. another active project root
+
+for p in \
+  "$HOME/.ssh/id_rsa" \
+  "$HOME/.aws/credentials" \
+  "$HOME/.config" \
+  "$PARENT_GIT" \
+  "$OUTSIDE_ENV" \
+  "$SIBLING_WORKTREE"; do
+  printf '%s exists=%s readable=%s\n' "$p" "$(exists "$p")" "$(readable "$p")"
 done
 ```
 
 | Path | Host exists? | Host readable? | In-sandbox exists? | In-sandbox readable? | Diagnostic interpretation |
 |---|---:|---:|---:|---:|---|
-| `$HOME/.ssh/id_rsa` | TBD | TBD | TBD | TBD | TBD |
-| `$HOME/.aws/credentials` | TBD | TBD | TBD | TBD | TBD |
-| `$HOME/.config` | TBD | TBD | TBD | TBD | TBD |
-| Known sibling repo/worktree | TBD | TBD | TBD | TBD | TBD |
+| `$HOME/.ssh/id_rsa` | TBD | TBD | TBD | TBD | T-01 checklist: user SSH key. Read-leak under platform defaults is a security-boundary failure. |
+| `$HOME/.aws/credentials` | TBD | TBD | TBD | TBD | T-01 checklist: cloud credentials. Read-leak is a security-boundary failure. |
+| `$HOME/.config` | TBD | TBD | TBD | TBD | T-01 checklist: directory-level secret-bearing tree. Even directory listing visibility is a partial leak; record the granularity (listing vs. file read). |
+| Parent repo `.git/` (host clone) | TBD | TBD | TBD | TBD | T-01 checklist: leaks `git config`, hooks, refs of the host clone. Distinct from the delegated worktree's ephemeral `.git`; probe the absolute host-clone path, not the worktree path. |
+| `.env` outside worktree | TBD | TBD | TBD | TBD | T-01 checklist: secrets in adjacent projects. Pick a concrete path that exists; if no `.env` exists outside the worktree, record absence and pick a same-class control (e.g., `~/.npmrc`, `~/.pgpass`). |
+| Known sibling repo/worktree | TBD | TBD | TBD | TBD | T-01 checklist: cross-worktree leakage. Probe the sibling's root and its `.git/` separately. |
+| Additional control row | TBD | TBD | TBD | TBD | Append rows here if the live run surfaces another sensitive path the platform-defaults grant exposes. |
 
 If a sensitive path is absent on the host, an in-sandbox unreadable result is
 non-diagnostic. Pick another existing control path or record the absence.
+
+**Granularity note:** distinguish `exists` (sandbox can `stat` the path; this
+leaks the *fact* of the path's existence) from `readable` (sandbox can read the
+path's contents; this leaks the *contents*). For directories, also distinguish
+listing (`ls`) from per-entry read. Record the highest-granularity leak
+observed.
 
 ## Smoke Objective
 
@@ -195,7 +223,9 @@ Expected minimum shell-visible actions:
 3. Verify/read the file.
 
 Chosen smoke path:
-`docs/diagnostics/delegate-smoke/TBD-result.txt`
+`docs/diagnostics/delegate-smoke/20260428T005625-result.txt`
+(timestamp matches Run Identity's "Diagnostic smoke timestamp" field; reuse the
+same token for every variant in this run so artifact filenames are unambiguous)
 
 Capture all required evidence into this run record before cleanup. Cleanup can
 remove smoke files and ignored probes, so treat cleanup commands as destructive.
@@ -215,6 +245,73 @@ Cleanup decision:
 | Candidate A | `includePlatformDefaults: True`, otherwise current policy | Same approval policy as baseline unless explicitly changed | Required unless Baseline unexpectedly produces complete artifact evidence. Tests whether platform defaults unblock shell while preserving security boundary. |
 | Candidate B | Narrow readable-root additions only | Same approval policy as baseline unless explicitly changed | Conditional. Run only if Candidate A works but grants wider read access than desired. |
 
+## Variant Isolation Protocol
+
+Variants must not contaminate each other. A patch from Candidate A bleeding into
+Baseline (or vice versa) silently invalidates the comparison. Apply this
+protocol for every variant before recording evidence in the per-variant block.
+
+**Required discipline per variant:**
+
+1. **Reach a clean pre-run state.** Working tree must be clean for any path the
+   variant patch will touch. Acceptable forms: clean repo, or stashed/committed
+   prior-variant state, or a fresh disposable worktree per variant.
+
+   ```bash
+   git status --short
+   # Must show no modifications to files the variant patch will touch.
+   git rev-parse --short HEAD
+   ```
+
+2. **Capture the variant patch as a durable artifact.** Patches must be
+   reviewable and reversible. Three acceptable forms; pick one and record it:
+
+   - **Inline diff in the run record** — paste the full `git diff` under
+     "Policy diff / patch under test" in the per-variant evidence.
+   - **Patch file at `.tmp/variant-<name>.patch`** — gitignored
+     (`.gitignore:51`); generate with `git diff > .tmp/variant-<name>.patch`
+     and reference the file path. Operator must keep the file until the run
+     record is complete.
+   - **Temporary commit on a throwaway branch** — record the branch name and
+     the commit short SHA, then drop the branch after run completion.
+
+   Do **not** rely on uncommitted in-memory edits without one of the above
+   capture forms — operator memory is not durable evidence.
+
+3. **Apply the patch and record pre-run state immediately.** Before invoking
+   any delegation, capture pre-run HEAD, dirty diff summary, and patch SHA into
+   the per-variant evidence block.
+
+4. **Run the variant.** Do not amend the patch mid-run.
+
+5. **Capture post-run state.** Record post-run HEAD (should equal pre-run
+   HEAD if no commits landed), `git status --short` (should show only the
+   variant patch's known modifications, plus expected smoke artifact paths),
+   and any unexpected dirty paths.
+
+6. **Restore before next variant.** Three acceptable forms; pick the one that
+   matches the patch capture form:
+
+   - For inline-diff or patch-file capture: `git checkout -- <paths>` for the
+     patched paths, or `git stash drop` if stashed, or `git apply -R
+     .tmp/variant-<name>.patch`.
+   - For temporary-commit capture: `git reset --hard <pre-run-HEAD>` (this is
+     destructive — only use on the throwaway branch, never on the diagnostic
+     branch itself).
+
+7. **Verify restoration.** Re-run `git status --short` for the patched paths;
+   must match pre-run-state. Record this verification in the per-variant
+   block. If status diverges from pre-run, the variant is contaminated; do
+   not proceed to the next variant until restored.
+
+**Cross-variant checks:**
+
+- Baseline must be run with no patch applied. If Baseline was run with a
+  preceding variant's patch still in place, mark the run invalid (Branch
+  Precedence #1) and rerun.
+- Candidate A and Candidate B must not be run sequentially in the same
+  worktree without explicit restoration verification between them.
+
 ## Per-Variant Evidence
 
 Copy this block once per variant. If the variant needs a rerun, append another
@@ -225,7 +322,10 @@ attempt.
 
 | Field | Source / fill guidance | Observation |
 |---|---|---|
-| Policy diff / patch under test | Required. Local code/config diff or explicit "current code". | TBD |
+| Pre-run HEAD | Required. `git rev-parse --short HEAD` immediately before applying the variant patch. | TBD |
+| Pre-run dirty diff | Required. `git status --short` before patch; must show no modifications to files the patch will touch. | TBD |
+| Patch capture form | Required. One of: inline diff (below), `.tmp/variant-<name>.patch`, or throwaway-branch commit SHA. See Variant Isolation Protocol step 2. | TBD |
+| Policy diff / patch under test | Required. Inline `git diff` of the variant patch, or "current code (no patch)" for Baseline. If captured at a path or SHA, also paste the diff here for reviewer-readability. | TBD |
 | Approval policy value | Required. Controller/runtime input for this run. | TBD |
 | Job id | Required. `start()` response, `poll()` output, or `DelegationJobStore` row. | TBD |
 | First parked request id | Required if any escalation occurs. `start()` pending escalation, `poll()` pending escalation, or PendingRequestStore row. | TBD |
@@ -248,6 +348,10 @@ attempt.
 | Network probe result | Required for candidate policy variants. Record command and result. | TBD |
 | Sensitive-path probe result | Required for candidate policy variants. Cross-reference Host-Side Probe Baselines. | TBD |
 | Sibling-worktree probe result | Required if a sibling worktree exists; otherwise record absence. | TBD |
+| Post-run HEAD | Required. `git rev-parse --short HEAD` after the run. Must equal pre-run HEAD unless commits landed; explain any drift. | TBD |
+| Post-run dirty diff | Required. `git status --short` after the run. Should show only the variant patch's known modifications plus any smoke artifact paths intentionally tracked. | TBD |
+| Variant restoration command | Required. Exact command used to undo the variant patch (e.g., `git apply -R .tmp/variant-A.patch`, `git checkout -- runtime.py`, `git stash drop`). Skip for Baseline. | TBD |
+| Restoration verification | Required. `git status --short` after restoration; must match pre-run dirty diff. Record divergences as contamination. | TBD |
 | Cleanup performed | Required after evidence capture. Record command or "deferred". | TBD |
 
 Attempt history:
@@ -295,10 +399,32 @@ Multiple observations may fire in one run. Record all fired branches, then choos
 the primary branch using this precedence. Symptom row references point to the
 numbered rows in the Symptom Attribution table below.
 
-1. **Invalid or incomplete run.** Missing storage evidence, missing job/request
-   ids, or `shell_action_count < 3` for approval-volume interpretation.
-   Rationale: no engineering decision should rest on incomplete evidence. Rerun
-   or narrow the diagnostic before deciding.
+1. **Invalid or incomplete run.** Any of the following:
+   - **Missing job id.** No `start()` response, no `DelegationJobStore` row, or
+     ambiguous job identity. The run cannot be classified at all without a
+     job. Always invalidates.
+   - **Missing storage evidence.** Plugin data root, session id, or per-store
+     JSONL files unreadable when the run claims a delegation occurred. The run
+     cannot be audited. Always invalidates.
+   - **Missing request id when escalation is observed or claimed.** If the run
+     surfaces a `command_approval` / `file_change` request (in `start()`,
+     `poll()`, or PendingRequestStore) and no request id can be recorded, the
+     escalation is unattributable. Note: a valid Baseline run may produce **no
+     escalation at all** (e.g., sandbox blocks shell before any command
+     reaches approval); in that case, request id is correctly absent and is
+     **not** an invalidator. Record `no escalation observed` in the per-variant
+     evidence and proceed.
+   - **`shell_action_count < 3` when interpreting approval volume.** The
+     denominator is too small for the `approval_request_count /
+     shell_action_count` ratio to be meaningful. Does not invalidate the run
+     itself; only invalidates ratio-based threshold interpretation. If the run
+     fired a non-ratio branch (S1, S6, S7), keep the classification.
+
+   Rationale: no engineering decision should rest on incomplete evidence. The
+   sub-cases above distinguish "evidence is missing for this run" (always
+   invalid) from "evidence is correctly absent because no escalation
+   occurred" (valid; classify by symptom row instead). Rerun or narrow the
+   diagnostic before deciding only when the case is in the always-invalid set.
 2. **Packet 1 regression** (Symptom rows S3, S5, S6). Capture-ready, registry,
    worker-drain, dispatch/recovery, or post-decide polling failure independent of
    sandbox permissions. Rationale: control-plane evidence must be trustworthy
