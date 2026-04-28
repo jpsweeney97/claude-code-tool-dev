@@ -399,18 +399,25 @@ protocol for every variant before recording evidence in the per-variant block.
         per-variant, **not** a Python f-string variable.
 
         **Site 1: build site, `runtime.py:23` in
-        `build_workspace_write_sandbox_policy`.** `runtime.py` does not
-        import `sys` or `logging` at module top, so the patch must add an
-        import. Insert immediately before the `return` statement:
+        `build_workspace_write_sandbox_policy`.** Emit the policy to a
+        durable file sink via context-managed open (deterministic close).
+        `runtime.py` already imports `from pathlib import Path` at module
+        top; the patch adds an aliased re-import plus `datetime` for the
+        ISO-8601 timestamp. Insert immediately before the `return`
+        statement:
 
         ```python
         # variant instrumentation (remove after diagnostic)
-        import sys
-        print(
-            f"[VARIANT-LABEL] sandboxPolicy={policy!r}",
-            file=sys.stderr,
-            flush=True,
-        )
+        from datetime import datetime, timezone
+        from pathlib import Path as _Path
+
+        with _Path("/tmp/codex-collab-baseline-runtime-proof.log").open(
+            "a", encoding="utf-8"
+        ) as _handle:
+            _handle.write(
+                f"{datetime.now(timezone.utc).isoformat()} "
+                f"[VARIANT-LABEL] sandboxPolicy={policy!r}\n"
+            )
         ```
 
         Replace `policy` with whichever local variable name the function
@@ -419,27 +426,41 @@ protocol for every variant before recording evidence in the per-variant block.
         `return`, so the patch must also extract it to a local variable
         first).
 
-        **Site 2: call site, `delegation_controller.py:1327`.**
-        `delegation_controller.py` already imports `logging` at module
-        top (verified at the file's import block). Patch the call site
-        to extract the policy to a local, log it, then pass it through:
+        **Site 2: call site, `delegation_controller.py:1327`.** Patch
+        the call site to extract the policy to a local, write it to the
+        same durable file sink as Site 1, then pass it through:
 
         ```python
         # variant instrumentation (remove after diagnostic)
-        import logging
-        _variant_logger = logging.getLogger(__name__)
+        from datetime import datetime, timezone
+        from pathlib import Path as _Path
+
         _variant_policy = build_workspace_write_sandbox_policy(worktree_path)
-        _variant_logger.warning(
-            "[VARIANT-LABEL] sandboxPolicy=%r", _variant_policy
-        )
+        with _Path("/tmp/codex-collab-baseline-runtime-proof.log").open(
+            "a", encoding="utf-8"
+        ) as _handle:
+            _handle.write(
+                f"{datetime.now(timezone.utc).isoformat()} "
+                f"[VARIANT-LABEL] sandboxPolicy={_variant_policy!r}\n"
+            )
         # then in the kwarg list, pass _variant_policy instead of the
         # build_workspace_write_sandbox_policy(worktree_path) inline call:
         # sandbox_policy=_variant_policy,
         ```
 
-        Capture stderr/stdout (build-site emit) or the configured logging
-        sink (call-site emit) for the variant's run and paste the emitted
-        payload into the per-variant evidence block.
+        Bare `logger.warning(...)` or `print(..., file=sys.stderr)` are
+        **not** valid call-site forms in current launch mode — see the
+        runtime-proof routing finding below. The call site is
+        structurally usable only when it writes to a durable non-stderr
+        sink (file, in this snippet, or any equivalent explicit-path
+        sink the operator records).
+
+        Capture the emitted payload by reading the durable file sink:
+        `cat /tmp/codex-collab-baseline-runtime-proof.log`. Paste the
+        line into the per-variant evidence block. Direct stderr/stdout
+        capture and bare `logging` emits are **not** valid in current
+        launch mode (`claude --plugin-dir ... --dangerously-skip-permissions`);
+        see the runtime-proof routing finding immediately below.
       - **App Server access log** if the operator's App Server build emits
         one and the path is known. Record the log path and grep for
         `turn/start` against the variant's job id timestamp.
@@ -459,6 +480,30 @@ protocol for every variant before recording evidence in the per-variant block.
         only viable runtime-proof form. Re-test if a different App Server
         build or config is introduced that does emit per-request access
         logs.
+      - **Runtime-proof routing finding (current launch mode, this
+        session):** the plugin's FD 2 (stderr) is consumed and dropped
+        by Claude Code in normal launch mode. Empirical evidence: FD 2
+        is connected to a unix domain socket on Claude Code's side
+        (`lsof -a -p <plugin-pid> -d 0,1,2` shows FDs 0/1/2 as socket
+        pairs); the per-server `.jsonl` cache at
+        `~/Library/Caches/claude-cli-nodejs/<project>/mcp-logs-plugin-codex-collaboration-codex-collaboration/`
+        (107 files, schema `[cwd, debug, error, sessionId, timestamp]`)
+        has no `stderr` key — the 5 historical `error` rows came from
+        the JSON-RPC response path (FD 1, exception text without the
+        `codex-collaboration:` prefix that the plugin's stderr helpers
+        add at `control_plane.py:50`, `dialogue.py:66`,
+        `dialogue.py:853`). Claude Code docs require `claude --debug
+        mcp` to surface MCP server stderr. Bare `logger.warning(...)`
+        shares this fate — `codex_runtime_bootstrap.py` attaches no
+        logging handlers, so `logging` falls through to Python's stderr
+        default and is dropped alongside `print(..., file=sys.stderr)`.
+        **Implication:** in current launch mode, neither stderr nor
+        bare `logger` emits are valid runtime-proof sinks; the
+        build-site and call-site snippets above therefore write to a
+        durable file sink. If the launch mode is changed to `--debug
+        mcp`, record the change in the per-variant evidence block
+        alongside the runtime-proof method (stderr capture becomes
+        recoverable in that mode).
       - **Ad-hoc instrumentation patch** layered over the variant patch.
         Treat the instrumentation as part of the variant patch when
         capturing pre-run state.
@@ -486,6 +531,13 @@ protocol for every variant before recording evidence in the per-variant block.
      `feature/delegate-execution-diagnostic-record`**. Use only on a
      dedicated throwaway branch (e.g., `spike/variant-A-temp` or
      `experiment/variant-B-temp`), then drop the throwaway branch.
+   - **Always: clear the runtime-proof artifact file.** Use `trash
+     /tmp/codex-collab-baseline-runtime-proof.log` (project rule: no
+     `rm`); or, if explicitly truncating instead of deleting, record the
+     truncation time and method in the per-variant evidence block so
+     the next variant's emits are unambiguously distinguishable. Stale
+     artifact lines from a prior variant cause cross-variant
+     interpretation errors.
 
    After restoration, **restart the plugin/MCP process again** so the next
    variant (or Baseline rerun) observes the restored code, not the patched
@@ -503,7 +555,7 @@ protocol for every variant before recording evidence in the per-variant block.
   preceding variant's patch still in place, mark the run invalid (Branch
   Precedence #1) and rerun. **Runtime-proof-only instrumentation
   exception:** a patch that adds only an observation emit (e.g., the
-  build-site `print(...)` snippet above) without altering the returned
+  build-site file-write snippet above) without altering the returned
   `sandbox_policy` dict is semantics-preserving and does not violate the
   no-patch rule. The instrumentation IS a patch for capture/restore
   purposes (record under "Patch capture form"; mark `Patch applied at`),
