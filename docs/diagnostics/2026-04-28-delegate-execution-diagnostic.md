@@ -443,6 +443,22 @@ protocol for every variant before recording evidence in the per-variant block.
       - **App Server access log** if the operator's App Server build emits
         one and the path is known. Record the log path and grep for
         `turn/start` against the variant's job id timestamp.
+
+        Investigation result (codex-cli `0.125.0`, this run):
+        access-log observation is **unavailable** for this build.
+        `~/.codex/logs_2.sqlite` is codex's tracing store;
+        `codex_app_server::message_processor` entries log `turn/start`
+        arrival with `connection_id` and `request_id` only, not the
+        request `params`. The 4 rows matching the literal `sandboxPolicy`
+        were assistant-message content from a prior consultation about
+        this run record (false positives — Codex's tracing layer captured
+        its own model output), not transport captures of `turn/start`
+        traffic. `codex app-server --help` exposes no body-logging flag,
+        and the plugin's spawn (`runtime.py:53`) injects no log-related
+        arguments. For this build, the patch-embedded log emit is the
+        only viable runtime-proof form. Re-test if a different App Server
+        build or config is introduced that does emit per-request access
+        logs.
       - **Ad-hoc instrumentation patch** layered over the variant patch.
         Treat the instrumentation as part of the variant patch when
         capturing pre-run state.
@@ -485,7 +501,13 @@ protocol for every variant before recording evidence in the per-variant block.
 
 - Baseline must be run with no patch applied. If Baseline was run with a
   preceding variant's patch still in place, mark the run invalid (Branch
-  Precedence #1) and rerun.
+  Precedence #1) and rerun. **Runtime-proof-only instrumentation
+  exception:** a patch that adds only an observation emit (e.g., the
+  build-site `print(...)` snippet above) without altering the returned
+  `sandbox_policy` dict is semantics-preserving and does not violate the
+  no-patch rule. The instrumentation IS a patch for capture/restore
+  purposes (record under "Patch capture form"; mark `Patch applied at`),
+  but it is NOT a behavioral patch for variant interpretation purposes.
 - Candidate A and Candidate B must not be run sequentially in the same
   worktree without explicit restoration verification between them.
 
