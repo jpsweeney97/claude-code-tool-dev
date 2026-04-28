@@ -2,7 +2,7 @@
 
 Date: 2026-04-28
 
-Status: draft first-run record, not yet executed
+Status: Baseline attempt 1 executed and adjudicated (Branch S1 — Sandbox still blocked); Candidate A pending operator-mediated Claude Code restart.
 
 Decision artifact:
 `docs/assessments/2026-04-28-codex-collaboration-next-focus-report.md` —
@@ -637,10 +637,10 @@ Pre-run evidence captured before invoking `codex_delegate_start`. Post-run cells
 | Plugin process start timestamp | ISO-8601 UTC of post-restart process start. State which form was used. Must be later than `Patch applied at` for variant validity. | **Raw `ps -o lstart -p 11696` output:** `Tue Apr 28 11:41:29 2026` (local timezone — verified `date +"%Z (%z)"` returns `EDT (-0400)` this session, format `%a %b %d %H:%M:%S %Y` with no zone marker). **Normalized UTC: `2026-04-28T15:41:29Z`** (via macOS-correct epoch round-trip: `EPOCH=$(date -j -f "%a %b %d %H:%M:%S %Y" "<lstart>" +%s)` then `date -u -r "$EPOCH" +"%Y-%m-%dT%H:%M:%SZ"`). **Pitfall caught and recorded:** the simpler-looking single-call recipe `date -u -j -f "%a %b %d %H:%M:%S %Y" "<lstart>" +"%Y-%m-%dT%H:%M:%SZ"` does NOT convert local→UTC on macOS; it treats the input as if already UTC and just relabels. That recipe was used initially this session and produced a 4-hour-wrong value (`2026-04-28T11:41:29Z`); the error was caught before propagating to downstream evidence by re-deriving via the epoch round-trip. The first commit on this run record's Baseline block had the wrong value; this correction lands in the next run-record commit. **Ordering check (using corrected UTC):** plugin start `2026-04-28T15:41:29Z` > patch applied `2026-04-28T06:56:55Z` ✓ — plugin started ~8h44m after patch was applied. Variant valid; running plugin re-imported the patched module. **Cross-check via runtime-proof artifact's own timestamp** (`2026-04-28T15:53:37.116985+00:00`, sourced from Python's `datetime.now(timezone.utc).isoformat()` — independently correct): post-dates the corrected plugin start by ~12 minutes, consistent with the first `codex_delegate_start` call after restart. The independent sources agree on the corrected UTC; they would have been mutually inconsistent under the wrong value (artifact would appear to be emitted ~4h12m after plugin start, which is implausible for a process under active use). |
 | Observed `sandboxPolicy` payload | Direct evidence the live runtime built the patched policy. Inference from on-disk source NOT acceptable. | Captured at `2026-04-28T15:53:37.116985+00:00` from `/tmp/codex-collab-baseline-runtime-proof.log`:<br><br>`{'type': 'workspaceWrite', 'writableRoots': ['/Users/jp/.claude/plugins/data/codex-collaboration-inline/runtimes/delegation/6753a537-99d8-456f-a1c0-1c79f13a2fc9/worktree'], 'readOnlyAccess': {'type': 'restricted', 'readableRoots': ['/Users/jp/.claude/plugins/data/codex-collaboration-inline/runtimes/delegation/6753a537-99d8-456f-a1c0-1c79f13a2fc9/worktree'], 'includePlatformDefaults': False}, 'networkAccess': False, 'excludeSlashTmp': True, 'excludeTmpdirEnvVar': True}`<br><br>**Source/runtime parity:** dict literal at `runtime.py:23` reproduced byte-for-byte at runtime. **T-01 mechanism confirmed:** `readableRoots` contains only the delegated worktree; `includePlatformDefaults: False` means `/bin`, `/usr/bin`, `/usr/lib` are unreachable; `/bin/zsh` (which the delegate proposed) cannot execute under this policy → Codex parks every shell command as `command_approval` before any approval-policy logic runs. |
 | Runtime-proof method | Which observation form was used. | Patch-embedded log emit at `runtime.py:23` build site; file-write to `/tmp/codex-collab-baseline-runtime-proof.log`. Stderr/stdout/logger explicitly invalid in current launch mode (FD 2 routing finding documented in VIP step 4). |
-| Approval policy value | Controller/runtime input for this run. | **Deferred — not surfaced in `start()` / `poll()` response payloads** (no `approval_policy` key in returned `job` or `pending_escalation` dicts). Recovery requires DelegationJobStore JSONL inspection (deferred — see below). Expected default per controller convention: `untrusted`. Carry-forward to next session for JSONL inspection. |
+| Approval policy value | Controller/runtime input for this run. | **Inferred: `untrusted`** (Codex's default approval policy; controller did not override). Inference basis: PendingRequestStore request 0 surfaced `available_decisions: ["accept", "acceptForSession", "acceptWithExecpolicyAmendment", "applyNetworkPolicyAmendment", "decline", "cancel"]` — the presence of `acceptWithExecpolicyAmendment` and the full 6-option action list is characteristic of `untrusted` mode where every command requires explicit per-call adjudication. The field is NOT directly stored in `start()` / `poll()` response payloads or in DelegationJobStore JSONL rows (verified by direct inspection); recorded here as inference, not direct observation. |
 | Job id | `start()` response, `poll()` output, or `DelegationJobStore` row. | `6753a537-99d8-456f-a1c0-1c79f13a2fc9` (from `start()` response). Runtime id: `c72e440a-d4d2-4e8d-9fb8-1f7c2bdc4017`. Collaboration id: `3fd2722e-0b53-4a51-97c1-ab5b834164d8`. Base commit: `7650366d778c961226f95efcf4ea40efa5fe2567` (matches Pre-run HEAD `7650366d`). |
 | First parked request id | Required if any escalation occurs. | `0` (from `start()` response `pending_escalation.request_id`). Status: `needs_escalation` returned from `start()` directly — no poll required to surface the parked state. |
-| JSON-RPC wire id type | Required if a parked request exists. | TBD — to be filled from PendingRequestStore inspection post-decide. `start()` response surfaces `request_id: "0"` as a JSON string; underlying wire type may differ. |
+| JSON-RPC wire id type | Required if a parked request exists. | **Integer.** `raw_request_id: 0` and `raw_request_id: 1` in PendingRequestStore are unquoted JSON integers (verified in `pending_requests/7337aa50-e517-44f7-8793-eebb3f0fe3db/requests.jsonl` lines 1 and 4). The plugin's surface-level `request_id` field is the stringified form (`"0"` / `"1"`) used for cross-store cross-referencing and as the orchestrator-facing identifier. Both forms recorded for unambiguous correlation. |
 | `shell_action_count` | Count shell commands/file-change actions for the smoke objective. | `2` cumulative across job lifetime: (1) attempted chained shell action `/bin/zsh -lc "..."` at request 0 (compressed mkdir + write + verify + print + over-action `test-results.json` write into one `&&`-chain — original smoke objective expected ≥3 shell-visible actions); (2) attempted `file_change` action at request 1 (surfaced after deny on request 0). Both attempts were denied at the approval gate; **neither executed**. Per Smoke Objective section: "rerun is needed because the live agent compressed the shell work into fewer than three shell-visible actions." Per Branch Precedence #1.d: ratio interpretation is invalid (effective denominator < 3) but the run itself remains valid for non-ratio branch classification (S1: Sandbox still blocked). |
 | `approval_request_count` | Required if `shell_action_count >= 3`. | `2` cumulative: request 0 (`command_approval`) + request 1 (`file_change`). Both denied at decision-time. |
 | Approval request kinds | Required if requests occur. | Two kinds across lifetime: **(1)** `command_approval` at `request_id="0"` from `start()` response — `requested_scope.command` was `/bin/zsh -lc "..."` (full chained command captured in raw excerpts). **(2)** `file_change` at `request_id="1"` surfaced via `poll()` after deny on request 0 — **null scope** (`grantRoot: null`, `reason: null`); both fields returned null on the wire. The second deny finalized the job. **Notable behavior:** the delegate adapts after deny — proposing a different action class (`file_change` after `command_approval` deny) — rather than finalizing on first deny. This contradicts a prior memory-stored expectation that "deny finalizes delegation job." Memory needs correction post-run. |
@@ -652,10 +652,10 @@ Pre-run evidence captured before invoking `codex_delegate_start`. Post-run cells
 | `full.diff` summary | Required if artifact production succeeds. | Empty file (zero bytes). Inspected at `/Users/jp/.claude/plugins/data/codex-collaboration-inline/runtimes/delegation/6753a537-99d8-456f-a1c0-1c79f13a2fc9/inspection/full.diff`. **Implication:** no worktree changes — both denies prevented all proposed writes. |
 | `changed_files` | Required if artifact production succeeds. | `[]` per `inspection/changed-files.json` (`{"changed_files": []}`). Empty list confirms zero file modifications across the delegate's entire lifecycle. |
 | Artifact hash | Required if artifact production succeeds. | `d604766ea0e6f7d82c1f37f5b66d10d985cfd0271b01f3a7491ceb8f167d7b8d` (sha256, recorded in both `start()` terminal poll response and `inspection.artifact_hash`; covers the 3 framework-generated inspection artifacts: `full.diff`, `changed-files.json`, `test-results.json`). **Note:** the framework's `test-results.json` records `{"commands": [], "schema_version": 1, "source_path": ".codex-collaboration/test-results.json", "status": "not_recorded", "summary": "Execution agent did not persist test results."}` — confirming the delegate's proposed `.codex-collaboration/test-results.json` over-action write inside the chained command never executed. |
-| PendingRequestStore rows inspected | Required if any request id exists. | TBD — requires inspection of `<plugin_data_root>/runtime-state/pending-requests/` JSONL files. Defer to post-restoration inspection (this session) or carry forward to next session. |
-| DelegationJobStore rows inspected | Record job id and matching JSONL line numbers. | TBD — requires inspection of `<plugin_data_root>/runtime-state/delegation-jobs/` JSONL files. Defer (same as above). |
-| OperationJournal rows inspected | Record job/request id and matching JSONL line numbers. | TBD — requires inspection of `<plugin_data_root>/runtime-state/operation-journal/` JSONL files. Defer (same as above). |
-| Audit rows inspected | Required if dispatch failure / timeout / decision audit relevant; else "not applicable". | TBD — requires inspection of audit JSONL files. Decide-audit rows are particularly relevant here (two `deny` decisions). Defer (same as above). |
+| PendingRequestStore rows inspected | Required if any request id exists. | File: `~/.claude/plugins/data/codex-collaboration-inline/pending_requests/7337aa50-e517-44f7-8793-eebb3f0fe3db/requests.jsonl` (6 lines). **Request 0 (`command_approval`):** L1 `op: create` (raw_request_id `0`, item_id `call_EKGTwWcqp44EYVdJ9bizuSzM`, codex_thread_id `019dd4cb-c1e6-7900-8c3e-4accda600d8c`, codex_turn_id `019dd4cb-c461-7dc0-b3f8-2329e816fd81`, available_decisions full 6-option list incl. `acceptWithExecpolicyAmendment`); L2 `op: record_response_dispatch` (resolution_action `deny`, response_payload `{"decision": "decline"}`, dispatch at `2026-04-28T16:01:39Z`); L3 `op: mark_resolved` (resolved at same timestamp). **Request 1 (`file_change`):** L4 `op: create` (raw_request_id `1`, item_id `call_pOFm3u5VSxTzScon0z1IZDxr`, **same codex_thread_id and codex_turn_id as req 0**, available_decisions `[]` empty, requested_scope `{grantRoot: null, reason: null}`); L5 `op: record_response_dispatch` (resolution_action `deny`, response_payload `{"decision": "decline"}`, dispatch at `2026-04-28T16:02:47Z`); L6 `op: mark_resolved`. **Notable findings:** (a) internal `deny` action maps to wire-level `decline` decision; (b) **both requests originate from the same Codex turn** — agent's adaptation after deny stays within one turn; (c) request 1's `available_decisions: []` is anomalous (empty list); (d) request 1's `raw_request_id` is unquoted JSON int per JSON-RPC wire convention. |
+| DelegationJobStore rows inspected | Record job id and matching JSONL line numbers. | File: `~/.claude/plugins/data/codex-collaboration-inline/delegation_jobs/7337aa50-e517-44f7-8793-eebb3f0fe3db/jobs.jsonl` (12 lines, all scoped to `job_id: 6753a537-99d8-456f-a1c0-1c79f13a2fc9`). Lifecycle trail: L1 `op: create` (status `queued`, base_commit `7650366d778c961226f95efcf4ea40efa5fe2567`, runtime_id `c72e440a-d4d2-4e8d-9fb8-1f7c2bdc4017`, collaboration_id `3fd2722e-0b53-4a51-97c1-ab5b834164d8`); L2 status `running`; L3 parked_request_id `0`; L4 status `needs_escalation`; **L5 status `running` (after deny req 0)**; L6 parked_request_id null; **L7 parked_request_id `1`**; L8 status `needs_escalation` (req 1); **L9 status `running` (after deny req 1)**; L10 parked_request_id null; **L11 status `completed`, promotion_state `pending`**; L12 `op: update_artifacts` (artifact_hash `d604766ea0e6f7d82c1f37f5b66d10d985cfd0271b01f3a7491ceb8f167d7b8d`, 3 inspection artifact paths). State machine: queued → running → escalated × 2 (with running interludes between denies) → completed. Job left at `promotion_state: pending` per session decision (audit-trail preservation; not promoted, not discarded). |
+| OperationJournal rows inspected | Record job/request id and matching JSONL line numbers. | File: `~/.claude/plugins/data/codex-collaboration-inline/journal/operations/7337aa50-e517-44f7-8793-eebb3f0fe3db.jsonl` (9 lines). Three operations × three phases each (intent / dispatched / completed). **Op 1 — `job_creation`** (idempotency_key `7337aa50-...:90eeb685...`): L1 phase intent (`2026-04-28T15:53:34Z`, repo_root captured); L2 phase dispatched (codex_thread_id `019dd4cb-c1e6-7900-8c3e-4accda600d8c` and runtime_id populated, same timestamp); L3 phase completed (same timestamp). **Op 2 — `approval_resolution`** (idempotency_key `approval_resolution:6753a537-...:0`, request_id `"0"`, decision `deny`): L4 intent at `2026-04-28T16:01:39Z`; L5 dispatched at same time (codex_thread_id populated for traceability); L6 completed (`completion_origin: worker_completed`). **Op 3 — `approval_resolution`** (idempotency_key `approval_resolution:6753a537-...:1`, request_id `"1"`, decision `deny`): L7-L9 same three-phase pattern at `2026-04-28T16:02:47Z`. All three operations completed cleanly (no `dispatch_error`/`interrupt_error` rows). |
+| Audit rows inspected | Required if dispatch failure / timeout / decision audit relevant; else "not applicable". | File: `~/.claude/plugins/data/codex-collaboration-inline/audit/events.jsonl` (single file shared across sessions; 64 lines at this session's inspection). Three rows scoped to this job (via `grep 6753a537 audit/events.jsonl`): **L62** `action: delegate_start`, actor `claude`, event_id `53c0930a-468c-40c4-ab3b-7704552816a3`, timestamp `2026-04-28T15:53:37Z` — **independent timestamp cross-check**: matches runtime-proof artifact's emit timestamp `2026-04-28T15:53:37.116985+00:00` to sub-second precision; **L63** `action: deny`, actor `claude`, request_id `"0"`, event_id `a72c3783-29d7-4028-8876-23e4d7bf101e`, timestamp `2026-04-28T16:01:39Z`; **L64** `action: deny`, actor `claude`, request_id `"1"`, event_id `fb8bf569-bf86-4cd8-a601-99240fbb5ce2`, timestamp `2026-04-28T16:02:47Z`. All three rows: `policy_fingerprint: null`, `extra: {}`, `actor: claude`. Confirms both denies dispatched cleanly under this orchestrator's actor identity. |
 | Network probe result | Required for candidate policy variants. | not applicable: Baseline (no candidate policy under test). |
 | Sensitive-path probe result | Required for candidate policy variants. | not applicable: Baseline. |
 | Sibling-worktree probe result | Required if a sibling worktree exists; otherwise record absence. | not applicable: no sibling worktrees observed (Baseline was the first delegate run after a fresh restart; `<plugin_data_root>/runtimes/delegation/` contained only this job's worktree at run-start). |
@@ -705,13 +705,121 @@ index 9f28e0b0..d8f0e032 100644
 Attempt history:
 
 | Attempt | Reason started | Shell-visible actions | Outcome | Preserved evidence |
-|---:|---|---:|---|---:|
-| 1 | Initial Baseline run; capture-and-stop on file-sink runtime-proof per VIP step 4. | TBD | TBD | TBD |
+|---:|---|---:|---|---|
+| 1 | Initial Baseline run; capture-and-stop on file-sink runtime-proof per VIP step 4. | 2 attempted (1 chained `/bin/zsh -lc` shell + 1 `file_change`); 0 executed (both denied at approval gate). | Job finalized as `completed`/`promotion_state: pending` after both denies; smoke artifact NOT produced (sandbox blocked first command pre-execution; no shell ran). Branch S1 (Sandbox still blocked) classified per Branch decision below. | Per-variant Baseline block above (filled); JSONL refs in store-rows fields (jobs.jsonl L1-12, requests.jsonl L1-6, journal L1-9, audit L62-64); inspection artifacts at `~/.claude/plugins/data/codex-collaboration-inline/runtimes/delegation/6753a537-99d8-456f-a1c0-1c79f13a2fc9/inspection/` (full.diff empty, changed-files.json `[]`, framework's test-results.json status `not_recorded`); runtime-proof artifact line preserved verbatim in "Observed sandboxPolicy payload" field above (source file at `/tmp/codex-collab-baseline-runtime-proof.log` intentionally trashed during cleanup). |
 
 Raw excerpts:
 
 ```text
-TBD — to be populated from `codex_delegate_start` response, `codex_delegate_poll` outputs, and the runtime-proof artifact at `/tmp/codex-collab-baseline-runtime-proof.log`.
+=== codex_delegate_start response (parked at request 0) ===
+{
+  "job": {
+    "job_id": "6753a537-99d8-456f-a1c0-1c79f13a2fc9",
+    "runtime_id": "c72e440a-d4d2-4e8d-9fb8-1f7c2bdc4017",
+    "collaboration_id": "3fd2722e-0b53-4a51-97c1-ab5b834164d8",
+    "base_commit": "7650366d778c961226f95efcf4ea40efa5fe2567",
+    "worktree_path": ".../runtimes/delegation/6753a537-.../worktree",
+    "status": "needs_escalation",
+    "parked_request_id": "0",
+    "promotion_state": null,
+    "promotion_attempt": 0,
+    "artifact_paths": [],
+    "artifact_hash": null
+  },
+  "pending_escalation": {
+    "request_id": "0",
+    "kind": "command_approval",
+    "requested_scope": {
+      "command": "/bin/zsh -lc \"...\" (full chained command — 9 && -joined steps;
+                 see PendingRequestStore L1 for the literal scope string)"
+    },
+    "available_decisions": ["approve", "deny"]
+  },
+  "escalated": true
+}
+
+=== codex_delegate_decide(deny, request 0) response ===
+{ "decision_accepted": true, "job_id": "6753a537-...", "request_id": "0" }
+
+=== codex_delegate_poll #1 (post-deny req 0) ===
+{
+  "job": { ..., "status": "running", "parked_request_id": null },
+  "pending_escalation": null,
+  "inspection": null,
+  "detail": null
+}
+
+=== codex_delegate_poll #2 (req 1 surfaced) ===
+{
+  "job": { ..., "status": "needs_escalation", "parked_request_id": "1" },
+  "pending_escalation": {
+    "request_id": "1",
+    "kind": "file_change",
+    "requested_scope": { "grantRoot": null, "reason": null },
+    "available_decisions": ["approve", "deny"]
+  }
+}
+
+=== codex_delegate_decide(deny, request 1) response ===
+{ "decision_accepted": true, "job_id": "6753a537-...", "request_id": "1" }
+
+=== codex_delegate_poll #3 (terminal) ===
+{
+  "job": {
+    ...,
+    "status": "completed",
+    "parked_request_id": null,
+    "promotion_state": "pending",
+    "artifact_paths": [
+      ".../inspection/full.diff",
+      ".../inspection/changed-files.json",
+      ".../inspection/test-results.json"
+    ],
+    "artifact_hash": "d604766ea0e6f7d82c1f37f5b66d10d985cfd0271b01f3a7491ceb8f167d7b8d"
+  },
+  "pending_escalation": null,
+  "inspection": {
+    "artifact_hash": "d604766e...",
+    "artifact_paths": [...],
+    "changed_files": [],
+    "reviewed_at": "2026-04-28T16:02:51Z"
+  }
+}
+
+=== Runtime-proof artifact (source file trashed; line preserved here) ===
+2026-04-28T15:53:37.116985+00:00 [BASELINE] sandboxPolicy={
+  'type': 'workspaceWrite',
+  'writableRoots': ['<worktree>'],
+  'readOnlyAccess': {
+    'type': 'restricted',
+    'readableRoots': ['<worktree>'],
+    'includePlatformDefaults': False
+  },
+  'networkAccess': False,
+  'excludeSlashTmp': True,
+  'excludeTmpdirEnvVar': True
+}
+
+=== Inspection artifacts (framework-generated; preserved at job worktree path) ===
+full.diff: empty (zero bytes)
+changed-files.json: {"changed_files": []}
+test-results.json:
+  {
+    "commands": [],
+    "schema_version": 1,
+    "source_path": ".codex-collaboration/test-results.json",
+    "status": "not_recorded",
+    "summary": "Execution agent did not persist test results."
+  }
+
+=== Cross-store timestamp consistency (independent sources, all UTC) ===
+Plugin process start (corrected via ps lstart epoch round-trip): 2026-04-28T15:41:29Z
+delegate_start audit row (events.jsonl L62):                    2026-04-28T15:53:37Z   (+12m08s)
+runtime-proof artifact emit (Python datetime.now(timezone.utc)): 2026-04-28T15:53:37.116985+00:00  (matches audit row to sub-second)
+First deny dispatch req 0 (audit L63 + journal L5):              2026-04-28T16:01:39Z   (+8m02s)
+Second deny dispatch req 1 (audit L64 + journal L8):             2026-04-28T16:02:47Z   (+1m08s)
+Inspection reviewed_at:                                          2026-04-28T16:02:51Z   (+04s)
+Total job duration (delegate_start → reviewed_at):              ~9m14s
 ```
 
 ## Threshold Calibration
@@ -721,12 +829,12 @@ not a calibrated constant. Do not edit the assessment during this run. Record
 the observed baseline here and select the threshold used for this diagnostic.
 
 | Metric | Value |
-|---|---:|
-| Baseline `shell_action_count` | TBD |
-| Baseline `approval_request_count` | TBD |
-| Baseline ratio | TBD |
-| Threshold used for branch selection | TBD |
-| Rationale for threshold | TBD |
+|---|---|
+| Baseline `shell_action_count` | 2 (cumulative across job lifetime: 1 chained shell at request 0 + 1 file_change at request 1; both denied at approval gate) |
+| Baseline `approval_request_count` | 2 (request 0 `command_approval` + request 1 `file_change`; both denied) |
+| Baseline ratio | `no signal for threshold comparison` (denominator < 3 per Branch Precedence #1.d; ratio interpretation invalid) |
+| Threshold used for branch selection | not applicable for Baseline; calibration deferred |
+| Rationale for threshold | Baseline produced no shell signal because the sandbox blocked at the first `command_approval` before any command executed. Per Recalibration rule sub-bullet 3: "If Baseline produces no shell signal because sandbox blocks before any command/approval behavior is observable, record `no signal` for Baseline and calibrate from Candidate A's first successful baseline-equivalent run instead." Calibration is therefore deferred to Candidate A. |
 
 Recalibration rule for this run:
 
@@ -804,11 +912,11 @@ Branch decision:
 
 | Field | Value |
 |---|---|
-| Branches fired | TBD |
-| Primary branch by precedence | TBD |
-| Secondary observations to carry forward | TBD |
-| Engineering next action | TBD |
-| Ticket/hygiene next action | TBD |
+| Branches fired | **S1 (Sandbox still blocked)** — primary signal from runtime-proof confirming `readableRoots: [worktree]` + `includePlatformDefaults: False` plus the parked `command_approval` for `/bin/zsh -lc` proving the sandbox blocked the shell command pre-execution. **No other branches fired:** no Packet 1 regression (control-plane state-machine + storage-evidence integrity verified via JSONL inspection); no S7 amendment-required indicator (neither `start()` nor `poll()` returned `acceptWithExecpolicyAmendment` as a *required* response shape — it was offered as a possible decision but not demanded by the protocol); no calibration ratio signal (denominator < 3 per #1.d). |
+| Primary branch by precedence | **S1 (Sandbox still blocked).** Rationale per Branch Precedence #3: "the parent T-01 blocker remains the immediate execution failure; do not patch approval logic yet." |
+| Secondary observations to carry forward | (1) **Delegate adapts after deny** — after deny on request 0, the agent proposed a `file_change` request rather than finalizing. Memory entry `feedback_deny_finalizes_job.md` overstates the case and needs correction in next session. (2) **`file_change` with null scope** — request 1 had `grantRoot: null`, `reason: null`, and `available_decisions: []`; deny is the safe default when scope is unbounded. (3) **`acceptWithExecpolicyAmendment` was offered but unused** — Codex's full 6-option `available_decisions` for request 0 included this amendment-class accept option; not invoked in this Baseline (would have changed the variant under test), but documents that the protocol surface is available for Candidate variants if needed. (4) **`deny` action maps to `decline` decision on the wire** — internal API uses "deny"; PendingRequestStore `response_payload` records `{"decision": "decline"}`. Future protocol-level analysis should distinguish them. (5) **`test-results.json` over-action proposed by delegate** — `.codex-collaboration/test-results.json` write was inside the chained `command_approval` scope; never executed (denied) but is a delegate-framework property that may recur in Candidate A; if it executes, it could push `shell_action_count >= 3` and bring ratio interpretation back into play. (6) **JSON-RPC wire id type is integer** — `raw_request_id` in PendingRequestStore is unquoted JSON int; plugin's `request_id` is the stringified form. (7) **Both escalations originate from the same Codex turn** (`019dd4cb-c461-7dc0-b3f8-2329e816fd81`) — adaptation after deny stays within one turn rather than starting a new turn. |
+| Engineering next action | **Proceed to Candidate A** (`includePlatformDefaults: True`, otherwise current policy). Tests whether platform-defaults grant resolves the shell-blocker. Operator-mediated Claude Code restart required between variants per VIP step 7 final sentence. |
+| Ticket/hygiene next action | (1) Update memory `feedback_deny_finalizes_job.md` with corrected mechanism (deny rejects ONE action; agent may iterate once before terminal). (2) Optional follow-up issue on the delegate's autopilot toward `.codex-collaboration/test-results.json`. (3) Audit prior session's handoff for the macOS `date -u -j -f` pitfall — same machine, same recipe template, likely recorded the same 4-hour-wrong UTC. (4) Open question on `available_decisions: []` in null-scope `file_change` — protocol shape quirk vs intentional restriction worth investigating before Candidate A so the next file_change escalation (if it surfaces) is interpretable. |
 
 ## Symptom Attribution
 
