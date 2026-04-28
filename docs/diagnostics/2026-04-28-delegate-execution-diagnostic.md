@@ -622,6 +622,98 @@ Raw excerpts:
 TBD
 ```
 
+### Variant: Baseline (attempt 1)
+
+Pre-run evidence captured before invoking `codex_delegate_start`. Post-run cells filled immediately after completion + runtime-proof artifact read. Tightenings per session adjudication: explicit `Patch applied at` override (runtime-proof-only instrumentation exception); `Plugin process PID` records both python child + uv wrapper with the python child labelled evidentiary; `Plugin process start timestamp` records both raw `lstart` and normalized UTC.
+
+| Field | Source / fill guidance | Observation |
+|---|---|---|
+| Pre-run HEAD | `git rev-parse --short HEAD` immediately before applying the variant patch. | `7650366d` (verified at variant-start; matches the two-layer HEAD anchor pattern — Run Identity remains frozen at `49d93001` as the run-level snapshot). |
+| Pre-run dirty diff | `git status --short` before patch; must show no modifications to files the patch will touch. | **Pre-patch (last session, before `2026-04-28T06:56:55Z`):** clean for `packages/plugins/codex-collaboration/server/runtime.py`. **Current (immediately before `codex_delegate_start`):** `M packages/plugins/codex-collaboration/server/runtime.py`; byte-identical to `.tmp/variant-baseline.patch` (verified via `diff <(git diff packages/plugins/codex-collaboration/server/runtime.py) .tmp/variant-baseline.patch` → empty). **Carry-forward unrelated to variant:** 8 ticket-file moves under `docs/tickets/closed-tickets/`; untracked `.tmp/variant-baseline.patch` and `.tmp/variant-baseline.applied-at` (both gitignored per `.gitignore:51`). |
+| Patch capture form | One of: inline diff, `.tmp/variant-<name>.patch`, or throwaway-branch commit SHA. | `.tmp/variant-baseline.patch` (32 lines, 1277 bytes; gitignored per `.gitignore:51`). Inline reproduction in code block immediately after this table. |
+| Patch applied at | Template default for Baseline: `not applicable: Baseline (no patch)`. **Override (runtime-proof-only instrumentation exception per Cross-variant checks):** the instrumentation IS a patch for capture/restore purposes — record the timestamp so the `Patch applied at < Plugin process start timestamp` ordering can be evaluated. | `2026-04-28T06:56:55Z` (runtime-proof-only instrumentation exception; Baseline behavioral patch is current code/no policy-field patch). The template's "N/A for Baseline" default is overridden by the explicit instrumentation exception so the ordering invariant can be enforced for this variant. |
+| Policy diff / patch under test | Inline `git diff` of the variant patch, or "current code (no patch)" for Baseline. | **Behavioral:** current code (no patch). **Runtime-proof-only instrumentation diff** (semantics-preserving; does not alter the returned `sandbox_policy` dict): see code block immediately after this table. |
+| Plugin process PID (post-restart) | PID of the plugin/MCP process **after** restart. | **Python child PID `11696`** (evidentiary — this is the import holder that re-read `runtime.py` post-restart). uv wrapper PID `11645` (parent). Verified via `ps aux \| grep codex_runtime_bootstrap \| grep -v grep`. |
+| Plugin process start timestamp | ISO-8601 UTC of post-restart process start. State which form was used. Must be later than `Patch applied at` for variant validity. | **Raw `ps -o lstart -p 11696` output:** `Tue Apr 28 11:41:29 2026` (local timezone, format `%a %b %d %H:%M:%S %Y`). **Normalized UTC:** `2026-04-28T11:41:29Z` (via `date -u -j -f "%a %b %d %H:%M:%S %Y" "<lstart-output>" +"%Y-%m-%dT%H:%M:%SZ"` on macOS). Both forms recorded per template guidance. **Ordering check:** plugin start `2026-04-28T11:41:29Z` > patch applied `2026-04-28T06:56:55Z` ✓ (variant valid; running plugin re-imported the patched module). |
+| Observed `sandboxPolicy` payload | Direct evidence the live runtime built the patched policy. Inference from on-disk source NOT acceptable. | Captured at `2026-04-28T15:53:37.116985+00:00` from `/tmp/codex-collab-baseline-runtime-proof.log`:<br><br>`{'type': 'workspaceWrite', 'writableRoots': ['/Users/jp/.claude/plugins/data/codex-collaboration-inline/runtimes/delegation/6753a537-99d8-456f-a1c0-1c79f13a2fc9/worktree'], 'readOnlyAccess': {'type': 'restricted', 'readableRoots': ['/Users/jp/.claude/plugins/data/codex-collaboration-inline/runtimes/delegation/6753a537-99d8-456f-a1c0-1c79f13a2fc9/worktree'], 'includePlatformDefaults': False}, 'networkAccess': False, 'excludeSlashTmp': True, 'excludeTmpdirEnvVar': True}`<br><br>**Source/runtime parity:** dict literal at `runtime.py:23` reproduced byte-for-byte at runtime. **T-01 mechanism confirmed:** `readableRoots` contains only the delegated worktree; `includePlatformDefaults: False` means `/bin`, `/usr/bin`, `/usr/lib` are unreachable; `/bin/zsh` (which the delegate proposed) cannot execute under this policy → Codex parks every shell command as `command_approval` before any approval-policy logic runs. |
+| Runtime-proof method | Which observation form was used. | Patch-embedded log emit at `runtime.py:23` build site; file-write to `/tmp/codex-collab-baseline-runtime-proof.log`. Stderr/stdout/logger explicitly invalid in current launch mode (FD 2 routing finding documented in VIP step 4). |
+| Approval policy value | Controller/runtime input for this run. | **Deferred — not surfaced in `start()` / `poll()` response payloads** (no `approval_policy` key in returned `job` or `pending_escalation` dicts). Recovery requires DelegationJobStore JSONL inspection (deferred — see below). Expected default per controller convention: `untrusted`. Carry-forward to next session for JSONL inspection. |
+| Job id | `start()` response, `poll()` output, or `DelegationJobStore` row. | `6753a537-99d8-456f-a1c0-1c79f13a2fc9` (from `start()` response). Runtime id: `c72e440a-d4d2-4e8d-9fb8-1f7c2bdc4017`. Collaboration id: `3fd2722e-0b53-4a51-97c1-ab5b834164d8`. Base commit: `7650366d778c961226f95efcf4ea40efa5fe2567` (matches Pre-run HEAD `7650366d`). |
+| First parked request id | Required if any escalation occurs. | `0` (from `start()` response `pending_escalation.request_id`). Status: `needs_escalation` returned from `start()` directly — no poll required to surface the parked state. |
+| JSON-RPC wire id type | Required if a parked request exists. | TBD — to be filled from PendingRequestStore inspection post-decide. `start()` response surfaces `request_id: "0"` as a JSON string; underlying wire type may differ. |
+| `shell_action_count` | Count shell commands/file-change actions for the smoke objective. | `2` cumulative across job lifetime: (1) attempted chained shell action `/bin/zsh -lc "..."` at request 0 (compressed mkdir + write + verify + print + over-action `test-results.json` write into one `&&`-chain — original smoke objective expected ≥3 shell-visible actions); (2) attempted `file_change` action at request 1 (surfaced after deny on request 0). Both attempts were denied at the approval gate; **neither executed**. Per Smoke Objective section: "rerun is needed because the live agent compressed the shell work into fewer than three shell-visible actions." Per Branch Precedence #1.d: ratio interpretation is invalid (effective denominator < 3) but the run itself remains valid for non-ratio branch classification (S1: Sandbox still blocked). |
+| `approval_request_count` | Required if `shell_action_count >= 3`. | `2` cumulative: request 0 (`command_approval`) + request 1 (`file_change`). Both denied at decision-time. |
+| Approval request kinds | Required if requests occur. | Two kinds across lifetime: **(1)** `command_approval` at `request_id="0"` from `start()` response — `requested_scope.command` was `/bin/zsh -lc "..."` (full chained command captured in raw excerpts). **(2)** `file_change` at `request_id="1"` surfaced via `poll()` after deny on request 0 — **null scope** (`grantRoot: null`, `reason: null`); both fields returned null on the wire. The second deny finalized the job. **Notable behavior:** the delegate adapts after deny — proposing a different action class (`file_change` after `command_approval` deny) — rather than finalizing on first deny. This contradicts a prior memory-stored expectation that "deny finalizes delegation job." Memory needs correction post-run. |
+| `approval_request_count / shell_action_count` | Required if denominator is nonzero; else `no signal`. | `2/2 = 1.0` cumulative (saturation: every attempted action required approval). **Uninterpretable** per Branch Precedence #1.d (denominator < 3). Record as **`no signal for threshold comparison`**. Classify by symptom row (S1: Sandbox still blocked) instead. |
+| Command stdout/stderr summary | Tool result or run transcript. | **No shell stdout/stderr captured from delegate-attempted commands** — both proposed actions denied at approval gate; neither executed. The only delegate-side observable trace is the runtime-proof file-write at `/tmp/codex-collab-baseline-runtime-proof.log` (1 line, 531 bytes; semantics-preserving instrumentation, not a delegate-shell stdout event). Codex's escalation responses (returned to the orchestrator via JSON-RPC, not via shell stdout/stderr) were captured under "Approval request kinds" and "poll() transitions". |
+| Exit statuses | Tool result or run transcript. | not applicable: both attempted actions denied; neither executed. No exit statuses to record. |
+| `decide(approve)` response payload | Required if approval requested. | not applicable: no `approve` was issued. Both decisions were `deny`. **Deny response payloads:** `{"decision_accepted": true, "job_id": "6753a537-99d8-456f-a1c0-1c79f13a2fc9", "request_id": "0"}` for request 0; same shape with `"request_id": "1"` for request 1. |
+| `poll()` transitions | Timed `poll()` outputs after start (and after decide if applicable). | **t0 (`start()` response):** `status: needs_escalation`, `parked_request_id: "0"`, `pending_escalation.kind: command_approval`, `pending_escalation.requested_scope.command: "/bin/zsh -lc \\"...\\""`. **t1 (post-deny req 0, `poll()` #1):** `status: running`, `parked_request_id: null`, `pending_escalation: null`. **t2 (`poll()` #2):** `status: needs_escalation`, `parked_request_id: "1"`, `pending_escalation.kind: file_change`, `pending_escalation.requested_scope: {grantRoot: null, reason: null}`. **t3 (post-deny req 1, `poll()` #3 — terminal):** `status: completed`, `parked_request_id: null`, `pending_escalation: null`, `artifact_paths: [.../full.diff, .../changed-files.json, .../test-results.json]`, `artifact_hash: "d604766ea0e6f7d82c1f37f5b66d10d985cfd0271b01f3a7491ceb8f167d7b8d"`, `inspection.changed_files: []`, `inspection.reviewed_at: "2026-04-28T16:02:51Z"`, `promotion_state: "pending"`, `promotion_attempt: 0`. |
+| `full.diff` summary | Required if artifact production succeeds. | Empty file (zero bytes). Inspected at `/Users/jp/.claude/plugins/data/codex-collaboration-inline/runtimes/delegation/6753a537-99d8-456f-a1c0-1c79f13a2fc9/inspection/full.diff`. **Implication:** no worktree changes — both denies prevented all proposed writes. |
+| `changed_files` | Required if artifact production succeeds. | `[]` per `inspection/changed-files.json` (`{"changed_files": []}`). Empty list confirms zero file modifications across the delegate's entire lifecycle. |
+| Artifact hash | Required if artifact production succeeds. | `d604766ea0e6f7d82c1f37f5b66d10d985cfd0271b01f3a7491ceb8f167d7b8d` (sha256, recorded in both `start()` terminal poll response and `inspection.artifact_hash`; covers the 3 framework-generated inspection artifacts: `full.diff`, `changed-files.json`, `test-results.json`). **Note:** the framework's `test-results.json` records `{"commands": [], "schema_version": 1, "source_path": ".codex-collaboration/test-results.json", "status": "not_recorded", "summary": "Execution agent did not persist test results."}` — confirming the delegate's proposed `.codex-collaboration/test-results.json` over-action write inside the chained command never executed. |
+| PendingRequestStore rows inspected | Required if any request id exists. | TBD — requires inspection of `<plugin_data_root>/runtime-state/pending-requests/` JSONL files. Defer to post-restoration inspection (this session) or carry forward to next session. |
+| DelegationJobStore rows inspected | Record job id and matching JSONL line numbers. | TBD — requires inspection of `<plugin_data_root>/runtime-state/delegation-jobs/` JSONL files. Defer (same as above). |
+| OperationJournal rows inspected | Record job/request id and matching JSONL line numbers. | TBD — requires inspection of `<plugin_data_root>/runtime-state/operation-journal/` JSONL files. Defer (same as above). |
+| Audit rows inspected | Required if dispatch failure / timeout / decision audit relevant; else "not applicable". | TBD — requires inspection of audit JSONL files. Decide-audit rows are particularly relevant here (two `deny` decisions). Defer (same as above). |
+| Network probe result | Required for candidate policy variants. | not applicable: Baseline (no candidate policy under test). |
+| Sensitive-path probe result | Required for candidate policy variants. | not applicable: Baseline. |
+| Sibling-worktree probe result | Required if a sibling worktree exists; otherwise record absence. | not applicable: no sibling worktrees observed (Baseline was the first delegate run after a fresh restart; `<plugin_data_root>/runtimes/delegation/` contained only this job's worktree at run-start). |
+| Post-run HEAD | `git rev-parse --short HEAD` after the run. Must equal pre-run HEAD unless commits landed. | `7650366d` (unchanged from pre-run; equality preserved as expected — no commits landed during the variant). |
+| Post-run dirty diff | `git status --short` after the run. Should show only the variant patch's known modifications + intentional smoke artifact paths. | **Tracked changes:** `M packages/plugins/codex-collaboration/server/runtime.py` (runtime-proof instrumentation patch, byte-identical to `.tmp/variant-baseline.patch` — verified post-run via `diff <(git diff ...) .tmp/variant-baseline.patch` → empty output) + `M docs/diagnostics/2026-04-28-delegate-execution-diagnostic.md` (this run record's evidence-capture edits, intentional and uncommitted). **Carry-forward unrelated to variant** (unchanged from pre-run): 8 ticket-file moves under `docs/tickets/closed-tickets/`; untracked `.tmp/variant-baseline.patch` and `.tmp/variant-baseline.applied-at`. **Net assessment:** post-run state matches pre-run state for variant-relevant paths; no smoke artifact created (sandbox + deny prevented all writes). |
+| Variant restoration command | Skip for Baseline. | not applicable: Baseline (no behavioral patch). **Runtime-proof-only instrumentation restoration** (per VIP step 7): `git checkout -- packages/plugins/codex-collaboration/server/runtime.py` + `trash /tmp/codex-collab-baseline-runtime-proof.log`. Followed by a second Claude Code restart so the next variant observes the restored code. |
+| Restoration verification | `git status --short` after restoration; must match pre-run dirty diff. | **Verified post-restoration this session.** `git diff packages/plugins/codex-collaboration/server/runtime.py`: empty output (no diff). `git status --short` for the patched path: no `M` row. `runtime.py:23-38` `build_workspace_write_sandbox_policy` body re-reads as pre-patch shape (`return {...}` direct return, no `policy = {...}` extraction, no instrumentation block) — confirmed by reading restored file lines 23-38. **Disk restoration ✓.** **Memory restoration NOT yet complete:** the running plugin process (python child PID `11696`, started `2026-04-28T11:41:29Z`) still holds the patched code in memory due to Python import-once semantics. Per VIP step 7 final sentence, a second Claude Code restart is required before Candidate A so the next variant observes the restored code, not the patched code still in memory. |
+| Cleanup performed | Record command or "deferred". | **Performed this session.** Commands: (1) `git checkout -- packages/plugins/codex-collaboration/server/runtime.py` (restores patched file; exit 0). (2) `trash /tmp/codex-collab-baseline-runtime-proof.log` (clears runtime-proof artifact via macOS Trash per project rule "no `rm`"; exit 0). Verification: `ls /tmp/codex-collab-baseline-runtime-proof.log` returns "No such file or directory" ✓. **Carry-forward cleanups (deferred to post-Candidate-A):** PendingRequestStore / DelegationJobStore / OperationJournal / Audit JSONL inspection and row-level evidence; the underlying JSONL files are NOT cleaned up (they preserve the audit trail for the diagnostic's full set of variants). |
+
+Runtime-proof-only instrumentation patch (semantics-preserving — does not modify the returned `policy` dict; adds a file-write emit immediately before `return policy`):
+
+```diff
+diff --git a/packages/plugins/codex-collaboration/server/runtime.py b/packages/plugins/codex-collaboration/server/runtime.py
+index 9f28e0b0..d8f0e032 100644
+--- a/packages/plugins/codex-collaboration/server/runtime.py
++++ b/packages/plugins/codex-collaboration/server/runtime.py
+@@ -24,7 +24,7 @@ def build_workspace_write_sandbox_policy(worktree_path: Path) -> dict[str, Any]:
+     """Return the v1 execution sandbox policy for an isolated worktree."""
+ 
+     resolved = worktree_path.resolve()
+-    return {
++    policy = {
+         "type": "workspaceWrite",
+         "writableRoots": [str(resolved)],
+         "readOnlyAccess": {
+@@ -36,6 +36,18 @@ def build_workspace_write_sandbox_policy(worktree_path: Path) -> dict[str, Any]:
+         "excludeSlashTmp": True,
+         "excludeTmpdirEnvVar": True,
+     }
++    # variant instrumentation (remove after diagnostic)
++    from datetime import datetime, timezone
++    from pathlib import Path as _Path
++
++    with _Path("/tmp/codex-collab-baseline-runtime-proof.log").open(
++        "a", encoding="utf-8"
++    ) as _handle:
++        _handle.write(
++            f"{datetime.now(timezone.utc).isoformat()} "
++            f"[BASELINE] sandboxPolicy={policy!r}\n"
++        )
++    return policy
+ 
+ 
+ class AppServerRuntimeSession:
+```
+
+Attempt history:
+
+| Attempt | Reason started | Shell-visible actions | Outcome | Preserved evidence |
+|---:|---|---:|---|---:|
+| 1 | Initial Baseline run; capture-and-stop on file-sink runtime-proof per VIP step 4. | TBD | TBD | TBD |
+
+Raw excerpts:
+
+```text
+TBD — to be populated from `codex_delegate_start` response, `codex_delegate_poll` outputs, and the runtime-proof artifact at `/tmp/codex-collab-baseline-runtime-proof.log`.
+```
+
 ## Threshold Calibration
 
 The assessment's `0.5` approval ratio is a provisional early-warning threshold,
