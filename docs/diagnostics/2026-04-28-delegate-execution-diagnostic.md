@@ -5,7 +5,29 @@ Date: 2026-04-28
 Status: draft first-run record, not yet executed
 
 Decision artifact:
-`docs/assessments/2026-04-28-codex-collaboration-next-focus-report.md`
+`docs/assessments/2026-04-28-codex-collaboration-next-focus-report.md` —
+**not present on this branch**. The assessment is committed on the sibling
+branch `docs/codex-collab-next-focus-assessment` at commit `a477de94`. Both
+branches are siblings off `main` at merge anchor `36ef13e8`; neither is an
+ancestor of the other.
+
+To read the assessment from this branch without switching branches:
+
+```bash
+git show docs/codex-collab-next-focus-assessment:docs/assessments/2026-04-28-codex-collaboration-next-focus-report.md
+```
+
+Or to inspect at the locked commit specifically:
+
+```bash
+git show a477de94:docs/assessments/2026-04-28-codex-collaboration-next-focus-report.md
+```
+
+Cross-branch dependency rule: any line citation in this run record that points
+into the assessment file is read at `a477de94`, not `HEAD`. If the assessment
+file is updated on its branch, line anchors here may go stale; verify with
+`git log --oneline -1 docs/codex-collab-next-focus-assessment -- docs/assessments/2026-04-28-codex-collaboration-next-focus-report.md`
+before relying on assessment line numbers.
 
 Primary ticket: `T-20260423-01`
 
@@ -34,8 +56,8 @@ Merge-commit anchor for the assessment: `36ef13e8`
 | Operator | jpsweeney97 |
 | Date/time started | 2026-04-28T04:56:25Z |
 | Branch/worktree | `feature/delegate-execution-diagnostic-record` at `/Users/jp/Projects/active/claude-code-tool-dev` |
-| `git status --short --branch` | `## feature/delegate-execution-diagnostic-record...origin/feature/delegate-execution-diagnostic-record [ahead 1]` (clean for diagnostic-relevant paths; the `[ahead 1]` is `789607fc` not yet pushed; 8 unrelated `docs/tickets/closed-tickets/` moves carry over from a prior session and are out of scope) |
-| `git rev-parse --short HEAD` | `789607fc` (pre-execution-fill commit on top of `46cd954e` run-record-add commit, both on top of merge anchor `36ef13e8`). Re-record this field immediately before the live run if any further commits land. |
+| `git status --short --branch` | `## feature/delegate-execution-diagnostic-record...origin/feature/delegate-execution-diagnostic-record [ahead 2]` (clean for diagnostic-relevant paths; the `[ahead 2]` are `789607fc` and `50664694` not yet pushed; 8 unrelated `docs/tickets/closed-tickets/` moves carry over from a prior session and are out of scope) |
+| `git rev-parse --short HEAD` | `50664694` (Major-revision remediation commit on top of `789607fc` pre-execution-fill, on top of `46cd954e` run-record-add, all on top of merge anchor `36ef13e8`). Re-record this field immediately before the live run if any further commits land — including the commit that lands this remediation. |
 | `codex --version` | `codex-cli 0.125.0` (raw observable; no separate App Server version exposed; do not infer a semantic App Server version from this string) |
 | Raw App Server identity / `RuntimeHandshake.user_agent` | Pending live bootstrap; record the literal value emitted by the App Server during the first handshake of this run |
 | Fixture directory | `packages/plugins/codex-collaboration/tests/fixtures/codex-app-server/0.117.0/` |
@@ -174,7 +196,7 @@ readable() { if test -r "$1"; then echo "yes"; else echo "no"; fi; }
 WORKTREE="/Users/jp/Projects/active/claude-code-tool-dev"
 PARENT_GIT="$WORKTREE/.git"
 OUTSIDE_ENV="$(dirname "$WORKTREE")/.env"   # adjust if your sibling .env lives elsewhere
-SIBLING_WORKTREE="TBD-pick-an-actual-path"   # e.g. another active project root
+SIBLING_WORKTREE="TBD-pick-an-actual-path"   # REQUIRED-FILL: replace with a concrete absolute path BEFORE running the loop. Example: another active project root such as "$HOME/Projects/active/some-other-repo". If you have no sibling worktree, set this to "" and record absence in the table below — do NOT run with the literal "TBD-..." placeholder, which produces a non-diagnostic "no" for both exists and readable.
 
 for p in \
   "$HOME/.ssh/id_rsa" \
@@ -243,7 +265,37 @@ Cleanup decision:
 |---|---|---|---|
 | Baseline | Current code: `includePlatformDefaults: False`, worktree-only readable root, `networkAccess: False` | Controller default, expected `untrusted` | Required. Preserve known shell failure and measure approval-request baseline if possible. |
 | Candidate A | `includePlatformDefaults: True`, otherwise current policy | Same approval policy as baseline unless explicitly changed | Required unless Baseline unexpectedly produces complete artifact evidence. Tests whether platform defaults unblock shell while preserving security boundary. |
-| Candidate B | Narrow readable-root additions only | Same approval policy as baseline unless explicitly changed | Conditional. Run only if Candidate A works but grants wider read access than desired. |
+| Candidate B | Narrow `readableRoots` additions only — see Candidate B Matrix below | Same approval policy as baseline unless explicitly changed | Conditional. Run only if Candidate A works but grants wider read access than desired. |
+
+### Candidate B Matrix
+
+T-01 names `["/usr/bin", "/usr/lib"]` as the narrow-grant starting point
+(`docs/tickets/2026-04-23-codex-collaboration-delegate-execution-remediation.md:84-87`).
+Run the levels in order; stop at the first level where the smoke artifact
+produces successfully. Each level extends the previous level — do not run
+levels in parallel.
+
+| Level | `readableRoots` additions | Rationale |
+|---|---|---|
+| B1 | `["/usr/bin"]` | Smallest plausible grant: shell binaries only. Tests whether shell needs *any* additional read root beyond `/bin` (already covered by `includePlatformDefaults` partial paths if present). |
+| B2 | `["/usr/bin", "/usr/lib"]` | T-01's named starting point. Adds shared library read for shell and any binary dynamic linking. |
+| B3 | `["/usr/bin", "/usr/lib", "/usr/local/bin", "/usr/local/lib"]` | Adds Homebrew / locally-built binaries common on macOS. Required if the operator's environment routes through `/usr/local/bin` (e.g., `git`, `python` from Homebrew). |
+| B4 | B3 + `/System/Library` (macOS) or `/lib`, `/lib64` (Linux) | Adds OS-level frameworks. Required if shell or binaries link against system frameworks not covered by `/usr/lib`. |
+| B5+ | Operator-defined extensions | If B4 still does not produce the smoke artifact, the narrow-grant approach is likely insufficient. Record what's missing, then either return to Candidate A's `includePlatformDefaults: True` or document the gap as "narrow-grant infeasible for this platform." |
+
+Stop conditions:
+
+- **Smoke artifact produced** → record the level as the **minimum viable
+  grant**; do not run higher levels.
+- **All security probes still hold** at the level that produced the smoke
+  artifact → that level is the candidate sandbox patch.
+- **Security probe fails before smoke succeeds** → escalate as a security
+  boundary failure; do not promote any level to "patch candidate."
+
+Each Candidate B level is a separate variant for purposes of the Variant
+Isolation Protocol — clean state, capture patch, restart runtime, observe
+`sandboxPolicy`, restore. Reusing a previous level's running process across
+levels is a contamination path.
 
 ## Variant Isolation Protocol
 
@@ -282,24 +334,74 @@ protocol for every variant before recording evidence in the per-variant block.
    any delegation, capture pre-run HEAD, dirty diff summary, and patch SHA into
    the per-variant evidence block.
 
-4. **Run the variant.** Do not amend the patch mid-run.
+4. **Reload the live runtime so it observes the patch.** A `git diff` proves
+   the patch is on disk; it does **not** prove the running plugin/MCP process
+   loaded it. `codex_runtime_bootstrap.py` imports `delegation_controller`
+   and `runtime` modules at startup
+   (`packages/plugins/codex-collaboration/scripts/codex_runtime_bootstrap.py`);
+   subsequent file edits do not reload those modules. If the live process
+   started before the patch was written, the variant will run against
+   pre-patch code while appearing to run against post-patch code.
 
-5. **Capture post-run state.** Record post-run HEAD (should equal pre-run
+   Required actions before invoking delegation for the variant:
+
+   1. **Stop the live plugin/MCP process** that hosts the delegation
+      controller. Method depends on how the operator invokes the plugin
+      (Claude Code restart, MCP server restart, or PID-targeted kill).
+   2. **Restart it.** The new process will import the patched modules.
+   3. **Capture process identity:** record the new PID and process start
+      timestamp into the per-variant evidence block. The PID + start
+      timestamp prove the variant ran against a process that started after
+      the patch landed.
+   4. **Capture observed `sandboxPolicy` payload directly.** The policy
+      built by `build_workspace_write_sandbox_policy` (`runtime.py:23`) is
+      sent to App Server via `turn/start` (`runtime.py:214,223`) and is
+      **not** automatically logged in any plugin-side JSONL store. Three
+      acceptable observation forms:
+
+      - **Patch-embedded log emit** (preferred). Include a temporary
+        `print(f"[VARIANT-{name}] sandboxPolicy={policy!r}", file=sys.stderr)`
+        or equivalent emit in the candidate patch itself, at the call site
+        in `delegation_controller.py:1327` or at the build site in
+        `runtime.py:23`. Capture stderr/stdout for the variant's run and
+        record the emitted payload.
+      - **App Server access log** if the operator's App Server build emits
+        one and the path is known. Record the log path and grep for
+        `turn/start` against the variant's job id timestamp.
+      - **Ad-hoc instrumentation patch** layered over the variant patch.
+        Treat the instrumentation as part of the variant patch when
+        capturing pre-run state.
+
+      Do **not** infer the live policy from the on-disk `runtime.py` source.
+      Inference is what this rule prevents.
+
+5. **Run the variant.** Do not amend the patch mid-run.
+
+6. **Capture post-run state.** Record post-run HEAD (should equal pre-run
    HEAD if no commits landed), `git status --short` (should show only the
    variant patch's known modifications, plus expected smoke artifact paths),
-   and any unexpected dirty paths.
+   any unexpected dirty paths, and the post-run process PID (must equal the
+   pre-run PID captured in step 4 — if it changed mid-variant, the run is
+   contaminated).
 
-6. **Restore before next variant.** Three acceptable forms; pick the one that
+7. **Restore before next variant.** Three acceptable forms; pick the one that
    matches the patch capture form:
 
    - For inline-diff or patch-file capture: `git checkout -- <paths>` for the
      patched paths, or `git stash drop` if stashed, or `git apply -R
      .tmp/variant-<name>.patch`.
-   - For temporary-commit capture: `git reset --hard <pre-run-HEAD>` (this is
-     destructive — only use on the throwaway branch, never on the diagnostic
-     branch itself).
+   - For temporary-commit capture: `git reset --hard <pre-run-HEAD>` —
+     destructive, **forbidden on the diagnostic branch
+     `feature/delegate-execution-diagnostic-record`**. Use only on a
+     dedicated throwaway branch (e.g., `spike/variant-A-temp` or
+     `experiment/variant-B-temp`), then drop the throwaway branch.
 
-7. **Verify restoration.** Re-run `git status --short` for the patched paths;
+   After restoration, **restart the plugin/MCP process again** so the next
+   variant (or Baseline rerun) observes the restored code, not the patched
+   code still in memory. Record the second restart's PID and start
+   timestamp in the next variant's pre-run evidence.
+
+8. **Verify restoration.** Re-run `git status --short` for the patched paths;
    must match pre-run-state. Record this verification in the per-variant
    block. If status diverges from pre-run, the variant is contaminated; do
    not proceed to the next variant until restored.
@@ -326,6 +428,10 @@ attempt.
 | Pre-run dirty diff | Required. `git status --short` before patch; must show no modifications to files the patch will touch. | TBD |
 | Patch capture form | Required. One of: inline diff (below), `.tmp/variant-<name>.patch`, or throwaway-branch commit SHA. See Variant Isolation Protocol step 2. | TBD |
 | Policy diff / patch under test | Required. Inline `git diff` of the variant patch, or "current code (no patch)" for Baseline. If captured at a path or SHA, also paste the diff here for reviewer-readability. | TBD |
+| Plugin process PID (post-restart) | Required. PID of the plugin/MCP process **after** restart in Variant Isolation Protocol step 4. Proves the variant ran against a process that started after the patch landed. | TBD |
+| Plugin process start timestamp | Required. ISO-8601 timestamp of the post-restart process start. Capture from `ps -o lstart -p <PID>` or equivalent. Must be later than the patch-application timestamp recorded in Pre-run dirty diff. | TBD |
+| Observed `sandboxPolicy` payload | Required. Direct evidence the live runtime built the patched policy. One of: patch-embedded log emit at `delegation_controller.py:1327` or `runtime.py:23` capturing the dict, App Server access-log entry for the variant's `turn/start`, or ad-hoc instrumentation output. Inference from on-disk source is **not** acceptable. Paste payload literal. | TBD |
+| Runtime-proof method | Required. Which of the three observation forms (patch-embedded emit / App Server log / ad-hoc instrumentation) was used to populate "Observed `sandboxPolicy` payload". | TBD |
 | Approval policy value | Required. Controller/runtime input for this run. | TBD |
 | Job id | Required. `start()` response, `poll()` output, or `DelegationJobStore` row. | TBD |
 | First parked request id | Required if any escalation occurs. `start()` pending escalation, `poll()` pending escalation, or PendingRequestStore row. | TBD |
