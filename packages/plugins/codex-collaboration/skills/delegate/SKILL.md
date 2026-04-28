@@ -268,15 +268,24 @@ Poll is the only verb that allows inspecting arbitrary jobs outside the active d
 2. Determine escalation kind from `pending_escalation`.
 3. If kind is `request_user_input`: construct `answers` from conversation context and question identifiers. If no clear answer in conversation: ask user to clarify. **Stop.**
 4. Call `mcp__plugin_codex-collaboration_codex-collaboration__codex.delegate.decide` with `job_id`, `request_id`, `"approve"`, and `answers` (if applicable).
-5. On `DelegationDecisionResult { decision_accepted: true }`: render "Decision accepted -- worker is dispatching. Run `/delegate` to check for the next escalation or completion." **Stop.** Do NOT auto-poll inside this invocation.
+5. On `DelegationDecisionResult { decision_accepted: true }`: execute the **post-acceptance flow** below.
 6. On `DecisionRejectedResponse`: render the rejection reason and guide per the Failure Handling table.
 
 ### Deny (`/delegate deny`)
 
 1. Execute Gate 2 (approve/deny requires pending escalation).
 2. Call `mcp__plugin_codex-collaboration_codex-collaboration__codex.delegate.decide` with `job_id`, `request_id`, `"deny"`.
-3. On `DelegationDecisionResult { decision_accepted: true }`: render "Decision accepted -- worker is dispatching. Run `/delegate` to check for the next escalation or completion." **Stop.** Do NOT auto-poll inside this invocation.
+3. On `DelegationDecisionResult { decision_accepted: true }`: execute the **post-acceptance flow** below.
 4. On `DecisionRejectedResponse`: render the rejection reason and guide per the Failure Handling table.
+
+### Post-acceptance flow (shared by Approve and Deny)
+
+After `decide` returns `decision_accepted: true`, surface the next observable state with a single bounded poll. Trust `decision_accepted: true` as authoritative for acceptance; the poll is for observation only.
+
+1. Call `mcp__plugin_codex-collaboration_codex-collaboration__codex.delegate.poll` with `job_id` (the same `job_id` passed to `decide`).
+2. **Same-request consuming window:** If the poll result has `pending_escalation` with `request_id` equal to the just-decided `request_id`, the worker has not yet dispatched the decision (this is expected and not an error -- contract: §Decide). Render "Decision accepted -- worker is dispatching. Run `/delegate` to check for the next state." and **Stop.** Do NOT render the just-decided escalation as a new decision prompt.
+3. **Otherwise:** Route the poll result through the state router (step 6). The state router will surface running, terminal (completed/failed/canceled/unknown), or a new escalation with a different `request_id`. **Stop** after rendering.
+4. **Never auto-chain a second decision.** If the state router renders a new escalation (different `request_id`), do NOT auto-invoke `decide`. A new escalation requires an explicit user-initiated `/delegate approve|deny` invocation -- each escalation re-runs Gate 2.
 
 ### Promote (`/delegate promote [job_id]`)
 
