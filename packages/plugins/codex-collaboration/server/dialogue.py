@@ -559,6 +559,17 @@ class DialogueController:
         active_handles = self._lineage_store.list(status="active")
         unknown_handles = self._lineage_store.list(status="unknown")
         for handle in active_handles + unknown_handles:
+            # Skip execution-class handles. The lineage store is shared
+            # across capability classes (advisory dialogues + execution
+            # delegations). DelegationController owns recovery for execution
+            # handles; touching them here would route them through the
+            # advisory runtime and either remap their runtime_id (success
+            # path) or mark them "unknown" (exception path). Either outcome
+            # defeats the F8 active-only lineage repair in
+            # delegation_controller.py:3091, since dialogue recovery runs
+            # before delegation recovery (mcp_server.py:220-223).
+            if handle.capability_class != "advisory":
+                continue
             if handle.collaboration_id in recovered_cids:
                 continue
             try:

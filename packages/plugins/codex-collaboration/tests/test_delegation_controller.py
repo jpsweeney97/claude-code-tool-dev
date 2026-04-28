@@ -4474,3 +4474,150 @@ class TestRecoveryCatchup:
         repaired = lineage.get("collab-canceled-done")
         assert repaired is not None
         assert repaired.status == "completed"
+
+    def test_dialogue_recovery_does_not_consume_execution_handle_before_delegation_repair(
+        self, tmp_path: Path
+    ) -> None:
+        """Integration test for F10 + F8 interaction.
+
+        Production order at mcp_server.py:220-223 calls
+        ``DialogueController.recover_startup()`` BEFORE
+        ``DelegationController.recover_startup()``. The lineage store is
+        shared across capability classes; dialogue recovery enumerates
+        ``status="active"`` and ``status="unknown"`` handles without an
+        intrinsic capability filter. Without the F10 filter in
+        ``dialogue.py``, dialogue's recovery would either remap an
+        execution-class handle's ``runtime_id`` to the advisory runtime's
+        (success path with FakeRuntimeSession.read_thread returning data)
+        or mark it "unknown" (real-codex exception path when the advisory
+        runtime does not own that thread). Either outcome defeats the F8
+        active-only lineage repair in ``delegation_controller.py:3091``.
+        With the filter, dialogue's recovery skips the execution handle and
+        delegation's lineage repair runs against the original ``"active"``
+        state, resolving it to ``"completed"``.
+        """
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+        (
+            delegation_controller,
+            _cp,
+            _wm,
+            job_store,
+            lineage,
+            journal,
+            _registry,
+            _prs,
+        ) = _build_controller(tmp_path)
+
+        from server.control_plane import ControlPlane
+        from server.dialogue import DialogueController
+        from server.models import CollaborationHandle, DelegationJob
+        from server.turn_store import TurnStore
+        from tests.test_control_plane import (
+            FakeRuntimeSession,
+            _compat_result,
+            _repo_identity,
+        )
+
+        # Seed F8 crash state: active execution handle bound to a canceled
+        # job. The execution-class handle carries distinct runtime_id and
+        # codex_thread_id that the test will assert remain untouched.
+        lineage.create(
+            CollaborationHandle(
+                collaboration_id="collab-execution-canceled",
+                capability_class="execution",
+                runtime_id="rt-execution-original",
+                codex_thread_id="thr-execution-original",
+                claude_session_id="sess-1",
+                repo_root=str(repo_root),
+                created_at="2026-04-21T00:00:00Z",
+                status="active",
+            )
+        )
+        job_store.create(
+            DelegationJob(
+                job_id="job-execution-canceled",
+                runtime_id="rt-execution-original",
+                collaboration_id="collab-execution-canceled",
+                base_commit="abc123",
+                worktree_path=str(tmp_path / "wt"),
+                promotion_state=None,
+                status="canceled",
+            )
+        )
+
+        # Wire DialogueController on the SAME lineage_store + journal as
+        # DelegationController, mirroring mcp_server's startup wiring.
+        # FakeRuntimeSession's default read_thread returns a populated dict
+        # (no exception), so absent the F10 filter dialogue recovery would
+        # follow the success path and overwrite runtime_id/codex_thread_id
+        # via update_runtime — corrupting the execution handle.
+        plugin_data = tmp_path / "data"
+        advisory_session = FakeRuntimeSession()
+        plane = ControlPlane(
+            plugin_data_path=plugin_data,
+            runtime_factory=lambda _: advisory_session,
+            compat_checker=_compat_result,
+            repo_identity_loader=_repo_identity,
+            clock=lambda: 100.0,
+            uuid_factory=iter(
+                ("rt-advisory-1", *(f"id-{i}" for i in range(50)))
+            ).__next__,
+            journal=journal,
+        )
+        turn_store = TurnStore(plugin_data, "sess-1")
+        dialogue_controller = DialogueController(
+            control_plane=plane,
+            lineage_store=lineage,
+            journal=journal,
+            session_id="sess-1",
+            turn_store=turn_store,
+            repo_identity_loader=_repo_identity,
+            uuid_factory=iter(f"collab-dlg-{i}" for i in range(50)).__next__,
+        )
+
+        # Production order: dialogue first, then delegation
+        # (mcp_server.py:220-223).
+        dialogue_controller.recover_startup()
+        delegation_controller.recover_startup()
+
+        repaired = lineage.get("collab-execution-canceled")
+        assert repaired is not None
+
+        # F10 invariant: dialogue's recovery did NOT touch the execution
+        # handle's runtime identity. If runtime_id changed to advisory's
+        # (e.g., "rt-advisory-1"), the capability_class filter in
+        # dialogue.py recover_startup() is missing or incorrect.
+        assert repaired.runtime_id == "rt-execution-original", (
+            "F10 broken: dialogue recovery overwrote execution handle's"
+            " runtime_id. The capability_class filter in"
+            " DialogueController.recover_startup() must skip non-advisory"
+            " handles."
+        )
+        assert repaired.codex_thread_id == "thr-execution-original", (
+            "F10 broken: dialogue recovery overwrote execution handle's"
+            " codex_thread_id."
+        )
+
+        # F8 invariant: delegation's lineage repair fired on the still-active
+        # handle and resolved it to "completed" (verified-cancel semantics).
+        assert repaired.status == "completed", (
+            "F10 + F8 integration broken: handle should be 'completed' after"
+            " delegation recovery. If 'active', the lineage repair did not"
+            " fire (suggests F8 regression). If 'unknown', dialogue recovery"
+            " corrupted the handle before delegation could repair it"
+            " (suggests F10 filter is wrong)."
+        )
+
+        # Outcome emission still fires for the canceled job.
+        outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
+        assert outcomes_path.exists()
+        terminal_records = [
+            json.loads(line)
+            for line in outcomes_path.read_text(encoding="utf-8").strip().split("\n")
+            if line.strip()
+            and json.loads(line).get("outcome_type") == "delegation_terminal"
+        ]
+        assert len(terminal_records) == 1
+        assert terminal_records[0]["job_id"] == "job-execution-canceled"
+        assert terminal_records[0]["terminal_status"] == "canceled"
