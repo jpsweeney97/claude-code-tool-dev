@@ -16,10 +16,25 @@ HandleStatus = Literal["active", "completed", "crashed", "unknown"]
 PendingRequestKind = Literal[
     "command_approval", "file_change", "request_user_input", "unknown"
 ]
+# PendingRequestKind stays 4 literals — "unknown" is still a valid PERSISTED kind
+# (parse-failure audit record). EscalatableRequestKind is the narrower subset
+# that may appear in PendingEscalationView. Under Packet 1, kind="unknown"
+# terminalizes the job before reaching any escalation projection.
+EscalatableRequestKind = Literal[
+    "command_approval",
+    "file_change",
+    "request_user_input",
+]
 TurnStatus = Literal["completed", "interrupted", "failed"]
 PendingRequestStatus = Literal["pending", "resolved", "canceled"]
 JobStatus = Literal[
-    "queued", "running", "needs_escalation", "completed", "failed", "unknown"
+    "queued",
+    "running",
+    "needs_escalation",
+    "completed",
+    "failed",
+    "canceled",
+    "unknown",
 ]
 PromotionState = Literal[
     "pending",
@@ -33,7 +48,7 @@ PromotionState = Literal[
 ]
 DecisionAction = Literal["approve", "deny"]
 ConsultWorkflow = Literal["consult", "review"]
-DelegationTerminalStatus = Literal["completed", "failed", "unknown"]
+DelegationTerminalStatus = Literal["completed", "failed", "canceled", "unknown"]
 DecisionRejectedReason = Literal[
     "invalid_decision",
     "job_not_found",
@@ -274,6 +289,10 @@ class PendingServerRequest:
     The execution approval-routing layer preserves request-relevant payloads
     opaquely in ``requested_scope``. Normalized request-scope comparison is a
     later T-05 concern and is intentionally not implemented here.
+
+    Packet 1 (T-20260423-02) adds 11 nullable/safe-default fields for the
+    deferred-approval lifecycle. All new fields are back-compatible: legacy
+    records replay with None / empty-tuple / False defaults.
     """
 
     request_id: str
@@ -286,6 +305,29 @@ class PendingServerRequest:
     requested_scope: dict[str, Any]
     available_decisions: tuple[str, ...] = ()
     status: PendingRequestStatus = "pending"
+    # Packet 1: deferred-resolution lifecycle
+    resolution_action: Literal["approve", "deny"] | None = None
+    response_payload: dict[str, Any] | None = None
+    response_dispatch_at: str | None = None
+    dispatch_result: Literal["succeeded", "failed"] | None = None
+    dispatch_error: str | None = None
+    interrupt_error: str | None = None
+    resolved_at: str | None = None
+    protocol_echo_signals: tuple[str, ...] = ()
+    protocol_echo_observed_at: str | None = None
+    timed_out: bool = False
+    internal_abort_reason: str | None = None
+    # Original JSON-RPC wire id (int or str per RequestId schema). The
+    # plugin stores ``request_id`` in str form for store/MCP correlation,
+    # but ``session.respond()`` MUST echo the wire type to satisfy the
+    # App Server's id equality check. None on legacy records — see
+    # ``wire_request_id`` property for the fallback.
+    raw_request_id: int | str | None = None
+
+    @property
+    def wire_request_id(self) -> int | str:
+        """JSON-RPC wire id for transport. Falls back to str-form ``request_id`` on legacy records."""
+        return self.raw_request_id if self.raw_request_id is not None else self.request_id
 
 
 @dataclass(frozen=True)
@@ -362,6 +404,12 @@ class OperationJournalEntry:
     job_id: str | None = None  # job_creation and approval_resolution
     request_id: str | None = None  # approval_resolution only
     decision: str | None = None  # approval_resolution only
+    # Packet 1: narrow provenance annotation on phase="completed" records.
+    # "worker_completed" = worker wrote the completed record.
+    # "recovered_unresolved" = cold-start recovery wrote the completed record
+    #   to close an orphaned unresolved operation.
+    # None = legacy record (pre-Packet-1) — back-compat read semantics.
+    completion_origin: Literal["worker_completed", "recovered_unresolved"] | None = None
 
 
 @dataclass(frozen=True)
@@ -385,6 +433,7 @@ class DelegationJob:
     status: JobStatus = "queued"
     artifact_paths: tuple[str, ...] = ()
     artifact_hash: str | None = None
+    parked_request_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -417,13 +466,21 @@ class DelegationEscalation:
 
 @dataclass(frozen=True)
 class DelegationDecisionResult:
-    """Returned by codex.delegate.decide after approve or deny."""
+    """Returned by codex.delegate.decide.
 
-    job: DelegationJob
-    decision: DecisionAction
-    resumed: bool
-    pending_escalation: PendingEscalationView | None = None
-    agent_context: str | None = None
+    Packet 1 (T-20260423-02) result shape: decision_accepted, job_id,
+    request_id. Post-dispatch state, including any re-escalation that
+    follows an approve, is observed via codex.delegate.poll, not embedded
+    in this result.
+
+    Breaking change from the pre-Packet-1 shape. Callers that previously
+    read `pending_escalation` or `agent_context` from decide's response
+    must switch to poll().
+    """
+
+    decision_accepted: bool
+    job_id: str
+    request_id: str
 
 
 @dataclass(frozen=True)
@@ -447,7 +504,7 @@ class PendingEscalationView:
     """
 
     request_id: str
-    kind: PendingRequestKind
+    kind: EscalatableRequestKind
     requested_scope: dict[str, Any]
     available_decisions: tuple[str, ...] = ()
 

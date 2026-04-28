@@ -6,6 +6,8 @@ import hashlib
 import json
 import logging
 import subprocess
+import threading
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -589,23 +591,18 @@ def test_e2e_command_approval_produces_escalation(tmp_path: Path) -> None:
     assert payload["pending_escalation"]["kind"] == "command_approval"
     assert payload["pending_escalation"]["request_id"] == "42"
 
-    # agent_context captured (may be None but key must be present).
-    assert "agent_context" in payload
+    # Deferred-escalation: agent_context=None for the Parked path.
+    assert payload["agent_context"] is None
 
-    # Store confirms resolved status matches the returned object.
+    # Request persisted (status remains 'pending' until decide() resumes the
+    # parked worker; _finalize_turn's D4 update is deferred under the async
+    # model). Bucket B tests cover post-decide D4 resolution.
     stored = prs.get("42")
     assert stored is not None
-    assert stored.status == "resolved"
 
-    # Escalation audit event emitted.
-    audit_lines = [
-        json.loads(line)
-        for line in (plugin_data / "audit" / "events.jsonl").read_text().splitlines()
-        if line.strip()
-    ]
-    escalation_events = [e for e in audit_lines if e.get("action") == "escalate"]
-    assert len(escalation_events) == 1
-    assert escalation_events[0]["request_id"] == "42"
+    # Escalation audit events fire from _finalize_turn, also deferred until
+    # decide() under the async model — the worker is currently parked in
+    # registry.wait(). Bucket B tests cover post-decide audit emission.
 
     # Job persisted with needs_escalation status.
     job_id = payload["job"]["job_id"]
@@ -615,7 +612,13 @@ def test_e2e_command_approval_produces_escalation(tmp_path: Path) -> None:
 
 
 def test_e2e_unknown_request_kind_interrupts_and_escalates(tmp_path: Path) -> None:
-    """Unknown request kind (permissions) → turn interrupt → needs_escalation."""
+    """Unknown request kind (permissions) → turn interrupt → terminal status='unknown'.
+
+    Post-Task-17 (L11 carve-out): unknown-kind interrupted requests cannot be
+    projected into a PendingEscalationView. start() returns the plain terminal
+    DelegationJob with status='unknown' — no 'escalated'/'pending_escalation'
+    keys in the MCP payload. Causal record is the persisted PendingServerRequest.
+    """
     repo_root = tmp_path / "repo"
     _init_repo(repo_root)
 
@@ -642,21 +645,21 @@ def test_e2e_unknown_request_kind_interrupts_and_escalates(tmp_path: Path) -> No
     assert "isError" not in response["result"]
     payload = json.loads(response["result"]["content"][0]["text"])
 
-    assert payload["escalated"] is True
-    assert payload["job"]["status"] == "needs_escalation"
-    assert payload["pending_escalation"]["kind"] == "unknown"
-    assert payload["pending_escalation"]["request_id"] == "99"
+    # Terminal job, NOT escalation — no 'escalated' key in payload.
+    assert "escalated" not in payload
+    assert "pending_escalation" not in payload
+    assert payload["status"] == "unknown"
 
-    # Pending request persisted (unknown kind → status resolved, D4 rule for
-    # successful parse with unknown kind).
+    # Pending request persisted with raw method preserved.
     stored = prs.get("99")
     assert stored is not None
+    assert stored.kind == "unknown"
     assert stored.status == "resolved"
 
-    # Job persisted in needs_escalation.
-    persisted_job = job_store.get(payload["job"]["job_id"])
+    # Job persisted with status="unknown".
+    persisted_job = job_store.get(payload["job_id"])
     assert persisted_job is not None
-    assert persisted_job.status == "needs_escalation"
+    assert persisted_job.status == "unknown"
 
 
 def test_e2e_busy_gate_blocks_when_job_needs_escalation(tmp_path: Path) -> None:
@@ -841,6 +844,7 @@ def test_delegate_poll_needs_escalation_returns_projected_request(
 def test_delegate_decide_approve_end_to_end_through_mcp_dispatch(
     tmp_path: Path,
 ) -> None:
+    """End-to-end via codex.delegate.decide MCP; bounded-poll for completed."""
     repo_root = tmp_path / "repo"
     _init_repo(repo_root)
 
@@ -870,6 +874,7 @@ def test_delegate_decide_approve_end_to_end_through_mcp_dispatch(
     assert entry is not None
     stub = entry.session
     stub._server_requests = []
+    stub.respond = lambda request_id, payload: None
     stub._turn_result = TurnExecutionResult(
         turn_id="turn-stub-2",
         status="completed",
@@ -894,12 +899,36 @@ def test_delegate_decide_approve_end_to_end_through_mcp_dispatch(
     )
 
     decide_payload = json.loads(decide_response["result"]["content"][0]["text"])
-    assert decide_payload["decision"] == "approve"
-    assert decide_payload["resumed"] is True
-    assert decide_payload["job"]["status"] == "completed"
+    assert set(decide_payload.keys()) == {"decision_accepted", "job_id", "request_id"}
+    assert decide_payload["decision_accepted"] is True
+
+    # Bounded-poll for job completion (5s/50ms per L9 budget)
+    job_id = start_payload["job"]["job_id"]
+    deadline = time.monotonic() + 5.0
+    poll_payload = None
+    while time.monotonic() < deadline:
+        poll_response = server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {
+                    "name": "codex.delegate.poll",
+                    "arguments": {"job_id": job_id},
+                },
+            }
+        )
+        poll_payload = json.loads(poll_response["result"]["content"][0]["text"])
+        if poll_payload["job"]["status"] == "completed":
+            break
+        time.sleep(0.05)
+
+    assert poll_payload is not None
+    assert poll_payload["job"]["status"] == "completed"
 
 
 def test_delegate_decide_deny_end_to_end_through_mcp_dispatch(tmp_path: Path) -> None:
+    """End-to-end deny via MCP; job status is completed (NOT failed)."""
     repo_root = tmp_path / "repo"
     _init_repo(repo_root)
 
@@ -923,6 +952,13 @@ def test_delegate_decide_deny_end_to_end_through_mcp_dispatch(tmp_path: Path) ->
     )
     start_payload = json.loads(start_response["result"]["content"][0]["text"])
 
+    # Stub respond on the session so deny -> decline dispatch succeeds
+    controller = server._ensure_delegation_controller()
+    entry = controller._runtime_registry.lookup(start_payload["job"]["runtime_id"])
+    assert entry is not None
+    deny_stub = entry.session
+    deny_stub.respond = lambda request_id, payload: None
+
     decide_response = server.handle_request(
         {
             "jsonrpc": "2.0",
@@ -940,9 +976,32 @@ def test_delegate_decide_deny_end_to_end_through_mcp_dispatch(tmp_path: Path) ->
     )
 
     decide_payload = json.loads(decide_response["result"]["content"][0]["text"])
-    assert decide_payload["decision"] == "deny"
-    assert decide_payload["resumed"] is False
-    assert decide_payload["job"]["status"] == "failed"
+    assert set(decide_payload.keys()) == {"decision_accepted", "job_id", "request_id"}
+    assert decide_payload["decision_accepted"] is True
+
+    # Bounded-poll for job completion (5s/50ms per L9 budget)
+    job_id = start_payload["job"]["job_id"]
+    deadline = time.monotonic() + 5.0
+    poll_payload = None
+    while time.monotonic() < deadline:
+        poll_response = server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {
+                    "name": "codex.delegate.poll",
+                    "arguments": {"job_id": job_id},
+                },
+            }
+        )
+        poll_payload = json.loads(poll_response["result"]["content"][0]["text"])
+        if poll_payload["job"]["status"] == "completed":
+            break
+        time.sleep(0.05)
+
+    assert poll_payload is not None
+    assert poll_payload["job"]["status"] == "completed"
 
 
 # ---------------------------------------------------------------------------
@@ -1041,17 +1100,43 @@ def test_decide_reescalation_uses_pending_escalation_key(tmp_path: Path) -> None
     job_id = start_payload["job"]["job_id"]
 
     # Wire up re-escalation on the resume turn.
+    # Adjudication D (Round-6): mutate the active list rather than reassign;
+    # the worker's _ConfigurableStubSession.run_execution_turn for-loop
+    # iterator is bound to the original list object. Append (don't replace)
+    # so the iterator picks up the new request after rid=42's commit_signal
+    # wakes it. Use a parkable kind (request_user_input) per spec §1717:
+    # unknown-kind never escalates under Packet 1; only EscalatableRequestKind
+    # literals park. Build the request_user_input msg inline since this
+    # integration-test module does not export a _request_user_input_request_msg
+    # helper.
     controller = server._ensure_delegation_controller()
     entry = controller._runtime_registry.lookup(start_payload["job"]["runtime_id"])
     assert entry is not None
     stub = entry.session
-    stub._server_requests = [_permissions_request_msg(request_id=99)]
+    rid_99_msg: dict[str, Any] = {
+        "id": 99,
+        "method": "item/tool/requestUserInput",
+        "params": {
+            "itemId": "item-2",
+            "threadId": "thr-exec-stub",
+            "turnId": "turn-stub",
+            "questions": [],
+        },
+    }
+    stub._server_requests.append(rid_99_msg)
+    # _StubSession does not define respond(); calling entry.session.respond(...)
+    # would raise AttributeError → dispatch-failed sentinel → terminates the
+    # turn before re-park. Stub respond as a no-op so the worker's
+    # dispatch-success path can fire.
+    stub.respond = lambda request_id, payload: None
     stub._turn_result = TurnExecutionResult(
         turn_id="turn-stub-2",
         status="interrupted",
         agent_message="Need another approval.",
         notifications=(),
     )
+    # Production worker now creates a PSR record per parkable capture
+    # unconditionally per Task 18 closeout fix; no test-side pre-seed needed.
 
     # Extract request_id from the start escalation payload.
     # After projection, this comes from pending_escalation (not pending_request).
@@ -1077,23 +1162,67 @@ def test_decide_reescalation_uses_pending_escalation_key(tmp_path: Path) -> None
     )
 
     decide_payload = json.loads(decide_response["result"]["content"][0]["text"])
-    assert decide_payload["resumed"] is True
+    # Packet 1 (T-20260423-02): decide response is the 3-field shape only.
+    assert set(decide_payload.keys()) == {"decision_accepted", "job_id", "request_id"}
+    assert decide_payload["decision_accepted"] is True
+    assert "pending_escalation" not in decide_payload
+    assert "pending_request" not in decide_payload
 
-    # New contract: re-escalation uses "pending_escalation".
-    assert "pending_escalation" in decide_payload, (
-        "decide must use 'pending_escalation' key"
+    # Re-escalation is observable via poll(), not decide() (Packet 1).
+    # Bounded polling: decide() returns after commit_signal; the worker
+    # progresses asynchronously toward re-park on rid=99. Poll up to 5s.
+    poll_payload: dict[str, Any] | None = None
+    for _ in range(100):
+        poll_response = server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {
+                    "name": "codex.delegate.poll",
+                    "arguments": {"job_id": job_id},
+                },
+            }
+        )
+        candidate_payload = json.loads(
+            poll_response["result"]["content"][0]["text"]
+        )
+        candidate_esc = candidate_payload.get("pending_escalation")
+        if candidate_esc is not None and candidate_esc.get("request_id") == "99":
+            poll_payload = candidate_payload
+            break
+        time.sleep(0.05)
+    assert poll_payload is not None, (
+        "re-escalation on rid=99 did not materialize within the polling budget"
     )
-    assert "pending_request" not in decide_payload, (
-        "decide must not use 'pending_request' key"
+    assert "pending_escalation" in poll_payload, (
+        "poll must use 'pending_escalation' key"
+    )
+    assert "pending_request" not in poll_payload, (
+        "poll must not use 'pending_request' key"
     )
 
-    esc = decide_payload["pending_escalation"]
+    esc = poll_payload["pending_escalation"]
     assert esc["request_id"] == "99"
-    assert esc["kind"] == "unknown"
+    # Round-6 adjudication: rid=99 is request_user_input (parkable per spec
+    # §1717). Original test asserted kind=="unknown" which was the
+    # pre-Packet-1 unknown-kind escalation behavior; under Packet 1
+    # unknown-kind requests do NOT escalate (§1717: "Request NEVER
+    # registered, NEVER parked"). Updated kind reflects the new spec.
+    assert esc["kind"] == "request_user_input"
     assert "available_decisions" in esc
 
     # No internal IDs leaked.
-    _assert_no_internal_ids(decide_payload, "pending_escalation")
+    _assert_no_internal_ids(poll_payload, "pending_escalation")
+
+    # Drain the rid=99 worker park so the daemon thread exits before the
+    # next test runs (see Round-6 addendum on cross-test thread leakage).
+    controller._registry.signal_internal_abort("99", reason="test_teardown_drain")
+    worker_threads = [
+        t for t in threading.enumerate() if t.name == f"delegation-worker-{job_id}"
+    ]
+    for t in worker_threads:
+        t.join(timeout=5.0)
 
 
 # -----------------------------------------------------------------------------

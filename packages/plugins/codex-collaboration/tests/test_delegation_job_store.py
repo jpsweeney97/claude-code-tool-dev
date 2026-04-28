@@ -494,3 +494,71 @@ def test_list_user_attention_required_excludes_rolled_back(tmp_path: Path) -> No
 
     result = store.list_user_attention_required()
     assert len(result) == 0
+
+
+def test_artifact_paths_remain_tuple_through_status_replay(tmp_path: Path) -> None:
+    """Regression: replay branches must preserve tuple identity on artifact_paths.
+
+    Pre-fix: asdict(existing) recursed tuples to lists; the spread reconstructed
+    DelegationJob with a list, silently violating the tuple[str, ...] contract.
+    Fix: migrate to replace() which doesn't traverse internals.
+    """
+    store = DelegationJobStore(tmp_path, "sess-1")
+    store.create(DelegationJob(
+        job_id="j1",
+        runtime_id="rt1",
+        collaboration_id="c1",
+        base_commit="abc",
+        worktree_path="/tmp/wt",
+        promotion_state=None,
+        status="queued",
+    ))
+    store.update_artifacts("j1", artifact_paths=("a.txt", "b.txt"), artifact_hash="h1")
+    store.update_status("j1", status="running")
+    reopened = DelegationJobStore(tmp_path, "sess-1")
+    job = reopened.get("j1")
+    assert job is not None
+    assert job.artifact_paths == ("a.txt", "b.txt")
+    assert type(job.artifact_paths) is tuple, (
+        f"artifact_paths must be tuple after update_status replay; got {type(job.artifact_paths)}"
+    )
+
+
+def test_artifact_paths_remain_tuple_through_status_and_promotion_replay(tmp_path: Path) -> None:
+    """Regression: artifact_paths tuple preserved through update_status_and_promotion replay."""
+    store = DelegationJobStore(tmp_path, "sess-1")
+    store.create(DelegationJob(
+        job_id="j1",
+        runtime_id="rt1",
+        collaboration_id="c1",
+        base_commit="abc",
+        worktree_path="/tmp/wt",
+        promotion_state=None,
+        status="queued",
+    ))
+    store.update_artifacts("j1", artifact_paths=("a.txt",), artifact_hash="h1")
+    store.update_status_and_promotion("j1", status="completed", promotion_state="pending")
+    reopened = DelegationJobStore(tmp_path, "sess-1")
+    job = reopened.get("j1")
+    assert job is not None
+    assert type(job.artifact_paths) is tuple
+
+
+def test_artifact_paths_remain_tuple_through_promotion_state_replay(tmp_path: Path) -> None:
+    """Regression: artifact_paths tuple preserved through update_promotion_state replay."""
+    store = DelegationJobStore(tmp_path, "sess-1")
+    store.create(DelegationJob(
+        job_id="j1",
+        runtime_id="rt1",
+        collaboration_id="c1",
+        base_commit="abc",
+        worktree_path="/tmp/wt",
+        promotion_state="pending",
+        status="completed",
+    ))
+    store.update_artifacts("j1", artifact_paths=("a.txt",), artifact_hash="h1")
+    store.update_promotion_state("j1", promotion_state="verified", promotion_attempt=1)
+    reopened = DelegationJobStore(tmp_path, "sess-1")
+    job = reopened.get("j1")
+    assert job is not None
+    assert type(job.artifact_paths) is tuple

@@ -133,6 +133,7 @@ Terminal states are excluded from `active_delegation`. Reachable only via explic
 |---|---|
 | `queued` / `running` | Render job_id, status, base_commit. "Run `/delegate` to check progress." |
 | `needs_escalation` | Render escalation (step 6f). |
+| `canceled` | Render `poll.detail` and inspection snapshot if available. "Decision dispatch was canceled (typically a timeout or transport failure). `/delegate discard` to clear, then start a new delegation if you still need the work, or `/delegate poll {job_id}` to inspect artifacts." |
 | `failed` / `unknown` | Render `poll.detail` and inspection snapshot if available. "Inspect artifacts. `/delegate discard` to clear, then start a new delegation if needed." |
 | `completed` with null `promotion_state` | **Inconsistent state.** Excluded from `active_delegation` and the busy gate — reachable only via explicit `/delegate poll {job_id}`. Report: "Job completed but promotion state is missing. This is a legacy or corrupted state that cannot be promoted or discarded. Inspect artifacts manually via `/delegate poll {job_id}`. To clear, the job store entry must be resolved outside the skill." Do NOT render promote/discard choices. |
 
@@ -215,9 +216,14 @@ Available decisions: approve, deny
 
 The skill does NOT parse answer syntax from the command line. Claude mediates between the user's natural language response and the `decide` tool's structured `answers` parameter. The explicit `/delegate approve` invocation is the trigger -- the user's answer is sourced from conversation context, not from command arguments.
 
-**Escalation continuation:** After each `decide` call, if the result contains a new `pending_escalation`: render it and ask for the next decision. Never auto-chain approvals or denials. Each escalation requires explicit user input before the next `decide` call.
+**Decide is accepted-for-dispatch, not applied.** `decide` returns one of:
 
-If `decide` returns `resumed: true` with no `pending_escalation`: the job is running autonomously. Render status and exit with "Run `/delegate` to check progress."
+- `DelegationDecisionResult { decision_accepted: true, job_id, request_id }` -- the plugin has committed the decision to the operation journal and signaled the worker to dispatch it. The plugin does NOT claim the App Server has applied the decision, and `decide` does NOT return `pending_escalation` or `resumed`. **Trust `decision_accepted: true` as authoritative for acceptance.**
+- `DecisionRejectedResponse { rejected: true, reason, detail, ... }` -- typed rejection (see Failure Handling table; common reasons: `request_already_decided`, `runtime_unavailable`, `answers_required`, `answers_not_allowed`, `request_job_mismatch`).
+
+**Post-decide observation flow:** `poll` is the sole observation surface for post-decide state. Between `decide()` returning and the worker completing the job's status transition, `poll()` may transiently show the pre-decide `pending_escalation` -- this is expected and not an error. To discover the next observable state (running / new escalation / terminal), call `poll(job_id)` and route the result through the state router (step 6).
+
+**Escalation continuation:** When the user invokes the next `/delegate approve` or `/delegate deny`, Gate 2 re-runs status preflight + `poll` to surface the current `pending_escalation`. Never auto-chain decisions inside the same skill invocation -- each escalation requires an explicit user-initiated `/delegate approve|deny` invocation.
 
 ## Ceremony Gates
 
@@ -262,13 +268,27 @@ Poll is the only verb that allows inspecting arbitrary jobs outside the active d
 2. Determine escalation kind from `pending_escalation`.
 3. If kind is `request_user_input`: construct `answers` from conversation context and question identifiers. If no clear answer in conversation: ask user to clarify. **Stop.**
 4. Call `mcp__plugin_codex-collaboration_codex-collaboration__codex.delegate.decide` with `job_id`, `request_id`, `"approve"`, and `answers` (if applicable).
-5. Handle escalation continuation (step 6f).
+5. On `DelegationDecisionResult { decision_accepted: true }`: execute the **post-acceptance flow** below.
+6. On `DecisionRejectedResponse`: render the rejection reason and guide per the Failure Handling table.
 
 ### Deny (`/delegate deny`)
 
 1. Execute Gate 2 (approve/deny requires pending escalation).
 2. Call `mcp__plugin_codex-collaboration_codex-collaboration__codex.delegate.decide` with `job_id`, `request_id`, `"deny"`.
-3. Handle escalation continuation (step 6f).
+3. On `DelegationDecisionResult { decision_accepted: true }`: execute the **post-acceptance flow** below.
+4. On `DecisionRejectedResponse`: render the rejection reason and guide per the Failure Handling table.
+
+### Post-acceptance flow (shared by Approve and Deny)
+
+After `decide` returns `decision_accepted: true`, surface the next observable state via **bounded polling**. The budget is a small time window of roughly **~2 seconds total wall time, capped at 5 poll attempts** (whichever exhausts first). Trust `decision_accepted: true` as authoritative for acceptance; polling is for observation only.
+
+1. Set the just-decided `request_id` as a suppression sentinel for this flow.
+2. Poll up to 5 times within the ~2-second budget. For each attempt:
+    1. Call `mcp__plugin_codex-collaboration_codex-collaboration__codex.delegate.poll` with `job_id` (the same `job_id` passed to `decide`).
+    2. **Same-request consuming window:** If the poll result has `pending_escalation` with `request_id` equal to the suppression sentinel, the worker has not yet dispatched the decision (contract: §Decide). Suppress this result -- do NOT render the just-decided escalation as a new decision prompt. Then **pause briefly (~300 ms)** before the next poll attempt -- run `sleep 0.3` via Bash. The pause is load-bearing: without it, five polls could complete inside the consuming window when MCP-call latency is fast (e.g., local dev), defeating the budget.
+    3. **First different state observed:** Route the poll result through the state router (step 6). The state router will surface running, terminal (completed / failed / canceled / unknown), or a new escalation with a different `request_id`. **Stop** after rendering. Do NOT poll again.
+3. **Budget exhausted (still consuming window after the 5-poll / ~2-second cap):** Render "Decision accepted -- worker is still dispatching. Run `/delegate` to check for the next state." and **Stop.**
+4. **Never auto-chain a second decision.** If the state router renders a new escalation (different `request_id`), do NOT auto-invoke `decide`. A new escalation requires an explicit user-initiated `/delegate approve|deny` invocation -- each escalation re-runs Gate 2.
 
 ### Promote (`/delegate promote [job_id]`)
 
@@ -280,7 +300,7 @@ If `job_id` provided: pass it to Gate 1 as the target. If not: Gate 1 uses `acti
 2. If `job_id` provided: use it. If not: extract `active_delegation.job_id` from status. If no active delegation: "No active delegation." **Stop.**
 3. Call `mcp__plugin_codex-collaboration_codex-collaboration__codex.delegate.discard` with `job_id`.
 4. If success: render terminal state via state router (step 6a).
-5. If typed rejection (`job_not_discardable`): render rejection. Explain allowed states: discard accepts `promotion_state` in `{pending, prechecks_failed}`, or `status` in `{failed, unknown}` with null `promotion_state`. Post-mutation states (`applied`, `rollback_needed`) require recovery, not discard.
+5. If typed rejection (`job_not_discardable`): render rejection. Explain allowed states: discard accepts `promotion_state` in `{pending, prechecks_failed}`, or `status` in `{failed, unknown, canceled}` with null `promotion_state`. Post-mutation states (`applied`, `rollback_needed`) require recovery, not discard.
 
 ## Failure Handling
 

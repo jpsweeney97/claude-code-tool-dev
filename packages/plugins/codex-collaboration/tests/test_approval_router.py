@@ -4,7 +4,9 @@ from server.approval_router import parse_pending_server_request
 
 
 def test_parse_integer_request_id_normalized_to_string() -> None:
-    """Integer request IDs are accepted and normalized to string."""
+    """Integer request IDs are accepted and normalized to string for storage,
+    but the raw int is preserved on raw_request_id for transport.
+    """
     message = {
         "id": 42,
         "method": "item/commandExecution/requestApproval",
@@ -19,8 +21,51 @@ def test_parse_integer_request_id_normalized_to_string() -> None:
     result = parse_pending_server_request(
         message, runtime_id="rt-1", collaboration_id="collab-1"
     )
-    assert result.request_id == "42"  # Normalized to string
+    assert result.request_id == "42"  # Normalized to string for store/MCP
+    assert result.raw_request_id == 42  # Raw wire id preserved as int
+    assert result.wire_request_id == 42  # Property surfaces the raw int
     assert result.kind == "command_approval"
+
+
+def test_parse_string_request_id_preserves_string_wire_id() -> None:
+    """String request IDs round-trip as strings on raw_request_id."""
+    message = {
+        "id": "req-7",
+        "method": "item/commandExecution/requestApproval",
+        "params": {
+            "itemId": "item-1",
+            "threadId": "thr-1",
+            "turnId": "turn-1",
+            "command": "echo hi",
+        },
+    }
+    result = parse_pending_server_request(
+        message, runtime_id="rt-1", collaboration_id="collab-1"
+    )
+    assert result.request_id == "req-7"
+    assert result.raw_request_id == "req-7"
+    assert result.wire_request_id == "req-7"
+
+
+def test_wire_request_id_falls_back_to_request_id_on_legacy() -> None:
+    """A PendingServerRequest constructed without raw_request_id (legacy
+    record shape) surfaces the str-form request_id via wire_request_id —
+    preserves pre-fix behavior so old JSONL replays don't crash.
+    """
+    from server.models import PendingServerRequest
+
+    legacy = PendingServerRequest(
+        request_id="legacy-42",
+        runtime_id="rt-1",
+        collaboration_id="c-1",
+        codex_thread_id="t",
+        codex_turn_id="tu",
+        item_id="i",
+        kind="command_approval",
+        requested_scope={},
+    )
+    assert legacy.raw_request_id is None
+    assert legacy.wire_request_id == "legacy-42"
 
 
 def test_parse_command_approval_preserves_request_payload_opaquely() -> None:

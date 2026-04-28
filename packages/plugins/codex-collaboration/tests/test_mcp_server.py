@@ -1131,7 +1131,7 @@ class FakeDelegationControllerWithDecide:
         decision: str,
         answers: dict[str, tuple[str, ...]] | None = None,
     ) -> object:
-        from server.models import DelegationDecisionResult, DelegationJob
+        from server.models import DelegationDecisionResult
 
         self.last_decide_args = {
             "job_id": job_id,
@@ -1140,17 +1140,9 @@ class FakeDelegationControllerWithDecide:
             "answers": answers,
         }
         return DelegationDecisionResult(
-            job=DelegationJob(
-                job_id=job_id,
-                runtime_id="rt-1",
-                collaboration_id="collab-1",
-                base_commit="abc123",
-                worktree_path="/tmp/wk",
-                promotion_state="pending",
-                status="completed",
-            ),
-            decision=decision,
-            resumed=(decision == "approve"),
+            decision_accepted=True,
+            job_id=job_id,
+            request_id=request_id,
         )
 
 
@@ -1200,8 +1192,11 @@ def test_handle_tools_call_delegate_decide() -> None:
     )
 
     payload = json.loads(response["result"]["content"][0]["text"])
-    assert payload["decision"] == "approve"
-    assert payload["resumed"] is True
+    # Packet 1 (T-20260423-02): decide response is the 3-field shape.
+    assert set(payload.keys()) == {"decision_accepted", "job_id", "request_id"}
+    assert payload["decision_accepted"] is True
+    assert payload["job_id"] == "job-1"
+    assert payload["request_id"] == "req-1"
     assert controller.last_decide_args == {
         "job_id": "job-1",
         "request_id": "req-1",

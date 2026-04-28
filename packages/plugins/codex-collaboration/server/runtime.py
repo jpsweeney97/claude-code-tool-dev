@@ -289,5 +289,13 @@ class AppServerRuntimeSession:
             )
         return str(thread["id"])
 
+    def respond(self, request_id: str | int, result: dict[str, Any]) -> None:
+        """Send a JSON-RPC 2.0 response to a server-initiated request.
+
+        Called by the worker to forward operator decisions and timeout signals
+        back to the Codex App Server subprocess.
+        """
+        self._client.respond(request_id, result)
+
     def close(self) -> None:
         self._client.close()

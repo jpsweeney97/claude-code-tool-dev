@@ -59,15 +59,13 @@ import logging
 import subprocess
 import tempfile
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from typing import Any, Callable, Literal, Protocol, assert_never, cast
 
 from .approval_router import parse_pending_server_request
 from .delegation_job_store import DelegationJobStore
-from .execution_prompt_builder import (
-    build_execution_resume_turn_text,
-    build_execution_turn_text,
-)
+from .execution_prompt_builder import build_execution_turn_text
 from .execution_runtime_registry import ExecutionRuntimeEntry, ExecutionRuntimeRegistry
 from .journal import OperationJournal
 from .lineage_store import LineageStore
@@ -86,6 +84,8 @@ from .models import (
     DelegationTerminalStatus,
     DiscardRejectedResponse,
     DiscardResult,
+    EscalatableRequestKind,
+    HandleStatus,
     JobBusyResponse,
     JobStatus,
     OperationJournalEntry,
@@ -97,15 +97,143 @@ from .models import (
     TurnExecutionResult,
 )
 from .pending_request_store import PendingRequestStore
+from .resolution_registry import (
+    DecisionResolution,
+    InternalAbort,
+    Parked,
+    ParkedCaptureResult,
+    ResolutionRegistry,
+    StartWaitElapsed,
+    TurnCompletedWithoutCapture,
+    TurnTerminalWithoutEscalation,
+    WorkerFailed,
+)
 from .runtime import AppServerRuntimeSession, build_workspace_write_sandbox_policy
+from .worker_runner import spawn_worker
 
 logger = logging.getLogger(__name__)
+
+_APPROVAL_OPERATOR_WINDOW_SECONDS: float = 900  # 15 minutes; configurable via env later
+START_OUTCOME_WAIT_SECONDS: float = 30  # synchronous start-wait budget; not a wedge detector
 
 _TERMINAL_STATUS_MAP: dict[str, DelegationTerminalStatus] = {
     "completed": "completed",
     "failed": "failed",
+    "canceled": "canceled",
     "unknown": "unknown",
 }
+
+_ESCALATABLE_REQUEST_KINDS: frozenset[str] = frozenset(
+    {"command_approval", "file_change", "request_user_input"}
+)
+
+_SANITIZE_MESSAGE_CAP = 200
+_SANITIZE_TOTAL_CAP = 256
+
+
+def _sanitize_error_string(exc: BaseException) -> str:
+    """Produce a bounded, JSONL-safe forensic string for persistence.
+
+    Format: "<ExceptionClassName>: <bounded, escaped message>". Used by the
+    three PendingServerRequest forensic fields (dispatch_error,
+    interrupt_error, internal_abort_reason). Per spec §Sanitization rules:
+    raw message truncated at 200 chars pre-escape with "..." elision;
+    escaping (newlines/tabs via unicode_escape) may inflate this, which
+    the 256-char combined cap absorbs. An over-long class name or
+    sufficient escape-inflation triggers the cap with a warning log.
+    """
+    class_name = type(exc).__name__
+    raw = str(exc)
+    if len(raw) > _SANITIZE_MESSAGE_CAP:
+        message = raw[:_SANITIZE_MESSAGE_CAP] + "..."
+    else:
+        message = raw
+    # Escape newlines, tabs, and other control characters so the final string
+    # is a single JSONL-safe line. encode/decode(unicode_escape) preserves
+    # regular content while quoting control characters as \n, \t, etc.
+    message = message.encode("unicode_escape").decode("ascii")
+    combined = f"{class_name}: {message}"
+    if len(combined) > _SANITIZE_TOTAL_CAP:
+        logger.warning(
+            "Forensic string exceeded total cap; truncating. class=%r len=%d",
+            class_name,
+            len(combined),
+        )
+        combined = combined[:_SANITIZE_TOTAL_CAP]
+    return combined
+
+
+class DelegationStartError(RuntimeError):
+    """Raised by start() when the delegation-start sequence cannot produce
+    a successful return value. The reason literal is part of the public
+    plugin contract — see §DelegationStartError reasons in the spec.
+
+    __str__ contract: "{reason}: {message}" when message is non-empty,
+    else "{reason}". This guarantees MCP text-prefix recoverability
+    without requiring a boundary change.
+
+    Raise idiom for cases with a chained cause:
+        raise DelegationStartError(reason=..., cause=exc) from exc
+    so Python's __cause__ chain is preserved alongside the explicit .cause
+    field. Duplication is intentional: __cause__ participates in
+    tracebacks; .cause is the typed attribute callers can read without
+    walking __cause__.
+    """
+
+    reason: str
+    cause: Exception | None
+
+    def __init__(
+        self,
+        *,
+        reason: str,
+        cause: Exception | None = None,
+        message: str = "",
+    ) -> None:
+        if message:
+            super().__init__(f"{reason}: {message}")
+        else:
+            super().__init__(reason)
+        self.reason = reason
+        self.cause = cause
+
+
+class UnknownKindInEscalationProjection(Exception):
+    """Raised by _project_request_to_view when request.kind is not in
+    EscalatableRequestKind. Internal assertion signal — MUST NOT escape the
+    controller boundary.
+
+    Subclass of Exception (NOT RuntimeError) so narrower except clauses
+    catch it before a generic `except RuntimeError`. Carries only a
+    message; the callsite determines the abort reason.
+    """
+
+    pass
+
+
+@dataclass(frozen=True)
+class _WorkerTerminalBranchSignal(Exception):
+    """Private sentinel raised by the server-request handler to terminalize
+    the worker turn after the branch's own cleanup has already run.
+
+    The handler raises this AFTER performing its branch's own cleanup:
+      - writing any final approval_resolution.completed record
+      - calling update_parked_request(job_id, None)
+      - discarding the per-request registry entry
+      - calling _mark_execution_unknown_and_cleanup (closes session, marks job)
+      (or the timeout-success analog: _persist_job_transition(..., "canceled"))
+
+    Caught in _execute_live_turn's new except clause BEFORE the generic
+    except Exception; MUST NOT escape _execute_live_turn as a raw exception
+    or be caught by the worker runner — doing so would produce
+    announce_worker_failed for a handler-terminalized branch.
+
+    Six call sites with distinct reason literals per spec §Worker
+    terminal-branch signaling primitive — see the table at "Where it is
+    raised."
+    """
+
+    reason: str
 
 
 class _ControlPlaneLike(Protocol):
@@ -262,7 +390,7 @@ class DelegationController:
         self._head_commit_resolver = head_commit_resolver or _resolve_head_commit
         self._uuid_factory = uuid_factory or (lambda: str(uuid.uuid4()))
         self._promotion_callback = promotion_callback
-        self._decided_request_ids: set[str] = set()
+        self._registry: ResolutionRegistry = ResolutionRegistry()
 
     def start(
         self,
@@ -615,13 +743,162 @@ class DelegationController:
             objective=objective,
             worktree_path=str(worktree_path),
         )
-        return self._execute_live_turn(
+        # Pre-register the capture-ready channel BEFORE spawning the
+        # worker. Without this, a fast worker can call announce_parked
+        # (or any other announce_*) before this thread reaches
+        # wait_for_parked. _deliver_capture_outcome would then observe
+        # channel-is-None and drop the signal, and start() would block
+        # at wait_for_parked until START_OUTCOME_WAIT_SECONDS elapsed,
+        # incorrectly returning StartWaitElapsed for a job that had
+        # already parked or terminated. open_capture_channel is the
+        # synchronous handshake that closes this race; wait_for_parked
+        # below consumes the pre-opened channel and returns immediately
+        # if an announce_* arrived before it was reached.
+        self._registry.open_capture_channel(job_id)
+        spawn_worker(
+            controller=self,
+            registry=self._registry,
             job_id=job_id,
             collaboration_id=collaboration_id,
             runtime_id=runtime_id,
             worktree_path=worktree_path,
             prompt_text=prompt_text,
         )
+        outcome = self._registry.wait_for_parked(
+            job_id, timeout_seconds=START_OUTCOME_WAIT_SECONDS
+        )
+        return self._dispatch_parked_capture_outcome(
+            outcome=outcome,
+            job_id=job_id,
+            collaboration_id=collaboration_id,
+        )
+
+    def _dispatch_parked_capture_outcome(
+        self,
+        *,
+        outcome: ParkedCaptureResult,
+        job_id: str,
+        collaboration_id: str,
+    ) -> "DelegationJob | DelegationEscalation":
+        """Translate a ParkedCaptureResult into start()'s return value or raise.
+
+        Exhaustive match over all 5 variants. Uses assert_never as the final
+        arm so Pyright enforces exhaustiveness at compile time and runtime
+        catches any unhandled extension.
+        """
+        match outcome:
+            case Parked(request_id=request_id):
+                # Registry invariant: Parked implies the job exists and has
+                # parked_request_id set. The pre-worker `job` object (from
+                # job_store.create) has parked_request_id=None and would yield
+                # a null projection — look up the refreshed job.
+                job = self._job_store.get(job_id)
+                assert job is not None, (
+                    f"start(): Parked outcome but job_id={job_id!r} not in store"
+                )
+                try:
+                    pending_escalation = self._project_pending_escalation(job)
+                except UnknownKindInEscalationProjection as exc:
+                    # Narrow catch — UnknownKindInEscalationProjection is the
+                    # specific exception _project_pending_escalation promises to
+                    # re-raise for invariant violations. Do NOT catch bare
+                    # Exception here (would mask unrelated bugs as protocol
+                    # violations and leak the worker with a misleading abort).
+                    # Per spec §Capture-ready handshake: collapse both
+                    # invariant-violation sub-cases (raise AND null) to the
+                    # same broad reason — "Parked fired but no view can be built."
+                    logger.critical(
+                        "delegation.start: unknown-kind in parked projection",
+                        extra={
+                            "job_id": job_id,
+                            "request_id": request_id,
+                            "cause": str(exc),
+                        },
+                    )
+                    # L8: signal the worker BEFORE raising — worker is blocked
+                    # in registry.wait(); without this signal it leaks indefinitely.
+                    self._registry.signal_internal_abort(
+                        request_id, reason="parked_projection_invariant_violation"
+                    )
+                    raise DelegationStartError(
+                        reason="parked_projection_invariant_violation",
+                        cause=None,
+                    )
+                if pending_escalation is None:
+                    # Worker announced Parked, so the job's parked_request_id
+                    # should be set and request should be live. None return here
+                    # means the projection hit a "legitimate no-view" state
+                    # (terminal status / unparked / tombstone) that should NOT
+                    # have been reachable given the Parked signal — state-machine
+                    # invariant violation.
+                    logger.critical(
+                        "delegation.start: Parked signal but null escalation projection",
+                        extra={"job_id": job_id, "request_id": request_id},
+                    )
+                    # L8: signal before raise.
+                    self._registry.signal_internal_abort(
+                        request_id, reason="parked_projection_invariant_violation"
+                    )
+                    raise DelegationStartError(
+                        reason="parked_projection_invariant_violation",
+                        cause=None,
+                    )
+                return DelegationEscalation(
+                    job=job,
+                    pending_escalation=pending_escalation,
+                    agent_context=None,  # deferred: worker still inside turn
+                )
+
+            case TurnCompletedWithoutCapture():
+                # Worker completed the turn without parking on any request.
+                # _finalize_turn has already written terminal state.
+                completed_job = self._job_store.get(job_id)
+                assert completed_job is not None, (
+                    f"start(): TurnCompletedWithoutCapture but job_id={job_id!r} not in store"
+                )
+                return completed_job
+
+            case TurnTerminalWithoutEscalation():
+                # Worker terminalized the job (e.g., unknown-kind parse failure)
+                # before signaling. start() returns normally — does NOT raise.
+                terminal_job = self._job_store.get(job_id)
+                assert terminal_job is not None, (
+                    f"start(): TurnTerminalWithoutEscalation but job_id={job_id!r} not in store"
+                )
+                return terminal_job
+
+            case WorkerFailed(error=exc):
+                # Worker raised an unhandled exception. _mark_execution_unknown_and_cleanup
+                # has already run; job is "unknown".
+                # L7: reason-preservation rule — if the worker raised an explicit
+                # DelegationStartError, propagate its reason intact rather than
+                # collapsing to the generic fallback.
+                if isinstance(exc, DelegationStartError) and exc.reason:
+                    raise exc
+                raise DelegationStartError(
+                    reason="worker_failed_before_capture",
+                    cause=exc,
+                )
+
+            case StartWaitElapsed():
+                # Synchronous start-wait budget elapsed. Worker may be executing
+                # a valid long-running turn. Return the running job; caller polls
+                # for eventual outcome.
+                logger.warning(
+                    "delegation.start: start-wait budget elapsed; returning running job",
+                    extra={
+                        "job_id": job_id,
+                        "collaboration_id": collaboration_id,
+                    },
+                )
+                running_job = self._job_store.get(job_id)
+                assert running_job is not None, (
+                    f"start(): StartWaitElapsed but job_id={job_id!r} not in store"
+                )
+                return running_job
+
+            case _:
+                assert_never(outcome)
 
     def _execute_live_turn(
         self,
@@ -646,6 +923,7 @@ class DelegationController:
             f"ExecutionRuntimeRegistry invariant violation: runtime_id={runtime_id!r} "
             "not found during live turn execution"
         )
+        registry = self._registry  # in-memory cross-thread registry (IO-2)
 
         def _server_request_handler(
             message: dict[str, Any],
@@ -661,19 +939,37 @@ class DelegationController:
                     collaboration_id=collaboration_id,
                 )
             except Exception:
+                # --- Unknown-kind parse failure branch ---
+                # Cleanup obligations: no registry entry (pre-capture), no
+                # parked_request_id (not yet set). Obligations that apply:
+                #   - write final completed record: NO (unknown-kind has no
+                #     approval_resolution lifecycle; audit PSR is the artifact)
+                #   - update_parked_request(None): n/a (not yet set)
+                #   - registry.discard: n/a (no registry entry for unknown-kind)
+                #   - _mark_execution_unknown_and_cleanup: YES (on interrupt failure)
+                # Sentinel reason: unknown_kind_interrupt_transport_failure (pre-capture).
                 logger.warning(
-                    "Server request parse failed; creating minimal causal record "
-                    "(D4 carve-out). Wire id=%r, method=%r",
+                    "Server request parse failed; creating minimal causal record. "
+                    "Wire id=%r, method=%r",
                     message.get("id"),
                     message.get("method", ""),
                     exc_info=True,
                 )
                 wire_id = message.get("id")
                 wire_method = message.get("method", "")
+                # Preserve the raw wire id (int|str) for transport when present;
+                # synthetic uuid fallback is used only when the App Server omitted
+                # the id entirely (out-of-spec but defensive). raw_request_id
+                # remains None for the synthetic case so wire_request_id falls
+                # back to the str-form request_id.
+                raw_wire_id: int | str | None = (
+                    wire_id if isinstance(wire_id, (int, str)) else None
+                )
+                minimal_request_id = (
+                    str(wire_id) if wire_id is not None else self._uuid_factory()
+                )
                 minimal = PendingServerRequest(
-                    request_id=str(wire_id)
-                    if wire_id is not None
-                    else self._uuid_factory(),
+                    request_id=minimal_request_id,
                     runtime_id=runtime_id,
                     collaboration_id=collaboration_id,
                     codex_thread_id="",
@@ -681,43 +977,348 @@ class DelegationController:
                     item_id="",
                     kind="unknown",
                     requested_scope={"raw_method": wire_method},
+                    raw_request_id=raw_wire_id,
                 )
                 if captured_request is None:
                     self._pending_request_store.create(minimal)
                     captured_request = minimal
                     captured_request_parse_failed = True
                 interrupted_by_unknown = True
-                entry = self._runtime_registry.lookup(runtime_id)
-                if entry is not None:
-                    entry.session.interrupt_turn(
-                        thread_id=entry.thread_id,
-                        turn_id=None,
-                    )
-                return None
+                interrupt_entry = self._runtime_registry.lookup(runtime_id)
+                try:
+                    if interrupt_entry is not None:
+                        interrupt_entry.session.interrupt_turn(
+                            thread_id=interrupt_entry.thread_id,
+                            turn_id=None,
+                        )
+                except Exception as interrupt_exc:
+                    # --- Unknown-kind interrupt transport failure (pre-capture) ---
+                    # Cleanup obligations (spec §invariant table row 6 —
+                    # unknown_kind_interrupt_transport_failure):
+                    #   - completed journal write: n/a
+                    #   - update_parked_request(None): n/a
+                    #   - registry.discard: n/a
+                    #   - _mark_execution_unknown_and_cleanup: YES (job → unknown)
+                    # Sentinel reason: "unknown_kind_interrupt_transport_failure".
+                    # Note: interrupt_entry is non-None here — interrupt_turn only
+                    # raises inside the `if interrupt_entry is not None:` guard above.
+                    if interrupt_entry is not None:
+                        self._mark_execution_unknown_and_cleanup(
+                            job_id=job_id,
+                            collaboration_id=collaboration_id,
+                            runtime_id=runtime_id,
+                            entry=interrupt_entry,
+                        )
+                    raise _WorkerTerminalBranchSignal(reason="unknown_kind_interrupt_transport_failure") from interrupt_exc
+                # Interrupt succeeded — persist terminal unknown and signal.
+                # L10: handler returns None; _finalize_turn's D4 carve-out handles.
+                self._persist_job_transition(job_id, "unknown")
+                self._emit_terminal_outcome_if_needed(job_id)
+                try:
+                    self._lineage_store.update_status(collaboration_id, "unknown")
+                except Exception:
+                    logger.exception("lineage_store.update_status (unknown-kind interrupt) failed")
+                registry.announce_turn_terminal_without_escalation(
+                    job_id,
+                    status="unknown",
+                    reason="unknown_kind_parse_failure",
+                    request_id=minimal.request_id,
+                )
+                return None  # suppress auto-respond; turn loop exits post-interrupt
 
             if (
                 parsed.kind not in _CANCEL_CAPABLE_KINDS
                 and parsed.kind not in _KNOWN_DENIAL_KINDS
             ):
+                # Known-parsed kind not in the Packet 1 parkable set — interrupt path
+                # (defense-in-depth; spec classifies all server-request kinds as one
+                # of the four escalatable literals).
                 if captured_request is None:
                     self._pending_request_store.create(parsed)
                     captured_request = parsed
                 interrupted_by_unknown = True
-                entry = self._runtime_registry.lookup(runtime_id)
-                if entry is not None:
-                    entry.session.interrupt_turn(
-                        thread_id=entry.thread_id,
+                interrupt_entry = self._runtime_registry.lookup(runtime_id)
+                if interrupt_entry is not None:
+                    interrupt_entry.session.interrupt_turn(
+                        thread_id=interrupt_entry.thread_id,
                         turn_id=None,
                     )
                 return None
 
-            if captured_request is None:
-                self._pending_request_store.create(parsed)
-                captured_request = parsed
+            # --- Parkable capture (command_approval | file_change | request_user_input) ---
+            # Re-park semantics (Task 18 fix): every parkable server-request in
+            # the turn gets its own PSR record so poll()'s
+            # _project_pending_escalation can resolve the new rid after a decide
+            # → respond → re-escalation cycle. The earlier `if captured_request
+            # is None` gate was a Task 16 oversight that left re-parks
+            # registered in the resolution registry but absent from the
+            # PendingRequestStore, breaking poll() projection (Round-6
+            # convergence-map addendum). `captured_request` always tracks the
+            # MOST RECENTLY captured request for _finalize_turn's terminal-guard
+            # mapping per Task 19.
+            self._pending_request_store.create(parsed)
+            captured_request = parsed
 
-            if parsed.kind in _CANCEL_CAPABLE_KINDS:
-                return {"decision": "cancel"}
-            return {"answers": {}}
+            # Durable writes before handshake signal per spec §Worker sequence step L5:
+            #   create → update_parked_request(SET) → persist needs_escalation →
+            #   registry.register → announce_parked → wait
+            self._job_store.update_parked_request(job_id, parsed.request_id)
+            self._persist_job_transition(job_id, "needs_escalation")
+            registry.register(
+                parsed.request_id,
+                job_id=job_id,
+                kind=cast(EscalatableRequestKind, parsed.kind),
+                timeout_seconds=_APPROVAL_OPERATOR_WINDOW_SECONDS,
+            )
+            registry.announce_parked(job_id, request_id=parsed.request_id)
+
+            # Block until operator decide, timer, or internal abort.
+            resolution = registry.wait(parsed.request_id)
+
+            if isinstance(resolution, InternalAbort):
+                # --- Internal abort branch ---
+                # Cleanup obligations (spec §invariant table row 1 — internal_abort):
+                #   - write approval_resolution intent + dispatched + completed journal: YES
+                #   - update_parked_request(None): YES
+                #   - registry.discard: YES
+                #   - _mark_execution_unknown_and_cleanup: YES (job → unknown)
+                # Sentinel reason: "internal_abort".
+                now = self._journal.timestamp()
+                self._journal.write_phase(
+                    OperationJournalEntry(
+                        idempotency_key=f"approval_resolution:{job_id}:{parsed.request_id}",
+                        operation="approval_resolution",
+                        phase="intent",
+                        collaboration_id=collaboration_id,
+                        created_at=now,
+                        repo_root=self._repo_root_for_journal(job_id),
+                        job_id=job_id,
+                        request_id=parsed.request_id,
+                        decision=None,  # non-operator origin
+                    ),
+                    session_id=self._session_id,
+                )
+                self._journal.write_phase(
+                    OperationJournalEntry(
+                        idempotency_key=f"approval_resolution:{job_id}:{parsed.request_id}",
+                        operation="approval_resolution",
+                        phase="dispatched",
+                        collaboration_id=collaboration_id,
+                        created_at=self._journal.timestamp(),
+                        repo_root=self._repo_root_for_journal(job_id),
+                        job_id=job_id,
+                        request_id=parsed.request_id,
+                        runtime_id=runtime_id,
+                        codex_thread_id=entry.thread_id,
+                        decision=None,
+                    ),
+                    session_id=self._session_id,
+                )
+                self._pending_request_store.record_internal_abort(
+                    parsed.request_id, reason=resolution.reason
+                )
+                self._job_store.update_parked_request(job_id, None)
+                self._journal.write_phase(
+                    OperationJournalEntry(
+                        idempotency_key=f"approval_resolution:{job_id}:{parsed.request_id}",
+                        operation="approval_resolution",
+                        phase="completed",
+                        collaboration_id=collaboration_id,
+                        created_at=self._journal.timestamp(),
+                        repo_root=self._repo_root_for_journal(job_id),
+                        job_id=job_id,
+                        request_id=parsed.request_id,
+                        completion_origin="worker_completed",
+                    ),
+                    session_id=self._session_id,
+                )
+                try:
+                    self._journal.append_audit_event(
+                        AuditEvent(
+                            event_id=self._uuid_factory(),
+                            timestamp=self._journal.timestamp(),
+                            actor="system",
+                            action="internal_abort",
+                            collaboration_id=collaboration_id,
+                            runtime_id=runtime_id,
+                            job_id=job_id,
+                            request_id=parsed.request_id,
+                        )
+                    )
+                except Exception:
+                    logger.warning("audit internal_abort append failed", exc_info=True)
+                registry.discard(parsed.request_id)
+                self._mark_execution_unknown_and_cleanup(
+                    job_id=job_id,
+                    collaboration_id=collaboration_id,
+                    runtime_id=runtime_id,
+                    entry=entry,
+                )
+                raise _WorkerTerminalBranchSignal(reason="internal_abort")
+
+            # resolution is DecisionResolution from here down.
+            assert isinstance(resolution, DecisionResolution)
+
+            if resolution.is_timeout:
+                # --- Timeout branches (delegated to _handle_timeout_wake) ---
+                # _handle_timeout_wake returns True on cancel-capable-success sub-branch
+                # (handler returns None; turn continues to turn/completed; _finalize_turn
+                # terminal guard at Task 19 maps the canceled snapshot). All other
+                # sub-branches raise _WorkerTerminalBranchSignal.
+                continue_turn = self._handle_timeout_wake(
+                    entry=entry,
+                    job_id=job_id,
+                    collaboration_id=collaboration_id,
+                    runtime_id=runtime_id,
+                    request=parsed,
+                    registry=registry,
+                )
+                if continue_turn:
+                    return None
+                raise AssertionError(
+                    "_handle_timeout_wake invariant: must return True or raise "
+                    "_WorkerTerminalBranchSignal; neither happened"
+                )
+
+            # --- Operator decide branch (DecisionResolution, is_timeout=False) ---
+            # Cleanup obligations (spec §invariant table row 2 — dispatch_failed,
+            # or rows 1-path for decide-success):
+            #   dispatch-success: record_response_dispatch + mark_resolved +
+            #     update_parked_request(None) + completed journal + registry.discard
+            #     → return None (handler exits; turn continues to turn/completed; Task 19)
+            #   dispatch-failure: record_dispatch_failure + update_parked_request(None) +
+            #     completed journal + audit + registry.discard +
+            #     _mark_execution_unknown_and_cleanup → sentinel "dispatch_failed"
+            #
+            # Wire-shape contract (spec §1665, §1699): resolution.payload IS the
+            # bare App Server payload — pass it verbatim to session.respond. The
+            # operator action is carried separately on resolution.action (see
+            # DecisionResolution docstring); recovery-from-payload-shape is unsafe
+            # because approve × RUI with empty answers is indistinguishable from
+            # deny × RUI under the wire shape ({"answers": {}}).
+            response_payload = resolution.payload
+            assert resolution.action is not None, (
+                "operator-decide branch requires DecisionResolution.action; "
+                f"got is_timeout={resolution.is_timeout!r}, payload={resolution.payload!r}"
+            )
+            decision_action: Literal["approve", "deny"] = resolution.action
+            self._job_store.update_status_and_promotion(
+                job_id, status="running", promotion_state=None
+            )
+            self._journal.write_phase(
+                OperationJournalEntry(
+                    idempotency_key=f"approval_resolution:{job_id}:{parsed.request_id}",
+                    operation="approval_resolution",
+                    phase="dispatched",
+                    collaboration_id=collaboration_id,
+                    created_at=self._journal.timestamp(),
+                    repo_root=self._repo_root_for_journal(job_id),
+                    job_id=job_id,
+                    request_id=parsed.request_id,
+                    runtime_id=runtime_id,
+                    codex_thread_id=entry.thread_id,
+                    decision=decision_action,
+                ),
+                session_id=self._session_id,
+            )
+            dispatch_at = self._journal.timestamp()
+            try:
+                # wire_request_id preserves the original JSON-RPC id type
+                # (int or str) — the App Server's id equality check requires
+                # the response id match the request id type-exactly.
+                entry.session.respond(parsed.wire_request_id, response_payload)
+            except Exception as respond_exc:
+                # Dispatch-failure branch.
+                # Cleanup obligations (spec §invariant table row 2 — dispatch_failed):
+                #   - record_dispatch_failure: YES
+                #   - update_parked_request(None): YES
+                #   - completed journal with worker_completed origin: YES
+                #   - audit dispatch_failed: YES (best-effort)
+                #   - registry.discard: YES
+                #   - _mark_execution_unknown_and_cleanup: YES (job → unknown)
+                # Sentinel reason: "dispatch_failed".
+                self._pending_request_store.record_dispatch_failure(
+                    parsed.request_id,
+                    action=decision_action,
+                    payload=response_payload,
+                    dispatch_at=dispatch_at,
+                    dispatch_error=_sanitize_error_string(respond_exc),
+                )
+                self._job_store.update_parked_request(job_id, None)
+                self._journal.write_phase(
+                    OperationJournalEntry(
+                        idempotency_key=f"approval_resolution:{job_id}:{parsed.request_id}",
+                        operation="approval_resolution",
+                        phase="completed",
+                        collaboration_id=collaboration_id,
+                        created_at=self._journal.timestamp(),
+                        repo_root=self._repo_root_for_journal(job_id),
+                        job_id=job_id,
+                        request_id=parsed.request_id,
+                        completion_origin="worker_completed",
+                    ),
+                    session_id=self._session_id,
+                )
+                try:
+                    self._journal.append_audit_event(
+                        AuditEvent(
+                            event_id=self._uuid_factory(),
+                            timestamp=self._journal.timestamp(),
+                            actor="system",
+                            action="dispatch_failed",
+                            collaboration_id=collaboration_id,
+                            runtime_id=runtime_id,
+                            job_id=job_id,
+                            request_id=parsed.request_id,
+                        )
+                    )
+                except Exception:
+                    logger.warning("audit dispatch_failed append failed", exc_info=True)
+                registry.discard(parsed.request_id)
+                self._mark_execution_unknown_and_cleanup(
+                    job_id=job_id,
+                    collaboration_id=collaboration_id,
+                    runtime_id=runtime_id,
+                    entry=entry,
+                )
+                raise _WorkerTerminalBranchSignal(reason="dispatch_failed") from respond_exc
+
+            # Dispatch succeeded (decide-success, finalizer-routed).
+            # Cleanup obligations (spec §invariant table row 1 — dispatch_failed=n/a,
+            # decide-success path):
+            #   - record_response_dispatch + mark_resolved: YES
+            #   - update_parked_request(None): YES
+            #   - completed journal with worker_completed origin: YES
+            #   - registry.discard: YES
+            #   - _mark_execution_unknown_and_cleanup: NO (turn continues naturally)
+            # Handler returns None → turn continues to turn/completed → _finalize_turn
+            # (Task 19 Captured-Request Terminal Guard maps request_snapshot.status).
+            self._pending_request_store.record_response_dispatch(
+                parsed.request_id,
+                action=decision_action,
+                payload=response_payload,
+                dispatch_at=dispatch_at,
+            )
+            self._pending_request_store.mark_resolved(
+                parsed.request_id, resolved_at=self._journal.timestamp()
+            )
+            self._job_store.update_parked_request(job_id, None)
+            self._journal.write_phase(
+                OperationJournalEntry(
+                    idempotency_key=f"approval_resolution:{job_id}:{parsed.request_id}",
+                    operation="approval_resolution",
+                    phase="completed",
+                    collaboration_id=collaboration_id,
+                    created_at=self._journal.timestamp(),
+                    repo_root=self._repo_root_for_journal(job_id),
+                    job_id=job_id,
+                    request_id=parsed.request_id,
+                    completion_origin="worker_completed",
+                ),
+                session_id=self._session_id,
+            )
+            registry.discard(parsed.request_id)
+            return None  # let the turn continue to turn/completed naturally
 
         try:
             turn_result = entry.session.run_execution_turn(
@@ -727,6 +1328,33 @@ class DelegationController:
                 approval_policy=self._approval_policy,
                 server_request_handler=_server_request_handler,
             )
+        except _WorkerTerminalBranchSignal as signal:
+            # Handler already performed branch cleanup. Do NOT call
+            # _mark_execution_unknown_and_cleanup (that would double-clean).
+            logger.info(
+                "worker terminal-branch signal caught. job_id=%r reason=%r",
+                job_id,
+                signal.reason,
+            )
+            if signal.reason == "unknown_kind_interrupt_transport_failure":
+                # Pre-capture terminal transport failure. Surface to main thread
+                # via DelegationStartError; the worker runner's generic
+                # `except Exception` will catch and fire announce_worker_failed
+                # with the explicit reason preserved.
+                raise DelegationStartError(
+                    reason="unknown_kind_interrupt_transport_failure",
+                    cause=None,
+                )
+            # Post-decide / post-Parked branches. Job is already in its terminal
+            # state. Return the stored job — _finalize_turn is BYPASSED because
+            # captured_request and turn_result would be stale / meaningless
+            # post-terminalization.
+            stored = self._job_store.get(job_id)
+            assert stored is not None, (
+                f"_execute_live_turn sentinel-catch invariant: job_id={job_id!r} "
+                f"stored record missing after sentinel reason={signal.reason!r}"
+            )
+            return stored
         except Exception:
             self._mark_execution_unknown_and_cleanup(
                 job_id=job_id,
@@ -843,34 +1471,336 @@ class DelegationController:
         )
         return updated
 
+    def _repo_root_for_journal(self, job_id: str) -> str:
+        """Resolve the repo_root string for journal entries from the lineage handle."""
+        job = self._job_store.get(job_id)
+        if job is None:
+            return ""
+        handle = self._lineage_store.get(job.collaboration_id)
+        return handle.repo_root if handle is not None else ""
+
+    def _handle_timeout_wake(
+        self,
+        *,
+        entry: ExecutionRuntimeEntry,
+        job_id: str,
+        collaboration_id: str,
+        runtime_id: str,
+        request: PendingServerRequest,
+        registry: ResolutionRegistry,
+    ) -> bool:
+        """Handle the worker's wake from the registry timer.
+
+        Kind-sensitive dispatch per spec §Kind-sensitive timeout dispatch:
+          - command_approval / file_change (cancel-capable) → respond({"decision": "cancel"})
+          - request_user_input (non-cancel-capable) → session.interrupt_turn (no respond)
+
+        Return contract:
+          - Returns True on cancel-capable-success sub-branch (caller's handler
+            returns None so the turn continues to turn/completed; _finalize_turn's
+            Captured-Request Terminal Guard at Task 19 maps the canceled snapshot).
+          - Raises _WorkerTerminalBranchSignal with a branch-specific reason on
+            every other sub-branch (timeout_cancel_dispatch_failed, timeout_interrupt_succeeded,
+            timeout_interrupt_failed). The sentinel bypass fires; _finalize_turn is NOT invoked.
+
+        Defensive AssertionError at bottom (W9): request.kind must be in the
+        upstream _CANCEL_CAPABLE_KINDS | _KNOWN_DENIAL_KINDS filter set.
+        """
+        now = self._journal.timestamp()
+        self._journal.write_phase(
+            OperationJournalEntry(
+                idempotency_key=f"approval_resolution:{job_id}:{request.request_id}",
+                operation="approval_resolution",
+                phase="intent",
+                collaboration_id=collaboration_id,
+                created_at=now,
+                repo_root=self._repo_root_for_journal(job_id),
+                job_id=job_id,
+                request_id=request.request_id,
+                decision=None,  # non-operator origin
+            ),
+            session_id=self._session_id,
+        )
+        self._job_store.update_status_and_promotion(
+            job_id, status="running", promotion_state=None
+        )
+        self._journal.write_phase(
+            OperationJournalEntry(
+                idempotency_key=f"approval_resolution:{job_id}:{request.request_id}",
+                operation="approval_resolution",
+                phase="dispatched",
+                collaboration_id=collaboration_id,
+                created_at=self._journal.timestamp(),
+                repo_root=self._repo_root_for_journal(job_id),
+                job_id=job_id,
+                request_id=request.request_id,
+                runtime_id=runtime_id,
+                codex_thread_id=entry.thread_id,
+                decision=None,
+            ),
+            session_id=self._session_id,
+        )
+
+        if request.kind in ("command_approval", "file_change"):
+            # Cancel-capable: respond({"decision": "cancel"}).
+            dispatch_at = self._journal.timestamp()
+            try:
+                # wire_request_id: preserve original JSON-RPC id type (int|str).
+                entry.session.respond(request.wire_request_id, {"decision": "cancel"})
+            except Exception as respond_exc:
+                # Cleanup obligations (spec §invariant table row 4 —
+                # timeout_cancel_dispatch_failed):
+                #   - record_timeout(dispatch_result="failed"): YES
+                #   - update_parked_request(None): YES
+                #   - completed journal with worker_completed origin: YES (via helper)
+                #   - audit approval_timeout: YES (best-effort, via helper)
+                #   - registry.discard: YES
+                #   - _mark_execution_unknown_and_cleanup: YES (job → unknown)
+                # Sentinel reason: "timeout_cancel_dispatch_failed".
+                self._pending_request_store.record_timeout(
+                    request.request_id,
+                    response_payload={"decision": "cancel"},
+                    response_dispatch_at=dispatch_at,
+                    dispatch_result="failed",
+                    dispatch_error=_sanitize_error_string(respond_exc),
+                )
+                self._job_store.update_parked_request(job_id, None)
+                self._write_completion_and_audit_timeout(
+                    job_id=job_id,
+                    collaboration_id=collaboration_id,
+                    runtime_id=runtime_id,
+                    request_id=request.request_id,
+                )
+                registry.discard(request.request_id)
+                self._mark_execution_unknown_and_cleanup(
+                    job_id=job_id,
+                    collaboration_id=collaboration_id,
+                    runtime_id=runtime_id,
+                    entry=entry,
+                )
+                raise _WorkerTerminalBranchSignal(reason="timeout_cancel_dispatch_failed") from respond_exc
+            # Cancel dispatch succeeded (cancel-success, finalizer-routed).
+            # Cleanup obligations (spec §invariant table row 2 — timeout-cancel-success):
+            #   - record_timeout(dispatch_result="succeeded"): YES
+            #   - update_parked_request(None): YES
+            #   - completed journal with worker_completed origin: YES (via helper)
+            #   - registry.discard: YES
+            #   - _mark_execution_unknown_and_cleanup: NO (turn continues naturally to
+            #     turn/completed; _finalize_turn's Captured-Request Terminal Guard at
+            #     Task 19 maps the canceled request snapshot to DelegationJob.status="canceled")
+            self._pending_request_store.record_timeout(
+                request.request_id,
+                response_payload={"decision": "cancel"},
+                response_dispatch_at=dispatch_at,
+                dispatch_result="succeeded",
+                dispatch_error=None,
+            )
+            self._job_store.update_parked_request(job_id, None)
+            self._write_completion_and_audit_timeout(
+                job_id=job_id,
+                collaboration_id=collaboration_id,
+                runtime_id=runtime_id,
+                request_id=request.request_id,
+            )
+            registry.discard(request.request_id)
+            return True  # caller returns None from the handler; turn continues
+
+        if request.kind == "request_user_input":
+            # Non-cancel-capable: interrupt_turn only — no respond.
+            try:
+                entry.session.interrupt_turn(
+                    thread_id=entry.thread_id, turn_id=None
+                )
+            except Exception as interrupt_exc:
+                # Cleanup obligations (spec §invariant table row 6 —
+                # timeout_interrupt_failed):
+                #   - record_timeout(interrupt_error=<sanitized>): YES
+                #   - update_parked_request(None): YES
+                #   - completed journal with worker_completed origin: YES (via helper)
+                #   - registry.discard: YES
+                #   - _mark_execution_unknown_and_cleanup: YES (job → unknown)
+                # Sentinel reason: "timeout_interrupt_failed".
+                self._pending_request_store.record_timeout(
+                    request.request_id,
+                    response_payload=None,
+                    response_dispatch_at=None,
+                    dispatch_result=None,
+                    dispatch_error=None,
+                    interrupt_error=_sanitize_error_string(interrupt_exc),
+                )
+                self._job_store.update_parked_request(job_id, None)
+                self._write_completion_and_audit_timeout(
+                    job_id=job_id,
+                    collaboration_id=collaboration_id,
+                    runtime_id=runtime_id,
+                    request_id=request.request_id,
+                )
+                registry.discard(request.request_id)
+                self._mark_execution_unknown_and_cleanup(
+                    job_id=job_id,
+                    collaboration_id=collaboration_id,
+                    runtime_id=runtime_id,
+                    entry=entry,
+                )
+                raise _WorkerTerminalBranchSignal(reason="timeout_interrupt_failed") from interrupt_exc
+            # Interrupt succeeded.
+            # Cleanup obligations (spec §invariant table row 5 —
+            # timeout_interrupt_succeeded):
+            #   - record_timeout(interrupt_error=None): YES
+            #   - update_parked_request(None): YES
+            #   - completed journal with worker_completed origin: YES (via helper)
+            #   - registry.discard: YES
+            #   - inline cancel cleanup (NOT _mark_execution_unknown_and_cleanup):
+            #     _persist_job_transition("canceled") + _emit_terminal_outcome_if_needed +
+            #     lineage_store.update_status("completed") + runtime_registry.release +
+            #     entry.session.close()
+            # Sentinel reason: "timeout_interrupt_succeeded".
+            self._pending_request_store.record_timeout(
+                request.request_id,
+                response_payload=None,
+                response_dispatch_at=None,
+                dispatch_result=None,
+                dispatch_error=None,
+                interrupt_error=None,
+            )
+            self._job_store.update_parked_request(job_id, None)
+            self._write_completion_and_audit_timeout(
+                job_id=job_id,
+                collaboration_id=collaboration_id,
+                runtime_id=runtime_id,
+                request_id=request.request_id,
+            )
+            registry.discard(request.request_id)
+            # Inline cancel-cleanup sequence — NOT _mark_execution_unknown_and_cleanup.
+            # cancel is verified (interrupt succeeded), so lineage gets "completed",
+            # not "unknown". Symmetry with _mark_execution_unknown_and_cleanup explicit.
+            self._persist_job_transition(job_id, "canceled")
+            self._emit_terminal_outcome_if_needed(job_id)
+            try:
+                self._lineage_store.update_status(collaboration_id, "completed")
+            except Exception:
+                logger.exception("lineage_store.update_status (cancel) failed")
+            try:
+                self._runtime_registry.release(runtime_id)
+            except Exception:
+                logger.exception("runtime_registry.release (cancel) failed")
+            try:
+                entry.session.close()
+            except Exception:
+                logger.exception("entry.session.close (cancel) failed")
+            raise _WorkerTerminalBranchSignal(reason="timeout_interrupt_succeeded")
+
+        # Any other kind must not reach here — upstream filter (_CANCEL_CAPABLE_KINDS |
+        # _KNOWN_DENIAL_KINDS) should have excluded it. Raise defensively (W9 required).
+        raise AssertionError(
+            f"_handle_timeout_wake: unexpected kind={request.kind!r}"
+        )
+
+    def _write_completion_and_audit_timeout(
+        self,
+        *,
+        job_id: str,
+        collaboration_id: str,
+        runtime_id: str,
+        request_id: str,
+    ) -> None:
+        """Write the approval_resolution completed journal entry and best-effort
+        audit event for any timeout sub-branch.
+
+        Shared by all four timeout sub-branches (cancel-dispatch-succeeded,
+        cancel-dispatch-failed, interrupt-succeeded, interrupt-failed).
+        Always writes completion_origin=worker_completed (closes C10.4 per L7).
+        """
+        self._journal.write_phase(
+            OperationJournalEntry(
+                idempotency_key=f"approval_resolution:{job_id}:{request_id}",
+                operation="approval_resolution",
+                phase="completed",
+                collaboration_id=collaboration_id,
+                created_at=self._journal.timestamp(),
+                repo_root=self._repo_root_for_journal(job_id),
+                job_id=job_id,
+                request_id=request_id,
+                completion_origin="worker_completed",
+            ),
+            session_id=self._session_id,
+        )
+        try:
+            self._journal.append_audit_event(
+                AuditEvent(
+                    event_id=self._uuid_factory(),
+                    timestamp=self._journal.timestamp(),
+                    actor="system",
+                    action="approval_timeout",
+                    collaboration_id=collaboration_id,
+                    runtime_id=runtime_id,
+                    job_id=job_id,
+                    request_id=request_id,
+                )
+            )
+        except Exception:
+            logger.warning("audit approval_timeout append failed", exc_info=True)
+
     # Plugin-level decisions exposed by codex.delegate.decide.
     _PLUGIN_DECISIONS: tuple[str, ...] = ("approve", "deny")
 
     def _project_request_to_view(
         self, request: PendingServerRequest
     ) -> PendingEscalationView:
-        """Project a PendingServerRequest to the caller-visible PendingEscalationView."""
+        """Project a PendingServerRequest to the caller-visible PendingEscalationView.
+
+        Raises UnknownKindInEscalationProjection if request.kind is not in the
+        escalatable set. Under Packet 1, caller control flow should prevent
+        this (unknown-kind requests terminalize the job before reaching any
+        projection callsite). The runtime guard is a belt-and-suspenders check
+        against dynamic construction paths (JSONL replay of pre-Packet-1 records,
+        future callsites that bypass the type system).
+        """
+        if request.kind not in _ESCALATABLE_REQUEST_KINDS:
+            raise UnknownKindInEscalationProjection(
+                f"EscalatableRequestKind violation: request_id={request.request_id!r} "
+                f"kind={request.kind!r:.100}. Under Packet 1, kind='unknown' "
+                f"must never reach escalation projection; such jobs are "
+                f"terminalized via the Unknown-kind contract."
+            )
         return PendingEscalationView(
             request_id=request.request_id,
-            kind=request.kind,
+            kind=cast(EscalatableRequestKind, request.kind),
             requested_scope=request.requested_scope,
             available_decisions=self._PLUGIN_DECISIONS,
         )
 
     def _project_pending_escalation(
-        self, collaboration_id: str
+        self, job: DelegationJob
     ) -> PendingEscalationView | None:
-        requests = self._pending_request_store.list_by_collaboration_id(
-            collaboration_id
-        )
-        if not requests:
+        """Project a job's parked request into a view. PURE — no side effects.
+
+        Returns None for legitimate no-view states (terminal, unparked,
+        tombstone). Re-raises UnknownKindInEscalationProjection for invariant
+        violations so each callsite owns its own abort-signaling and rejection
+        semantics. The helper never calls signal_internal_abort and never logs
+        critical errors; those concerns live at callsites (poll(), start()'s
+        escalation-return branch) because the appropriate reason and
+        caller-facing response differ between them.
+        """
+        if job.status in ("completed", "failed", "canceled", "unknown"):
             return None
-        return self._project_request_to_view(requests[-1])
+        if job.parked_request_id is None:
+            return None
+        request = self._pending_request_store.get(job.parked_request_id)
+        if request is None or request.status != "pending":
+            return None
+        return self._project_request_to_view(request)
 
     def _load_or_materialize_inspection(
         self, job: DelegationJob
     ) -> ArtifactInspectionSnapshot | None:
-        if job.status not in ("completed", "failed", "unknown"):
+        if job.status not in ("completed", "failed", "canceled", "unknown"):
+            return None
+        # Canceled jobs have no artifacts — the worker was interrupted before
+        # they could be produced. Return None immediately without calling
+        # materialize_snapshot / reconstruct_from_artifacts.
+        if job.status == "canceled":
             return None
         existing = self._artifact_store.load_snapshot(job=job)
         if existing is not None:
@@ -922,9 +1852,26 @@ class DelegationController:
         refreshed = self._job_store.get(job_id) or job
         pending_escalation = None
         if refreshed.status == "needs_escalation":
-            pending_escalation = self._project_pending_escalation(
-                refreshed.collaboration_id
-            )
+            try:
+                pending_escalation = self._project_pending_escalation(refreshed)
+            except UnknownKindInEscalationProjection as exc:
+                abort_signaled = False
+                if refreshed.parked_request_id is not None:
+                    abort_signaled = self._registry.signal_internal_abort(
+                        refreshed.parked_request_id,
+                        reason="unknown_kind_in_escalation_projection",
+                    )
+                logger.critical(
+                    "delegation.poll: unknown-kind in escalation projection; "
+                    "signaled worker-coordinated internal abort",
+                    extra={
+                        "job_id": refreshed.job_id,
+                        "request_id": refreshed.parked_request_id,
+                        "cause": str(exc),
+                        "abort_signaled": abort_signaled,
+                    },
+                )
+                pending_escalation = None
 
         detail = None
         if refreshed.status == "failed":
@@ -1390,8 +2337,9 @@ class DelegationController:
         """Discard a delegation job without promoting.
 
         Allowed when promotion_state in (pending, prechecks_failed), or when
-        status in (failed, unknown) and promotion_state is None (pre-mutation).
-        Post-mutation states (applied, rollback_needed) are never discardable.
+        status in (failed, unknown, canceled) and promotion_state is None
+        (pre-mutation). Post-mutation states (applied, rollback_needed) are
+        never discardable.
         """
         job = self._job_store.get(job_id)
         if job is None:
@@ -1402,7 +2350,8 @@ class DelegationController:
                 job_id=job_id,
             )
         _discardable = job.promotion_state in ("pending", "prechecks_failed") or (
-            job.status in ("failed", "unknown") and job.promotion_state is None
+            job.status in ("failed", "unknown", "canceled")
+            and job.promotion_state is None
         )
         if not _discardable:
             return DiscardRejectedResponse(
@@ -1456,26 +2405,75 @@ class DelegationController:
         _CANCEL_CAPABLE_KINDS = frozenset({"command_approval", "file_change"})
 
         if captured_request is not None:
-            # D6 diagnostic — only when we have a parseable request with
-            # wire-correlated IDs.
+            # Step 1. D6 diagnostic — only when we have a parseable request
+            # with wire-correlated IDs (existing guard).
             if not captured_request_parse_failed:
                 _verify_post_turn_signals(
                     notifications=turn_result.notifications,
                     request_id=captured_request.request_id,
                     item_id=captured_request.item_id,
                 )
-                # D4: mark wire request resolved (parse failures stay pending).
-                self._pending_request_store.update_status(
-                    captured_request.request_id, "resolved"
-                )
 
-            # Job status derivation.
-            if captured_request.kind in _CANCEL_CAPABLE_KINDS or interrupted_by_unknown:
-                final_status: JobStatus = "needs_escalation"
-            elif turn_result.status == "completed":
-                final_status = "completed"
+            # Step 2. Snapshot read (L1) — one authoritative derivation-status
+            # read. This snapshot governs both D4 gating and terminal-status
+            # derivation. No second .status read may feed either decision.
+            request_snapshot = self._pending_request_store.get(
+                captured_request.request_id
+            )
+
+            # Step 3. D4 conditional write + warning discipline (L2).
+            if not captured_request_parse_failed:
+                if request_snapshot is None:
+                    # Tombstone race — record evicted; skip D4.
+                    logger.warning(
+                        "Finalizer terminal guard: tombstone — "
+                        "pending_request_store.get(%r) returned None; "
+                        "request record missing at finalization time",
+                        captured_request.request_id,
+                    )
+                elif request_snapshot.status == "pending":
+                    # Anomalous fall-through: under Packet 1, every
+                    # non-parse-failed capture path should have written a
+                    # terminal status before the finalizer runs. Log and
+                    # preserve legacy D4 behavior on pending fall-through.
+                    logger.warning(
+                        "Finalizer terminal guard: anomalous pending — "
+                        "request %r still has status='pending' at "
+                        "finalization time; writing D4 resolved and "
+                        "falling through to kind-based derivation",
+                        captured_request.request_id,
+                    )
+                    self._pending_request_store.update_status(
+                        captured_request.request_id, "resolved"
+                    )
+                # else: resolved or canceled — happy path, skip D4.
+
+            # Step 4. Terminal-guard derivation (L3) — resolved/canceled
+            # snapshots produce final_status from the mapping table.
+            # Spec §_finalize_turn Captured-Request Terminal Guard
+            # (design.md:1762-1767).
+            if request_snapshot is not None and request_snapshot.status == "resolved":
+                if turn_result.status == "completed":
+                    final_status: JobStatus = "completed"
+                elif turn_result.status == "interrupted":
+                    final_status = "unknown"
+                elif turn_result.status == "failed":
+                    final_status = "unknown"
+                else:
+                    final_status = "unknown"  # defensive — spec :1772 OB-1
+            elif request_snapshot is not None and request_snapshot.status == "canceled":
+                final_status = "canceled"
             else:
-                final_status = "needs_escalation"
+                # Step 5. Kind-based fall-through (L4) — pending/None paths.
+                # a. L11 (Task 17): unknown-kind carve-out FIRST.
+                if interrupted_by_unknown:
+                    final_status = "unknown"
+                elif captured_request.kind in _CANCEL_CAPABLE_KINDS:
+                    final_status = "needs_escalation"
+                elif turn_result.status == "completed":
+                    final_status = "completed"
+                else:
+                    final_status = "needs_escalation"
 
             updated_job = self._persist_job_transition(job_id, final_status)
 
@@ -1509,8 +2507,19 @@ class DelegationController:
                     agent_context=turn_result.agent_message or None,
                 )
 
-            # Non-escalation: mark handle completed, release + close and return plain job.
-            self._lineage_store.update_status(collaboration_id, "completed")
+            # Non-escalation: mark handle. Unknown-kind paths (L9/L10 — kind
+            # never validated) drive lineage to "unknown" symmetrically with
+            # job, mirroring _mark_execution_unknown_and_cleanup at :1379.
+            # Resolved-snapshot-but-interrupted/failed-turn paths (L11-T2/T3)
+            # keep lineage "completed" because the operator decision was
+            # verified — only the post-decision wrap-up is unverified
+            # (asymmetric job/lineage split, parallel to the canceled split
+            # documented in design.md:1393). The discriminator is
+            # interrupted_by_unknown, NOT final_status.
+            handle_status: HandleStatus = (
+                "unknown" if interrupted_by_unknown else "completed"
+            )
+            self._lineage_store.update_status(collaboration_id, handle_status)
             self._runtime_registry.release(runtime_id)
             entry.session.close()
             self._emit_terminal_outcome_if_needed(job_id)
@@ -1606,23 +2615,6 @@ class DelegationController:
                 job_id=job_id,
                 request_id=request_id,
             )
-        if request_id in self._decided_request_ids:
-            return self._reject_decision(
-                reason="request_already_decided",
-                detail=(
-                    "Delegation decide failed: request was already decided. "
-                    f"Got: {request_id!r:.100}"
-                ),
-                job_id=job_id,
-                request_id=request_id,
-            )
-        if decision == "deny" and answers:
-            return self._reject_decision(
-                reason="answers_not_allowed",
-                detail="Delegation decide failed: deny does not accept answers. Got: 'answers'",
-                job_id=job_id,
-                request_id=request_id,
-            )
         if (
             request.kind == "request_user_input"
             and decision == "approve"
@@ -1661,102 +2653,61 @@ class DelegationController:
                 request_id=request_id,
             )
 
-        idempotency_key = f"{request_id}:{decision}"
-        created_at = self._journal.timestamp()
-        self._journal.write_phase(
-            OperationJournalEntry(
-                idempotency_key=idempotency_key,
-                operation="approval_resolution",
-                phase="intent",
-                collaboration_id=job.collaboration_id,
-                created_at=created_at,
-                repo_root=handle.repo_root,
-                job_id=job_id,
-                request_id=request_id,
-                decision=decision,
-            ),
-            session_id=self._session_id,
-        )
-        self._journal.append_audit_event(
-            AuditEvent(
-                event_id=self._uuid_factory(),
-                timestamp=self._journal.timestamp(),
-                actor="claude",
-                action="approve",
-                collaboration_id=job.collaboration_id,
-                runtime_id=job.runtime_id,
-                job_id=job_id,
-                request_id=request_id,
-                decision=decision,
-            )
-        )
-        self._journal.write_phase(
-            OperationJournalEntry(
-                idempotency_key=idempotency_key,
-                operation="approval_resolution",
-                phase="dispatched",
-                collaboration_id=job.collaboration_id,
-                created_at=created_at,
-                repo_root=handle.repo_root,
-                codex_thread_id=handle.codex_thread_id,
-                runtime_id=job.runtime_id,
-                job_id=job_id,
-                request_id=request_id,
-                decision=decision,
-            ),
-            session_id=self._session_id,
-        )
-
-        if decision == "deny":
-            try:
-                updated_job = self._persist_job_transition(job_id, "failed")
-                self._emit_terminal_outcome_if_needed(job_id)
-                self._lineage_store.update_status(job.collaboration_id, "completed")
-                self._runtime_registry.release(job.runtime_id)
-                entry.session.close()
-                self._journal.write_phase(
-                    OperationJournalEntry(
-                        idempotency_key=idempotency_key,
-                        operation="approval_resolution",
-                        phase="completed",
-                        collaboration_id=job.collaboration_id,
-                        created_at=created_at,
-                        repo_root=handle.repo_root,
-                        job_id=job_id,
-                        request_id=request_id,
-                        decision=decision,
-                    ),
-                    session_id=self._session_id,
-                )
-                self._decided_request_ids.add(request_id)
-                return DelegationDecisionResult(
-                    job=updated_job,
-                    decision="deny",
-                    resumed=False,
-                )
-            except Exception as exc:
-                raise CommittedDecisionFinalizationError(
-                    "Delegation decide committed deny but local finalization failed: "
-                    f"{exc}. The deny decision has been audited."
-                ) from exc
-
-        prompt_text = build_execution_resume_turn_text(
-            pending_request=request,
+        # Build the App Server response payload on the main thread (kind- and
+        # decision-sensitive; see _build_response_payload). The worker
+        # receives a fully-formed payload via DecisionResolution.payload and
+        # dispatches it through session.respond without further shaping
+        # (spec §1699).
+        payload = self._build_response_payload(
+            decision=decision,
             answers=answers,
+            request=request,
         )
-        try:
-            follow_up = self._execute_live_turn(
+        # `payload` is the bare App Server payload (e.g., {"decision":"accept"}).
+        # `action` carries the operator decision verb so the worker resume path
+        # can pass it to record_response_dispatch / record_dispatch_failure /
+        # OperationJournalEntry.decision without inferring it from payload
+        # structure (which is ambiguous: approve × RUI with empty `answers`
+        # produces {"answers": {}} indistinguishable from deny × RUI).
+        resolution = DecisionResolution(
+            payload=payload,
+            kind=cast(EscalatableRequestKind, request.kind),
+            action=cast(DecisionAction, decision),
+        )
+
+        # Step 2: atomic CAS awaiting → reserved. None means another caller
+        # (or the timeout timer) already claimed the slot.
+        token = self._registry.reserve(request_id, resolution)
+        if token is None:
+            return self._reject_decision(
+                reason="request_already_decided",
+                detail=(
+                    "Delegation decide failed: request was already decided. "
+                    f"Got: {request_id!r:.100}"
+                ),
                 job_id=job_id,
-                collaboration_id=job.collaboration_id,
-                runtime_id=job.runtime_id,
-                worktree_path=Path(job.worktree_path),
-                prompt_text=prompt_text,
+                request_id=request_id,
             )
+
+        # Step 3: durable journal intent. THIS is the authority-making step —
+        # on success, the operation is committed regardless of subsequent
+        # plugin-side behavior (spec §345). On failure, abort_reservation
+        # restores 'awaiting' so a retry or the timer can claim the slot,
+        # and the original exception re-raises (spec §324).
+        # Idempotency key MUST match the worker's dispatched/completed key
+        # (delegation_controller.py:1188/:1225/:1504/:1517) so OperationJournal
+        # groups intent → dispatched → completed under one key. A mismatched
+        # key leaves intent permanently unresolved on the happy path and
+        # forces startup recovery to write a misleading recovered_unresolved
+        # close — a forensic-correctness bug.
+        idempotency_key = f"approval_resolution:{job_id}:{request_id}"
+        created_at = self._journal.timestamp()
+        try:
             self._journal.write_phase(
                 OperationJournalEntry(
                     idempotency_key=idempotency_key,
                     operation="approval_resolution",
-                    phase="completed",
+                    phase="intent",
                     collaboration_id=job.collaboration_id,
                     created_at=created_at,
                     repo_root=handle.repo_root,
@@ -1766,25 +2717,99 @@ class DelegationController:
                 ),
                 session_id=self._session_id,
             )
-            self._decided_request_ids.add(request_id)
-            if isinstance(follow_up, DelegationEscalation):
-                return DelegationDecisionResult(
-                    job=follow_up.job,
-                    decision="approve",
-                    resumed=True,
-                    pending_escalation=follow_up.pending_escalation,
-                    agent_context=follow_up.agent_context,
+        except BaseException:
+            self._registry.abort_reservation(token)
+            raise
+
+        # Step 4: commit + signal. Irreversible; worker wakes here. Per spec
+        # §325 (and L14), commit_signal is a local threading.Event.set() +
+        # state mutation — failure indicates a plugin-critical bug, not a
+        # recoverable error. NO try/except wraps this line.
+        self._registry.commit_signal(token)
+
+        # Step 5: audit — post-commit, non-gating. Audit failure is logged as
+        # a warning and does not affect the return value (spec §326 +
+        # IO-5). action=decision (caller's "approve"/"deny") fixes a
+        # pre-existing hardcoded action="approve" bug at the prior callsite
+        # — incidental to the required relocation per spec §1654.
+        try:
+            self._journal.append_audit_event(
+                AuditEvent(
+                    event_id=self._uuid_factory(),
+                    timestamp=self._journal.timestamp(),
+                    actor="claude",
+                    action=decision,
+                    collaboration_id=job.collaboration_id,
+                    runtime_id=job.runtime_id,
+                    job_id=job_id,
+                    request_id=request_id,
+                    decision=decision,
                 )
-            return DelegationDecisionResult(
-                job=follow_up,
-                decision="approve",
-                resumed=True,
             )
-        except Exception as exc:
-            raise CommittedDecisionFinalizationError(
-                "Delegation decide committed but local finalization failed: "
-                f"{exc}. Blind retry may duplicate follow-up execution."
-            ) from exc
+        except Exception:
+            logger.warning(
+                "delegation.decide: audit emission failed post-commit; "
+                "decision is durable",
+                extra={
+                    "job_id": job_id,
+                    "request_id": request_id,
+                    "decision": decision,
+                },
+                exc_info=True,
+            )
+
+        return DelegationDecisionResult(
+            decision_accepted=True,
+            job_id=job_id,
+            request_id=request_id,
+        )
+
+    def _build_response_payload(
+        self,
+        *,
+        decision: DecisionAction | str,
+        answers: dict[str, tuple[str, ...]] | None,
+        request: PendingServerRequest,
+    ) -> dict[str, Any]:
+        """Map (decision, kind) → App Server response payload.
+
+        Authoritative 6-row binding contract per spec §Response payload
+        mapping table at design.md:1667-1672:
+
+          approve × command_approval → {"decision": "accept"}
+          approve × file_change      → {"decision": "accept"}
+          approve × request_user_input → {"answers": <validated answers dict>}
+          deny    × command_approval → {"decision": "decline"}
+          deny    × file_change      → {"decision": "decline"}
+          deny    × request_user_input → {"answers": {}}  (empty-fallback)
+
+        request_user_input approve wire shape (Path A): per pinned-version
+        fixture
+        tests/fixtures/codex-app-server/0.117.0/ToolRequestUserInputResponse.json,
+        each answer is wrapped as {<qid>: {"answers": [<string>...]}}.
+        Validation above guarantees decision in {"approve", "deny"} and
+        kind in EscalatableRequestKind, so the final RuntimeError is a
+        defensive invariant guard for unexpected combinations.
+        """
+        kind = request.kind
+        if decision == "approve":
+            if kind == "command_approval" or kind == "file_change":
+                return {"decision": "accept"}
+            if kind == "request_user_input":
+                wrapped: dict[str, Any] = {
+                    qid: {"answers": list(values)}
+                    for qid, values in (answers or {}).items()
+                }
+                return {"answers": wrapped}
+        elif decision == "deny":
+            if kind == "command_approval" or kind == "file_change":
+                return {"decision": "decline"}
+            if kind == "request_user_input":
+                return {"answers": {}}
+        raise RuntimeError(
+            "_build_response_payload: unexpected decision/kind combination. "
+            f"Got: decision={decision!r}, kind={kind!r}"
+        )
 
     def recover_startup(self) -> None:
         """Consume unresolved job_creation journal records into durable terminal state.
@@ -1879,6 +2904,7 @@ class DelegationController:
                     job_id=entry.job_id,
                     request_id=entry.request_id,
                     decision=entry.decision,
+                    completion_origin="recovered_unresolved",
                 ),
                 session_id=self._session_id,
             )
@@ -2052,9 +3078,33 @@ class DelegationController:
         # Cross-session abandoned outcomes are structurally unreachable
         # (DelegationJobStore is session-scoped). This is a documented
         # T-07 limitation, not a bug.
+        # Status set MUST mirror DelegationTerminalStatus / _TERMINAL_STATUS_MAP
+        # — Packet 1 made "canceled" a terminal status; omitting it here
+        # would leave a crashed-mid-emission canceled job permanently
+        # without DelegationOutcomeRecord(terminal_status="canceled").
         for job in self._job_store.list():
-            if job.status in ("completed", "failed", "unknown"):
+            if job.status in ("completed", "failed", "canceled", "unknown"):
                 self._emit_terminal_outcome_if_needed(job.job_id)
+                # Lineage repair for canceled jobs that crashed mid-cleanup.
+                # The verified-cancel paths write job=canceled, then outcome,
+                # then lineage="completed":
+                #   - timeout_interrupt_succeeded :1665-1668
+                #   - D4 canceled-snapshot finalizer :2466 + :2510
+                # A crash between the job and lineage writes leaves an active
+                # handle tied to a terminal job. The orphaned-active sweep at
+                # :3050 does not catch this — its filter is
+                # running/needs_escalation only. Mirror the live write
+                # ("completed") here for symmetry with verified-cancel
+                # semantics; recovery cannot distinguish the rare D4
+                # canceled+interrupted_by_unknown variant that would have
+                # written "unknown", so we accept the dominant case.
+                if job.status == "canceled":
+                    handle = self._lineage_store.get(job.collaboration_id)
+                    if handle is not None and handle.status == "active":
+                        self._lineage_store.update_status(
+                            job.collaboration_id,
+                            "completed",
+                        )
 
     def get_active_delegation_summary(self) -> tuple[DelegationJob | None, int]:
         """Return the active user-attention-required job and total count.

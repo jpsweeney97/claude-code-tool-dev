@@ -57,8 +57,10 @@ _JOURNAL_OPTIONAL_STR = (
     "job_id",
     "request_id",
     "decision",
+    "completion_origin",
 )
 _JOURNAL_OPTIONAL_INT = ("turn_sequence", "context_size")
+_VALID_COMPLETION_ORIGINS = frozenset(("worker_completed", "recovered_unresolved"))
 
 
 def _journal_callback(
@@ -80,6 +82,11 @@ def _journal_callback(
         val = record.get(name)
         if val is not None and type(val) is not int:
             raise SchemaViolation(f"{name} is not an int")
+    completion_origin = record.get("completion_origin")
+    if completion_origin is not None and completion_origin not in _VALID_COMPLETION_ORIGINS:
+        raise SchemaViolation(
+            f"unknown completion_origin value: {completion_origin!r}"
+        )
     # Per-operation+phase conditional requirements.
     # Recovery (dialogue.py:446-592) relies on these fields existing for
     # specific operation+phase combinations. Without enforcement, type-valid
@@ -130,9 +137,10 @@ def _journal_callback(
             raise SchemaViolation(
                 "approval_resolution at intent requires request_id (string)"
             )
-        if not isinstance(record.get("decision"), str):
+        decision = record.get("decision")
+        if decision is not None and not isinstance(decision, str):
             raise SchemaViolation(
-                "approval_resolution at intent requires decision (string)"
+                "approval_resolution at intent requires decision to be a string or None"
             )
     elif op == "approval_resolution" and phase == "dispatched":
         if not isinstance(record.get("job_id"), str):
@@ -143,9 +151,10 @@ def _journal_callback(
             raise SchemaViolation(
                 "approval_resolution at dispatched requires request_id (string)"
             )
-        if not isinstance(record.get("decision"), str):
+        decision = record.get("decision")
+        if decision is not None and not isinstance(decision, str):
             raise SchemaViolation(
-                "approval_resolution at dispatched requires decision (string)"
+                "approval_resolution at dispatched requires decision to be a string or None"
             )
         if not isinstance(record.get("runtime_id"), str):
             raise SchemaViolation(
@@ -177,6 +186,7 @@ def _journal_callback(
         job_id=record.get("job_id"),
         request_id=record.get("request_id"),
         decision=record.get("decision"),
+        completion_origin=record.get("completion_origin"),
     )
     return (entry.idempotency_key, entry)
 

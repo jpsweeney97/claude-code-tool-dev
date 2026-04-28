@@ -9,13 +9,15 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
+import threading
+import time
 from pathlib import Path
 from typing import Any, Callable
 
 import pytest
 
 from server.artifact_store import ArtifactStore
-from server.delegation_controller import DelegationController
+from server.delegation_controller import DelegationController, DelegationStartError
 from server.delegation_job_store import DelegationJobStore
 from server.execution_runtime_registry import ExecutionRuntimeRegistry
 from server.journal import OperationJournal
@@ -42,6 +44,11 @@ from server.pending_request_store import PendingRequestStore
 
 
 class _FakeSession:
+    # respond is a stub for worker-side server-request responses. Tests that
+    # exercise the parkable-capture path (Task 16 handler) set this to a
+    # MagicMock to control and inspect transport dispatch behavior.
+    respond: Any = None
+
     def __init__(self, thread_id: str = "thr-1") -> None:
         self._thread_id = thread_id
         self.closed = False
@@ -1318,11 +1325,20 @@ def _permissions_request(
 
 
 def test_start_with_command_approval_returns_escalation(tmp_path: Path) -> None:
-    """command_approval → cancel response → DelegationEscalation with needs_escalation."""
+    """command_approval → handler parks → DelegationEscalation.
+
+    Post-Task-17 (async model): the handler announces parked and then blocks
+    on registry.wait(). start() returns DelegationEscalation with
+    agent_context=None (deferred-escalation semantics per spec §Capture-ready
+    handshake — the worker is still inside the turn so turn_result.agent_message
+    does not yet exist). The request status remains 'pending' until decide()
+    resumes the worker and _finalize_turn runs the D4 update. Escalation audit
+    events fire from _finalize_turn, also deferred until decide().
+    """
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, control_plane, _wm, job_store, _ls, journal, registry, prs = (
+    controller, control_plane, _wm, _job_store, _ls, _journal, registry, prs = (
         _build_controller(tmp_path)
     )
 
@@ -1334,35 +1350,31 @@ def test_start_with_command_approval_returns_escalation(tmp_path: Path) -> None:
     assert result.job.status == "needs_escalation"
     assert result.pending_escalation.kind == "command_approval"
     assert result.pending_escalation.request_id == "42"
-    assert result.agent_context is not None
+    # Deferred-escalation: agent_context=None for the Parked path.
+    assert result.agent_context is None
 
-    # Pending request was persisted and resolved (D4).
+    # Request persisted (status 'pending' until decide() resumes worker).
     stored = prs.get("42")
     assert stored is not None
-    assert stored.status == "resolved"
 
-    # Escalation audit event emitted.
-    events_path = journal.plugin_data_path / "audit" / "events.jsonl"
-    lines = [
-        json.loads(line)
-        for line in events_path.read_text().splitlines()
-        if line.strip()
-    ]
-    escalation_events = [e for e in lines if e.get("action") == "escalate"]
-    assert len(escalation_events) == 1
-    assert escalation_events[0]["request_id"] == "42"
-
-    # Runtime kept live for needs_escalation — NOT released, NOT closed.
+    # Runtime kept live for needs_escalation — worker is parked in registry.wait().
     assert registry.lookup("rt-1") is not None
     assert not control_plane._sessions[0].closed
 
 
 def test_start_with_unknown_request_interrupts_and_escalates(tmp_path: Path) -> None:
-    """Unknown kind (e.g., permissions) → interrupt → needs_escalation."""
+    """Unknown kind (e.g., permissions) → interrupt → terminal status='unknown'.
+
+    Post-Task-17 (L11 carve-out): unknown-kind interrupted requests cannot be
+    projected into a PendingEscalationView. _finalize_turn now routes
+    interrupted_by_unknown to final_status='unknown' and start() returns the
+    plain terminal job — no escalation is built. Causal record lives on the
+    persisted PendingServerRequest(kind='unknown') audit entry.
+    """
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, control_plane, _wm, job_store, _ls, _j, registry, prs = (
+    controller, control_plane, _wm, job_store, _ls, _j, _registry, prs = (
         _build_controller(tmp_path)
     )
 
@@ -1370,18 +1382,18 @@ def test_start_with_unknown_request_interrupts_and_escalates(tmp_path: Path) -> 
 
     result = controller.start(repo_root=repo_root, objective="Deploy")
 
-    assert isinstance(result, DelegationEscalation)
-    assert result.job.status == "needs_escalation"
-    assert result.pending_escalation.kind == "unknown"
-    assert result.pending_escalation.request_id == "99"
+    # Unknown-kind interrupt → terminal job, NOT escalation.
+    assert isinstance(result, DelegationJob)
+    assert result.status == "unknown"
+    assert result.job_id == "job-1"
 
-    # Pending request persisted and resolved (D4 — parse succeeded, kind unknown).
+    # Pending request persisted (parse succeeded, kind="unknown" via _METHOD_TO_KIND
+    # default). D4 update_status("resolved") still fires for parseable requests
+    # because captured_request_parse_failed is False on this path.
     stored = prs.get("99")
     assert stored is not None
+    assert stored.kind == "unknown"
     assert stored.status == "resolved"
-
-    # Runtime kept live.
-    assert registry.lookup("rt-1") is not None
 
 
 def test_start_with_two_requests_responds_to_both(tmp_path: Path) -> None:
@@ -1409,7 +1421,14 @@ def test_start_with_two_requests_responds_to_both(tmp_path: Path) -> None:
 def test_start_with_unparseable_request_creates_minimal_causal_record(
     tmp_path: Path,
 ) -> None:
-    """Parse failure → minimal record with status="pending" (D4 carve-out)."""
+    """Parse failure → minimal record with status="pending" (D4 carve-out).
+
+    Post-Task-17 (L11 carve-out): the worker handler emits
+    announce_turn_terminal_without_escalation after creating the minimal
+    PendingServerRequest(kind='unknown') and interrupting the turn. start()
+    receives TurnTerminalWithoutEscalation and returns the plain terminal job.
+    The minimal causal record is the persisted PendingServerRequest itself.
+    """
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
@@ -1422,18 +1441,18 @@ def test_start_with_unparseable_request_creates_minimal_causal_record(
 
     result = controller.start(repo_root=repo_root, objective="Build")
 
-    assert isinstance(result, DelegationEscalation)
-    assert result.job.status == "needs_escalation"
-    assert result.pending_escalation.kind == "unknown"
-    assert result.pending_escalation.request_id == "77"
-    assert result.pending_escalation.requested_scope == {
-        "raw_method": "item/unknown/broken"
-    }
+    # Parse-failure path → terminal job, NOT escalation.
+    assert isinstance(result, DelegationJob)
+    assert result.status == "unknown"
+    assert result.job_id == "job-1"
 
+    # Minimal causal record persisted with raw method preserved.
     # D4 carve-out: parse failures stay "pending" — NOT updated to "resolved".
     stored = prs.get("77")
     assert stored is not None
+    assert stored.kind == "unknown"
     assert stored.status == "pending"
+    assert stored.requested_scope == {"raw_method": "item/unknown/broken"}
 
 
 def test_start_with_no_server_requests_returns_delegation_job(tmp_path: Path) -> None:
@@ -1461,17 +1480,25 @@ def test_start_turn_dispatch_failure_marks_job_unknown_and_cleans_up(
     tmp_path: Path,
 ) -> None:
     """If run_execution_turn() raises, the job is marked unknown, the runtime
-    is released, and the session is closed — not left stuck running."""
+    is released, and the session is closed — not left stuck running.
+
+    Post-Task-17: the worker thread catches the unhandled exception and signals
+    WorkerFailed; start() raises DelegationStartError(reason='worker_failed_before_capture')
+    with the original exception chained on .cause (L7 reason-preservation rule).
+    """
     controller, control_plane, _, job_store, _, _, registry, _ = _build_controller(
         tmp_path
     )
     control_plane._next_raise_on_turn = RuntimeError("transport died")
 
-    with pytest.raises(RuntimeError, match="transport died"):
+    with pytest.raises(DelegationStartError) as exc_info:
         controller.start(
             repo_root=tmp_path / "repo",
             objective="Should fail",
         )
+    assert exc_info.value.reason == "worker_failed_before_capture"
+    assert isinstance(exc_info.value.cause, RuntimeError)
+    assert "transport died" in str(exc_info.value.cause)
 
     # Job should be "unknown", not stuck "running".
     jobs = job_store.list_active()
@@ -1485,58 +1512,76 @@ def test_start_turn_dispatch_failure_marks_job_unknown_and_cleans_up(
 def test_start_post_turn_finalization_failure_marks_job_unknown_and_cleans_up(
     tmp_path: Path,
 ) -> None:
-    """If a post-turn local write (e.g. audit emit) raises after
-    run_execution_turn() succeeds, the job is still marked unknown and
-    the runtime is released."""
-    controller, control_plane, _, job_store, _, journal, registry, _ = (
+    """If a non-escalation-tail write raises inside _finalize_turn after the
+    worker's turn completes, the cleanup wrapper at _execute_live_turn catches
+    the exception and calls _mark_execution_unknown_and_cleanup.
+
+    Task 19 rewrite: approve -> resolved + completed -> L3 maps to completed ->
+    non-escalation tail fires lineage_store.update_status("completed").
+    Sabotage that store call to inject a failure. Bounded-poll observes
+    job.status == "unknown" + cleanup invariants.
+    """
+    from server.models import DelegationDecisionResult
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, control_plane, _, job_store, lineage, journal, registry, prs = (
         _build_controller(tmp_path)
     )
+    control_plane._next_session_requests = [_command_approval_request()]
+    start_result = controller.start(repo_root=repo_root, objective="Fail test")
+    assert isinstance(start_result, DelegationEscalation)
 
-    # Configure a command-approval request so the capture path fires.
-    control_plane._next_session_requests = [
-        {
-            "id": "req-1",
-            "method": "item/commandExecution/requestApproval",
-            "params": {
-                "itemId": "item-1",
-                "threadId": "thr-1",
-                "turnId": "turn-1",
-                "command": "make build",
-                "cwd": "/repo",
-            },
-        },
-    ]
-    control_plane._next_turn_result = TurnExecutionResult(
-        turn_id="turn-1",
-        status="interrupted",
-        agent_message="was building",
+    session = control_plane._sessions[0]
+    session._server_requests = []
+    session.respond = lambda request_id, payload: None
+    session._turn_result = TurnExecutionResult(
+        turn_id="turn-2",
+        status="completed",
+        agent_message="Approved work finished.",
+        notifications=(),
     )
 
-    # Sabotage the audit emit so _finalize_turn raises after the turn
-    # has already completed successfully. The first call (delegate_start
-    # audit in committed-start phase) must succeed; only the second call
-    # (escalation audit in _finalize_turn) should fail.
-    original_append = journal.append_audit_event
-    call_count = 0
+    # Sabotage lineage_store.update_status to raise on "completed" write
+    # (the non-escalation tail at the first call after _persist_job_transition).
+    original_lineage_update = lineage.update_status
 
-    def _exploding_audit_on_second(event: Any) -> None:
-        nonlocal call_count
-        call_count += 1
-        if call_count >= 2:
-            raise OSError("disk full")
-        original_append(event)
+    def _exploding_lineage_update(collaboration_id: str, status: str) -> None:
+        if status == "completed":
+            raise OSError("disk full on lineage write")
+        original_lineage_update(collaboration_id, status)
 
-    journal.append_audit_event = _exploding_audit_on_second  # type: ignore[assignment]
+    lineage.update_status = _exploding_lineage_update  # type: ignore[assignment]
 
-    with pytest.raises(OSError, match="disk full"):
-        controller.start(
-            repo_root=tmp_path / "repo",
-            objective="Audit failure test",
-        )
+    result = controller.decide(
+        job_id="job-1",
+        request_id="42",
+        decision="approve",
+    )
+    assert isinstance(result, DelegationDecisionResult)
+    assert result.decision_accepted is True
 
-    # Job should be "unknown", not stuck "running" or "needs_escalation".
-    jobs = job_store.list_active()
-    assert len(jobs) == 0, f"Expected no active jobs, got: {[j.status for j in jobs]}"
+    # Bounded-poll: observe job.status == "unknown" via the cleanup wrapper.
+    deadline = time.monotonic() + 5.0
+    final_job = None
+    while time.monotonic() < deadline:
+        final_job = job_store.get("job-1")
+        if final_job is not None and final_job.status == "unknown":
+            break
+        time.sleep(0.05)
+
+    assert final_job is not None
+    assert final_job.status == "unknown", (
+        f"Expected job status 'unknown' but got {final_job.status!r}"
+    )
+
+    # Wait for worker thread to finish.
+    worker_threads = [
+        t for t in threading.enumerate() if t.name == "delegation-worker-job-1"
+    ]
+    for t in worker_threads:
+        t.join(timeout=5.0)
 
     # Runtime released and session closed despite the failure.
     assert registry.lookup("rt-1") is None
@@ -1546,17 +1591,22 @@ def test_start_post_turn_finalization_failure_marks_job_unknown_and_cleans_up(
 def test_start_with_request_user_input_completed_returns_delegation_job(
     tmp_path: Path,
 ) -> None:
-    """request_user_input + completed turn → DelegationJob, not DelegationEscalation.
+    """request_user_input → handler parks → start() returns DelegationEscalation.
 
-    When a no-cancel known kind (request_user_input) is captured but the turn
-    completes normally, the job is completed — not escalated. The runtime is
-    released, the session is closed, the pending request is resolved, and no
-    escalation audit event is emitted.
+    Post-Task-17 (async model): request_user_input is a parkable kind
+    (member of _KNOWN_DENIAL_KINDS). The handler parks on registry.wait()
+    BEFORE the turn loop can continue to "completed", so start() returns
+    DelegationEscalation immediately after announce_parked. The worker stays
+    parked in registry.wait() until decide() commits. The test name is
+    preserved for git-blame continuity; the async assertions reflect the
+    deferred-decide semantics. Runtime stays live; the request status remains
+    "pending" until decide() resumes the worker (D4 update_status('resolved')
+    runs inside _finalize_turn AFTER the turn resumes).
     """
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, control_plane, _wm, job_store, _ls, journal, registry, prs = (
+    controller, control_plane, _wm, _job_store, _ls, _journal, registry, prs = (
         _build_controller(tmp_path)
     )
 
@@ -1564,39 +1614,37 @@ def test_start_with_request_user_input_completed_returns_delegation_job(
 
     result = controller.start(repo_root=repo_root, objective="Summarize")
 
-    # Returns a plain DelegationJob, not a DelegationEscalation.
-    assert isinstance(result, DelegationJob)
-    assert result.status == "completed"
+    # Async model: parked → escalation, NOT terminal completed.
+    assert isinstance(result, DelegationEscalation)
+    assert result.job.status == "needs_escalation"
+    assert result.pending_escalation.kind == "request_user_input"
+    assert result.pending_escalation.request_id == "55"
 
-    # Pending request was persisted and resolved (D4).
+    # Request persisted (status remains "pending" until decide resumes worker
+    # and _finalize_turn runs the D4 update).
     stored = prs.get("55")
     assert stored is not None
-    assert stored.status == "resolved"
+    assert stored.kind == "request_user_input"
 
-    # Runtime released and session closed — not kept live.
-    assert registry.lookup("rt-1") is None
-    assert control_plane._sessions[0].closed
-
-    # No escalation audit event emitted.
-    events_path = journal.plugin_data_path / "audit" / "events.jsonl"
-    lines = [
-        json.loads(line)
-        for line in events_path.read_text().splitlines()
-        if line.strip()
-    ]
-    escalation_events = [e for e in lines if e.get("action") == "escalate"]
-    assert len(escalation_events) == 0
+    # Runtime kept live for the parked worker — decide() will resume.
+    assert registry.lookup("rt-1") is not None
 
 
 def test_later_parse_failure_does_not_prevent_captured_request_resolution(
     tmp_path: Path,
 ) -> None:
-    """First request parses fine, second message fails parse → first resolved.
+    """First request parses fine → handler parks → start() returns escalation.
 
-    The captured_request_parse_failed flag should only apply to the captured
-    (first) request. A later malformed message should still trigger
-    interrupted_by_unknown (escalation), but the successfully-parsed first
-    request must still be marked resolved.
+    Post-Task-17 (async model): the first parseable command_approval request
+    causes the handler to park on registry.wait() BEFORE the turn loop can
+    dispatch any later message. Under the synchronous-handler legacy model,
+    BOTH messages would have been dispatched and the second's parse failure
+    would have been the trigger for interrupted_by_unknown. Under async, only
+    the first message is processed during start(); the parked worker awaits
+    decide(). The test is preserved for git-blame continuity and renamed-
+    semantics: it now verifies that a parseable first request reaches the
+    parked-escalation state cleanly. The "later parse failure" handling is
+    covered by post-decide turn-resume tests (Bucket B, deferred to Task 18).
     """
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
@@ -1605,12 +1653,13 @@ def test_later_parse_failure_does_not_prevent_captured_request_resolution(
         tmp_path
     )
 
-    # First message: parseable command_approval. Second: unparseable.
+    # First message: parseable command_approval (parks the worker).
+    # Second message: unparseable — never reached during start() because the
+    # handler parks in registry.wait() after the first message.
     control_plane._next_session_requests = [
         _command_approval_request(request_id=10, item_id="item-ok"),
         {"id": 11, "method": "broken/method", "params": "not-a-dict"},
     ]
-    # The second message triggers interrupt, so the turn ends interrupted.
     control_plane._next_turn_result = TurnExecutionResult(
         turn_id="turn-1",
         status="interrupted",
@@ -1619,20 +1668,20 @@ def test_later_parse_failure_does_not_prevent_captured_request_resolution(
 
     result = controller.start(repo_root=repo_root, objective="Mixed")
 
-    # Should escalate (interrupted_by_unknown from the second message).
+    # Parked on the first message.
     assert isinstance(result, DelegationEscalation)
     assert result.job.status == "needs_escalation"
+    assert result.pending_escalation.request_id == "10"
 
-    # The FIRST request (successfully parsed) must be resolved — not left
-    # pending due to a later message's parse failure.
+    # First request persisted (status pending until decide() resumes worker
+    # and _finalize_turn runs D4 update).
     stored = prs.get("10")
     assert stored is not None
-    assert stored.status == "resolved"
 
-    # Only the first request was persisted (first-capture semantics).
+    # Second request never dispatched (handler parked before it could be).
     assert prs.get("11") is None
 
-    # Runtime kept live for escalation.
+    # Runtime kept live for the parked worker.
     assert registry.lookup("rt-1") is not None
 
 
@@ -1675,12 +1724,20 @@ def test_start_escalation_keeps_execution_handle_active(tmp_path: Path) -> None:
 def test_decide_approve_resumes_runtime_and_returns_completed_result(
     tmp_path: Path,
 ) -> None:
+    """Approve happy path: 5-step protocol.
+
+    1. decide() returns synchronous DelegationDecisionResult(decision_accepted=True).
+    2. Bounded-poll job_store.status == "completed" (worker + finalizer run on worker thread).
+    3. pending_request_store.get(rid).status == "resolved".
+    4. _finalize_turn ran via worker thread (resolved+completed -> completed).
+    5. Cleanup: runtime released, session closed, lineage completed.
+    """
     from server.models import DelegationDecisionResult
 
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, control_plane, _wm, _js, lineage, _j, registry, _prs = (
+    controller, control_plane, _wm, job_store, lineage, _j, registry, prs = (
         _build_controller(tmp_path)
     )
     control_plane._next_session_requests = [_command_approval_request()]
@@ -1689,6 +1746,7 @@ def test_decide_approve_resumes_runtime_and_returns_completed_result(
 
     session = control_plane._sessions[0]
     session._server_requests = []
+    session.respond = lambda request_id, payload: None
     session._turn_result = TurnExecutionResult(
         turn_id="turn-2",
         status="completed",
@@ -1696,6 +1754,7 @@ def test_decide_approve_resumes_runtime_and_returns_completed_result(
         notifications=(),
     )
 
+    # Step 1: synchronous decide
     result = controller.decide(
         job_id="job-1",
         request_id="42",
@@ -1703,11 +1762,35 @@ def test_decide_approve_resumes_runtime_and_returns_completed_result(
     )
 
     assert isinstance(result, DelegationDecisionResult)
-    assert result.decision == "approve"
-    assert result.resumed is True
-    assert result.pending_escalation is None
-    assert result.job.status == "completed"
+    assert result.decision_accepted is True
+    assert result.job_id == "job-1"
+    assert result.request_id == "42"
+
+    # Step 2: bounded-poll for job completion
+    deadline = time.monotonic() + 5.0
+    final_job = None
+    while time.monotonic() < deadline:
+        final_job = job_store.get("job-1")
+        if final_job is not None and final_job.status == "completed":
+            break
+        time.sleep(0.05)
+
+    assert final_job is not None
+    assert final_job.status == "completed"
+
+    # Step 3: pending request resolved
+    stored_req = prs.get("42")
+    assert stored_req is not None
+    assert stored_req.status == "resolved"
+
+    # Step 5: cleanup
+    worker_threads = [
+        t for t in threading.enumerate() if t.name == "delegation-worker-job-1"
+    ]
+    for t in worker_threads:
+        t.join(timeout=5.0)
     assert registry.lookup("rt-1") is None
+    assert control_plane._sessions[0].closed
     handle = lineage.get("collab-1")
     assert handle is not None and handle.status == "completed"
 
@@ -1726,13 +1809,33 @@ def test_decide_approve_can_reescalate_with_new_pending_request(tmp_path: Path) 
     assert isinstance(start_result, DelegationEscalation)
 
     session = control_plane._sessions[0]
-    session._server_requests = [_permissions_request(request_id=99, item_id="item-2")]
+    # Adjudication D (Round-6): mutate the active list rather than reassign.
+    # The worker thread is already inside _FakeSession.run_execution_turn's
+    # for-loop iterator (bound to the original list object). Appending to
+    # that same list IS visible to the active iterator; reassignment is not.
+    # The follow-up request is request_user_input (parkable per L13 row +
+    # spec §1717 unknown-kind contract: unknown-kind never escalates under
+    # Packet 1; only the three EscalatableRequestKind literals park).
+    session._server_requests.append(
+        _request_user_input_request(request_id=99, item_id="item-2")
+    )
+    # _FakeSession.respond defaults to None; under the new async-decide flow
+    # the worker calls session.respond(rid, payload) before continuing the
+    # turn loop. A None respond raises TypeError → dispatch-failed sentinel
+    # → worker terminates as 'unknown' before reaching rid=99. Stub respond
+    # as a no-op so the turn continues to the second iteration.
+    session.respond = lambda request_id, payload: None
     session._turn_result = TurnExecutionResult(
         turn_id="turn-2",
         status="interrupted",
         agent_message="Need another escalation.",
         notifications=(),
     )
+    # Production worker now handles re-park PSR.create unconditionally per
+    # Task 18 closeout fix: the parkable-capture branch at
+    # delegation_controller.py:1025-1037 calls _pending_request_store.create
+    # for every parkable server-request in the turn, not just the first. No
+    # test-side pre-seeding required.
 
     result = controller.decide(
         job_id="job-1",
@@ -1741,28 +1844,84 @@ def test_decide_approve_can_reescalate_with_new_pending_request(tmp_path: Path) 
     )
 
     assert isinstance(result, DelegationDecisionResult)
-    assert result.decision == "approve"
-    assert result.resumed is True
-    assert result.pending_escalation is not None
-    assert result.pending_escalation.request_id == "99"
-    assert result.job.status == "needs_escalation"
+    assert result.decision_accepted is True
+    assert result.job_id == "job-1"
+    assert result.request_id == "42"
+    # Post-dispatch re-escalation state observed via poll(), not decide() result (Packet 1).
+    # decide() returns after commit_signal; the worker progresses asynchronously
+    # toward re-park on the new request (rid=99). Bounded polling waits up to
+    # 5s for the new pending escalation to materialize.
+    poll: DelegationPollResult | None = None
+    for _ in range(100):
+        candidate = controller.poll(job_id="job-1")
+        assert isinstance(candidate, DelegationPollResult)
+        if (
+            candidate.pending_escalation is not None
+            and candidate.pending_escalation.request_id == "99"
+        ):
+            poll = candidate
+            break
+        time.sleep(0.05)
+    assert poll is not None, (
+        "re-escalation on rid=99 did not materialize within the polling budget"
+    )
+    assert poll.job.status == "needs_escalation"
+    assert poll.pending_escalation is not None
+    assert poll.pending_escalation.request_id == "99"
     assert registry.lookup("rt-1") is not None
-    stored = prs.get("99")
-    assert stored is not None and stored.status == "resolved"
+    # Round-6 adjudication: assert rid=42 (the just-decided request) is
+    # marked resolved by the worker's mark_resolved call in the dispatch-
+    # success branch (delegation_controller.py:1259-1261; spec §1700+
+    # worker wake sequence). The original test asserted
+    # prs.get("99").status == "resolved" which is structurally wrong:
+    # rid=99 is the NEW pending escalation captured during resume — it
+    # should be 'pending' (just-captured), not 'resolved'. The corrected
+    # assertion mirrors L13's authority-table row about the worker's
+    # mark_resolved sequencing.
+    stored_42 = prs.get("42")
+    assert stored_42 is not None and stored_42.status == "resolved"
+
+    # Drain the rid=99 worker park so the daemon thread exits before the
+    # next test runs (the worker is blocked in registry.wait("99")). Without
+    # this drain, subsequent tests that enumerate threads named
+    # 'delegation-worker-job-1' (e.g., test_decide_audit_event_post_commit_non_gating
+    # at acceptance test 7) observe the leftover thread and fail.
+    controller._registry.signal_internal_abort("99", reason="test_teardown_drain")
+    worker_threads = [
+        t for t in threading.enumerate() if t.name == "delegation-worker-job-1"
+    ]
+    for t in worker_threads:
+        t.join(timeout=5.0)
 
 
-def test_decide_deny_marks_job_failed_and_closes_runtime(tmp_path: Path) -> None:
+def test_decide_deny_marks_job_completed_and_closes_runtime(tmp_path: Path) -> None:
+    """Deny analogue: deny -> decline does NOT abort the turn.
+
+    Spec :1677, :1684, :1686: App Server processes decline, continues the turn,
+    and emits turn/completed(status="completed"). L3 maps resolved+completed
+    -> completed. Job status is "completed", NOT "failed".
+    """
     from server.models import DelegationDecisionResult
 
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, control_plane, _wm, job_store, lineage, journal, registry, _prs = (
+    controller, control_plane, _wm, job_store, lineage, journal, registry, prs = (
         _build_controller(tmp_path)
     )
     control_plane._next_session_requests = [_command_approval_request()]
     start_result = controller.start(repo_root=repo_root, objective="Fix it")
     assert isinstance(start_result, DelegationEscalation)
+
+    # Stub respond and configure post-deny turn result
+    session = control_plane._sessions[0]
+    session.respond = lambda request_id, payload: None
+    session._turn_result = TurnExecutionResult(
+        turn_id="turn-2",
+        status="completed",
+        agent_message="Denied, continuing.",
+        notifications=(),
+    )
 
     result = controller.decide(
         job_id="job-1",
@@ -1771,40 +1930,93 @@ def test_decide_deny_marks_job_failed_and_closes_runtime(tmp_path: Path) -> None
     )
 
     assert isinstance(result, DelegationDecisionResult)
-    assert result.decision == "deny"
-    assert result.resumed is False
-    assert result.pending_escalation is None
-    assert result.job.status == "failed"
-    assert job_store.get("job-1") is not None
+    assert result.decision_accepted is True
+    assert result.job_id == "job-1"
+    assert result.request_id == "42"
+
+    # Bounded-poll for job completion (deny -> decline -> turn completes normally)
+    deadline = time.monotonic() + 5.0
+    final_job = None
+    while time.monotonic() < deadline:
+        final_job = job_store.get("job-1")
+        if final_job is not None and final_job.status == "completed":
+            break
+        time.sleep(0.05)
+
+    assert final_job is not None
+    assert final_job.status == "completed"
+
+    # Pending request resolved
+    stored_req = prs.get("42")
+    assert stored_req is not None
+    assert stored_req.status == "resolved"
+
+    # Cleanup
+    worker_threads = [
+        t for t in threading.enumerate() if t.name == "delegation-worker-job-1"
+    ]
+    for t in worker_threads:
+        t.join(timeout=5.0)
     assert registry.lookup("rt-1") is None
+    assert control_plane._sessions[0].closed
     handle = lineage.get("collab-1")
     assert handle is not None and handle.status == "completed"
 
+    # Audit differentiation: deny audit event carries action="deny", decision="deny"
     events_path = journal.plugin_data_path / "audit" / "events.jsonl"
     lines = [
         json.loads(line)
         for line in events_path.read_text().splitlines()
         if line.strip()
     ]
-    approval_events = [e for e in lines if e.get("action") == "approve"]
-    assert len(approval_events) == 1
-    assert approval_events[0]["decision"] == "deny"
-    assert approval_events[0]["request_id"] == "42"
+    deny_events = [e for e in lines if e.get("action") == "deny"]
+    assert len(deny_events) == 1
+    assert deny_events[0]["decision"] == "deny"
+    assert deny_events[0]["request_id"] == "42"
 
 
 def test_decide_deny_emits_terminal_outcome(tmp_path: Path) -> None:
-    """Deny decisions must write a delegation_terminal record to outcomes.jsonl."""
+    """Deny decisions write a delegation_terminal record with job status=completed."""
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
-    controller, control_plane, _wm, _js, _ls, journal, _r, _prs = _build_controller(
-        tmp_path
+    controller, control_plane, _wm, job_store, _ls, journal, _r, _prs = (
+        _build_controller(tmp_path)
     )
     control_plane._next_session_requests = [_command_approval_request()]
     start_result = controller.start(repo_root=repo_root, objective="Fix it")
     assert isinstance(start_result, DelegationEscalation)
 
+    # Stub respond for deny path
+    session = control_plane._sessions[0]
+    session.respond = lambda request_id, payload: None
+    session._turn_result = TurnExecutionResult(
+        turn_id="turn-2",
+        status="completed",
+        agent_message="Denied, continuing.",
+        notifications=(),
+    )
+
     controller.decide(job_id="job-1", request_id="42", decision="deny")
+
+    # Bounded-poll for job completion
+    deadline = time.monotonic() + 5.0
+    final_job = None
+    while time.monotonic() < deadline:
+        final_job = job_store.get("job-1")
+        if final_job is not None and final_job.status == "completed":
+            break
+        time.sleep(0.05)
+
+    assert final_job is not None
+    assert final_job.status == "completed"
+
+    # Wait for worker thread
+    worker_threads = [
+        t for t in threading.enumerate() if t.name == "delegation-worker-job-1"
+    ]
+    for t in worker_threads:
+        t.join(timeout=5.0)
 
     outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
     assert outcomes_path.exists(), "Terminal outcome file must exist after deny"
@@ -1820,7 +2032,7 @@ def test_decide_deny_emits_terminal_outcome(tmp_path: Path) -> None:
     ]
     assert len(terminal_records) == 1
     assert terminal_records[0]["job_id"] == "job-1"
-    assert terminal_records[0]["terminal_status"] == "failed"
+    assert terminal_records[0]["terminal_status"] == "completed"
 
 
 def test_decide_rejects_when_runtime_is_missing(tmp_path: Path) -> None:
@@ -2086,46 +2298,6 @@ def test_recover_startup_marks_orphaned_needs_escalation_job_and_handle_unknown(
     assert recovered_handle.status == "unknown"
 
 
-def test_decide_approve_turn_failure_raises_committed_decision_finalization_error(
-    tmp_path: Path,
-) -> None:
-    from server.delegation_controller import CommittedDecisionFinalizationError
-
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir()
-
-    controller, control_plane, _wm, job_store, lineage, journal, registry, _prs = (
-        _build_controller(tmp_path)
-    )
-    control_plane._next_session_requests = [_command_approval_request()]
-    start_result = controller.start(repo_root=repo_root, objective="Fix it")
-    assert isinstance(start_result, DelegationEscalation)
-
-    session = control_plane._sessions[0]
-    session._raise_on_turn = RuntimeError("transport died during decide")
-
-    with pytest.raises(CommittedDecisionFinalizationError, match="committed"):
-        controller.decide(
-            job_id="job-1",
-            request_id="42",
-            decision="approve",
-        )
-
-    job = job_store.get("job-1")
-    assert job is not None and job.status == "unknown"
-    handle = lineage.get("collab-1")
-    assert handle is not None and handle.status == "unknown"
-    assert registry.lookup("rt-1") is None
-
-    unresolved = [
-        e
-        for e in journal.list_unresolved(session_id="sess-1")
-        if e.operation == "approval_resolution"
-    ]
-    assert len(unresolved) == 1
-    assert unresolved[0].phase == "dispatched"
-
-
 def test_recover_startup_marks_intent_only_approval_resolution_unknown(
     tmp_path: Path,
 ) -> None:
@@ -2161,7 +2333,7 @@ def test_recover_startup_marks_intent_only_approval_resolution_unknown(
     )
     journal.write_phase(
         OperationJournalEntry(
-            idempotency_key="42:approve",
+            idempotency_key="approval_resolution:job-1:42",
             operation="approval_resolution",
             phase="intent",
             collaboration_id="collab-1",
@@ -2181,6 +2353,78 @@ def test_recover_startup_marks_intent_only_approval_resolution_unknown(
     handle = lineage_store.get("collab-1")
     assert handle is not None and handle.status == "unknown"
     assert journal.list_unresolved(session_id="sess-1") == []
+
+
+def test_recover_startup_closes_orphaned_none_decision_intent(
+    tmp_path: Path,
+) -> None:
+    """Recovery must close an orphaned approval_resolution.intent with
+    decision=None (timeout-wake or internal-abort-wake origin) by
+    writing a phase='completed' record with
+    completion_origin='recovered_unresolved', WITHOUT raising.
+
+    This is the decision=None mirror of the existing sibling test at
+    tests/test_delegation_controller.py:2129
+    (test_recover_startup_marks_intent_only_approval_resolution_unknown),
+    which covers the operator-origin case (decision='approve',
+    recovered as job.status='unknown'). For decision=None
+    (non-operator origin), Packet 1 closes the record explicitly
+    as completion_origin='recovered_unresolved' instead of
+    marking unknown.
+    """
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    controller, _cp, _wm, job_store, lineage_store, journal, _r, _prs = (
+        _build_controller(tmp_path)
+    )
+
+    job_store.create(
+        DelegationJob(
+            job_id="job-1",
+            runtime_id="rt-1",
+            collaboration_id="collab-1",
+            base_commit="head-abc",
+            worktree_path=str(tmp_path / "wk"),
+            promotion_state=None,
+            status="needs_escalation",
+        )
+    )
+    lineage_store.create(
+        CollaborationHandle(
+            collaboration_id="collab-1",
+            capability_class="execution",
+            runtime_id="rt-1",
+            codex_thread_id="thr-1",
+            claude_session_id="sess-1",
+            repo_root=str(repo_root),
+            created_at=journal.timestamp(),
+            status="active",
+        )
+    )
+    journal.write_phase(
+        OperationJournalEntry(
+            idempotency_key="42:recovered",
+            operation="approval_resolution",
+            phase="intent",
+            collaboration_id="collab-1",
+            created_at=journal.timestamp(),
+            repo_root=str(repo_root),
+            job_id="job-1",
+            request_id="42",
+            decision=None,  # timeout-wake / internal-abort-wake origin
+        ),
+        session_id="sess-1",
+    )
+
+    # Act: recovery must complete without raising
+    controller.recover_startup()
+
+    # Assert: journal contains the new completed record
+    found = journal.check_idempotency("42:recovered", session_id="sess-1")
+    assert found is not None
+    assert found.phase == "completed"
+    assert found.completion_origin == "recovered_unresolved"
 
 
 def test_recover_startup_marks_dispatched_approval_resolution_unknown(
@@ -2219,7 +2463,7 @@ def test_recover_startup_marks_dispatched_approval_resolution_unknown(
     created_at = journal.timestamp()
     journal.write_phase(
         OperationJournalEntry(
-            idempotency_key="42:approve",
+            idempotency_key="approval_resolution:job-1:42",
             operation="approval_resolution",
             phase="intent",
             collaboration_id="collab-1",
@@ -2233,7 +2477,7 @@ def test_recover_startup_marks_dispatched_approval_resolution_unknown(
     )
     journal.write_phase(
         OperationJournalEntry(
-            idempotency_key="42:approve",
+            idempotency_key="approval_resolution:job-1:42",
             operation="approval_resolution",
             phase="dispatched",
             collaboration_id="collab-1",
@@ -2271,23 +2515,56 @@ def test_decide_rejects_stale_request_id_after_reescalation(tmp_path: Path) -> N
     start_result = controller.start(repo_root=repo_root, objective="Fix it")
     assert isinstance(start_result, DelegationEscalation)
 
-    # Approve the first escalation — configure follow-up to re-escalate
+    # Approve the first escalation — configure follow-up to re-escalate.
+    # Adjudication D (Round-6): mutate the active list rather than reassign;
+    # the worker thread's run_execution_turn for-loop iterator is bound to
+    # the original list object. Append (don't replace) so the iterator picks
+    # up the new request after rid=42's commit_signal wakes it. Use a
+    # parkable kind (request_user_input) per spec §1717: unknown-kind never
+    # escalates under Packet 1; only EscalatableRequestKind literals park.
     session = control_plane._sessions[0]
-    session._server_requests = [_permissions_request(request_id=99, item_id="item-2")]
+    session._server_requests.append(
+        _request_user_input_request(request_id=99, item_id="item-2")
+    )
+    # Stub respond so the worker's dispatch-success path can fire (default
+    # _FakeSession.respond is None which raises TypeError → dispatch-failed
+    # sentinel → terminates the turn before re-park).
+    session.respond = lambda request_id, payload: None
     session._turn_result = TurnExecutionResult(
         turn_id="turn-2",
         status="interrupted",
         agent_message="Need another escalation.",
         notifications=(),
     )
+    # Production worker now creates a PSR record per parkable capture
+    # unconditionally per Task 18 closeout fix; no test-side pre-seed needed.
+
     approve_result = controller.decide(
         job_id="job-1",
         request_id="42",
         decision="approve",
     )
     assert isinstance(approve_result, DelegationDecisionResult)
-    assert approve_result.pending_escalation is not None
-    assert approve_result.pending_escalation.request_id == "99"
+    assert approve_result.decision_accepted is True
+    # Re-escalation observable via poll(), not decide() result (Packet 1).
+    # Bounded polling: decide() returns after commit_signal; the worker
+    # progresses asynchronously toward re-park on rid=99. Poll up to 5s.
+    re_esc_poll: DelegationPollResult | None = None
+    for _ in range(100):
+        candidate = controller.poll(job_id="job-1")
+        assert isinstance(candidate, DelegationPollResult)
+        if (
+            candidate.pending_escalation is not None
+            and candidate.pending_escalation.request_id == "99"
+        ):
+            re_esc_poll = candidate
+            break
+        time.sleep(0.05)
+    assert re_esc_poll is not None, (
+        "re-escalation on rid=99 did not materialize within the polling budget"
+    )
+    assert re_esc_poll.pending_escalation is not None
+    assert re_esc_poll.pending_escalation.request_id == "99"
 
     # Now try to use the stale request_id "42" to decide the new escalation
     result = controller.decide(
@@ -2298,87 +2575,14 @@ def test_decide_rejects_stale_request_id_after_reescalation(tmp_path: Path) -> N
     assert isinstance(result, DecisionRejectedResponse)
     assert result.reason == "request_already_decided"
 
-
-def test_decide_approve_post_turn_journal_failure_raises_committed_decision_finalization_error(
-    tmp_path: Path,
-) -> None:
-    """If the approve turn succeeds but the post-turn journal write_phase fails,
-    CommittedDecisionFinalizationError is raised with the turn result already
-    committed (job status reflects the turn outcome, not a rollback)."""
-    from server.delegation_controller import CommittedDecisionFinalizationError
-
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir()
-
-    controller, control_plane, _wm, job_store, lineage, journal, registry, _prs = (
-        _build_controller(tmp_path)
-    )
-    control_plane._next_session_requests = [_command_approval_request()]
-    start_result = controller.start(repo_root=repo_root, objective="Fix it")
-    assert isinstance(start_result, DelegationEscalation)
-
-    # Clear session requests so the follow-up turn completes cleanly
-    # (no re-escalation). The follow-up turn is what approve triggers.
-    session = control_plane._sessions[0]
-    session._server_requests = []
-
-    # The approve path calls write_phase three times: intent, dispatched,
-    # then completed. Make the third call (post-turn completed) fail.
-    original_write_phase = journal.write_phase
-    write_phase_count = 0
-
-    def _exploding_third_write_phase(*args: object, **kwargs: object) -> None:
-        nonlocal write_phase_count
-        write_phase_count += 1
-        if write_phase_count >= 3:
-            raise OSError("disk full on completed phase")
-        original_write_phase(*args, **kwargs)  # type: ignore[arg-type]
-
-    journal.write_phase = _exploding_third_write_phase  # type: ignore[assignment]
-
-    with pytest.raises(CommittedDecisionFinalizationError, match="committed"):
-        controller.decide(
-            job_id="job-1",
-            request_id="42",
-            decision="approve",
-        )
-
-    # The turn completed successfully — the job status must be "completed",
-    # not degraded to "unknown" (recovery state) or stuck at "needs_escalation".
-    job = job_store.get("job-1")
-    assert job is not None
-    assert job.status == "completed"
-
-
-def test_decide_deny_post_commit_failure_raises_committed_decision_finalization_error(
-    tmp_path: Path,
-) -> None:
-    from server.delegation_controller import CommittedDecisionFinalizationError
-
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir()
-
-    controller, control_plane, _wm, job_store, lineage, journal, registry, _prs = (
-        _build_controller(tmp_path)
-    )
-    control_plane._next_session_requests = [_command_approval_request()]
-    start_result = controller.start(repo_root=repo_root, objective="Fix it")
-    assert isinstance(start_result, DelegationEscalation)
-
-    # Make session.close() raise after the deny decision has committed
-    session = control_plane._sessions[0]
-    session.close = lambda: (_ for _ in ()).throw(RuntimeError("close failed"))
-
-    with pytest.raises(CommittedDecisionFinalizationError, match="committed deny"):
-        controller.decide(
-            job_id="job-1",
-            request_id="42",
-            decision="deny",
-        )
-
-    # Job should be failed (deny committed before close failed)
-    job = job_store.get("job-1")
-    assert job is not None and job.status == "failed"
+    # Drain the rid=99 worker park so the daemon thread exits before the
+    # next test runs (see Round-6 addendum on cross-test thread leakage).
+    controller._registry.signal_internal_abort("99", reason="test_teardown_drain")
+    worker_threads = [
+        t for t in threading.enumerate() if t.name == "delegation-worker-job-1"
+    ]
+    for t in worker_threads:
+        t.join(timeout=5.0)
 
 
 # -----------------------------------------------------------------------------
@@ -3772,8 +3976,15 @@ class TestTerminalOutcomeEmission:
 
         cp._next_raise_on_turn = RuntimeError("turn dispatch failure")
 
-        with pytest.raises(RuntimeError, match="turn dispatch failure"):
+        # Post-Task-17: worker exception is wrapped as DelegationStartError(
+        # reason='worker_failed_before_capture'); cause carries the original
+        # RuntimeError. _mark_execution_unknown_and_cleanup still runs on the
+        # worker thread and emits the terminal outcome BEFORE the wrap.
+        with pytest.raises(DelegationStartError) as exc_info:
             controller.start(repo_root=repo_root)
+        assert exc_info.value.reason == "worker_failed_before_capture"
+        assert isinstance(exc_info.value.cause, RuntimeError)
+        assert "turn dispatch failure" in str(exc_info.value.cause)
 
         outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
         assert outcomes_path.exists(), (
@@ -4057,3 +4268,356 @@ class TestRecoveryCatchup:
             if json.loads(line).get("outcome_type") == "delegation_terminal"
         ]
         assert len(terminal_records) == 1  # No duplicate
+
+    def test_recover_startup_emits_for_canceled_jobs_missing_outcome(
+        self, tmp_path: Path
+    ) -> None:
+        """Same-session canceled job whose immediate outcome emission was
+        skipped (e.g., crash between status='canceled' persistence and outcome
+        write) must be repaired by the catch-up sweep. Regression for
+        omitting 'canceled' from the catch-up status filter — Packet 1 made
+        canceled a terminal status (DelegationTerminalStatus +
+        _TERMINAL_STATUS_MAP), so the sweep must include it.
+        """
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+        (
+            controller,
+            _cp,
+            _wm,
+            job_store,
+            lineage,
+            journal,
+            _registry,
+            _prs,
+        ) = _build_controller(tmp_path)
+
+        from server.models import CollaborationHandle, DelegationJob
+
+        lineage.create(
+            CollaborationHandle(
+                collaboration_id="collab-canceled",
+                capability_class="execution",
+                runtime_id="rt-canceled",
+                codex_thread_id="thr-canceled",
+                claude_session_id="sess-1",
+                repo_root=str(repo_root),
+                created_at="2026-04-21T00:00:00Z",
+                status="completed",
+            )
+        )
+        job_store.create(
+            DelegationJob(
+                job_id="job-canceled",
+                runtime_id="rt-canceled",
+                collaboration_id="collab-canceled",
+                base_commit="abc123",
+                worktree_path=str(tmp_path / "wt"),
+                promotion_state=None,
+                status="canceled",
+            )
+        )
+
+        outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
+        assert not outcomes_path.exists() or outcomes_path.read_text().strip() == ""
+
+        controller.recover_startup()
+
+        assert outcomes_path.exists(), (
+            "Terminal outcome must be emitted for canceled jobs missing analytics"
+        )
+        lines = [
+            line
+            for line in outcomes_path.read_text(encoding="utf-8").strip().split("\n")
+            if line.strip()
+        ]
+        terminal_records = [
+            json.loads(line)
+            for line in lines
+            if json.loads(line).get("outcome_type") == "delegation_terminal"
+        ]
+        assert len(terminal_records) == 1
+        assert terminal_records[0]["job_id"] == "job-canceled"
+        assert terminal_records[0]["terminal_status"] == "canceled"
+
+    def test_recover_startup_repairs_active_lineage_for_canceled_jobs(
+        self, tmp_path: Path
+    ) -> None:
+        """Crash window between job=canceled persistence and lineage write
+        leaves an active handle bound to a terminal canceled job. The
+        verified-cancel paths (timeout_interrupt_succeeded :1665-1668 +
+        D4 canceled-snapshot :2466 + :2510) write job=canceled, then
+        outcome, then lineage="completed". A crash after the job write
+        but before the lineage write leaves handle.status="active".
+
+        The orphaned-active sweep (:3050) does not catch this — its
+        filter is running/needs_escalation only. The terminal-outcome
+        catch-up sweep (:3073) must repair the lineage in addition to
+        emitting the missing outcome.
+        """
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+        (
+            controller,
+            _cp,
+            _wm,
+            job_store,
+            lineage,
+            journal,
+            _registry,
+            _prs,
+        ) = _build_controller(tmp_path)
+
+        from server.models import CollaborationHandle, DelegationJob
+
+        # Seed: active handle (lineage write never landed) bound to a
+        # job already persisted as canceled (job write did land).
+        lineage.create(
+            CollaborationHandle(
+                collaboration_id="collab-canceled-active",
+                capability_class="execution",
+                runtime_id="rt-canceled-active",
+                codex_thread_id="thr-canceled-active",
+                claude_session_id="sess-1",
+                repo_root=str(repo_root),
+                created_at="2026-04-21T00:00:00Z",
+                status="active",
+            )
+        )
+        job_store.create(
+            DelegationJob(
+                job_id="job-canceled-active",
+                runtime_id="rt-canceled-active",
+                collaboration_id="collab-canceled-active",
+                base_commit="abc123",
+                worktree_path=str(tmp_path / "wt"),
+                promotion_state=None,
+                status="canceled",
+            )
+        )
+
+        outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
+        assert not outcomes_path.exists() or outcomes_path.read_text().strip() == ""
+
+        controller.recover_startup()
+
+        # Lineage repaired to "completed" mirroring the verified-cancel
+        # live write semantics.
+        repaired = lineage.get("collab-canceled-active")
+        assert repaired is not None
+        assert repaired.status == "completed", (
+            "Active handle for terminal canceled job must be repaired to"
+            " 'completed' (verified-cancel semantics)"
+        )
+
+        # Outcome emission must still happen (existing invariant).
+        assert outcomes_path.exists()
+        terminal_records = [
+            json.loads(line)
+            for line in outcomes_path.read_text(encoding="utf-8").strip().split("\n")
+            if line.strip()
+            and json.loads(line).get("outcome_type") == "delegation_terminal"
+        ]
+        assert len(terminal_records) == 1
+        assert terminal_records[0]["job_id"] == "job-canceled-active"
+        assert terminal_records[0]["terminal_status"] == "canceled"
+
+    def test_recover_startup_does_not_disturb_already_terminal_handle_for_canceled_jobs(
+        self, tmp_path: Path
+    ) -> None:
+        """Idempotency: when the canceled job's handle is already in a
+        terminal state (the live path completed both writes before any
+        crash), recovery must not re-write the lineage. Specifically,
+        a handle already at "completed" stays at "completed".
+        """
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+        (
+            controller,
+            _cp,
+            _wm,
+            job_store,
+            lineage,
+            journal,
+            _registry,
+            _prs,
+        ) = _build_controller(tmp_path)
+
+        from server.models import CollaborationHandle, DelegationJob
+
+        lineage.create(
+            CollaborationHandle(
+                collaboration_id="collab-canceled-done",
+                capability_class="execution",
+                runtime_id="rt-canceled-done",
+                codex_thread_id="thr-canceled-done",
+                claude_session_id="sess-1",
+                repo_root=str(repo_root),
+                created_at="2026-04-21T00:00:00Z",
+                status="completed",
+            )
+        )
+        job_store.create(
+            DelegationJob(
+                job_id="job-canceled-done",
+                runtime_id="rt-canceled-done",
+                collaboration_id="collab-canceled-done",
+                base_commit="abc123",
+                worktree_path=str(tmp_path / "wt"),
+                promotion_state=None,
+                status="canceled",
+            )
+        )
+
+        controller.recover_startup()
+
+        repaired = lineage.get("collab-canceled-done")
+        assert repaired is not None
+        assert repaired.status == "completed"
+
+    def test_dialogue_recovery_does_not_consume_execution_handle_before_delegation_repair(
+        self, tmp_path: Path
+    ) -> None:
+        """Integration test for F10 + F8 interaction.
+
+        Production order at mcp_server.py:220-223 calls
+        ``DialogueController.recover_startup()`` BEFORE
+        ``DelegationController.recover_startup()``. The lineage store is
+        shared across capability classes; dialogue recovery enumerates
+        ``status="active"`` and ``status="unknown"`` handles without an
+        intrinsic capability filter. Without the F10 filter in
+        ``dialogue.py``, dialogue's recovery would either remap an
+        execution-class handle's ``runtime_id`` to the advisory runtime's
+        (success path with FakeRuntimeSession.read_thread returning data)
+        or mark it "unknown" (real-codex exception path when the advisory
+        runtime does not own that thread). Either outcome defeats the F8
+        active-only lineage repair in ``delegation_controller.py:3091``.
+        With the filter, dialogue's recovery skips the execution handle and
+        delegation's lineage repair runs against the original ``"active"``
+        state, resolving it to ``"completed"``.
+        """
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+        (
+            delegation_controller,
+            _cp,
+            _wm,
+            job_store,
+            lineage,
+            journal,
+            _registry,
+            _prs,
+        ) = _build_controller(tmp_path)
+
+        from server.control_plane import ControlPlane
+        from server.dialogue import DialogueController
+        from server.models import CollaborationHandle, DelegationJob
+        from server.turn_store import TurnStore
+        from tests.test_control_plane import (
+            FakeRuntimeSession,
+            _compat_result,
+            _repo_identity,
+        )
+
+        # Seed F8 crash state: active execution handle bound to a canceled
+        # job. The execution-class handle carries distinct runtime_id and
+        # codex_thread_id that the test will assert remain untouched.
+        lineage.create(
+            CollaborationHandle(
+                collaboration_id="collab-execution-canceled",
+                capability_class="execution",
+                runtime_id="rt-execution-original",
+                codex_thread_id="thr-execution-original",
+                claude_session_id="sess-1",
+                repo_root=str(repo_root),
+                created_at="2026-04-21T00:00:00Z",
+                status="active",
+            )
+        )
+        job_store.create(
+            DelegationJob(
+                job_id="job-execution-canceled",
+                runtime_id="rt-execution-original",
+                collaboration_id="collab-execution-canceled",
+                base_commit="abc123",
+                worktree_path=str(tmp_path / "wt"),
+                promotion_state=None,
+                status="canceled",
+            )
+        )
+
+        # Wire DialogueController on the SAME lineage_store + journal as
+        # DelegationController, mirroring mcp_server's startup wiring.
+        # FakeRuntimeSession's default read_thread returns a populated dict
+        # (no exception), so absent the F10 filter dialogue recovery would
+        # follow the success path and overwrite runtime_id/codex_thread_id
+        # via update_runtime — corrupting the execution handle.
+        plugin_data = tmp_path / "data"
+        advisory_session = FakeRuntimeSession()
+        plane = ControlPlane(
+            plugin_data_path=plugin_data,
+            runtime_factory=lambda _: advisory_session,
+            compat_checker=_compat_result,
+            repo_identity_loader=_repo_identity,
+            clock=lambda: 100.0,
+            uuid_factory=iter(
+                ("rt-advisory-1", *(f"id-{i}" for i in range(50)))
+            ).__next__,
+            journal=journal,
+        )
+        turn_store = TurnStore(plugin_data, "sess-1")
+        dialogue_controller = DialogueController(
+            control_plane=plane,
+            lineage_store=lineage,
+            journal=journal,
+            session_id="sess-1",
+            turn_store=turn_store,
+            repo_identity_loader=_repo_identity,
+            uuid_factory=iter(f"collab-dlg-{i}" for i in range(50)).__next__,
+        )
+
+        # Production order: dialogue first, then delegation
+        # (mcp_server.py:220-223).
+        dialogue_controller.recover_startup()
+        delegation_controller.recover_startup()
+
+        repaired = lineage.get("collab-execution-canceled")
+        assert repaired is not None
+
+        # F10 invariant: dialogue's recovery did NOT touch the execution
+        # handle's runtime identity. If runtime_id changed to advisory's
+        # (e.g., "rt-advisory-1"), the capability_class filter in
+        # dialogue.py recover_startup() is missing or incorrect.
+        assert repaired.runtime_id == "rt-execution-original", (
+            "F10 broken: dialogue recovery overwrote execution handle's"
+            " runtime_id. The capability_class filter in"
+            " DialogueController.recover_startup() must skip non-advisory"
+            " handles."
+        )
+        assert repaired.codex_thread_id == "thr-execution-original", (
+            "F10 broken: dialogue recovery overwrote execution handle's"
+            " codex_thread_id."
+        )
+
+        # F8 invariant: delegation's lineage repair fired on the still-active
+        # handle and resolved it to "completed" (verified-cancel semantics).
+        assert repaired.status == "completed", (
+            "F10 + F8 integration broken: handle should be 'completed' after"
+            " delegation recovery. If 'active', the lineage repair did not"
+            " fire (suggests F8 regression). If 'unknown', dialogue recovery"
+            " corrupted the handle before delegation could repair it"
+            " (suggests F10 filter is wrong)."
+        )
+
+        # Outcome emission still fires for the canceled job.
+        outcomes_path = journal.plugin_data_path / "analytics" / "outcomes.jsonl"
+        assert outcomes_path.exists()
+        terminal_records = [
+            json.loads(line)
+            for line in outcomes_path.read_text(encoding="utf-8").strip().split("\n")
+            if line.strip()
+            and json.loads(line).get("outcome_type") == "delegation_terminal"
+        ]
+        assert len(terminal_records) == 1
+        assert terminal_records[0]["job_id"] == "job-execution-canceled"
+        assert terminal_records[0]["terminal_status"] == "canceled"
