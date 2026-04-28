@@ -154,7 +154,7 @@ Fork-specific operations (`get_children`, `get_parent`, tree reconstruction) are
 When an advisory runtime crashes ([recovery-and-journal.md §Advisory Runtime Crash](recovery-and-journal.md#advisory-runtime-crash)):
 
 1. The control plane restarts the advisory runtime.
-2. The control plane reads all handles with `status: active` and all eligible handles with `status: unknown` from the lineage store for the current session and repo root.
+2. The control plane reads all advisory-class handles (`capability_class: advisory`) with `status: active` and all eligible advisory-class handles with `status: unknown` from the lineage store for the current session and repo root. Execution-class handles MUST be excluded — they are owned by `DelegationController` recovery (see [recovery-and-journal.md §Delegation Runtime Crash](recovery-and-journal.md#delegation-runtime-crash)). Routing an execution handle through the advisory runtime would either remap its `runtime_id`/`codex_thread_id` (success path) or mark it `unknown` via the recovery exception path, in either case corrupting state that delegation recovery relies on.
 3. Eligibility for an `unknown` handle requires successful `thread/read` followed by `thread/resume`, and the local TurnStore must satisfy:
    - if `completed_count == 0`: the TurnStore must have no metadata for this collaboration (stale local metadata with zero remote completed turns is ineligible),
    - if `completed_count > 0`: metadata keys `{1, 2, ..., completed_count}` must all be present (prefix-completeness; extra keys beyond `completed_count` do not disqualify).
@@ -166,6 +166,8 @@ When an advisory runtime crashes ([recovery-and-journal.md §Advisory Runtime Cr
 Future producers of `status: unknown` must either be compatible with this eligibility predicate or introduce stronger provenance before they can participate in startup reattach.
 
 The lineage store does not participate in crash detection or runtime restart — those are control plane responsibilities. The store's role is providing the handle data needed for step 2.
+
+The lineage store is shared across capability classes (advisory dialogues and execution delegations both persist handles into the same per-session store). Recovery responsibility, however, is partitioned by capability class: advisory recovery (this section) handles `capability_class: advisory`; delegation recovery (see [recovery-and-journal.md §Delegation Runtime Crash](recovery-and-journal.md#delegation-runtime-crash)) handles `capability_class: execution`. Each recovery path MUST filter the lineage store by capability class — touching handles outside its scope corrupts state owned by the other recovery path.
 
 ### Relationship to Other Stores
 
