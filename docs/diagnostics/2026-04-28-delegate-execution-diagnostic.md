@@ -31,19 +31,25 @@ Merge-commit anchor for the assessment: `36ef13e8`
 
 | Field | Value |
 |---|---|
-| Operator | TBD |
-| Date/time started | TBD |
-| Branch/worktree | TBD |
-| `git status --short --branch` | TBD |
-| `git rev-parse --short HEAD` | TBD |
-| `codex --version` | TBD |
-| Raw App Server identity / `RuntimeHandshake.user_agent` | TBD |
+| Operator | jpsweeney97 |
+| Date/time started | 2026-04-28T04:56:25Z |
+| Branch/worktree | `feature/delegate-execution-diagnostic-record` at `/Users/jp/Projects/active/claude-code-tool-dev` |
+| `git status --short --branch` | `## feature/delegate-execution-diagnostic-record...origin/feature/delegate-execution-diagnostic-record` (clean for diagnostic-relevant paths; 8 unrelated `docs/tickets/closed-tickets/` moves carry over from a prior session and are out of scope) |
+| `git rev-parse --short HEAD` | `46cd954e` (run-record commit on top of merge anchor `36ef13e8`) |
+| `codex --version` | `codex-cli 0.125.0` (raw observable; no separate App Server version exposed; do not infer a semantic App Server version from this string) |
+| Raw App Server identity / `RuntimeHandshake.user_agent` | Pending live bootstrap; record the literal value emitted by the App Server during the first handshake of this run |
 | Fixture directory | `packages/plugins/codex-collaboration/tests/fixtures/codex-app-server/0.117.0/` |
-| Target workspace/worktree | TBD |
-| Diagnostic smoke timestamp | TBD |
+| Target workspace/worktree | `/Users/jp/Projects/active/claude-code-tool-dev` (this repository; the delegated job will create its own worktree under the plugin data root — see Runtime Storage Reference) |
+| Diagnostic smoke timestamp | `20260428T005625` (UTC, derived from session-start time; reuse this token for `docs/diagnostics/delegate-smoke/<timestamp>-result.txt`) |
 
 If `codex --version` does not expose an App Server version separately, record the
 raw observable value and do not infer a semantic version from it.
+
+**Version-delta note:** Live `codex-cli` reports `0.125.0`, but the only fixture
+present under `tests/fixtures/codex-app-server/` is `0.117.0/`. This is a known
+mismatch, not yet a defect. If the live App Server's request/response shapes
+diverge from the `0.117.0` fixture during the run, record the divergence rather
+than treating the fixture as authoritative.
 
 ## Citation Freshness
 
@@ -56,13 +62,20 @@ git log --oneline -1 -- docs/tickets/2026-04-23-codex-collaboration-delegate-exe
 git log --oneline -1 -- docs/tickets/2026-04-23-deferred-same-turn-approval-response.md
 ```
 
+Ancestry rule: a citation is fresh if its last-touch commit is an ancestor of
+`36ef13e8`. Verify with
+`git merge-base --is-ancestor <last-touch-commit> 36ef13e8`.
+
 | File | Last-touch commit | Re-anchor needed? | Notes |
 |---|---:|---|---|
-| `packages/plugins/codex-collaboration/server/delegation_controller.py` | TBD | TBD | TBD |
-| `packages/plugins/codex-collaboration/server/runtime.py` | TBD | TBD | TBD |
-| `docs/tickets/2026-04-23-codex-collaboration-delegate-execution-remediation.md` | TBD | TBD | TBD |
-| `docs/tickets/2026-04-23-deferred-same-turn-approval-response.md` | TBD | TBD | TBD |
-| Other cited file used during execution | TBD | TBD | TBD |
+| `packages/plugins/codex-collaboration/server/delegation_controller.py` | `702499b0` | No | Ancestor of `36ef13e8` (PR #126 commit). Assessment line citations into this file remain valid. |
+| `packages/plugins/codex-collaboration/server/runtime.py` | `667ed20e` | No | Ancestor of `36ef13e8` (T-20260423-02 Task 16 rewrite). Method-layering line anchors at `:23-38`, `:140-217`, `:166`, `:202` confirmed against this commit's tree. |
+| `docs/tickets/2026-04-23-codex-collaboration-delegate-execution-remediation.md` | `82121adf` | No | Ancestor of `36ef13e8`. Ticket file unchanged since creation. |
+| `docs/tickets/2026-04-23-deferred-same-turn-approval-response.md` | `41b4c1aa` | No | Ancestor of `36ef13e8`. Ticket file unchanged since creation. |
+| Other cited file used during execution | TBD | TBD | Append rows here for any additional file cited during the live run (e.g., `journal.py`, `pending_request_store.py`); rerun the ancestry check before relying on the citation. |
+
+All four primary citations resolved fresh against the merge anchor; no
+re-anchoring required for the assessment's existing line ranges.
 
 If a cited file changed after `36ef13e8`, re-anchor by symbol search and
 line-number print before relying on the citation:
@@ -85,18 +98,36 @@ SESSION_ID="$(cat "$PLUGIN_DATA/session_id")"
 printf 'plugin_data=%s\nsession_id=%s\n' "$PLUGIN_DATA" "$SESSION_ID"
 ```
 
-Record the paths used for this run:
+Record the paths used for this run. `CLAUDE_PLUGIN_DATA` is unset in the operator
+environment, so the resolved root is the fallback `/tmp/codex-collaboration`.
+Pre-execution, the root does not yet exist on disk — it is created by the App
+Server bootstrap during the first delegated session. `<SESSION_ID>` and
+`<JOB_ID>` placeholders are filled once the live session and a delegation job
+are observable.
 
 | Artifact | Path |
 |---|---|
-| Plugin data root | `TBD` |
-| Session id file | `TBD/session_id` |
-| PendingRequestStore | `TBD/pending_requests/TBD/requests.jsonl` |
-| DelegationJobStore | `TBD/delegation_jobs/TBD/jobs.jsonl` |
-| OperationJournal | `TBD/journal/operations/TBD.jsonl` |
-| Audit events | `TBD/audit/events.jsonl` |
-| Delegation worktree root | `TBD/runtimes/delegation/<job_id>/worktree` |
-| Delegation inspection artifacts | `TBD/runtimes/delegation/<job_id>/inspection` |
+| Plugin data root | `/tmp/codex-collaboration` (fallback; `CLAUDE_PLUGIN_DATA` unset) |
+| Session id file | `/tmp/codex-collaboration/session_id` (does not yet exist; written by `scripts/codex_runtime_bootstrap.py:48` on first bootstrap) |
+| PendingRequestStore | `/tmp/codex-collaboration/pending_requests/<SESSION_ID>/requests.jsonl` |
+| DelegationJobStore | `/tmp/codex-collaboration/delegation_jobs/<SESSION_ID>/jobs.jsonl` |
+| OperationJournal | `/tmp/codex-collaboration/journal/operations/<SESSION_ID>.jsonl` |
+| Audit events | `/tmp/codex-collaboration/audit/events.jsonl` (global, not session-scoped) |
+| Delegation worktree root | `/tmp/codex-collaboration/runtimes/delegation/<JOB_ID>/worktree` |
+| Delegation inspection artifacts | `/tmp/codex-collaboration/runtimes/delegation/<JOB_ID>/inspection` |
+
+Once the App Server bootstraps the session, replay this lookup to capture the
+live `<SESSION_ID>`:
+
+```bash
+PLUGIN_DATA="${CLAUDE_PLUGIN_DATA:-/tmp/codex-collaboration}"
+SESSION_ID="$(cat "$PLUGIN_DATA/session_id")"
+printf 'plugin_data=%s\nsession_id=%s\n' "$PLUGIN_DATA" "$SESSION_ID"
+```
+
+Then add the resolved literal `<SESSION_ID>` and (per variant) `<JOB_ID>` to a
+follow-up table inside each variant's evidence block, and update Attempt
+history's Preserved evidence column with the matching JSONL line numbers.
 
 Use these read-only lookup commands after a job id and request id are known:
 
