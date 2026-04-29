@@ -585,9 +585,222 @@
       "removed": []
     }
   },
+  "nested_definition_deltas": {
+    "v2/ThreadReadResponse.json": {
+      "Thread": {
+        "added_properties": [
+          "forkedFromId"
+        ],
+        "new_properties": [
+          "agentNickname",
+          "agentRole",
+          "cliVersion",
+          "createdAt",
+          "cwd",
+          "ephemeral",
+          "forkedFromId",
+          "gitInfo",
+          "id",
+          "modelProvider",
+          "name",
+          "path",
+          "preview",
+          "source",
+          "status",
+          "turns",
+          "updatedAt"
+        ],
+        "old_properties": [
+          "agentNickname",
+          "agentRole",
+          "cliVersion",
+          "createdAt",
+          "cwd",
+          "ephemeral",
+          "gitInfo",
+          "id",
+          "modelProvider",
+          "name",
+          "path",
+          "preview",
+          "source",
+          "status",
+          "turns",
+          "updatedAt"
+        ],
+        "removed_properties": []
+      },
+      "Turn": {
+        "added_properties": [
+          "completedAt",
+          "durationMs",
+          "startedAt"
+        ],
+        "new_properties": [
+          "completedAt",
+          "durationMs",
+          "error",
+          "id",
+          "items",
+          "startedAt",
+          "status"
+        ],
+        "old_properties": [
+          "error",
+          "id",
+          "items",
+          "status"
+        ],
+        "removed_properties": []
+      }
+    },
+    "v2/ThreadStartedNotification.json": {
+      "Thread": {
+        "added_properties": [
+          "forkedFromId"
+        ],
+        "new_properties": [
+          "agentNickname",
+          "agentRole",
+          "cliVersion",
+          "createdAt",
+          "cwd",
+          "ephemeral",
+          "forkedFromId",
+          "gitInfo",
+          "id",
+          "modelProvider",
+          "name",
+          "path",
+          "preview",
+          "source",
+          "status",
+          "turns",
+          "updatedAt"
+        ],
+        "old_properties": [
+          "agentNickname",
+          "agentRole",
+          "cliVersion",
+          "createdAt",
+          "cwd",
+          "ephemeral",
+          "gitInfo",
+          "id",
+          "modelProvider",
+          "name",
+          "path",
+          "preview",
+          "source",
+          "status",
+          "turns",
+          "updatedAt"
+        ],
+        "removed_properties": []
+      },
+      "Turn": {
+        "added_properties": [
+          "completedAt",
+          "durationMs",
+          "startedAt"
+        ],
+        "new_properties": [
+          "completedAt",
+          "durationMs",
+          "error",
+          "id",
+          "items",
+          "startedAt",
+          "status"
+        ],
+        "old_properties": [
+          "error",
+          "id",
+          "items",
+          "status"
+        ],
+        "removed_properties": []
+      }
+    },
+    "v2/TurnCompletedNotification.json": {
+      "Turn": {
+        "added_properties": [
+          "completedAt",
+          "durationMs",
+          "startedAt"
+        ],
+        "new_properties": [
+          "completedAt",
+          "durationMs",
+          "error",
+          "id",
+          "items",
+          "startedAt",
+          "status"
+        ],
+        "old_properties": [
+          "error",
+          "id",
+          "items",
+          "status"
+        ],
+        "removed_properties": []
+      }
+    },
+    "v2/TurnStartResponse.json": {
+      "Turn": {
+        "added_properties": [
+          "completedAt",
+          "durationMs",
+          "startedAt"
+        ],
+        "new_properties": [
+          "completedAt",
+          "durationMs",
+          "error",
+          "id",
+          "items",
+          "startedAt",
+          "status"
+        ],
+        "old_properties": [
+          "error",
+          "id",
+          "items",
+          "status"
+        ],
+        "removed_properties": []
+      }
+    },
+    "v2/TurnStartedNotification.json": {
+      "Turn": {
+        "added_properties": [
+          "completedAt",
+          "durationMs",
+          "startedAt"
+        ],
+        "new_properties": [
+          "completedAt",
+          "durationMs",
+          "error",
+          "id",
+          "items",
+          "startedAt",
+          "status"
+        ],
+        "old_properties": [
+          "error",
+          "id",
+          "items",
+          "status"
+        ],
+        "removed_properties": []
+      }
+    }
+  },
   "roots": {
-    "new": "/private/tmp/codex-app-server-schema-0.125.0-cleanroom.2onDzw",
-    "new_resolved": "/private/tmp/codex-app-server-schema-0.125.0-cleanroom.2onDzw",
+    "new": "/private/tmp/codex-app-server-schema-0.125.0",
+    "new_resolved": "/private/tmp/codex-app-server-schema-0.125.0",
     "old": "packages/plugins/codex-collaboration/tests/fixtures/codex-app-server/0.117.0",
     "old_resolved": "/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/codex-collaboration/tests/fixtures/codex-app-server/0.117.0"
   },

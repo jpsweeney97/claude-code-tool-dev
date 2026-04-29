@@ -327,6 +327,37 @@ definitions changed.
 | `v2/ItemStartedNotification.json` | Notifications are preserved in `TurnExecutionResult.notifications` | Properties and required fields unchanged | No direct branch in `runtime.py`; consumers may inspect preserved notification payloads |
 | `v2/ThreadStartedNotification.json` | May be buffered by the JSON-RPC client around thread lifecycle requests | Properties and required fields unchanged | No direct branch in `runtime.py`; this document does not validate buffered-notification consumers |
 
+Note: the `added_props` and `removed_props` fields in the generated
+comparison report (`direct_runtime_consumed` section) reflect top-level
+schema-file property comparison, not recursive nested-definition
+comparison. A file like `TurnCompletedNotification.json` can show
+`added_props: []` while its nested `Turn` definition gained properties.
+The `nested_definition_deltas` section of the report captures property
+changes in tracked definitions (`Turn`, `ThreadItem`, `Thread`).
+
+**Nested `Turn` definition property additions.** The `Turn` definition
+gained three timing properties in `0.125.0`:
+
+| Added property | Type | Present in schema files |
+|---|---|---|
+| `completedAt` | timestamp | `TurnCompletedNotification`, `TurnStartResponse`, `TurnStartedNotification`, `ThreadReadResponse` |
+| `durationMs` | integer | same |
+| `startedAt` | timestamp | same |
+
+These are new fields on the `Turn` object itself, not just sub-definition
+churn. Current runtime code does not read these fields (it reads only
+`turn.id` and `turn.status`), but they are available for diagnostics or
+observability if Turn objects are destructured more broadly.
+
+The `Turn.items` description is unchanged between `0.117.0` and
+`0.125.0`: items remain empty for all notifications and responses except
+`thread/resume` and `thread/fork`.
+
+**Nested `Thread` definition property additions.** The `Thread`
+definition gained `forkedFromId` in `0.125.0`, present in
+`ThreadReadResponse` and `ThreadStartedNotification`. Current runtime
+code does not read this field.
+
 ### Notification File Churn
 
 Notification method behavior is not fully analyzed here. File-level notification
@@ -383,7 +414,7 @@ Unchanged top-level required fields:
 Nested shape changes in the generated `0.125.0` schema:
 
 | Area | `0.117.0` | `0.125.0` | Boundary |
-|---|---|---|
+|---|---|---|---|
 | `cwd` | `string | null` | `AbsolutePathBuf | null` | Command approval params |
 | `ReadCommandAction.path` | `string` | `AbsolutePathBuf` | Required in both versions |
 | `ListFilesCommandAction.path` | `string | null` | `string | null` | Unchanged |

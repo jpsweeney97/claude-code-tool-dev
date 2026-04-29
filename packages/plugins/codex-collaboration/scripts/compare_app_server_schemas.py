@@ -81,6 +81,9 @@ SERVER_METHOD_FILES = {
     ),
 }
 
+TRACKED_NESTED_DEFINITIONS = ["Turn", "ThreadItem", "Thread"]
+
+
 CHECKED_EQUAL = [
     "ToolRequestUserInputResponse.json",
     "CommandExecutionRequestApprovalResponse.json",
@@ -224,6 +227,45 @@ def thread_permission_response_summary(
             else None
         )
     return summary
+
+
+def nested_definition_delta(
+    old_root: Path,
+    new_root: Path,
+    rel: str,
+) -> JsonObject:
+    """Compare properties of tracked definitions within a schema file."""
+    old_data = read_json(old_root / rel)
+    new_data = read_json(new_root / rel)
+    old_defs = old_data.get("definitions", {}) if isinstance(old_data, dict) else {}
+    new_defs = new_data.get("definitions", {}) if isinstance(new_data, dict) else {}
+
+    result: JsonObject = {}
+    for def_name in TRACKED_NESTED_DEFINITIONS:
+        old_def = old_defs.get(def_name, {})
+        new_def = new_defs.get(def_name, {})
+        if not old_def and not new_def:
+            continue
+        old_props = (
+            set(old_def.get("properties", {}).keys())
+            if isinstance(old_def, dict)
+            else set()
+        )
+        new_props = (
+            set(new_def.get("properties", {}).keys())
+            if isinstance(new_def, dict)
+            else set()
+        )
+        added = sorted(new_props - old_props)
+        removed = sorted(old_props - new_props)
+        if added or removed:
+            result[def_name] = {
+                "old_properties": sorted(old_props),
+                "new_properties": sorted(new_props),
+                "added_properties": added,
+                "removed_properties": removed,
+            }
+    return result
 
 
 def command_action_variants(root: Path) -> dict[str, JsonObject]:
@@ -406,6 +448,11 @@ def build_report(old_root: Path, new_root: Path) -> JsonObject:
         "direct_runtime_consumed": {
             rel: shape_summary(old_root, new_root, rel)
             for rel in DIRECT_RUNTIME_CONSUMED
+        },
+        "nested_definition_deltas": {
+            rel: delta
+            for rel in DIRECT_RUNTIME_CONSUMED
+            if (delta := nested_definition_delta(old_root, new_root, rel))
         },
         "server_requests": {
             method: {
