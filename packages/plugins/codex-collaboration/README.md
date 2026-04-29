@@ -78,6 +78,14 @@ The plugin enforces a fail-closed credential scanning chain on all content-beari
 - **Concurrent sessions unsupported:** Two simultaneous Claude sessions sharing this plugin will race on the session identity file. Single-session use only for the current rollout target.
 - **No phased profiles:** Profiles with `phases` (e.g., `debugging`) are rejected until phase-progression support is implemented.
 
+## Configuration
+
+The plugin reads the following environment variables at module load. Plugin restart is required for changes to take effect.
+
+| Variable | Default | Description |
+|---|---|---|
+| `CODEX_COLLAB_APPROVAL_OPERATOR_WINDOW_SECONDS` | `900` (15 min) | TTL for parked approval requests in `command_approval` and `file_change` flows. Operator decides arriving after this window are rejected as `job_not_awaiting_decision`. Must be a positive number; non-numeric or non-positive values fall back to the default with a warning logged. Useful for diagnostic-style operator workflows that exceed the default budget under per-cycle review tempo. |
+
 ## Tests
 
 ```bash

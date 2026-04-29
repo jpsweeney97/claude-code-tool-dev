@@ -56,6 +56,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import subprocess
 import tempfile
 import uuid
@@ -113,7 +114,47 @@ from .worker_runner import spawn_worker
 
 logger = logging.getLogger(__name__)
 
-_APPROVAL_OPERATOR_WINDOW_SECONDS: float = 900  # 15 minutes; configurable via env later
+_APPROVAL_OPERATOR_WINDOW_SECONDS_ENV = "CODEX_COLLAB_APPROVAL_OPERATOR_WINDOW_SECONDS"
+_APPROVAL_OPERATOR_WINDOW_SECONDS_DEFAULT: float = 900.0  # 15 minutes
+
+
+def _read_approval_operator_window_seconds() -> float:
+    """Return the approval-operator-window TTL (seconds), env-tunable at module load.
+
+    Reads ``CODEX_COLLAB_APPROVAL_OPERATOR_WINDOW_SECONDS`` from the
+    environment; falls back to 900s (15 min) when unset. Plugin restart
+    is required for changes to take effect.
+
+    Validation: must be a positive number. Non-numeric or non-positive
+    values fall back to the default with a warning logged.
+    """
+
+    raw = os.environ.get(_APPROVAL_OPERATOR_WINDOW_SECONDS_ENV)
+    if raw is None:
+        return _APPROVAL_OPERATOR_WINDOW_SECONDS_DEFAULT
+    try:
+        value = float(raw)
+    except ValueError:
+        logger.warning(
+            "%s not numeric: %r; falling back to default %s",
+            _APPROVAL_OPERATOR_WINDOW_SECONDS_ENV,
+            raw,
+            _APPROVAL_OPERATOR_WINDOW_SECONDS_DEFAULT,
+        )
+        return _APPROVAL_OPERATOR_WINDOW_SECONDS_DEFAULT
+    if value <= 0:
+        logger.warning(
+            "%s must be positive: got %r; falling back to default %s",
+            _APPROVAL_OPERATOR_WINDOW_SECONDS_ENV,
+            value,
+            _APPROVAL_OPERATOR_WINDOW_SECONDS_DEFAULT,
+        )
+        return _APPROVAL_OPERATOR_WINDOW_SECONDS_DEFAULT
+    return value
+
+
+# Env-tunable via CODEX_COLLAB_APPROVAL_OPERATOR_WINDOW_SECONDS at module load.
+_APPROVAL_OPERATOR_WINDOW_SECONDS: float = _read_approval_operator_window_seconds()
 START_OUTCOME_WAIT_SECONDS: float = 30  # synchronous start-wait budget; not a wedge detector
 
 _TERMINAL_STATUS_MAP: dict[str, DelegationTerminalStatus] = {
