@@ -21,7 +21,26 @@ def _build_read_only_sandbox_policy() -> dict[str, Any]:
 
 
 def build_workspace_write_sandbox_policy(worktree_path: Path) -> dict[str, Any]:
-    """Return the v1 execution sandbox policy for an isolated worktree."""
+    """Return the v1 execution sandbox policy for an isolated worktree.
+
+    Enforcement note (post-Candidate-A closure, 2026-04-29):
+
+    The Codex App Server enforces this policy by interrupting the shell
+    process mid-execution at the first boundary-violating operation,
+    uniformly across operation classes (network, sensitive-host-path
+    read, sibling-worktree read). Enforcement does NOT surface as a
+    permission error returned to userspace — the shell is killed before
+    any syscall result returns, so chain patterns like ``cmd || handler``
+    cannot catch sandbox denials.
+
+    ``includePlatformDefaults: True`` grants curated platform-default
+    reads (e.g., shell binaries such as ``/bin/zsh``, ``/usr/bin/env``,
+    system shared libraries) needed for command execution. Empirical
+    basis for both sufficiency (canonical smoke artifact succeeded) and
+    safety (3 security probes — Network, Sensitive-path, Sibling-worktree —
+    all returned BLOCKED): T-01 Candidate A diagnostic closure record at
+    ``docs/diagnostics/2026-04-28-delegate-execution-diagnostic.md``.
+    """
 
     resolved = worktree_path.resolve()
     return {
