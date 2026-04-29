@@ -142,43 +142,37 @@ Preferred boundary because:
 - In-dialogue recovery via `codex.dialogue.read` fallback after parse failure
 - Refactoring the commit-before-parse design at `dialogue.py:498-499` (the design is sound; the bug is upstream)
 
-## Post-benchmark follow-up
+## Benchmark status (current truth as of 2026-04-29)
 
-This ticket is the persistent record of the bug until the scored benchmark track completes. The fix is deferred until completion of the B1/B3/B5/B8 pairs on the current pre-patch benchmark track for contract-integrity reasons (see §"Why the B3 run stays valid" above). The specific commit that defines that track is a reconciliation question owned by `T-20260330`.
+The benchmark track is complete. Tiers A and B concluded; parent ticket
+`T-20260330`
+(`docs/tickets/closed-tickets/2026-03-30-codex-collaboration-dialogue-parity-and-scouting-retirement.md`)
+is closed.
 
-**Sequence after benchmark completion:**
+**Reproduction results:**
 
-1. Complete B5 baseline + candidate, B8 baseline + candidate on the current pre-patch benchmark track
-2. Run Phase 3 adjudication + Phase 4 aggregate scoring + Phase 5 import
-3. Pick up this ticket: implement the fix per the minimal patch shape above
-4. If the fix is material to the supersession decision (T-20260330 AC-7), consider whether a follow-up benchmark track on the new commit would strengthen the evidence — that is an independent decision, not driven by this ticket
+- The bug reproduced on B3 candidate and B5 candidate (both terminated
+  with the same `CommittedTurnParseError` / items-array extraction
+  mismatch). Evidence: `docs/benchmarks/dialogue-supersession/v1/summary.md`
+  and `docs/benchmarks/dialogue-supersession/v1/runs.json`.
+- The bug did not reproduce on B8 candidate (converged normally).
+  Evidence: same sources.
+
+The contract-integrity constraint on mid-track patching (§"Why the B3
+run stays valid") is now historical — the benchmark track is complete.
+The fix is no longer deferred.
+
+**Next step:** Land the fix with tests and run one post-patch
+verification.
 
 **Closure criteria:**
 
 - Patch landed on main with unit test for items-array shape
 - Regression test for top-level `agentMessage` shape
-- One-run verification: rerun the B3 adversarial prompt on the patched commit in a fresh session, confirm convergence or natural termination without parse error
+- One-run verification: rerun the B3 adversarial prompt on the patched
+  commit in a fresh session, confirm convergence or natural termination
+  without parse error
 - Update this ticket with final commit SHA and mark `status: closed`
-
-## B5 and B8 reproduction expectations
-
-The same failure signature may reproduce in B5 candidate and/or B8 candidate. Specifically:
-
-- **B5 candidate** (evaluative policy audit, `max_evidence: 15`, 6-turn budget): lower probability — evaluative turns tend to produce shorter replies than adversarial — but plausible
-- **B8 candidate** (comparative supersession analysis, 8-turn budget, 3 anchored path groups): higher probability — longest dialogue, most complex context, most turns
-
-**If reproduction occurs:**
-
-- Log additional occurrence(s) as benchmark evidence in this ticket's §Reproduction context (append a new row to the table, do not overwrite B3)
-- Preserve the resulting non-converged runs as valid scored evidence (same reasoning as §"Why the B3 run stays valid")
-- **Do NOT patch mid-track** — the `run_commit` invariant holds across all four pairs
-- Additional occurrences strengthen the fragility finding for Phase 3 adjudication; they do not change the fix plan
-
-**If B5/B8 complete cleanly:**
-
-- B3 is one fragility data point, not a reproducible bug rate
-- The fix plan is unchanged — still a real bug, still post-benchmark
-- Closure criteria are unchanged
 
 ## References
 
@@ -195,4 +189,4 @@ The same failure signature may reproduce in B5 candidate and/or B8 candidate. Sp
 | B3 candidate synthesis | `/private/tmp/benchmark-v1-staging-20260415/B3-candidate-synthesis.md` |
 | B3 candidate transcript | `/private/tmp/benchmark-v1-staging-20260415/B3-candidate-transcript.md` |
 | Codex session rollout (B3 candidate) | `/Users/jp/.codex/sessions/2026/04/16/rollout-2026-04-16T14-45-39-019d979c-*.jsonl` |
-| Parent ticket (supersession benchmark) | `docs/tickets/2026-03-30-codex-collaboration-dialogue-parity-and-scouting-retirement.md` |
+| Parent ticket (supersession benchmark) | `docs/tickets/closed-tickets/2026-03-30-codex-collaboration-dialogue-parity-and-scouting-retirement.md` |

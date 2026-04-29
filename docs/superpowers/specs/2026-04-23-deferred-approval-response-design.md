@@ -1,16 +1,26 @@
 # Deferred Same-Turn Approval Response
 
+> **Supersession note (2026-04-29):** Packet 1 is implemented and
+> merged (PR #126 / `36ef13e8`). T-20260423-01 is closed (live smoke
+> validated, closure at `6580d86e`). This document remains the
+> historical Packet 1 design authority. Amendment admission / Packet 2
+> was later judged not currently required for the observed canonical
+> delegation flow. Technical rationale referencing "Packet 2+" in deeper
+> sections is preserved as historical design provenance; those references
+> describe future-iteration scope boundaries, not current blocking
+> claims.
+
 ## Overview
 
 Redesigns the delegation runtime's control plane so that a Codex App Server turn can stay live across operator delay and receive an approval response in the same turn. Replaces the current synchronous capture-and-cancel flow with a worker-thread execution model coordinated through a resolution registry.
 
 **Ticket:** T-20260423-02 (`docs/tickets/2026-04-23-deferred-same-turn-approval-response.md`).
 
-**Blocks:** T-20260423-01 (parent acceptance-gap ticket; AC1 — end-to-end delegation with platform-tool verification).
+**Blocked (historical):** T-20260423-01 — resolved; T-01 closed 2026-04-29 at commit `6580d86e`.
 
 **Branch:** `feature/delegate-deferred-approval-response`.
 
-**Replaces (as rejected input):** `feature/delegate-exec-policy-amendment` at commit `edff9c07`. Decisions D7, D8, D10 from that spec are superseded by this document. D1–D6, D9, D11, D12 survive and apply to the amendment-admission follow-up ticket (Packet 2), not here.
+**Replaces (as rejected input):** `feature/delegate-exec-policy-amendment` at commit `edff9c07`. Decisions D7, D8, D10 from that spec are superseded by this document. D1–D6, D9, D11, D12 survive from the rejected spec and would apply to any future amendment-admission work, not to this document.
 
 ## Scope and Non-Goals
 
@@ -27,7 +37,7 @@ Redesigns the delegation runtime's control plane so that a Codex App Server turn
 
 ### Non-goals
 
-- **Amendment admission** (allowlist, classifier, `approve_amendment` verb, amendment-specific audit). Lives in the follow-up ticket on top of this packet's primitives.
+- **Amendment admission** — not currently required for the observed canonical delegation flow (per the diagnostic run record). If revisited, would stack on this packet's primitives.
 - **Eligibility logic** — what requests can be amended vs. only approved/denied. Same follow-up.
 - **Generic deferred-decision framework** — amendments are the only consumer for v1. Reusability for other decision kinds is incidental, not a design driver.
 - **Implementation.** This ticket closes on spec approval. Plan + code land under a separate phase.

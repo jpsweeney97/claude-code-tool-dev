@@ -1,8 +1,15 @@
 # T-01 Delegate Execution Diagnostic Run Record
 
+> **Supersession note (2026-04-29):** Candidate A has since landed:
+> sandbox policy promotion at `ce0579f6`, live `/delegate` smoke
+> artifact at `a7a4e9c9`, T-20260423-01 closed at `6580d86e`. This run
+> record remains evidence for the mechanism decision; it is not a live
+> operational document. Amendment admission / Packet 2 was later judged
+> not currently required for the observed canonical delegation flow.
+
 Date: 2026-04-28
 
-Status: Baseline attempt 1 executed and adjudicated (Branch S1 — Sandbox still blocked); Candidate A att1+att2+att3 + security probes 1+2+3 executed and adjudicated (Branch — Sandbox patch candidate fires; S1 refuted for canonical workload). Engineering action pending: promote Candidate A's policy configuration (`includePlatformDefaults: True`) as v1 sandbox patch. Plugin restart required only before any further variant work, not for the closure commit.
+Status: Baseline attempt 1 executed and adjudicated (Branch S1 — Sandbox still blocked); Candidate A att1+att2+att3 + security probes 1+2+3 executed and adjudicated (Branch — Sandbox patch candidate fires; S1 refuted for canonical workload). Engineering action completed: Candidate A's policy configuration (`includePlatformDefaults: True`) was promoted as the v1 sandbox patch in commit `ce0579f6`, and the post-restart live `/delegate` smoke later closed `T-20260423-01`. Plugin restart was required only before further variant work and the live smoke, not for the closure commit.
 
 Decision artifact:
 `docs/assessments/2026-04-28-codex-collaboration-next-focus-report.md` —
@@ -270,7 +277,7 @@ Cleanup decision:
 
 ### Candidate B Matrix
 
-**Scope note (added 2026-04-28 during Candidate A attempt 1 cell-filling, post-mechanism-revision):** Candidate B is a **post-Candidate-A-attempt-2 conditional**, not a live competing explanation for attempt 1's parking.
+**Scope note (added 2026-04-28 during Candidate A attempt 1 cell-filling, post-mechanism-revision):** Candidate B is a **post-Candidate-A-success conditional**, not a live competing explanation for attempt 1's parking.
 
 - The mechanism revision (Candidate A attempt 1: parking observed under runtime-proofed `'includePlatformDefaults': True`) **invalidates the original framing of Candidate B as an alternative explanation for att1 parking.** Approval gating fired before any shell execution, so **sandbox readability is not proven as the cause of parking, and B is no longer a competing explanation for att1 parking**. (Source-level App Server ordering remains unestablished; a narrower `readableRoots` set cannot address what is not proven to be the actual cause.)
 - **Do not run Candidate B before Candidate A's first successful approved-execution attempt.** That attempt (approve-strategy under True flag) is the load-bearing experiment that produces the downstream evidence on which B's role depends. *Attempt-numbering note:* the original plan called this "Candidate A attempt 2"; in execution, att2 attempt 1 (Strategy C) canceled by 900s approval timeout, and the rerun "att2 attempt 2" was renamed att3 — see attempt-history table for the split.

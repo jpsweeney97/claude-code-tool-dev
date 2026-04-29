@@ -41,17 +41,19 @@ Scope included here:
 
 ## Current Priority Order
 
-1. Reconcile stale authority artifacts created by the landed Candidate A and
-   Packet 1 work.
-2. Rewrite `T-20260423-02` to current truth and remove the superseded
-   amendment-admission follow-up premise unless new evidence reopens it.
-3. Sweep residual typing and minor Packet 1 carry-forward debt.
+1. Land the `T-20260416-01` extraction fix and run one post-patch verification.
+2. Implement `T-20260429-01` Phase 1 sandbox carve-outs (Options B + E) and
+   validate via a comparable `/delegate` smoke with ≤2 escalations.
+3. Sweep residual typing and minor Packet 1 carry-forward debt (`TT.1`,
+   `RT.1`, `P1-MINOR-SWEEP`).
+4. Convert `BMARK-L1-L3` into explicit follow-up tickets or deliberately
+   decline those L1/L2/L3 items as non-goals.
+5. Specify or explicitly defer `AUDIT-CONSUMER-INTERFACE`.
 
 ## Ticket-Owned Active Work
 
 | ID | State | Owning artifact | Current truth | Exit condition |
 |---|---|---|---|---|
-| `T-20260423-02` | `drift` | `docs/tickets/2026-04-23-deferred-same-turn-approval-response.md`, `docs/plans/2026-04-24-packet-1-deferred-approval-response/carry-forward.md`, and `docs/diagnostics/2026-04-28-delegate-execution-diagnostic.md` | Packet 1 implementation landed through Phase H. The carry-forward closeout records `1040 passed / 0 skipped / 0 failed` and leaves residual debt such as `TT.1`, `RT.1`, and minor polish items. The later live diagnostic also records that amendment admission is not currently required for the observed canonical flow, so the ticket's follow-up-ticket premise is no longer current truth. | Rewrite the ticket to current truth, then either close it or retarget it explicitly to residual debt that still survives the post-diagnostic evidence. |
 | `T-20260416-01` | `open` | `docs/tickets/2026-04-16-codex-collaboration-dialogue-reply-extraction-mismatch.md` plus `docs/tickets/closed-tickets/2026-03-30-codex-collaboration-dialogue-parity-and-scouting-retirement.md` | The reply-path extraction mismatch remains a live product defect. The parent benchmark closeout no longer blocks the fix, but the ticket body still says to wait until the benchmark track completes. | Land the extraction fix with tests and one-run verification, then update the ticket body and close it. |
 | `T-20260429-01` | `open` | `docs/tickets/2026-04-29-codex-collaboration-delegation-friction-reduction.md` | T-01's closing live `/delegate` smoke required 24 operator escalations to produce a 1-line edit, surfacing three plugin friction sources: `~/.codex/` reads (Codex consulting its own memory + skill cache), worktree `.git` cross-pointer reads (in-worktree `rg`/`git` traversing the gitdir target outside the worktree), and opaque `file_change` escalation payloads (empty `requested_scope` denies operator visibility). Phase 1 (Options B + E) is mechanical sandbox-policy carve-outs in `runtime.py`; Phase 2 (Option F) is investigation-first because the empty `requested_scope` may be a plugin gap or an App Server limitation. | Land the sandbox carve-outs and either resolve the file_change payload opacity or document it as an upstream limitation, then validate via a comparable smoke run with <=2 escalations. |
 
@@ -73,9 +75,8 @@ Scope included here:
 
 | ID | State | Owning artifact | Current truth | Exit condition |
 |---|---|---|---|---|
-| `DELIVERY-ROLLOUT-PROFILE` | `drift` | `docs/superpowers/specs/codex-collaboration/delivery.md` | The `R1/R2 Deployment Profile` block still says the implemented surface ends at `codex.status`, `codex.consult`, and `codex.dialogue.*`, and still assumes no delegation / promotion path. That block no longer matches the implemented repo surface. | Rewrite the rollout-profile block so it reflects the current implemented surfaces and remaining boundaries. |
-| `T16-BLOCKER-MODEL` | `drift` | `docs/tickets/2026-04-16-codex-collaboration-dialogue-reply-extraction-mismatch.md` | The ticket's post-benchmark section still says to defer work until the benchmark track completes, but the parent benchmark ticket has already closed and explicitly preserves this defect as live follow-up work. | Update the ticket body so the blocker model matches current repo state. |
-| `REWRITE-MAP-CONSULT-QUESTION` | `drift` | `docs/superpowers/specs/codex-collaboration/official-plugin-rewrite-map.md` plus `docs/superpowers/specs/codex-collaboration/decisions.md` | The active supporting rewrite map still says to keep an open question about retiring `codex.consult`, but `decisions.md` resolves that surface and narrows re-evaluation to specific upstream capability triggers. | Replace the stale open-question note with a pointer to the resolved decision or mark it as historical context only. |
+| `CONTRACTS-T02-TEMPORAL-MARKER` | `drift` | `docs/superpowers/specs/codex-collaboration/contracts.md` | `contracts.md:327` uses `T-20260423-02` as a temporal marker ("Post-Packet 1 (T-20260423-02)") in normative contract text. Now that T-02 is closed, the reference is stale attribution in a normative document. | Rewrite to a non-ticket-specific temporal marker or add a "(closed)" annotation. |
+| `T02-CLOSED-TICKET-PATH` | `drift` | `docs/tickets/2026-04-23-deferred-same-turn-approval-response.md` | T-20260423-02 was closed in place at `docs/tickets/` rather than moved to `docs/tickets/closed-tickets/` to avoid rename-detection noise in the 7-file reconciliation commit. | `git mv` to `closed-tickets/` in a subsequent housekeeping commit. |
 
 ## Open Spec Questions
 

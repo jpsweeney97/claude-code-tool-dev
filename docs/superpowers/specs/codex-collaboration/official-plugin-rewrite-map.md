@@ -144,12 +144,12 @@ new decision record. No sections are deleted or structurally restructured.
     instead of one. The spec's value is in its unified control-plane
     architecture, not individual extension features.
 
-#### Keep the open question about codex.consult
+#### codex.consult surface (resolved)
 
-- Add to open questions (if not already present):
-  - "Whether `codex.consult` should be retired in favor of native
-    review/task patterns plus a lighter structured wrapper. The official
-    plugin's native review thread is a relevant comparison point."
+The `codex.consult` retirement question is resolved in
+[decisions.md §`codex.consult` Surface](decisions.md). `codex.consult`
+is retained; re-evaluation enters scope only if specific upstream
+capability triggers fire (per `decisions.md` rationale).
 
 ## Scope
 

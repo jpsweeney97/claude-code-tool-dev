@@ -235,15 +235,34 @@ R2 implements the lineage store (delivery step 3) and the minimum dialogue surfa
 - Audit events are emitted for dialogue turns with required fields
 - No R2 path depends on fork, delegation, promotion, or hook guard enforcement
 
-### R1/R2 Deployment Profile
+### R1/R2 Historical Deployment Profile
 
-Current implemented rollout target: **dev-repo internal use**.
+Original R1/R2 rollout target (superseded by post-R2 implementation):
 
 - Implemented surface: `codex.status`, `codex.consult`, `codex.dialogue.start`, `codex.dialogue.reply`, `codex.dialogue.read`
 - Deployment shape: MCP server launched from the repo checkout; not a packaged plugin artifact
 - Operational assumptions: serialized MCP dispatch, read-only advisory runtime, no advisory widening, no delegation/promotion path, no hook-guard enforcement
 - Out of scope for this rollout target: packaged-plugin structure, delegation/execution components, promotion wiring, and broader production hardening gates
 - Risk acceptance for remaining R1/R2 parked debt lives in `docs/tickets/2026-03-27-r1-carry-forward-debt.md`
+
+### Current Dev-Repo Deployment Profile (2026-04-29)
+
+Current implemented rollout target: **dev-repo internal use**, deployed as a Claude Code plugin via the `turbo-mode` marketplace bundle (not a bare MCP server from repo checkout).
+
+- Implemented MCP surface:
+  - `codex.status`
+  - `codex.consult`
+  - `codex.dialogue.start`
+  - `codex.dialogue.reply`
+  - `codex.dialogue.read`
+  - `codex.delegate.start`
+  - `codex.delegate.poll`
+  - `codex.delegate.decide`
+  - `codex.delegate.promote`
+  - `codex.delegate.discard`
+- Deployment shape: packaged Claude Code plugin installed via marketplace; MCP server runs as a plugin subprocess, not from repo checkout
+- Operational assumptions: serialized MCP dispatch, advisory runtime (read-only) for consult/dialogue, execution runtime (worktree-isolated) for delegation, operator-gated approval loop for delegation escalations, promotion-gated artifact application
+- Delegation sandbox policy: `workspaceWrite` with worktree-only writable/readable roots, `includePlatformDefaults: True` (Candidate A), `networkAccess: False`
 
 ### Post-R2 Supersession Packets
 
