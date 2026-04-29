@@ -1,4 +1,4 @@
-# T-20260416-01: codex.dialogue.reply returns empty agent_message despite committed turn history
+# T-20260416-01: codex.dialogue.reply returns empty agent_message despite Codex session log containing reply
 
 ```yaml
 id: T-20260416-01
@@ -21,7 +21,7 @@ This ticket captures two independent facts. Do not conflate them when revisiting
 
 ## Symptom
 
-`codex.dialogue.reply` terminates a dialogue with `CommittedTurnParseError` and error text `"Reply turn committed but response parsing failed: Consult result parse failed: expected JSON object. Got: ''"` when the live notification stream fails to populate `TurnExecutionResult.agent_message` — even though the committed turn history contains the full agent message text.
+`codex.dialogue.reply` terminates a dialogue with `CommittedTurnParseError` and error text `"Reply turn committed but response parsing failed: Consult result parse failed: expected JSON object. Got: ''"` when the live notification stream fails to populate `TurnExecutionResult.agent_message` — even though the Codex session log contains the full agent message text.
 
 Observable outcomes:
 - Dialogue terminates mid-turn
@@ -325,7 +325,7 @@ is closed.
 
 - The bug reproduced on B3 candidate and B5 candidate (both terminated
   with `CommittedTurnParseError` — empty `agent_message` despite
-  committed turn history containing the reply text). Evidence:
+  Codex session log containing the reply text). Evidence:
   `docs/benchmarks/dialogue-supersession/v1/summary.md` and
   `docs/benchmarks/dialogue-supersession/v1/runs.json`.
 - The bug did not reproduce on B8 candidate (converged normally).
