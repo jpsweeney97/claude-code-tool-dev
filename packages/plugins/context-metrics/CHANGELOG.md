@@ -8,11 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- Context window auto-detection from JSONL `message.model` field — prefix-matches `claude-opus-4-6` and `claude-sonnet-4-6` to 1M window.
+- Context window auto-detection from JSONL `message.model` field — prefix-matches `claude-opus-4-7`, `claude-opus-4-6`, and `claude-sonnet-4-6` to 1M window. Also matches dated/suffixed variants (e.g., `claude-opus-4-7[1m]`).
 - Strengthened test coverage for validation paths and edge cases.
 
 ### Fixed
 
+- `claude-opus-4-7` not in `MODEL_WINDOWS` — sessions on Opus 4.7 displayed `Nk/200k tokens` until occupancy crossed 200k and the reactive `maybe_upgrade_window` fallback fired. Now detected as 1M from first model observation.
 - Sidecar stderr now redirected to `~/.claude/.context-metrics-sidecar.log` instead of inheriting parent stderr.
 - Delivered semantics — hook response state only advances after successful client delivery; disconnects preserve trigger state for re-evaluation.
 - Signal handler deadlock in sidecar shutdown — `server.shutdown()` now runs on a daemon thread to avoid blocking `serve_forever()`.

@@ -145,6 +145,7 @@ Model detection uses prefix matching against known models:
 
 | Model prefix | Window size |
 |-------------|-------------|
+| `claude-opus-4-7` | 1,000,000 |
 | `claude-opus-4-6` | 1,000,000 |
 | `claude-sonnet-4-6` | 1,000,000 |
 

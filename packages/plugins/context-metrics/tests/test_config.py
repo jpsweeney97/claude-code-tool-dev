@@ -55,6 +55,16 @@ class TestReadConfig:
 
 
 class TestModelDetection:
+    def test_opus_4_7_detects_1m(self) -> None:
+        config = Config()
+        config.detect_window_from_model("claude-opus-4-7")
+        assert config.context_window == 1_000_000
+
+    def test_opus_4_7_with_1m_suffix_detects_1m(self) -> None:
+        config = Config()
+        config.detect_window_from_model("claude-opus-4-7[1m]")
+        assert config.context_window == 1_000_000
+
     def test_opus_4_6_detects_1m(self) -> None:
         config = Config()
         config.detect_window_from_model("claude-opus-4-6")

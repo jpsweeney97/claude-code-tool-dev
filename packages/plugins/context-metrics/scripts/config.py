@@ -17,6 +17,7 @@ UPGRADE_WINDOW = 1_000_000
 # Claude Code models with known default context windows.
 # Prefix-match handles dated variants (e.g., claude-opus-4-6-20250514).
 MODEL_WINDOWS: dict[str, int] = {
+    "claude-opus-4-7": 1_000_000,
     "claude-opus-4-6": 1_000_000,
     "claude-sonnet-4-6": 1_000_000,
 }
