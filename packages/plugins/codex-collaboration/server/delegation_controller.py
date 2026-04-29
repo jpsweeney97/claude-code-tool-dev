@@ -939,7 +939,9 @@ class DelegationController:
                 return running_job
 
             case _:
-                assert_never(outcome)
+                # Pyright proves ParkedCaptureResult exhaustive here, but keep
+                # assert_never as a runtime tripwire for future union extension.
+                assert_never(outcome)  # pyright: ignore[reportUnreachable]
 
     def _execute_live_turn(
         self,
