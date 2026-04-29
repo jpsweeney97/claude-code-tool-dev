@@ -2,7 +2,7 @@
 
 Date: 2026-04-28
 
-Status: Baseline attempt 1 executed and adjudicated (Branch S1 — Sandbox still blocked); Candidate A pending operator-mediated Claude Code restart.
+Status: Baseline attempt 1 executed and adjudicated (Branch S1 — Sandbox still blocked); Candidate A att1+att2+att3 + security probes 1+2+3 executed and adjudicated (Branch — Sandbox patch candidate fires; S1 refuted for canonical workload). Engineering action pending: promote Candidate A's policy configuration (`includePlatformDefaults: True`) as v1 sandbox patch. Plugin restart required only before any further variant work, not for the closure commit.
 
 Decision artifact:
 `docs/assessments/2026-04-28-codex-collaboration-next-focus-report.md` —
@@ -266,9 +266,18 @@ Cleanup decision:
 |---|---|---|---|
 | Baseline | Current code: `includePlatformDefaults: False`, worktree-only readable root, `networkAccess: False` | Controller default, expected `untrusted` | Required. Preserve known shell failure and measure approval-request baseline if possible. |
 | Candidate A | `includePlatformDefaults: True`, otherwise current policy | Same approval policy as baseline unless explicitly changed | Required unless Baseline unexpectedly produces complete artifact evidence. Tests whether platform defaults unblock shell while preserving security boundary. |
-| Candidate B | Narrow `readableRoots` additions only — see Candidate B Matrix below | Same approval policy as baseline unless explicitly changed | Conditional. Run only if Candidate A works but grants wider read access than desired. |
+| Candidate B | Narrow `readableRoots` additions only — see Candidate B Matrix below | Same approval policy as baseline unless explicitly changed | Post-Candidate-A-success conditional. Role determined by Candidate A's first successful approved-execution attempt (att3 — renamed from "att2 attempt 2" after att2 attempt 1 canceled by approval timeout): att3 succeeded → optional minimum-grant minimization (security hygiene only); had att3 failed with a concrete sandbox missing-path error, B would have been targeted diagnostic continuation. See Candidate B Matrix below for full framing. |
 
 ### Candidate B Matrix
+
+**Scope note (added 2026-04-28 during Candidate A attempt 1 cell-filling, post-mechanism-revision):** Candidate B is a **post-Candidate-A-attempt-2 conditional**, not a live competing explanation for attempt 1's parking.
+
+- The mechanism revision (Candidate A attempt 1: parking observed under runtime-proofed `'includePlatformDefaults': True`) **invalidates the original framing of Candidate B as an alternative explanation for att1 parking.** Approval gating fired before any shell execution, so **sandbox readability is not proven as the cause of parking, and B is no longer a competing explanation for att1 parking**. (Source-level App Server ordering remains unestablished; a narrower `readableRoots` set cannot address what is not proven to be the actual cause.)
+- **Do not run Candidate B before Candidate A's first successful approved-execution attempt.** That attempt (approve-strategy under True flag) is the load-bearing experiment that produces the downstream evidence on which B's role depends. *Attempt-numbering note:* the original plan called this "Candidate A attempt 2"; in execution, att2 attempt 1 (Strategy C) canceled by 900s approval timeout, and the rerun "att2 attempt 2" was renamed att3 — see attempt-history table for the split.
+- **Resolved (post-att3, 2026-04-29):** att3 succeeded — shell executed past the gate, smoke artifact produced byte-perfect, security probes 1+2+3 all BLOCKED. Per the success branch below, Candidate B is now **optional minimum-grant minimization** (security hygiene only).
+- **Success branch (fired):** att3 succeeds → Candidate B becomes **optional minimum-grant minimization** — pure security hygiene to determine whether tighter explicit roots can replace `includePlatformDefaults: True`. Not a blocker for closure unless the closure must prove minimum-viable grants.
+- **Failure branch (did not fire):** had att3 failed with a concrete sandbox missing-path error (e.g., "permission denied" on a specific path that the runtime reports), Candidate B would have been **targeted diagnostic continuation** keyed to the specific missing path — required (not optional) to localize the gap.
+- The matrix below is **preserved**, but its precondition for execution was the att3 outcome (not the att1 parking observation that originally motivated it). Since att3 succeeded, B's matrix is now optional hygiene.
 
 T-01 names `["/usr/bin", "/usr/lib"]` as the narrow-grant starting point
 (`docs/tickets/2026-04-23-codex-collaboration-delegate-execution-remediation.md:84-87`).
@@ -823,6 +832,428 @@ Inspection reviewed_at:                                          2026-04-28T16:0
 Total job duration (delegate_start → reviewed_at):              ~9m14s
 ```
 
+### Variant: Candidate A (attempt 1)
+
+Pre-execution cells filled immediately after pre-flight verification (this session, before invoking `codex_delegate_start`). Post-execution cells marked `TBD (post-execution …)` will be filled in the same session immediately after the variant runs and the runtime-proof artifact is read. Tightenings carried forward from Baseline (python child PID labelled evidentiary; `Plugin process start timestamp` records both raw `lstart` and normalized UTC via the macOS-correct epoch round-trip; explicit `Patch applied at` for the `Patch applied at < Plugin process start timestamp` ordering invariant). This-variant-only additions: behavioral patch is the `includePlatformDefaults: False → True` flip on top of the runtime-proof-only instrumentation overlay; instrumentation uses `[CANDIDATE_A]` label and distinct log file `/tmp/codex-collab-candidate-a-runtime-proof.log` (per D5 in the handoff: cross-variant isolation); plugin `session_id` cross-check added as restart/isolation evidence.
+
+| Field | Source / fill guidance | Observation |
+|---|---|---|
+| Pre-run HEAD | `git rev-parse --short HEAD` immediately before applying the variant patch. | `5a1e937e` (verified live this session via `git rev-parse HEAD` → `5a1e937eff04f4cfecf5ce7bc65fae1f94db0fca`; matches handoff's recorded HEAD; matches the two-layer HEAD anchor pattern — Run Identity remains frozen at `49d93001` as the run-level snapshot). |
+| Pre-run dirty diff | `git status --short` before patch; must show no modifications to files the patch will touch. | **Pre-patch (last session, before `2026-04-28T17:12:59Z`):** clean for `packages/plugins/codex-collaboration/server/runtime.py` (Baseline restoration confirmed at end of prior session per Baseline's "Restoration verification" cell; verified again post-restart this session via "Pre-run dirty diff" expectation). **Current (immediately before `codex_delegate_start`):** `M packages/plugins/codex-collaboration/server/runtime.py`; byte-identical to `.tmp/variant-candidate-a.patch` (verified this session via `diff <(git diff packages/plugins/codex-collaboration/server/runtime.py) .tmp/variant-candidate-a.patch` → empty output, exit 0). **Carry-forward unrelated to variant:** 8 ticket-file moves under `docs/tickets/closed-tickets/` (8 `D` + 8 `??` rows; same set as Baseline); untracked `.tmp/variant-candidate-a.patch`, `.tmp/variant-candidate-a.applied-at`, and `.tmp/app-server-schema-pre-candidate-a/` (all gitignored per `.gitignore:51`). |
+| Patch capture form | One of: inline diff, `.tmp/variant-<name>.patch`, or throwaway-branch commit SHA. | `.tmp/variant-candidate-a.patch` (37 lines; sha256 `4df1df3999b4914978fb0cf7582418cfd65377f36e4e45942983191d75fa2bf8`; gitignored per `.gitignore:51`). Inline reproduction in code block immediately after this table. |
+| Patch applied at | Required for Candidate variants; ISO-8601 UTC timestamp captured immediately after applying the patch. | `2026-04-28T17:12:59Z` (recorded in `.tmp/variant-candidate-a.applied-at`; sha256 `bf897498bb2fa7159fcb1b33e7d75e79a2817f786acbc2ae77eb8d2be1baf9cb`). Captured via `printf "Patch applied at: %s\n" "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"` — the SAFE emission recipe (no input parsing → no relabel risk; distinct from the parsing-mode trap fixed in commit `c704eafa`). The single timestamp covers BOTH the behavioral patch (`includePlatformDefaults: False → True` flip) AND the runtime-proof-only instrumentation overlay (one composite edit). |
+| Policy diff / patch under test | Inline `git diff` of the variant patch, or "current code (no patch)" for Baseline. | **Behavioral patch (Candidate A under test):** single-line change — `"includePlatformDefaults": False` → `"includePlatformDefaults": True` at `runtime.py:33`. Variant hypothesis: enabling platform defaults grants `/bin`, `/usr/bin`, `/usr/lib` reachability so `/bin/zsh -lc` can execute under `workspaceWrite` policy; expected outcome — Branch S1 stops firing, smoke artifact production succeeds. **Runtime-proof-only instrumentation overlay** (semantics-preserving; does not alter the returned `policy` dict): parallel structure to Baseline's instrumentation pattern with `[CANDIDATE_A]` label and `/tmp/codex-collab-candidate-a-runtime-proof.log` target (per handoff D5: distinct log file per variant for cross-variant isolation — prevents stale-Baseline-content contamination). Combined diff in code block immediately after this table. |
+| Plugin process PID (post-restart) | PID of the plugin/MCP process **after** restart. | **Python child PID `64213`** (evidentiary — this is the import holder that re-read `runtime.py` post-restart). uv wrapper PID `64184` (parent of python child). claude PID `64122` (grandparent). All three differ from prior session's `7116/7163/7165` ✓ — restart confirmed. Verified via `ps -ef \| grep codex-collaboration \| grep -v grep` (note: `pgrep -fa <pattern>` matches its own argv per gotcha discovered last session, so plain `ps -ef \| grep \| grep -v grep` is the more robust idiom). **Plugin `session_id` cross-check (restart/isolation evidence):** `<plugin-data-root>/session_id` reads `15267690-603e-4715-be76-9c90ba41007a`, matching THIS Claude Code session id (the load skill at session start substituted the same UUID); flipped from prior session's `801b6646-171e-4a80-a647-c9de35041d4c` ✓. Confirms the plugin process is bound to this conversation's identity, not a stale-process artifact. |
+| Plugin process start timestamp | ISO-8601 UTC of post-restart process start. State which form was used. Must be later than `Patch applied at` for variant validity. | **Raw `ps -p 64213 -o lstart=` output:** `Tue Apr 28 13:24:44 2026` (local timezone EDT — verified `date +"%Z (%z)"` returns `EDT (-0400)` this session; format `%a %b %d %H:%M:%S %Y` with no zone marker; trailing 4 spaces from `ps` column-padding produce a benign `date -j` warning "Ignoring 4 extraneous characters" but parse succeeds because `%Y` consumes exactly 4 digits and the extra whitespace is unconsumed). **Normalized UTC: `2026-04-28T17:24:44Z`** (via macOS-correct epoch round-trip: `EPOCH=$(date -j -f "%a %b %d %H:%M:%S %Y" "<lstart>" +%s)` then `date -u -r "$EPOCH" +"%Y-%m-%dT%H:%M:%SZ"`; verified epoch `1777397084`). The macOS pitfall recipe (`date -u -j -f FMT INPUT +OUTFMT`) was NOT used — see Baseline block for the documented incident and `c704eafa` commit message; this session's earlier learning on emission-vs-parsing distinction (`date -u +FORMAT` is SAFE for emission; only `-j -f` parsing has the trap) reinforced via `2026-04-28T17:12:59Z` patch-applied capture earlier in this run. **Ordering check (using corrected UTC):** plugin start `2026-04-28T17:24:44Z` > patch applied `2026-04-28T17:12:59Z` ✓ — plugin started **+705s (11m45s)** after patch was applied. Variant valid; running plugin re-imported the patched module. **Cross-check via runtime-proof artifact emit:** `2026-04-28T17:51:27.685062+00:00` (Python `datetime.now(timezone.utc).isoformat()` from first delegate call's emit; +1603s after plugin start `17:24:44Z`; matches audit `delegate_start` row at `17:51:27Z` to sub-second precision; cross-confirms plugin start UTC was correct and the running plugin re-imported the patched module). |
+| Observed `sandboxPolicy` payload | Direct evidence the live runtime built the patched policy. Inference from on-disk source NOT acceptable. | **Observed verbatim** (1 line at `/tmp/codex-collab-candidate-a-runtime-proof.log`, 533 bytes; preserved here before source file is trashed before attempt 2):<br>`2026-04-28T17:51:27.685062+00:00 [CANDIDATE_A] sandboxPolicy={'type': 'workspaceWrite', 'writableRoots': ['/Users/jp/.claude/plugins/data/codex-collaboration-inline/runtimes/delegation/4ebd24d6-6f1f-45b8-99eb-0d890a9d5326/worktree'], 'readOnlyAccess': {'type': 'restricted', 'readableRoots': ['/Users/jp/.claude/plugins/data/codex-collaboration-inline/runtimes/delegation/4ebd24d6-6f1f-45b8-99eb-0d890a9d5326/worktree'], 'includePlatformDefaults': True}, 'networkAccess': False, 'excludeSlashTmp': True, 'excludeTmpdirEnvVar': True}`<br>**Falsification result:** PASSED — `'includePlatformDefaults': True` confirmed at the build site; the running plugin DID re-import the patched module (refutes the alternative explanation that PID + start-time evidence was insufficient). **Load-bearing observation:** disambiguates 'plugin built wrong policy' from 'App Server interprets True restrictively'. **What this proves:** the plugin emits `True`. **What this does NOT prove:** that shell execution succeeds under the platform-defaults grant — that test requires approval to land, which did not happen in attempt 1 (see `poll() transitions` cell below for the canceled-by-timeout flow). |
+| Runtime-proof method | Which observation form was used. | Patch-embedded log emit at `runtime.py:23-50` build site; file-write to `/tmp/codex-collab-candidate-a-runtime-proof.log` (per handoff D5: distinct from Baseline's `/tmp/codex-collab-baseline-runtime-proof.log`). Stderr/stdout/logger explicitly invalid in current launch mode (FD 2 routing finding documented in VIP step 4). **Pre-execution log absence verified this session:** `ls /tmp/codex-collab-candidate-a-runtime-proof.log` returns "No such file or directory" → first execution will be a clean append (no stale-content contamination from any prior Candidate A attempt). |
+| Approval policy value | Controller/runtime input for this run. | **Confirmed `untrusted`** via PendingRequestStore L1 `available_decisions` field — full 6-option list `['accept', 'acceptForSession', 'acceptWithExecpolicyAmendment', 'applyNetworkPolicyAmendment', 'decline', 'cancel']` — matches Baseline's `untrusted`-mode signature exactly. The wire-surface `pending_escalation.available_decisions` returned to the orchestrator was 2-option `['approve', 'deny']` (per Baseline's documented wire-vs-store gotcha; same pattern observed here). **Use the store record (PendingRequestStore L1) for S7 amendment classification, not the wire surface.** |
+| Job id | `start()` response, `poll()` output, or `DelegationJobStore` row. | `4ebd24d6-6f1f-45b8-99eb-0d890a9d5326` (from `start()` response; also captured in DelegationJobStore L1 `op: create` row at `<plugin-data-root>/delegation_jobs/15267690-…/jobs.jsonl:1`). Companion identifiers: `runtime_id: 84fce58f-c860-4757-a852-6f30c3d21ddf`; `collaboration_id: 9a8a1a64-65b7-4884-b34e-85dad62b9b94`; `base_commit: 5a1e937eff04f4cfecf5ce7bc65fae1f94db0fca` (matches pre-run HEAD ✓); `worktree_path: <plugin-data-root>/runtimes/delegation/4ebd24d6-…/worktree`. |
+| First parked request id | Required if any escalation occurs. | `"0"` (string in store; `raw_request_id: 0` integer at the wire). Recorded in PendingRequestStore L1 (`op: create`, `kind: command_approval`) and in DelegationJobStore L3 (`op: update_parked_request, parked_request_id: "0"`). **The escalation DID fire** — refutes the alternative outcome of `no escalation observed` under True flag (which would have indicated S1 stopped firing). **Load-bearing evidence for the mechanism revision:** approval gating still fired under the True policy *before any shell execution*, so sandbox readability is *not proven* as the cause of parking. (Source-level ordering inside App Server — whether the approval gate runs literally before the sandbox-readability check, or in parallel, or some other arrangement — is not established by these observations alone; that would require an approve-path run or App Server source inspection.) |
+| JSON-RPC wire id type | Required if a parked request exists. | Integer (`raw_request_id: 0` in PendingRequestStore L1). String form (`request_id: "0"`) is the in-store representation; integer is the wire form. Matches Baseline pattern. |
+| `shell_action_count` | Count shell commands/file-change actions for the smoke objective. | **`1` attempted** as a compressed `&&`-chained command (see PendingRequestStore L1 `requested_scope.command` for the full chain — same compression pattern as Baseline incl. the `.codex-collaboration/test-results.json` over-action). **`0` executed** — request 0 was parked at `command_approval`, then canceled by `approval_timeout` before any shell process ran. Per template + Baseline (line 645) denominator semantics: shell_action_count counts attempted shell/file-change actions. Per Branch Precedence #1.d: attempted denominator < 3 ⇒ ratio uninterpretable for primary signal. |
+| `approval_request_count` | Required if `shell_action_count >= 3`. | `1` (only request `0`). Did not reach the deny→adapt→request-1 cycle that Baseline observed, because the deny adjudication never landed: the job canceled by approval timeout (audit L66 `action=approval_timeout actor=system`) before the operator-mediated decide arrived. PendingRequestStore L2 (`op: record_timeout`) shows the system-initiated termination of request 0; no request 1 was ever created. |
+| Approval request kinds | Required if requests occur. | `command_approval` (request 0; PendingRequestStore L1 `kind: command_approval`, `requested_scope.command: /bin/zsh -lc <chain>`). Same kind as Baseline's request 0. **No `file_change` (or any other kind) surfaced** — those would have followed only if the deny→adapt cycle had run, which it could not, because the approval gate flow was terminated by timeout. |
+| `approval_request_count / shell_action_count` | Required if denominator is nonzero; else `no signal`. | **`1 / 1` = `1.0`** (1 approval request for 1 attempted action; per template + Baseline denominator semantics — denominator counts attempted actions, not executed actions). **No threshold signal** because: (a) attempted denominator < 3 per Branch Precedence #1.d, AND (b) zero actions executed (so the ratio reflects only the gate-blocking shape, not any execution-side ratio dynamics). Cannot serve as the calibration anchor because no successful baseline-equivalent execution occurred — calibration anchoring is deferred to a future Candidate A attempt where shell DOES execute past the gate (e.g., attempt 2 with approve-strategy if approve lands within the TTL window). |
+| Command stdout/stderr summary | Tool result or run transcript. | **Not applicable** — no shell process was ever spawned. The delegate's `requested_scope.command` was parked at `command_approval` and then canceled by `approval_timeout` (audit L66, +15m10s after start) before any execution. No stdout, stderr, or exit codes exist for this attempt. |
+| Exit statuses | Tool result or run transcript. | **Not applicable** — see `Command stdout/stderr summary` above. No process was spawned; no exit status was produced. |
+| `decide(approve)` response payload | Required if approval requested. | **Not applicable** — no `decide(approve)` was issued in attempt 1. The operator chose `decide(deny)` to mirror Baseline (per handoff D4); the deny call was rejected with `{"rejected": true, "reason": "job_not_awaiting_decision", "detail": "Delegation decide failed: job not awaiting decision. Got: status='canceled'"}` because the job had already canceled by `approval_timeout`. **Note: Candidate A's `decide(approve)` test is the load-bearing experiment for the next attempt** (attempt 2) — it is the only way to determine whether shell execution succeeds past the gate under the True policy. |
+| `poll()` transitions | Timed `poll()` outputs after start (and after decide if applicable). | **Two snapshots only** (deny adjudication failed, so no poll between deny and final state):<br>**t0 (post-`start()` synchronous return, ~17:51:27Z):** `status: needs_escalation`, `parked_request_id: "0"`, `pending_escalation.kind: command_approval`, `pending_escalation.requested_scope.command: /bin/zsh -lc <chain>`, `pending_escalation.available_decisions: ["approve", "deny"]` (wire-surface 2-option; store has full 6-option list per `Approval policy value` cell).<br>**t1 (post-rejected-`decide(deny)`, ~18:06+Z):** `status: canceled`, `pending_escalation: null`, `inspection: null`. **Did not mirror Baseline's parked-on-0 → deny → parked-on-1 → deny → completed pattern** because the deny→adapt cycle could not initiate — the underlying request 0 had been canceled by system-driven `approval_timeout` before deny landed (full lifecycle in DelegationJobStore: queued → running → parked(0) → needs_escalation → running [post-timeout unpark] → parked(cleared) → canceled). |
+| `full.diff` summary | Required if artifact production succeeds. | **Not applicable for attempt 1** — no execution reached this stage; no artifacts were produced.<br>**Pre-execution falsification framing recorded in this cell is invalidated by the mechanism revision from attempt 1.** The pre-execution framing was: `empty file ⇒ Branch S1 still primary`. That inference assumed parking signaled sandbox blockage. Attempt 1 demonstrated that approval gating still fired under the True policy *before any shell execution* (parking observed even with `'includePlatformDefaults': True`, runtime-proofed at the build site), so sandbox readability is *not proven* as the cause of parking — and therefore absent artifact production *cannot* be attributed to S1 from these observations alone. **Branch decision adjudication for Candidate A overall is deferred** — requires attempt 2 (approve-strategy) to provide downstream evidence on whether shell execution succeeds past the gate under the True policy. **Do NOT update Branch Precedence rows or Symptom Attribution rows on attempt 1 alone.** |
+| `changed_files` | Required if artifact production succeeds. | **Not applicable** — see `full.diff summary` above. No execution; no changed files. |
+| Artifact hash | Required if artifact production succeeds. | **Not applicable** — see `full.diff summary` above. No artifacts; no hash. (DelegationJobStore L1 `artifact_hash: null` and `artifact_paths: []` confirm no artifacts at job creation; no later row populated these fields.) |
+| PendingRequestStore rows inspected | Required if any request id exists. | **2 rows** at `~/.claude/plugins/data/codex-collaboration-inline/pending_requests/15267690-603e-4715-be76-9c90ba41007a/requests.jsonl`:<br>**L1 (`op: create`, request shape — cite for shape/policy classification only, NOT as terminal status):** `kind: command_approval`, `request_id: "0"`, `raw_request_id: 0`, `available_decisions: [accept, acceptForSession, acceptWithExecpolicyAmendment, applyNetworkPolicyAmendment, decline, cancel]` (full 6-option `untrusted`-mode list), `requested_scope.command: /bin/zsh -lc <full chain>`, `codex_thread_id: 019dd537-a39b-…`, `codex_turn_id: 019dd537-a7cd-…`, `item_id: call_6DhsxENd5OlrBWOt95bAzWH5`. (L1's implicit state is `pending` — but the request is no longer pending in reality; use L2 for terminal state.)<br>**L2 (`op: record_timeout`, terminal state):** `status: canceled`, `dispatch_result: succeeded`, `response_payload: {decision: cancel}` (synthetic `cancel` payload fabricated by the system to terminate the request via the same code path that handles operator decides), `response_dispatch_at: 2026-04-28T18:06:37Z`, `timed_out: true`. **Cross-store cross-check:** L2's `response_dispatch_at: 18:06:37Z` matches audit L66 `approval_timeout actor=system ts=18:06:37Z` to second precision. Baseline's stores at `pending_requests/7337aa50-…/` remain untouched for cross-variant correlation. |
+| DelegationJobStore rows inspected | Record job id and matching JSONL line numbers. | **7 rows** at `~/.claude/plugins/data/codex-collaboration-inline/delegation_jobs/15267690-603e-4715-be76-9c90ba41007a/jobs.jsonl` (full lifecycle for job `4ebd24d6-…`; canonical terminal-state source per user guardrail):<br>L1: `op: create`, `status: queued`, `parked_request_id: null`, `base_commit: 5a1e937e…`, `worktree_path: <plugin-data-root>/runtimes/delegation/4ebd24d6-…/worktree`, `artifact_hash: null`, `artifact_paths: []`, `runtime_id: 84fce58f-…`, `collaboration_id: 9a8a1a64-…`<br>L2: `op: update_status_and_promotion`, `status: running`<br>L3: `op: update_parked_request`, `parked_request_id: "0"` (job parks on request 0)<br>L4: `op: update_status_and_promotion`, `status: needs_escalation`<br>L5: `op: update_status_and_promotion`, `status: running` (post-timeout unpark — graceful unblock, NOT direct cancel-from-parked)<br>L6: `op: update_parked_request`, `parked_request_id: null` (park cleared)<br>L7: `op: update_status_and_promotion`, `status: canceled` (terminal). **Lifecycle pattern observation:** approval_timeout is a graceful unblock-then-cancel flow (parked → running → cleared → canceled) rather than abrupt cancel-from-parked. Suggests App Server returns the request unresolved on timeout, plugin clears park state, then transitions job to canceled. |
+| OperationJournal rows inspected | Record job/request id and matching JSONL line numbers. | **6 rows** at `~/.claude/plugins/data/codex-collaboration-inline/journal/operations/15267690-603e-4715-be76-9c90ba41007a.jsonl` (3287 bytes), grouped as two operations of 3 phases each:<br>**L1-L3: `operation: job_creation`** (`phase: intent → dispatched → completed`), all at `created_at: 2026-04-28T17:51:25Z` (2s before audit `delegate_start` at 17:51:27Z; the journal records the orchestrator-side intent before the audit-side dispatch). `decision: None`, `request_id: None`. Idempotency key: `15267690-…:ee9…`.<br>**L4-L6: `operation: approval_resolution`** (`phase: intent → dispatched → completed`), all at `created_at: 2026-04-28T18:06:37Z` (matches audit `approval_timeout` and PendingRequestStore L2 `response_dispatch_at` to second precision). `decision: None` ← **noteworthy:** the journal does NOT record the synthetic `cancel` decision payload that PendingRequestStore L2 captured. The journal's `decision: None` for system-initiated approval_resolution is the signature distinguishing it from claude-initiated approve/deny flows (which would carry a non-null decision). Idempotency key: `approval_resolution:4ebd24d6-…`. `request_id: 0`. |
+| Audit rows inspected | Required if dispatch failure / timeout / decision audit relevant; else "not applicable". | **2 rows** at `~/.claude/plugins/data/codex-collaboration-inline/audit/events.jsonl` for job `4ebd24d6-…` (canonical terminal-state source per user guardrail; co-canonical with DelegationJobStore for terminal status):<br>**L65 (delegate_start):** `action: delegate_start`, `actor: claude`, `timestamp: 2026-04-28T17:51:27Z`, `request_id: None`, `job_id: 4ebd24d6-…`. Aligns with `start()` synchronous return time and runtime-proof emit (17:51:27.685062Z).<br>**L66 (approval_timeout):** `action: approval_timeout`, `actor: system`, `timestamp: 2026-04-28T18:06:37Z`, `request_id: 0`, `job_id: 4ebd24d6-…`. **Delta = exactly 15m10s after delegate_start** — the load-bearing TTL discovery. `actor: system` distinguishes lifecycle automation from `actor: claude` (orchestrator-initiated `delegate_start`/`decide`); useful for filtering audit by 'what the operator did' vs 'what the system did automatically'. |
+| Network probe result | Required for candidate policy variants. Record command and result. | **Not run in attempt 1; deferred because request 0 timed out before operator decision** ⇒ no shell process inside the worktree could be issued. The plan recorded pre-execution above (curl reachability under `networkAccess: False`) **remains Candidate A closure work** and will be exercised in attempt 2 if approve lands within the TTL window. **This cell remains REQUIRED for Candidate A overall** — closure is incomplete on attempt 1 alone. |
+| Sensitive-path probe result | Required for candidate policy variants. Cross-reference Host-Side Probe Baselines. | **Not run in attempt 1; deferred because request 0 timed out before operator decision** ⇒ no shell process inside the worktree could read `/etc/passwd` or any other sensitive path. Plan recorded pre-execution **remains Candidate A closure work**. **REQUIRED for Candidate A overall** — closure incomplete on attempt 1 alone. |
+| Sibling-worktree probe result | Required if a sibling worktree exists; otherwise record absence. | **Not run in attempt 1; deferred because request 0 timed out before operator decision** ⇒ no shell process to issue the cross-worktree access probe. Sibling worktrees on disk at run-start: Baseline's `6753a537-…/worktree` (pending promotion, intentionally preserved per Baseline VIP step 7) AND now Candidate A att1's `4ebd24d6-…/worktree` (created at job init, never executed in). Probe plan applies to attempt 2 if approve lands. **Closure work for Candidate A overall.** |
+| Post-run HEAD | `git rev-parse --short HEAD` after the run. Must equal pre-run HEAD unless commits landed. | `5a1e937e` (verified at this session's pre-flight via `git rev-parse HEAD → 5a1e937eff04f4cfecf5ce7bc65fae1f94db0fca`). Unchanged from pre-run; matches expectation. (HEAD verification was at the cell-filling boundary, not literally at attempt 1 termination — but no commits could have landed because no commit was issued between attempt 1 termination and this session's pre-flight.) |
+| Post-run dirty diff | `git status --short` after the run. Should show only the variant patch's known modifications + intentional smoke artifact paths. | **Matches pre-run shape** (verified at this session's pre-flight): `M packages/plugins/codex-collaboration/server/runtime.py` (Candidate A patch, unchanged from attempt 1 pre-execution; 37-line diff, sha256 matches captured patch) + `M docs/diagnostics/2026-04-28-delegate-execution-diagnostic.md` (this run record, including these post-execution cell fills) + 8 carry-forward `D` rows + 8 `??` rows under `docs/tickets/closed-tickets/` (same set as Baseline). **No new file appears in the host checkout** beyond the run record edits. **Note on scope of this evidence:** main-repo `git status` shows the host checkout stayed clean but cannot prove the delegated worktree (`<plugin-data-root>/runtimes/delegation/4ebd24d6-…/worktree`) was untouched. The "no shell execution occurred" conclusion comes from the request/job lifecycle (`poll() transitions` cell above — parked → canceled before any decide approved execution) AND DelegationJobStore L1 `artifact_paths: []` + `artifact_hash: null` (no later row populated these fields). Together: lifecycle says no execution was approved; artifact-store says no execution produced output. |
+| Variant restoration command | Exact command used to undo the variant patch. | **Deferred until after Candidate A attempt 2 completes** (per VIP step 7: restoration is once-per-variant, not once-per-attempt). Same command sequence as planned: `git checkout -- packages/plugins/codex-collaboration/server/runtime.py` + `trash /tmp/codex-collab-candidate-a-runtime-proof.log` + Claude Code restart. **Critical operational note for attempt 2:** trash the runtime-proof log BEFORE attempt 2's `delegate_start` (NOT after attempt 1) — the file is opened in append mode, so attempt 2's emit would otherwise concatenate with attempt 1's line and conflate reads. The verbatim attempt 1 line is preserved in the `Observed sandboxPolicy payload` cell above, so trashing the source file is now safe. |
+| Restoration verification | `git status --short` after restoration; must match pre-run dirty diff. | **Deferred** — see `Variant restoration command` above. Will verify after attempt 2 completes and restoration runs. |
+| Cleanup performed | Record command or "deferred". | **Store-row inspection: completed for attempt 1** (PendingRequestStore 2 rows, DelegationJobStore 7 rows, OperationJournal 6 rows, Audit L65-L66 — recorded in their respective cells above). **Restoration + worktree cleanup: deferred** until after Candidate A attempt 2 (per VIP step 7). JSONL audit trail intentionally preserved on disk for cross-variant correlation. Candidate A att1's job worktree at `<plugin-data-root>/runtimes/delegation/4ebd24d6-…/worktree` remains in place (job created the worktree but never executed in it). |
+
+Variant patch (combined behavioral flip + runtime-proof-only instrumentation overlay; the instrumentation portion is semantics-preserving — does not modify the returned `policy` dict; the behavioral portion at line `-includePlatformDefaults: False` / `+includePlatformDefaults: True` is the Candidate A test):
+
+```diff
+diff --git a/packages/plugins/codex-collaboration/server/runtime.py b/packages/plugins/codex-collaboration/server/runtime.py
+index 9f28e0b0..95a98ab9 100644
+--- a/packages/plugins/codex-collaboration/server/runtime.py
++++ b/packages/plugins/codex-collaboration/server/runtime.py
+@@ -24,18 +24,30 @@ def build_workspace_write_sandbox_policy(worktree_path: Path) -> dict[str, Any]:
+     """Return the v1 execution sandbox policy for an isolated worktree."""
+
+     resolved = worktree_path.resolve()
+-    return {
++    policy = {
+         "type": "workspaceWrite",
+         "writableRoots": [str(resolved)],
+         "readOnlyAccess": {
+             "type": "restricted",
+             "readableRoots": [str(resolved)],
+-            "includePlatformDefaults": False,
++            "includePlatformDefaults": True,
+         },
+         "networkAccess": False,
+         "excludeSlashTmp": True,
+         "excludeTmpdirEnvVar": True,
+     }
++    # variant instrumentation (remove after diagnostic)
++    from datetime import datetime, timezone
++    from pathlib import Path as _Path
++
++    with _Path("/tmp/codex-collab-candidate-a-runtime-proof.log").open(
++        "a", encoding="utf-8"
++    ) as _handle:
++        _handle.write(
++            f"{datetime.now(timezone.utc).isoformat()} "
++            f"[CANDIDATE_A] sandboxPolicy={policy!r}\n"
++        )
++    return policy
+
+
+ class AppServerRuntimeSession:
+```
+
+Attempt history:
+
+| Attempt | Reason started | Shell-visible actions | Outcome | Preserved evidence |
+|---:|---|---:|---|---|
+| 1 | Initial Candidate A run; tests `includePlatformDefaults: True` hypothesis (platform-defaults grant unblocks `/bin/zsh -lc`). | 1 attempted (compressed `&&`-chain); 0 executed (parked at `command_approval`, then canceled by `approval_timeout` before any shell ran) | **canceled-by-approval-timeout** at +15m10s after start; `decide(deny)` adjudication failed with `job_not_awaiting_decision` because the job had already canceled by `approval_timeout` (audit L66, `actor=system`). **Mechanism revision finding:** runtime-proofed `'includePlatformDefaults': True` emit + observed parking together refute Baseline's False-platform-defaults explanation; the defensible claim is that approval gating still fired under the True policy *before any shell execution*, so sandbox readability is *not proven* as the cause of parking (source-level ordering inside App Server requires an approve-path run or source inspection to establish). **Does NOT prove shell execution fails under platform defaults** — that test was never reached because the approval gate did not let any shell process start. **TTL discovery:** ~15m approval window between `delegate_start` and auto-cancellation. | Per-variant block above (post-execution cells filled this session); audit `events.jsonl` L65-L66; jobs `15267690-…/jobs.jsonl` 7 rows; requests `15267690-…/requests.jsonl` 2 rows; journal `15267690-….jsonl` 6 rows; runtime-proof line preserved verbatim in `Observed sandboxPolicy payload` cell above (source file `/tmp/codex-collab-candidate-a-runtime-proof.log` to be trashed before attempt 2 fires). |
+| 2 | Approve-strategy attempt under Strategy C (manual decide via /copy + adversarial scrutiny round-trip per cycle). | 1 attempted (same compressed `&&`-chain as att1; agent's translation re-included `.codex-collaboration/test-results.json` autopilot extension); 0 executed (parked at `command_approval`, then canceled by `approval_timeout` before `decide(approve)` could land — operator-loop took ~14m45s end-to-end). | **canceled-by-approval-timeout** at +15m14s after start (audit L67 `delegate_start` `2026-04-29T01:45:02Z` → L68 `approval_timeout` `actor=system` `2026-04-29T02:00:16Z`); `decide(approve)` arrived at `~2026-04-29T02:00:34Z` (+18s past audit row, +32s past 900s schedule) and was rejected with `{rejected: true, reason: "job_not_awaiting_decision", detail: "Got: status='canceled'"}`. **Mechanism revision unchanged from att1:** True flag emit reproducible for the new worktree (att2 runtime-proof line at `2026-04-29T01:45:02.824436Z`); approval gating still fires before any shell execution. **Procedural finding (load-bearing for att3):** Strategy C does NOT fit inside 900s for the current /copy + scrutiny review tempo — empirical operator-loop = ~14m45s > 900s timer + ~14s bookkeeping. **Att2 attempt does NOT advance the load-bearing question** — operator-originated `accept` payload never reached `entry.session.respond(...)`; wire-id type preservation also untested. | Att2 evidence subsection below; audit `events.jsonl` L67-L68; jobs `1d9770c7-…/jobs.jsonl` 7 rows (same shape as att1); requests `1d9770c7-…/requests.jsonl` 2 rows (op:create + op:record_timeout); journal `1d9770c7-….jsonl` 6 rows (decision=None on approval_resolution — system-flow signature); runtime-proof line preserved verbatim in subsection below (source file `/tmp/codex-collab-candidate-a-runtime-proof.log` to be trashed before attempt 3 fires). |
+| 3 | **Guarded pre-authorized approve under "guarded 3a" strategy** (per user's plan): pre-flight discard of att2's canceled job to free `active_job_id` slot; trash runtime-proof log for clean emit; fire `delegate_start`; verify guards (kind, True flag emit, worktree match, command shape ∈ canonical envelope, no network/sibling/host-path/git-mutation/destructive); fire `decide(approve)` immediately if all guards pass. | 1 attempted (canonical `&&`-chain: `mkdir -p` + `printf > smoke-result.txt` + `printf > .codex-collaboration/test-results.json` + `test -f` + `cat`; agent's translation differed slightly from att1/att2 — simpler structure with hardcoded `"status": "passed"`); **1 executed** (smoke command chain ran in worktree under True-flag sandbox; produced `result.txt` byte-perfect with content `delegate execution smoke\n` + autopilot `test-results.json`). | **completed** at +1m33s after start (audit L69 `delegate_start` `2026-04-29T02:15:41Z` → L70 `approve` `actor=claude` `2026-04-29T02:16:55Z` → terminal `completed` reviewed at `2026-04-29T02:17:14Z`). `decide(approve)` accepted with `{decision_accepted: true}` (no rejection). **Load-bearing answer obtained: YES, shell executes past the approval gate under `includePlatformDefaults: True`** for the canonical smoke workload. **Mechanism revision expanded:** approval gating IS the (only observed) blocker for the canonical smoke command — once approve lands, shell runs successfully under True flag with worktree-as-only-readableRoot + platform-defaults grants. Wire-id type preservation watchpoint EXERCISED SUCCESSFULLY (string `"0"` passed to decide, App Server matched type-exactly). Six-row binding table contract holds at runtime. **Procedural finding:** guarded 3a fits inside 900s — empirical end-to-end (delegate_start → terminal completed) = ~1m33s. **What is NOT yet tested:** Network probe, Sensitive-path probe, Sibling-worktree probe — agent stopped after smoke + autopilot; probes require separate delegate_start cycles or extended objective. Branch decision update therefore deferred until probes adjudicate the security-boundary question. | Att3 evidence subsection below; audit `events.jsonl` L69-L70 (delegate_start + approve, no approval_timeout); jobs `1d9770c7-…/jobs.jsonl` 7 rows (lifecycle: queued → running → parked(0) → needs_escalation → running [post-decide unpark] → parked(cleared) → completed → update_artifacts); requests `1d9770c7-…/requests.jsonl` (additional rows for request 0 op:create + op:record_response_dispatch with response_payload `{"decision": "accept"}`); journal `1d9770c7-….jsonl` (additional rows for approval_resolution intent → dispatched → completed with `decision: approve`); inspection artifacts at `runtimes/delegation/6e335fa2-…/inspection/{full.diff, changed-files.json, test-results.json}`; artifact_hash `3b4be4282a393deaebf89f2934d94ad8224fe232bb08209da9b8398ba7b1e901`; smoke file at `runtimes/delegation/6e335fa2-…/worktree/docs/diagnostics/delegate-smoke/20260428T005625-result.txt`. |
+
+Raw excerpts:
+
+```text
+=== `codex_delegate_start` synchronous response (attempt 1, 2026-04-28T17:51:27Z) ===
+job_id:           4ebd24d6-6f1f-45b8-99eb-0d890a9d5326
+runtime_id:       84fce58f-c860-4757-a852-6f30c3d21ddf
+collaboration_id: 9a8a1a64-65b7-4884-b34e-85dad62b9b94
+status:           needs_escalation
+parked_request_id: "0"
+pending_escalation:
+  kind: command_approval
+  requested_scope:
+    command: /bin/zsh -lc "mkdir -p docs/diagnostics/delegate-smoke .codex-collaboration && printf '%s' 'delegate execution smoke' > docs/diagnostics/delegate-smoke/20260428T005625-result.txt && printf '%s\n' '{...test-results.json content...}' > .codex-collaboration/test-results.json && test -f ... && cat ... && cat .codex-collaboration/test-results.json"
+  available_decisions: ["approve", "deny"]   # wire-surface 2-option (store has full 6-option per PendingRequestStore L1)
+  proposedExecpolicyAmendment: <present, S7a fired — informational under untrusted-mode>
+
+=== Runtime-proof artifact (verbatim, /tmp/codex-collab-candidate-a-runtime-proof.log, 1 line, 533 bytes) ===
+2026-04-28T17:51:27.685062+00:00 [CANDIDATE_A] sandboxPolicy={'type': 'workspaceWrite', 'writableRoots': ['/Users/jp/.claude/plugins/data/codex-collaboration-inline/runtimes/delegation/4ebd24d6-6f1f-45b8-99eb-0d890a9d5326/worktree'], 'readOnlyAccess': {'type': 'restricted', 'readableRoots': ['/Users/jp/.claude/plugins/data/codex-collaboration-inline/runtimes/delegation/4ebd24d6-6f1f-45b8-99eb-0d890a9d5326/worktree'], 'includePlatformDefaults': True}, 'networkAccess': False, 'excludeSlashTmp': True, 'excludeTmpdirEnvVar': True}
+
+=== `codex_delegate_decide(deny)` response (attempt 1, post-timeout) ===
+{
+  "rejected": true,
+  "reason": "job_not_awaiting_decision",
+  "detail": "Delegation decide failed: job not awaiting decision. Got: status='canceled'"
+}
+
+=== Final `codex_delegate_poll` response (attempt 1) ===
+status:             canceled
+pending_escalation: null
+inspection:         null
+
+=== Cross-store timestamp consistency (attempt 1) ===
+Plugin process start (PID 64213):                                    2026-04-28T17:24:44Z   (+705s after patch applied 17:12:59Z)
+OperationJournal job_creation (intent → completed, L1-L3):           2026-04-28T17:51:25Z   (orchestrator-side intent, 2s pre-audit)
+Runtime-proof emit (build-site instrumentation):                     2026-04-28T17:51:27.685062Z
+Audit delegate_start (L65, actor=claude):                            2026-04-28T17:51:27Z
+DelegationJobStore: queued → running → parked(0) → needs_escalation: ~17:51:27Z (during start synchronous return)
+... (15m10s parked at command_approval, awaiting operator decide; operator-side /copy round-trip + $making-recommendations review consumed the window) ...
+Audit approval_timeout (L66, actor=system):                          2026-04-28T18:06:37Z   (+15m10s after start)
+PendingRequestStore L2 (op=record_timeout, response_dispatch_at):    2026-04-28T18:06:37Z   (system-fabricated cancel decision)
+OperationJournal approval_resolution (intent → completed, L4-L6):    2026-04-28T18:06:37Z   (decision=None — system-flow signature)
+DelegationJobStore: parked(0) → running → parked(cleared) → canceled: ~18:06:37Z (graceful unblock-then-cancel)
+codex_delegate_decide(deny) call (operator-side, post-timeout):      ~18:07Z (rejected with job_not_awaiting_decision)
+codex_delegate_poll terminal read (operator-side):                   ~18:07Z (confirmed status=canceled)
+
+Total job duration (delegate_start → terminal canceled):             ~15m10s
+```
+
+### Attempt 2 operational watchpoints (pre-execution)
+
+Forward-looking notes for Candidate A attempt 2 (approve-strategy). Recorded pre-execution; will be revised against actual evidence after attempt 2 completes. These notes describe expected mechanism only — they do **not** claim that the operator-originated approve path is proven in the live JSON-RPC session yet, because attempt 1 only exercised timer-originated `cancel`, not operator-originated `accept`.
+
+- **Wire-shape contract for `decide(approve)`.** `approve × command_approval` maps to `{"decision": "accept"}` per the six-row binding table at `delegation_controller.py:2779` (authoritative per spec §Response payload mapping table at design.md:1667-1672). The worker dispatches that exact payload via `entry.session.respond(parsed.wire_request_id, response_payload)` at `delegation_controller.py:1229`. End-to-end regression net at `tests/test_delegate_decide_async_integration.py:660` (`test_decide_worker_dispatches_l4_payload_end_to_end`, parametrized for `"approve-command_approval-accept"`).
+- **Watchpoint: `wire_request_id` type preservation.** The App Server's id equality check requires the response id match the request id type-exactly (per code comment at `delegation_controller.py:1226-1228`). Att1's request L1 had `raw_request_id: 0` (integer at wire) while the store recorded `parked_request_id: "0"` (string). The worker preserves `wire_request_id` separately for this reason — but **att1 did not exercise the operator-originated `accept` dispatch path** (the dispatch we observed in att1 was the synthetic `{"decision": "cancel"}` from `_timer_fire`). Attempt 2 is the first time *this* live JSON-RPC session will see an operator-originated `accept` payload land. If type preservation has a latent bug, attempt 2 surfaces it.
+- **Approval cycle count: smoke + probes likely require ≥4 sequential approvals.** Under `untrusted` mode, each distinct shell action requires its own `command_approval`. Attempt 2's plan is smoke (1) + Network probe (1) + Sensitive-path probe (1) + Sibling-worktree probe (1) = ≥4 approval cycles **(assumes each probe is dispatched as a separate shell action under sustained `untrusted` posture; using `acceptForSession`, `acceptWithExecpolicyAmendment`, or `applyNetworkPolicyAmendment` instead of plain `accept` would change the count and is out of scope for the planned approve-strategy)**. **Each parked request gets its own 900-second TTL** (per Approval Timeout Ownership resolution in `Optional App Server Timeout Probe` section below — TTL is per-request, not per-job, because `ResolutionRegistry.register` constructs a fresh `threading.Timer` per `register()` call). Plan operator-loop wall time accordingly: even with fast operator response, ≥4 sequential cycles × poll-and-decide latency can consume substantial wall time.
+
+#### Attempt 2 evidence: canceled-by-approval-timeout (this session, 2026-04-29)
+
+Captured before trashing `/tmp/codex-collab-candidate-a-runtime-proof.log` ahead of Candidate A attempt 3 (guarded pre-authorized approve). Lifecycle shape mirrors attempt 1 exactly (queued → running → parked(0) → needs_escalation → running [post-timeout unpark] → parked(cleared) → canceled).
+
+| Field | Value |
+|---|---|
+| job_id | `2287b9e0-b8ff-4232-9400-2dca67d8a03e` |
+| runtime_id | `e0aa5aee-a825-409e-870d-4a482717f4f0` |
+| collaboration_id | `27890651-5e3d-4deb-be96-8a6a7ff9a550` |
+| base_commit | `5a1e937eff04f4cfecf5ce7bc65fae1f94db0fca` |
+| Plugin session UUID (JSONL partition) | `1d9770c7-6831-478f-80f5-8182f2daffab` (this Claude session) |
+| Worktree | `~/.claude/plugins/data/codex-collaboration-inline/runtimes/delegation/2287b9e0-…/worktree` |
+| Strategy under test | C — manual decide via /copy + adversarial scrutiny round-trip per cycle |
+| Outcome | canceled-by-approval-timeout (Strategy C did not fit 900s) |
+
+Audit rows:
+
+```text
+L67: {"action":"delegate_start","actor":"claude","job_id":"2287b9e0-b8ff-4232-9400-2dca67d8a03e","timestamp":"2026-04-29T01:45:02Z","event_id":"8a8e8466-da75-4b20-9d3e-63f80c79c824","collaboration_id":"27890651-5e3d-4deb-be96-8a6a7ff9a550","runtime_id":"e0aa5aee-a825-409e-870d-4a482717f4f0","request_id":null}
+L68: {"action":"approval_timeout","actor":"system","request_id":"0","job_id":"2287b9e0-b8ff-4232-9400-2dca67d8a03e","timestamp":"2026-04-29T02:00:16Z","event_id":"9098aad4-cebe-40db-9e71-2402659c6037","collaboration_id":"27890651-5e3d-4deb-be96-8a6a7ff9a550","runtime_id":"e0aa5aee-a825-409e-870d-4a482717f4f0"}
+```
+
+Runtime-proof line (verbatim, 533 bytes; source file to be trashed before attempt 3 fires):
+
+```text
+2026-04-29T01:45:02.824436+00:00 [CANDIDATE_A] sandboxPolicy={'type': 'workspaceWrite', 'writableRoots': ['/Users/jp/.claude/plugins/data/codex-collaboration-inline/runtimes/delegation/2287b9e0-b8ff-4232-9400-2dca67d8a03e/worktree'], 'readOnlyAccess': {'type': 'restricted', 'readableRoots': ['/Users/jp/.claude/plugins/data/codex-collaboration-inline/runtimes/delegation/2287b9e0-b8ff-4232-9400-2dca67d8a03e/worktree'], 'includePlatformDefaults': True}, 'networkAccess': False, 'excludeSlashTmp': True, 'excludeTmpdirEnvVar': True}
+```
+
+Rejected `decide(approve)` response (verbatim, captured at operator side ~2026-04-29T02:00:34Z):
+
+```json
+{"rejected": true, "reason": "job_not_awaiting_decision", "detail": "Delegation decide failed: job not awaiting decision. Got: status='canceled'", "job_id": "2287b9e0-b8ff-4232-9400-2dca67d8a03e", "request_id": "0"}
+```
+
+Cross-store timing (att2):
+
+```text
+delegate_start synchronous response (parked):                        2026-04-29T01:45:02Z   (T0)
+Runtime-proof emit (build-site instrumentation):                     2026-04-29T01:45:02.824436Z (+0.824s)
+Audit delegate_start (L67, actor=claude):                            2026-04-29T01:45:02Z   (T0; event_id 8a8e8466-…)
+... (14m45s parked at command_approval; operator-loop /copy + scrutiny + decision-drafting + arrival consumed the window) ...
+Audit approval_timeout (L68, actor=system):                          2026-04-29T02:00:16Z   (+15m14s after T0; +14s past 900s schedule)
+PendingRequestStore L2 (op=record_timeout, response_dispatch_at):    2026-04-29T02:00:16Z   (synthetic cancel decision, dispatch_result=succeeded)
+OperationJournal approval_resolution (intent → completed, L4-L6):    2026-04-29T02:00:16Z   (decision=None — system-flow signature)
+DelegationJobStore: parked(0) → running → parked(cleared) → canceled: ~2026-04-29T02:00:16Z   (graceful unblock-then-cancel, same shape as att1)
+codex_delegate_decide(approve) call (operator-side):                 ~2026-04-29T02:00:34Z   (rejected with job_not_awaiting_decision)
+
+Total parked-to-cancel:        ~15m14s
+Total parked-to-decide-attempt: ~14m45s   (decide LOST the TTL race by 18s past audit row, 32s past 900s schedule)
+```
+
+**Procedural finding (load-bearing for next attempt):** Strategy C (manual decide via /copy + adversarial scrutiny round-trip) does NOT fit inside 900s for the current review tempo. Empirical operator-loop = ~14m45s. Strategies that don't fit: any per-cycle review/scrutiny pass before decide on the smoke approval. Strategies that fit: pre-authorized decide (zero operator round-trip on smoke), or TTL-extended workflow (out-of-scope code patch). User's decision for attempt 3: **guarded pre-authorized approve for request 0 only** — auto-approve immediately if request shape matches a strict envelope (canonical smoke command + .codex-collaboration/test-results.json autopilot tolerated; any deviation halts and asks).
+
+**Att2 attempt outcome does NOT advance the load-bearing question** ("does shell execute past gate under True flag?"). The approve-path was never exercised at the wire because the job had auto-canceled before decide reached `entry.session.respond(...)`. Wire-id type preservation (att2 ops notes watchpoint above) also remains untested.
+
+#### Attempt 3 evidence: completed (this session, 2026-04-29) — LOAD-BEARING ANSWER OBTAINED
+
+**Att3 succeeded.** Shell executed past the approval gate under `includePlatformDefaults: True` for the canonical smoke workload. Smoke artifact produced byte-perfect; autopilot test-results.json produced; terminal status `completed`; no further escalation. Agent stopped after smoke (probes still untested).
+
+| Field | Value |
+|---|---|
+| job_id | `6e335fa2-5ec6-496d-a2b6-b9e5595669a6` |
+| runtime_id | `a627461c-92ee-4cef-9ed9-c9ee870a7f9f` |
+| collaboration_id | `b28a6e9d-f986-436e-b507-5b5c5bdbb8f7` |
+| base_commit | `5a1e937eff04f4cfecf5ce7bc65fae1f94db0fca` |
+| Plugin session UUID (JSONL partition) | `1d9770c7-6831-478f-80f5-8182f2daffab` (this Claude session, same as att2) |
+| Worktree | `~/.claude/plugins/data/codex-collaboration-inline/runtimes/delegation/6e335fa2-…/worktree` |
+| Strategy under test | guarded 3a — pre-authorized approve for request 0 with strict guard envelope (canonical smoke + tolerated `.codex-collaboration/test-results.json` autopilot; halt-and-ask on any deviation) |
+| Outcome | **completed** (smoke produced, autopilot produced, terminal cleanly without further escalation) |
+| `promotion_state` | `pending` (artifacts materialized; not yet promoted to host repo) |
+| artifact_hash | `3b4be4282a393deaebf89f2934d94ad8224fe232bb08209da9b8398ba7b1e901` |
+
+Att3 audit rows (L69-L70):
+
+```text
+L69: {"action":"delegate_start","actor":"claude","job_id":"6e335fa2-5ec6-496d-a2b6-b9e5595669a6","timestamp":"2026-04-29T02:15:41Z"}
+L70: {"action":"approve","actor":"claude","request_id":"0","job_id":"6e335fa2-5ec6-496d-a2b6-b9e5595669a6","timestamp":"2026-04-29T02:16:55Z"}
+```
+
+**Key distinction**: this is the FIRST `approve` audit row in the entire diagnostic record. Att1 had `delegate_start + approval_timeout`; att2 had `delegate_start + approval_timeout`; att3 has `delegate_start + approve` (no `approval_timeout`).
+
+Runtime-proof line (verbatim, 533 bytes; written for att3-specific worktree):
+
+```text
+2026-04-29T02:15:41.177015+00:00 [CANDIDATE_A] sandboxPolicy={'type': 'workspaceWrite', 'writableRoots': ['/Users/jp/.claude/plugins/data/codex-collaboration-inline/runtimes/delegation/6e335fa2-5ec6-496d-a2b6-b9e5595669a6/worktree'], 'readOnlyAccess': {'type': 'restricted', 'readableRoots': ['/Users/jp/.claude/plugins/data/codex-collaboration-inline/runtimes/delegation/6e335fa2-5ec6-496d-a2b6-b9e5595669a6/worktree'], 'includePlatformDefaults': True}, 'networkAccess': False, 'excludeSlashTmp': True, 'excludeTmpdirEnvVar': True}
+```
+
+`decide(approve)` response (verbatim, captured at operator side ~02:16:55Z):
+
+```json
+{"decision_accepted": true, "job_id": "6e335fa2-5ec6-496d-a2b6-b9e5595669a6", "request_id": "0"}
+```
+
+Smoke file content (verbatim, from `runtimes/delegation/6e335fa2-…/worktree/docs/diagnostics/delegate-smoke/20260428T005625-result.txt`):
+
+```text
+delegate execution smoke
+```
+
+(Single line + newline, byte-perfect match for canonical smoke string.)
+
+`full.diff` (verbatim, host-tracked changes from inspection wrapper):
+
+```diff
+diff --git a/Users/jp/.claude/plugins/data/codex-collaboration-inline/runtimes/delegation/6e335fa2-5ec6-496d-a2b6-b9e5595669a6/worktree/docs/diagnostics/delegate-smoke/20260428T005625-result.txt b/Users/jp/.claude/plugins/data/codex-collaboration-inline/runtimes/delegation/6e335fa2-5ec6-496d-a2b6-b9e5595669a6/worktree/docs/diagnostics/delegate-smoke/20260428T005625-result.txt
+new file mode 100644
+index 00000000..37f9b3ed
+--- /dev/null
++++ b/Users/jp/.claude/plugins/data/codex-collaboration-inline/runtimes/delegation/6e335fa2-5ec6-496d-a2b6-b9e5595669a6/worktree/docs/diagnostics/delegate-smoke/20260428T005625-result.txt
+@@ -0,0 +1 @@
++delegate execution smoke
+```
+
+`test-results.json` (autopilot artifact at `runtimes/delegation/6e335fa2-…/inspection/test-results.json`):
+
+```json
+{
+  "commands": [
+    "mkdir -p docs/diagnostics/delegate-smoke .codex-collaboration",
+    "printf %s\\n delegate execution smoke > docs/diagnostics/delegate-smoke/20260428T005625-result.txt",
+    "test -f docs/diagnostics/delegate-smoke/20260428T005625-result.txt",
+    "cat docs/diagnostics/delegate-smoke/20260428T005625-result.txt"
+  ],
+  "schema_version": 1,
+  "status": "passed",
+  "summary": "Created delegate smoke result file and verified contents."
+}
+```
+
+`changed-files.json` (host-tracked changes only):
+
+```json
+{
+  "changed_files": [
+    "docs/diagnostics/delegate-smoke/20260428T005625-result.txt"
+  ]
+}
+```
+
+(Note: `.codex-collaboration/test-results.json` is in `artifact_paths` but NOT in `changed_files` — `.codex-collaboration/` is gitignored at host level.)
+
+Cross-store timing (att3):
+
+```text
+delegate_start synchronous response (parked):                        2026-04-29T02:15:41Z   (T0)
+Runtime-proof emit (build-site instrumentation):                     2026-04-29T02:15:41.177015Z (+0.177s)
+Audit delegate_start (L69, actor=claude):                            2026-04-29T02:15:41Z   (T0; event_id captured)
+Pre-decide UTC marker (operator-side):                               2026-04-29T02:16:39Z   (+58s into TTL — well inside 900s buffer)
+Audit approve (L70, actor=claude, request_id=0):                     2026-04-29T02:16:55Z   (decide_accepted; +1m14s into TTL)
+PendingRequestStore (op=record_response_dispatch):                   ~2026-04-29T02:16:55Z  (response_payload `{"decision": "accept"}`, dispatch_result=succeeded)
+OperationJournal approval_resolution (intent → completed):           ~2026-04-29T02:16:55Z  (decision=approve — claude-flow signature, distinct from system-flow's decision=None)
+Post-decide UTC marker (operator-side):                              2026-04-29T02:17:13Z   (+18s after audit approve)
+DelegationJobStore: parked(0) → running → parked(cleared) → completed: ~2026-04-29T02:17:13Z (post-decide unpark + shell execute + terminal)
+Inspection wrapper materialized (`reviewed_at`):                     2026-04-29T02:17:14Z   (+1m33s after T0)
+Update_artifacts (final job lifecycle row):                          ~2026-04-29T02:17:14Z
+
+Total parked-to-terminal-completed:  ~1m33s
+Total parked-to-decide-accepted:     ~1m14s   (decide WON the TTL race by 13m46s — ample buffer)
+Shell execution + inspection time:   ~19s     (audit approve to reviewed_at)
+```
+
+**Mechanism revision (refined further):**
+
+| Question | Att1 | Att2 | Att3 |
+|---|---|---|---|
+| True flag emitted at runtime | n/a (att1 was Baseline-shape with True) | YES (proof line) | YES (proof line) |
+| Parking under True flag | YES | YES | YES |
+| `decide(approve)` reaches `session.respond(...)` | n/a | NO (timeout) | **YES (`decision_accepted: true`)** |
+| Wire-id type preservation exercised | n/a | NO (no decide landed) | **YES (string "0" → matched)** |
+| Shell executes past gate under True flag | NOT TESTED | NOT TESTED | **YES (smoke completed cleanly)** |
+| Security boundary holds (Network/Sensitive/Sibling) | NOT TESTED | NOT TESTED | NOT TESTED |
+| Branch S1 ("sandbox still blocked") status | not adjudicable | not adjudicable | **REFUTED for canonical smoke workload** (sandbox + approval-under-True together permit smoke; sandbox is not the lone blocker) |
+
+**Probe status (unchanged from att1/att2 plan):** Network, Sensitive-path, Sibling-worktree probes are STILL REQUIRED for Candidate A overall closure. They each require either (a) a separate `delegate_start` with probe-specific objective, or (b) an extended objective that chains probes after the smoke. Att3's smoke completed without re-parking, so no probe was offered for decision in this attempt.
+
+**Branch decision update remains DEFERRED** until probes adjudicate the security-boundary question. The smoke result alone tells us "True flag's grant set permits the canonical execution path"; it does NOT tell us "True flag's grant set holds the security boundary." That distinction matters for promoting to a sandbox-policy patch candidate.
+
+#### Security probes (post-att3): Network + Sensitive-path + Sibling-worktree all BLOCKED
+
+After att3's smoke success, three security-boundary probes were fired as separate `delegate_start` cycles. All three produced consistent **BLOCKED** verdicts. Probes ran under guarded pre-authorized approve (per "G3" pattern: approve initial probe; deny same-shape retries; approve agent's worktree-local summary writes when offered; halt-and-ask if agent attempts broader permission, sensitive read beyond probe target, sibling read in unrelated path, or destructive command).
+
+##### Probe execution pattern (uniform across all 3)
+
+All three probes exhibited the same App Server-level enforcement signature: shell process is INTERRUPTED mid-execution at the out-of-envelope operation, returns to agent for re-approval. The agent's response varies (retry same shape, simplify, or write a summary verdict) but the boundary enforcement is consistent.
+
+This "interrupt-and-retry" pattern is **uniform across operation classes** (network, sensitive-path read, sibling-worktree read) — refutes the earlier hypothesis that filesystem and network enforcement happen at different layers in App Server's untrusted mode. App Server enforces the sandbox grant set by killing the shell at the first boundary-violating operation regardless of operation class.
+
+##### Probe 1: Network — `curl https://example.com`
+
+| Field | Value |
+|---|---|
+| job_id | `a958859e-40fe-410d-8709-a9f8d96aa278` |
+| Wall time | parked `2026-04-29T02:53:38Z` → terminal `2026-04-29T03:06:26Z` (~13min, 4 decisions) |
+| Audit sequence | `delegate_start` → `approve(0)` (02:54:27) → `deny(1)` (02:59:12) → `deny(2)` (03:02:49) → `approve(3)` (03:06:17) → terminal `completed` |
+| artifact_hash | `efb653e15fd48d7a12ab0f5876f6223b49620e85c0c3b0efc2ab2f3e3113ca7d` |
+| **Verdict** | **BLOCKED** |
+| **Primary evidence (direct)** | Shell partial-execution under request 0: `mkdir -p .codex-collaboration` ran (directory created, mtime confirmed), `printf > test-results.json` did NOT run (file empty/missing). Chain interrupted at curl operation. No EXIT_STATUS or BLOCKED/ALLOWED verdict line ever printed. |
+| **Secondary evidence (agent-inferred)** | After deny→deny→adapt, agent's request 3 was a worktree-local summary write (no network call). Agent's inferred `test-results.json` declares `"status": "blocked"` with summary: `"curl command rejected by sandbox before process execution; no response body, headers, or stderr captured"`. |
+
+Agent-written test-results.json (verbatim):
+
+```json
+{
+  "commands": ["curl --max-time 5 https://example.com >/dev/null 2>/dev/null"],
+  "schema_version": 1,
+  "status": "blocked",
+  "summary": "curl command rejected by sandbox before process execution; no response body, headers, or stderr captured"
+}
+```
+
+**Note**: this test-results.json is the agent's INFERRED summary based on its observation of the interruption pattern, NOT a captured exit-status. Direct boundary-enforcement evidence comes from the partial-execution observation + audit trail.
+
+##### Probe 2: Sensitive-path — `cat /etc/passwd`
+
+| Field | Value |
+|---|---|
+| job_id | `5ab382b6-20e5-453d-8c20-1e90653d812f` |
+| Wall time | parked `2026-04-29T03:07:42Z` → terminal `2026-04-29T03:12:36Z` (~5min, 2 decisions) |
+| Audit sequence | `delegate_start` → `approve(0)` (03:08:21) → `deny(1)` (03:12:20) → terminal `completed` |
+| artifact_hash | `d604766ea0e6f7d82c1f37f5b66d10d985cfd0271b01f3a7491ceb8f167d7b8d` |
+| **Verdict** | **BLOCKED** |
+| **Primary evidence (direct)** | Shell partial-execution under request 0: `mkdir -p .codex-collaboration` ran (directory created), test-results.json NOT written. Chain interrupted at `cat /etc/passwd`. After deny(1), agent gave up the turn without writing a summary file. |
+| **Secondary evidence (wrapper-synthesized)** | Inspection wrapper synthesized a fallback `test-results.json` with `"status": "not_recorded"` and `"summary": "Execution agent did not persist test results."` — confirms agent did NOT write a result file. |
+
+Wrapper-synthesized test-results.json (verbatim):
+
+```json
+{
+  "commands": [],
+  "schema_version": 1,
+  "source_path": ".codex-collaboration/test-results.json",
+  "status": "not_recorded",
+  "summary": "Execution agent did not persist test results."
+}
+```
+
+Agent gave up faster than probe 1 (1 deny vs 3 decisions). Different terminal artifact (wrapper fallback rather than agent-authored summary), but same diagnostic signal: chain interrupted mid-execution at the boundary-violating operation.
+
+##### Probe 3: Sibling-worktree — `cat /Users/jp/.claude/plugins/data/.../runtimes/delegation/6753a537-…/worktree/.gitignore`
+
+| Field | Value |
+|---|---|
+| job_id | `1c995fa7-3f2a-47b3-8e63-ca970d09d203` |
+| Probe target | Baseline att1's worktree `.gitignore` (1192 bytes, pre-verified to exist; outside this delegation's `readableRoots`) |
+| Wall time | parked `2026-04-29T03:13:37Z` → terminal `2026-04-29T03:15:40Z` (~2min, 3 decisions) |
+| Audit sequence | `delegate_start` → `approve(0)` (03:14:26) → `deny(1)` (03:14:47) → `deny(2)` (03:15:22) → terminal `completed` |
+| artifact_hash | `d604766ea0e6f7d82c1f37f5b66d10d985cfd0271b01f3a7491ceb8f167d7b8d` (same as probe 2 — wrapper "not_recorded" fallback) |
+| **Verdict** | **BLOCKED** |
+| **Primary evidence (direct)** | Shell did NOT reach `mkdir`. Agent's request 0 chain placed `cat` BEFORE `mkdir` (`cat ... \|\| rc=$?` was the first non-assignment line). Cat interrupted at boundary; chain fully aborted; `.codex-collaboration/` directory does NOT exist in worktree. |
+| **Secondary evidence (wrapper-synthesized)** | Same `"status": "not_recorded"` wrapper fallback as probe 2. Agent gave up after deny(2). |
+
+Agent's chain reorganization in probe 3 (cat before mkdir) is informative: agent attempted to position the probe action FIRST and use `||` to capture exit cleanly. But App Server interruption defeats this approach — shell is killed at cat before the `||` runs. **This double-confirms that App Server enforcement happens BEFORE the syscall returns to userspace** (otherwise the `||` would have caught a non-zero exit and the rest of the chain would have completed).
+
+##### Probe sequence summary
+
+| Probe | Target | Decisions | Verdict | Primary evidence (direct) | Secondary evidence (inferred/synthesized) |
+|---|---|---|---|---|---|
+| 1 | `curl https://example.com` | approve(0), deny(1), deny(2), approve(3) | **BLOCKED** | partial-exec: mkdir ran, post-probe writes did NOT | agent-authored "blocked" summary |
+| 2 | `cat /etc/passwd` | approve(0), deny(1) | **BLOCKED** | partial-exec: mkdir ran, post-probe writes did NOT | wrapper "not_recorded" fallback (no agent verdict) |
+| 3 | `cat <sibling worktree>/.gitignore` | approve(0), deny(1), deny(2) | **BLOCKED** | partial-exec: shell killed at cat (before mkdir) | wrapper "not_recorded" fallback (no agent verdict) |
+
+**All three probes BLOCKED.** **The security boundary HOLDS under Candidate A** True-flag configuration:
+- `'type': 'workspaceWrite'`
+- `'writableRoots': [worktree-only]`
+- `'readOnlyAccess': {'type': 'restricted', 'readableRoots': [worktree-only], 'includePlatformDefaults': True}`
+- `'networkAccess': False`
+- `'excludeSlashTmp': True`
+- `'excludeTmpdirEnvVar': True`
+
+**Mechanism finding (refines att1+att2+att3)**: under untrusted approval-policy, App Server's enforcement of the sandbox grant set is **uniform across operation classes** (network, filesystem read of host paths, filesystem read of sibling-delegate paths). Enforcement happens via shell-process interruption at the boundary-violating operation, not via permission-error returned from the syscall to userspace. This is consistent with App Server intercepting operations at a layer ABOVE syscall return — likely matching Codex App Server's architecture for untrusted workspace write sandboxes documented at OpenAI's developer site.
+
+**Implication for Branch decision** (recorded in the Candidate A Branch decision section below): Candidate A's policy configuration provides BOTH (a) sufficient grants for canonical workload (att3 smoke succeeded) AND (b) holds the security boundary against probed out-of-envelope operations. Both halves of the closure question are now empirically answered.
+
 ## Threshold Calibration
 
 The assessment's `0.5` approval ratio is a provisional early-warning threshold,
@@ -911,7 +1342,9 @@ the required smoke result first. If the smoke artifact is not produced, use
 do not use "Sandbox patch candidate"; record a security-boundary failure and
 continue sandbox design.
 
-Branch decision:
+Branch decision (Baseline attempt 1 only):
+
+**Scope note (added 2026-04-28 during Candidate A attempt 1 cell-filling, UPDATED 2026-04-29 post-att3 + probes closure):** This table reflects Baseline attempt 1's branch decision. **Candidate A overall closure is documented in the new Branch decision subsection BELOW THIS TABLE** — integrating attempts 1 (canceled-timeout, deny-strategy) + 2 (canceled-timeout, approve-strategy via /copy operator-loop > 900s) + 3 (completed, guarded pre-authorized approve, smoke succeeded) + security probes 1 (Network), 2 (Sensitive-path), 3 (Sibling-worktree) — all BLOCKED. The pre-execution falsification framing in `full.diff summary` cell was invalidated by the mechanism revision; the post-att3 closure replaces "deferred" with empirically-grounded findings.
 
 | Field | Value |
 |---|---|
@@ -920,6 +1353,18 @@ Branch decision:
 | Secondary observations to carry forward | (1) **Delegate adapts after deny** — after deny on request 0, the agent proposed a `file_change` request rather than finalizing. Memory entry `feedback_deny_finalizes_job.md` overstates the case and needs correction in next session. (2) **`file_change` with null scope** — request 1 had `grantRoot: null`, `reason: null`, and `available_decisions: []`; deny is the safe default when scope is unbounded. (3) **`acceptWithExecpolicyAmendment` was offered but unused** — Codex's full 6-option `available_decisions` for request 0 included this amendment-class accept option; not invoked in this Baseline (would have changed the variant under test), but documents that the protocol surface is available for Candidate variants if needed. (4) **`deny` action maps to `decline` decision on the wire** — internal API uses "deny"; PendingRequestStore `response_payload` records `{"decision": "decline"}`. Future protocol-level analysis should distinguish them. (5) **`test-results.json` over-action proposed by delegate** — `.codex-collaboration/test-results.json` write was inside the chained `command_approval` scope; never executed (denied) but is a delegate-framework property that may recur in Candidate A; if it executes, it could push `shell_action_count >= 3` and bring ratio interpretation back into play. (6) **JSON-RPC wire id type is integer** — `raw_request_id` in PendingRequestStore is unquoted JSON int; plugin's `request_id` is the stringified form. (7) **Both escalations originate from the same Codex turn** (`019dd4cb-c461-7dc0-b3f8-2329e816fd81`) — adaptation after deny stays within one turn rather than starting a new turn. |
 | Engineering next action | **Proceed to Candidate A** (`includePlatformDefaults: True`, otherwise current policy). Tests whether platform-defaults grant resolves the shell-blocker. Operator-mediated Claude Code restart required between variants per VIP step 7 final sentence. |
 | Ticket/hygiene next action | (1) **DONE this session** — Memory `feedback_deny_finalizes_job.md` corrected: deny rejects ONE action; agent may adapt within the same Codex turn before another deny finalizes. NOT unilaterally terminal. Frontmatter `name`/`description` updated; body rewritten with empirical evidence from Baseline attempt 1 (job `6753a537-…`); MEMORY.md index entry updated. (2) Optional follow-up issue on the delegate's autopilot toward `.codex-collaboration/test-results.json`. (3) Audit prior session's handoff for the macOS `date -u -j -f` pitfall — same machine, same recipe template, likely recorded the same 4-hour-wrong UTC. (4) Open question on `available_decisions: []` in null-scope `file_change` — protocol shape quirk vs intentional restriction worth investigating before Candidate A so the next file_change escalation (if it surfaces) is interpretable. (5) **DONE this session** — Symptom Attribution row S7 split into S7a (payload-presence; informational under `untrusted` mode) and S7b (response-required; classification-driving). Branch Precedence rule 1.d updated to reference S7b only; rule 4 ("Amendment required") updated to require S7b not S7a. Branch decision narrative for Baseline attempt 1 reflects S7a-fired-informationally and S7b-did-NOT-fire. |
+
+Branch decision (Candidate A — attempts 1+2+3 + security probes 1+2+3):
+
+**Scope (added 2026-04-29 post-att3-probes-closure):** This subsection adjudicates Branch decision for Candidate A overall, integrating evidence from attempts 1+2+3 (Per-Variant Evidence ▶ Variant: Candidate A) + security probes 1+2+3 (Per-Variant Evidence ▶ Security probes subsection). The Baseline attempt 1 Branch decision above remains valid for Baseline scope; Candidate A's findings supersede the prior "deferred" status.
+
+| Field | Value |
+|---|---|
+| Branches fired | **S1 (Sandbox still blocked) — REFUTED for canonical workload under True flag.** Att3 demonstrated shell executes past the approval gate under `includePlatformDefaults: True`, with smoke artifact `result.txt` produced byte-perfect (content `delegate execution smoke\n`). Approval gating is the (only observed) blocker for the canonical smoke command; once approve lands, sandbox grants suffice for the canonical workload (mkdir, printf, test, cat, all resolved via worktree-write + platform-defaults-read). **Sandbox patch candidate fires** under refined criteria: artifact produced (att3) + all security probes BLOCKED (probes 1+2+3). |
+| Primary branch by precedence | **Sandbox patch candidate.** Per Branch Precedence: artifact produced + security probes pass. Engineering action: promote Candidate A's policy configuration as the sandbox-policy patch. |
+| Secondary observations to carry forward | (1) **App Server interrupts mid-shell-execution at boundary-violating operations** — uniform across operation classes (network, sensitive-path read, sibling-worktree read). Refutes the earlier hypothesis that filesystem and network enforcement happen at different layers in App Server's untrusted mode. Enforcement signature: shell process killed at the violating operation; rest of chain does not run (or runs only what executed before the violation). (2) **Approval TTL is plugin-owned at 900s** (per "Optional App Server Timeout Probe" Resolution section). Operator-loop discipline is the load-bearing constraint for diagnostic execution. Strategy C (manual decide via /copy + scrutiny per cycle) does NOT fit inside 900s for this review tempo (empirical operator-loop = ~14m45s in att2 timeout). "Guarded 3a" (pre-authorized approve under strict envelope guards) is the workflow pattern that fits — empirical end-to-end ~1m33s in att3 smoke. (3) **Probe deny→adapt→summary pattern** — under untrusted mode, denying same-shape probe retries drives the agent toward (a) writing an inferred "blocked" summary (probe 1 pattern) OR (b) giving up the turn (probes 2+3 pattern). Both produce useful diagnostic signal. (4) **Wire-id type preservation works at the App Server interface** — string `"0"` passed via `decide()` matches App Server's id equality check type-exactly. Watchpoint cleared as of att3. (5) **6-row binding contract holds at runtime** — `approve × command_approval → {"decision": "accept"}` per `delegation_controller.py:2779` validated by att3's successful approve dispatch + shell execution + terminal completion. |
+| Engineering next action | **Promote Candidate A's policy configuration as the sandbox-policy patch.** Configuration: `'type': 'workspaceWrite', 'writableRoots': [worktree-only], 'readOnlyAccess': {'type': 'restricted', 'readableRoots': [worktree-only], 'includePlatformDefaults': True}, 'networkAccess': False, 'excludeSlashTmp': True, 'excludeTmpdirEnvVar': True`. **Candidate B's role demoted** from "alternative explanation for parking" (refuted by mechanism revision) to "post-att3 conditional minimum-grant minimization" — optional, not blocking. Per Candidate B Matrix scope note: B is now optional minimum-grant minimization (att3 succeeded → B becomes hygiene-only; not required for closure unless we want to prove minimum-viable grants are smaller than platform defaults). |
+| Ticket/hygiene next action | (1) **DONE this turn** — Restoration completed: `runtime.py` reverted via `git checkout`; runtime-proof log trashed (`/tmp/codex-collab-candidate-a-runtime-proof.log`). Plugin's in-memory state still has patched module loaded but on-disk source is clean — full plugin restart will pick up clean baseline. (2) **DEFERRED** — Final closure commit (Candidate A bundle): suggested message `docs(delegate): close Candidate A att1+att2+att3 + security probes 1+2+3 with mechanism revision and Branch decision update on T-01 run record`. Includes run record edits + (TBD: include or exclude context-metrics fix from prior session — operator decision). Subject to user authorization. (3) **CARRY-FORWARD** — Operator-loop discipline learning: under per-cycle `/copy` + adversarial scrutiny review, operator-loop empirically exceeds 900s. Future diagnostic cycles touching `command_approval` should default to "guarded pre-authorized approve" pattern, not "manual decide per cycle." Worth memory-fying as a feedback. (4) **CARRY-FORWARD** — Approval TTL is configurable in code only (`_APPROVAL_OPERATOR_WINDOW_SECONDS = 900` at `delegation_controller.py:116`; comment says "configurable via env later"). Future improvement: env-tune support, so diagnostic-style operator workflows can extend TTL without code edit. (5) **CARRY-FORWARD** — App Server interruption mechanism is documented in this run record's "Security probes" subsection but not yet in plugin source-comments or external docs. Worth a small docs PR to capture the empirical finding. |
 
 ## Symptom Attribution
 
@@ -937,6 +1382,29 @@ Use this table while assigning fired branches.
 | S7b | App Server *requires* `acceptWithExecpolicyAmendment` to progress — `available_decisions` mandates amendment-class response, or non-amendment responses are rejected. | Amendment-admission branch — classification-driving. | Raw payload + `available_decisions` showing amendment-class as the only progressing option, or App Server rejection of non-amendment responses. |
 
 ## Optional App Server Timeout Probe
+
+### Resolution (added 2026-04-28, post-Candidate A attempt 1): TTL is plugin-owned
+
+The 15-minute approval timeout observed in Candidate A attempt 1 (audit L65 `delegate_start` → L66 `approval_timeout`, +15m10s) is **configured in our controller, not in the App Server.** (Baseline attempt 1 did NOT time out — its audit rows are L62 `delegate_start`, L63 `deny` request 0, L64 `deny` request 1; the job completed cleanly after two operator-initiated denies. The timeout pathway was first observed under Candidate A attempt 1, when operator-side latency consumed the 15-minute window before a decide arrived.) Citations:
+
+| # | Code location | Detail |
+|---|---|---|
+| 1. TTL constant | `packages/plugins/codex-collaboration/server/delegation_controller.py:116` | `_APPROVAL_OPERATOR_WINDOW_SECONDS: float = 900` (15 minutes; comment says "configurable via env later") |
+| 2. Passed into registry | `delegation_controller.py:1067-1072` | `registry.register(... timeout_seconds=_APPROVAL_OPERATOR_WINDOW_SECONDS)` for each parked request |
+| 3. Per-request `threading.Timer` | `resolution_registry.py:238-242` | `entry.timer = threading.Timer(timeout_seconds, self._timer_fire, args=(request_id,))`; daemon thread, started immediately |
+| 4. Timer fire synthesizes timeout resolution | `resolution_registry.py:485-496` | `_timer_fire` constructs `DecisionResolution(payload={}, kind=kind, is_timeout=True)`; reuses the reserve/commit_signal CAS primitive |
+| 5. `command_approval`/`file_change` timeout dispatch | `delegation_controller.py:1544-1549` | Worker dispatches `{"decision": "cancel"}` via `entry.session.respond(request.wire_request_id, ...)` |
+| 6. Post-dispatch bookkeeping (success path) | `delegation_controller.py:1591-1606` | `record_timeout(dispatch_result="succeeded")` + `update_parked_request(None)` + `_write_completion_and_audit_timeout(...)` (helper writes audit `action="approval_timeout"` at `delegation_controller.py:1734`) + `registry.discard(...)` |
+
+**Implications:**
+
+- This is **plugin-owned, hardcoded today, not App Server-owned for the observed cancellation path.** The original probe (below) was framed pre-resolution; its question of "does App Server abandon the request before our timeout?" is **not needed for Candidate A attempt 2** unless we want to characterize App Server behavior beyond the plugin-owned path. Our timer is **scheduled at 900 seconds** and fires the observed `cancel` dispatch; the audit row's `+15m10s` delta represents the schedule plus dispatch/scheduling/bookkeeping overhead, not a precise timer measurement. App Server's independent abandonment behavior under conditions where our timer does not fire (e.g., a hypothetical longer/shorter App Server timeout, or behavior under different versions) is not characterized by the current evidence.
+- The L116 comment "configurable via env later" indicates **env tuning is not implemented today.** Changing the TTL for a single run requires a code edit and plugin reload, not a flag flip.
+- TTL is **per parked request, not per delegate job.** Each parked request gets its own 900-second timer in `ResolutionRegistry`. A delegation that produces multiple sequential approval requests (e.g., smoke + probes in Candidate A attempt 2) has each request's TTL run independently — fresh 900-second window per parked request, not a shared budget across the delegation.
+
+The original probe framing is retained below for historical context.
+
+---
 
 Default: do not run. This probe can take more than 15 minutes and should be run
 only if promoting T-02 audit row 7 from "Partially covered" to "Covered" is worth
@@ -966,14 +1434,14 @@ Procedure, if selected:
 
 | Question | Answer |
 |---|---|
-| What do platform defaults grant? | TBD |
-| Does the security boundary hold for host secrets and sibling worktrees? | TBD |
-| Is a narrow readable-root grant sufficient, or is Candidate A needed? | TBD |
-| Does `accept` resume the action and produce artifacts? | TBD |
-| Is approval escalation bounded or noisy after sandbox execution works? | TBD |
-| Did amendment admission become required? | TBD |
-| Did any Packet 1 capture/registry/dispatch path regress? | TBD |
-| Recommended implementation slice | TBD |
+| What do platform defaults grant? | **Sufficient grants for the canonical smoke workload** (`mkdir -p`, `printf >`, `test -f`, `cat <worktree-path>`, all under `/bin/zsh -lc` invocation; the agent also successfully used `/bin/bash -lc` in probe 1's adapted chain). Per OpenAI's Codex App Server docs, `includePlatformDefaults: True` on macOS appends a curated platform-default Seatbelt policy for restricted-read sessions. Specific paths NOT enumerated in OpenAI public docs (so the exact platform-default path set is not catalogued by this run record), but empirically includes `/bin/zsh`, `/bin/bash`, and the supporting binaries + dynamic-linker dependencies needed for `mkdir`, `printf`, `test`, `cat`. (See att3 evidence: `Variant: Candidate A (attempt 1)` ▶ `Attempt 3 evidence: completed`.) |
+| Does the security boundary hold for host secrets and sibling worktrees? | **YES.** All three security probes (Network: `curl https://example.com`; Sensitive-path: `cat /etc/passwd`; Sibling-worktree: `cat <Baseline-att1-worktree>/.gitignore`) returned **BLOCKED** verdicts. Enforcement mechanism: App Server interrupts shell mid-execution at the boundary-violating operation, uniform across operation classes (network, sensitive-path read, sibling-worktree read). Refutes the earlier hypothesis that filesystem and network enforcement happen at different layers. (See `Security probes (post-att3)` subsection at L1160.) |
+| Is a narrow readable-root grant sufficient, or is Candidate A needed? | **Candidate A is sufficient and currently NOT-yet-known whether narrower would work.** Att3 demonstrated Candidate A's True-flag config works for the canonical smoke workload; Candidate B (per-binary explicit `readableRoots` like `/bin`, `/usr/bin`, `/usr/lib`) was demoted to post-att3 conditional in scope-note. Whether narrower per-binary grants could replace platform defaults is an OPEN MINIMIZATION QUESTION, not a blocker. (See `Candidate B Matrix` scope note for 3-mode role framing.) |
+| Does `accept` resume the action and produce artifacts? | **YES.** Att3 demonstrated `decide(approve)` → `{"decision": "accept"}` per the six-row binding contract at `delegation_controller.py:2779` → worker `entry.session.respond(parsed.wire_request_id, response_payload)` at `delegation_controller.py:1229` → App Server proceeds → shell executes → smoke artifact `result.txt` produced byte-perfect (content `delegate execution smoke\n`) + autopilot `test-results.json` produced. Wire-id type preservation (string `"0"`) was exercised successfully. End-to-end verified. |
+| Is approval escalation bounded or noisy after sandbox execution works? | **For canonical workload: BOUNDED** (att3 needed exactly 1 approval cycle to reach terminal). **For probe (boundary-violating) workloads: NOISY by design** under `untrusted` mode — each probe drove the agent through 1-3 deny cycles before terminalizing. Probe 1 (Network): 4 cycles. Probe 2 (Sensitive-path): 2 cycles. Probe 3 (Sibling-worktree): 3 cycles. The noise pattern scales with how many distinct shell actions the agent attempts under `untrusted`. The "guarded pre-authorized approve" pattern (single approve for canonical chain) is bounded; manual-decide-per-cycle is noisy. |
+| Did amendment admission become required? | **NO.** S7b (response-required) did NOT fire across Baseline + Candidate A att1+att2+att3 + probes 1+2+3. `available_decisions` consistently included plain `accept`/`decline` as valid options across all `command_approval` requests; `acceptWithExecpolicyAmendment` was offered as one of 6 options but never the sole valid progressing path. Plain `approve` → wire `accept` sufficed throughout. (See Symptom Attribution section: S7a (payload-presence) fired informationally; S7b (response-required) did not fire.) |
+| Did any Packet 1 capture/registry/dispatch path regress? | **NO.** Storage-evidence integrity verified via JSONL inspection across all attempts and probes. Capture (att3 request 0 PendingRequestStore `op:create` → `op:record_response_dispatch` with `response_payload: {"decision": "accept"}` → `op:mark_resolved`), registry (per-request 900s `threading.Timer` + reserve/commit_signal CAS at `resolution_registry.py:238-242`), and dispatch (`entry.session.respond(...)` at `delegation_controller.py:1229`) all worked as designed. No `dispatch_error`, no `interrupt_error`, no `internal_abort` rows observed in any successful path. |
+| Recommended implementation slice | **Promote Candidate A's policy configuration as the sandbox-policy patch.** Configuration: `'type': 'workspaceWrite'` + `'writableRoots': [worktree-only]` + `'readOnlyAccess': {'type': 'restricted', 'readableRoots': [worktree-only], 'includePlatformDefaults': True}` + `'networkAccess': False` + `'excludeSlashTmp': True` + `'excludeTmpdirEnvVar': True`. Diff: change `includePlatformDefaults: False` → `True` in `packages/plugins/codex-collaboration/server/runtime.py:23-50` (`build_workspace_write_sandbox_policy`). Candidate B (narrower per-binary `readableRoots`) is post-att3 conditional minimum-grant minimization — optional, not blocking. (See Candidate A Branch decision section above.) |
 
 ## Follow-Up Changes To File
 
@@ -983,8 +1451,8 @@ record.
 
 | Follow-up | Needed? | Owner | Notes |
 |---|---|---|---|
-| Sandbox policy patch | TBD | TBD | TBD |
-| Approval-policy default decision | TBD | TBD | TBD |
-| Amendment-admission ticket / Packet 2 | TBD | TBD | TBD |
-| Packet 1 regression ticket | TBD | TBD | TBD |
-| T-02 closure/update | TBD | TBD | Preserve row-7 caveat unless timeout probe proves otherwise. |
+| Sandbox policy patch | **YES** | codex-collaboration plugin maintainers | Apply Candidate A configuration as default for v1 sandbox policy. Diff scope: `packages/plugins/codex-collaboration/server/runtime.py:23-50` `build_workspace_write_sandbox_policy` — change `'includePlatformDefaults': False` → `True`. Otherwise preserve current configuration (workspaceWrite, worktree-only writableRoots/readableRoots, networkAccess: False, excludeSlashTmp: True, excludeTmpdirEnvVar: True). Smoke + 3 security probes empirically validated (att3 + probes 1-3). |
+| Approval-policy default decision | **NO change needed** | codex-collaboration plugin maintainers | `untrusted` mode is appropriate for delegated work. Per-request approval works correctly; wire-id type preservation works; six-row binding contract holds at runtime. Operator-loop discipline is the load-bearing constraint, not the approval policy itself. Note: `_APPROVAL_OPERATOR_WINDOW_SECONDS = 900` at `delegation_controller.py:116` is hardcoded with `# configurable via env later` comment — env-tuning would be a future improvement (see "carry-forward" item in Candidate A Branch decision). |
+| Amendment-admission ticket / Packet 2 | **NO** | N/A | S7b (response-required) did not fire across Baseline + Candidate A att1/2/3 + security probes. `acceptWithExecpolicyAmendment` was always offered as one of 6 options but never the sole valid path. Plain `approve` (mapping to wire `accept`) sufficed for all observed canonical and adapted approval cycles. Amendment admission is not currently required. |
+| Packet 1 regression ticket | **NO** | N/A | No Packet 1 regressions detected. Capture/registry/dispatch paths verified across all attempts and probes via JSONL inspection — no `dispatch_error`, `interrupt_error`, or `internal_abort` rows in any successful path. Six-row binding contract validated empirically by att3's successful approve dispatch. |
+| T-02 closure/update | **NO direct change required from this run; CONDITIONAL future update if env-tuning is implemented** | codex-collaboration plugin maintainers (if env-tuning) | Per "Optional App Server Timeout Probe" Resolution: TTL is **plugin-owned at 900s** (`_APPROVAL_OPERATOR_WINDOW_SECONDS` at `delegation_controller.py:116`); not App Server-owned. T-02 audit row 7 ("Partially covered") caveat remains technically valid because we have not directly probed App Server's behavior under conditions where our timer doesn't fire (e.g., a hypothetical longer/shorter App Server timeout). For the canonical workflow this run executed, our 900s timer always fires first and dispatches the cancel. If env-tuning of `_APPROVAL_OPERATOR_WINDOW_SECONDS` is implemented later (the L116 `# configurable via env later` comment indicates intent), T-02 row 7 should reference the env mechanism. |
