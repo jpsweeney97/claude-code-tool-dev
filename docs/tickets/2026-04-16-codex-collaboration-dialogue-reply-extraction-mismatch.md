@@ -105,42 +105,84 @@ Per `operator-procedure.md:66`, all runs must use the same commit. Patching this
 
 ## Proposed fix
 
-**Fix boundary:** wire the existing `_read_turn_agent_message` extractor into the `reply()` parse step. Do **not** broaden runtime-layer semantics.
+### Mechanism analysis (updated 2026-04-29)
 
-Preferred boundary because:
+The runtime's notification loop at `runtime.py:268-273` already captures
+streaming `item/completed` notifications where `item.type ==
+"agentMessage"`. This is the happy path for most messages. The bug
+triggers when no `item/completed` notification fires for the agent
+message — the Codex runtime delivers it only in the final
+`turn/completed` payload's `turn.items[]`, and the runtime does not fall
+back to extracting from `turn_payload` before returning.
 
-- The robust extraction is already written and tested in the read-path — it's static, dependency-free, and designed to handle both response shapes
-- Broadening the dispatch/runtime layer to canonicalize `turn_result.agent_message` would touch a wider surface and risks affecting other consumers (`consult`, `start`, future tool calls)
-- The bug is local to the controller's parse projection; the fix should be local too
+The actual missing path is therefore narrower than "add items-array
+support to runtime." The runtime already has items-array support via
+streaming capture; it lacks a **final-turn-payload fallback** when the
+streaming path produces no agent message.
 
-**Correction to the initial draft:** an earlier version of this ticket proposed "obtain the raw_turn dict from the dispatch layer" in `reply()`. That framing is wrong. `TurnExecutionResult` (defined at `packages/plugins/codex-collaboration/server/models.py:106-111`) carries only three fields: `turn_id`, `agent_message`, `notifications`. The raw turn dict is not exposed at the `reply()` site. Implementing the fix requires either enriching the runtime projection, canonicalizing at dispatch, or doing a post-commit journal read — each with different trade-offs.
+### Fix shape
 
-**Fix options (ordered by scope increase):**
+Extract `_read_turn_agent_message` from `dialogue.py:984-1001` into a
+shared helper module (e.g., `turn_extraction.py`) as:
 
-*Option A — Canonicalize `agent_message` at dispatch.* The bug's true site is `runtime.py:173-177`, where `agent_message` is populated from the Codex `turn/start` response. If that extraction is given the same items-array fallback that `_read_turn_agent_message` implements, all downstream consumers (`reply`, `consult`, any future tool using `TurnExecutionResult`) are fixed. Implementation: move `_read_turn_agent_message` from the controller (`dialogue.py:973-990`) to a shared helper (e.g., `codex_compat.py` or a new `turn_extraction.py`), call it from runtime's `agent_message` extraction path. Scope: runtime + helper module + tests; `dialogue.reply()` unchanged.
+```python
+def extract_agent_message(raw_turn: Mapping[str, object]) -> str:
+    ...
+```
 
-*Option B — Enrich `TurnExecutionResult`.* Add a narrow projection field to `TurnExecutionResult` (e.g., `items: tuple[dict[str, Any], ...] = ()`) populated at dispatch. In `reply()`, fall back to `self._read_turn_agent_message({"items": turn_result.items})` if `turn_result.agent_message` is empty. Scope: models + runtime + controller + tests. Adds items-array visibility to TurnExecutionResult consumers.
+This is response-shape normalization, not version-compatibility logic —
+`codex_compat.py` is not the right home.
 
-*Option C — Post-commit journal read in `reply()`.* Since the turn is committed to durable state before the parse step (`dialogue.py:498-499`), `reply()` could retrieve the committed turn via the turn store and extract the agent message via `_read_turn_agent_message`. Scope: controller-only, but couples `reply()` to persistence-layer retrieval and adds a storage round-trip on every reply.
+Wire the shared helper into two sites:
 
-**Recommended:** Option A. Fixes the root cause at its source. Narrowest long-term surface because `TurnExecutionResult` stays unchanged, and consult-path robustness improves for free. The static extractor's existing unit tests transfer with the move.
+1. **`dialogue.py` read path** (`dialogue.py:947`): replace
+   `self._read_turn_agent_message(raw_turn)` with
+   `extract_agent_message(raw_turn)`.
+2. **`runtime.py` turn-completion path** (`runtime.py:274-291`): when
+   `turn/completed` arrives and `agent_message` is still empty, call
+   `extract_agent_message(turn_payload)` on the `turn_payload` dict
+   before returning. Keep the existing `item/completed` streaming
+   capture — the fallback fires only when streaming produced no agent
+   message.
 
-**Estimated effort (Option A):** 1 helper module (or addition to `codex_compat.py`) + ~3-5 lines in `runtime.py` + updates to existing `_read_turn_agent_message` tests + 1 new test for the runtime integration path. Roughly ~15-25 production lines + ~30-50 test lines. `effort: medium` in the frontmatter reflects this.
+Do not modify `TurnExecutionResult` (4 fields, no `items`). Do not
+modify `dialogue.reply()` except imports if needed. The fix canonicalizes
+`agent_message` at the runtime layer, so all downstream consumers
+(`reply`, `consult`, any future `TurnExecutionResult` consumer) are
+fixed.
 
-**Implementation tests required:**
+**Supersedes earlier "fix in reply, do not broaden runtime semantics"
+paragraph.** That framing was written before the runtime's existing
+`item/completed` handling was analyzed. The runtime-layer fallback is
+the stronger fix: it canonicalizes once at the source rather than
+requiring each consumer to handle both shapes.
 
-1. Unit test for the shared extractor: items-array shape with well-formed text
-2. Unit test: top-level `agentMessage` shape (regression)
-3. Unit test: absent `agentMessage` AND absent `items[type=agentMessage]` — extractor returns `""`
-4. Integration test: runtime's `agent_message` extraction path handles items-array shape end-to-end (mock `turn/start` response)
-5. Integration test: `dialogue.reply()` against a mock runtime that returns items-array-shaped turns — successful parse + `DialogueReplyResult` construction
+### Implementation tests
 
-**Out of scope for this patch:**
+1. Unit: shared extractor handles top-level `agentMessage`.
+2. Unit: shared extractor handles `items[]` with
+   `type: "agentMessage"`.
+3. Unit: shared extractor returns `""` when neither shape exists, and
+   ignores malformed/non-dict items.
+4. Runtime integration (load-bearing regression): fake JSON-RPC emits
+   only `turn/completed` with `turn.items[]` (no preceding
+   `item/completed` notification); `_run_turn()` returns
+   `TurnExecutionResult.agent_message` populated from the fallback.
+5. Dialogue/control-plane regression: a reply flow backed by the runtime
+   projection succeeds when the runtime result came from the items-array
+   fallback. If this is hard to wire without a heavy fake (since
+   `FakeRuntimeSession` returns pre-projected `TurnExecutionResult`),
+   make test #4 the load-bearing regression and add a smaller `reply()`
+   test proving valid canonical text still parses.
 
-- Retry logic for genuinely empty Codex completions (separate concern — extraction mismatch ≠ empty-response handling)
-- Migrating `consult`'s parse path separately (Option A fixes it incidentally; no separate work)
-- In-dialogue recovery via `codex.dialogue.read` fallback after parse failure
-- Refactoring the commit-before-parse design at `dialogue.py:498-499` (the design is sound; the bug is upstream)
+### Out of scope
+
+- Retry logic for genuinely empty Codex completions (separate concern)
+- In-dialogue recovery via `codex.dialogue.read` fallback after parse
+  failure
+- Refactoring the commit-before-parse design at `dialogue.py:498-499`
+  (the design is sound; the bug is upstream)
+- Changing `TurnExecutionResult` shape
 
 ## Benchmark status (current truth as of 2026-04-29)
 
