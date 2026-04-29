@@ -3,7 +3,9 @@
 ```yaml
 id: T-20260423-01
 date: 2026-04-23
-status: open
+status: closed
+closed_at: 2026-04-29
+closed_via: a7a4e9c9
 priority: high
 tags: [codex-collaboration, delegation, sandbox, approval, execution]
 blocked_by: []
@@ -298,3 +300,57 @@ Verify all acceptance criteria.
 | Cancel response | `delegation_controller.py` | 718-719 | `{"decision": "cancel"}` confirmed |
 | Resume prompt | `execution_prompt_builder.py` | 41-77 | Natural-language-only resume confirmed |
 | Cancel-capable kinds | `delegation_controller.py` | 642 | `{"command_approval", "file_change"}` confirmed |
+
+## Closure (2026-04-29)
+
+**Status:** Closed via successful live `/delegate` smoke promotion.
+
+### Smoke evidence
+
+| Field | Value |
+|---|---|
+| Job ID | `4586c6c3-39cb-49ff-815b-620d7f3212c9` |
+| Base commit | `6a2bb5ae` |
+| Artifact hash | `d26a0b223c0d7c1fd3b96e309b1bbb11c348c8f26027de892c27421617769b9b` |
+| Promotion state | `verified` |
+| Promotion attempts | 2 (first: typed `worktree_dirty` rejection; second: success) |
+| Closing commit | `a7a4e9c9` |
+| Changed file | `packages/plugins/codex-collaboration/server/delegation_controller.py` (+3/-1) |
+
+### Acceptance criteria (all satisfied)
+
+- [x] Live `/delegate` ran shell commands needed for the repo edit (24 escalations across discovery, edit, and verification phases).
+- [x] `codex.delegate.decide(approve)` granted the original App Server request via the schema-valid `accept` decision (multiple grants dispatched across the run with `decision_accepted: true` and observable post-decide state advancement).
+- [x] Real objective (silence Pyright `reportUnreachable` on the `assert_never` exhaustiveness arm in `delegation_controller.py`) produced non-empty `full.diff` (1 file, +3/-1) and non-empty `changed_files`.
+- [x] `codex.delegate.poll` materialized reviewable artifacts with stable `artifact_hash` (`d26a0b22...` consistent across pre- and post-promotion polls).
+- [x] Final disposition: **successful promotion** (after a typed `worktree_dirty` rejection unrelated to sandbox or approval-loop concerns; the rejection was a workspace-state precondition resolved cleanly via `git stash`).
+- [x] Regression coverage: `tests/test_runtime.py` pins the Candidate A sandbox policy shape (from `ce0579f6`); existing test suite covers the approval decision response shape; closing commit's targeted pytest selection (2 passed) confirms the suppression does not regress union-member exhaustiveness expectations.
+
+### Operational findings (out of scope for this ticket; tracked for follow-up plugin work)
+
+The smoke required **24 operator approvals** to complete. This is well above the
+expected count for a 1-line type-suppression edit and surfaces three plugin-level
+opportunities to reduce delegation friction:
+
+1. **`~/.codex/` reads should not require approval.** Codex consults its own
+   memory store and skill catalog as part of its preparation cycle; these are
+   benign reads of its own data root that the operator should not have to grant
+   per-escalation. (4 escalations.)
+2. **Worktree's `.git` pointer should be in `readableRoots`.** Git worktrees use
+   a `.git` *file* pointing to `<source>/.git/worktrees/<name>`; tools like
+   ripgrep that respect `.gitignore` need to traverse this cross-worktree link,
+   triggering escalation on every in-worktree search. (~7 escalations.)
+3. **`file_change` escalations carry empty `requested_scope` payloads.** The
+   operator cannot see file path, change type, or diff preview before deciding,
+   defeating the visibility intent of the escalation. Worktree isolation +
+   review-before-promote (Gate 1) preserved safety in this run, but the opacity
+   is a real UX gap. (3 escalations.)
+
+These are tracked for a separate follow-up plugin commit and are intentionally
+out of scope for this ticket's closure.
+
+### References
+
+- Diagnostic record: `docs/diagnostics/2026-04-28-delegate-execution-diagnostic.md` (Candidate A closure, 2026-04-28)
+- Closing commit: `a7a4e9c9` `chore(codex-collaboration): silence pyright unreachable hint on assert_never arm`
+- Reconciliation register: `docs/status/codex-collaboration-reconciliation-register.md` (T-01 row removed in this same closure commit)
