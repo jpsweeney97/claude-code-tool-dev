@@ -1,5 +1,11 @@
 # Codex-Collaboration Reconciliation Register
 
+Use this file for open or unreconciled work.
+
+Start at [codex-collaboration Current State](./codex-collaboration-current-state.md)
+for project orientation, implemented-now surface, authority ownership, and
+reader routing.
+
 Last reconciled: 2026-04-29
 
 ## Authority
@@ -11,6 +17,8 @@ Authority boundary:
 
 - This file summarizes current-state classification, priority, and next-action
   labeling for work that already has source evidence elsewhere in the repo.
+- This file is **not** the canonical long-form current-state synthesis. It is the
+  bounded index of open, deferred, or still-unreconciled work.
 - Linked tickets, plans, diagnostics, and specs remain authoritative for
   acceptance criteria, evidence, and behavioral design.
 - If a linked artifact's status language drifts from newer repo evidence, this
@@ -44,11 +52,13 @@ Scope included here:
 1. Land the `T-20260416-01` extraction fix and run one post-patch verification.
 2. Implement `T-20260429-01` Phase 1 sandbox carve-outs (Options B + E) and
    validate via a comparable `/delegate` smoke with ≤2 escalations.
-3. Sweep residual typing and minor Packet 1 carry-forward debt (`TT.1`,
+3. Classify or intentionally safe-terminalize the currently unsupported App
+   Server request kinds tracked by `T-20260429-02`.
+4. Sweep residual typing and minor Packet 1 carry-forward debt (`TT.1`,
    `RT.1`, `P1-MINOR-SWEEP`).
-4. Convert `BMARK-L1-L3` into explicit follow-up tickets or deliberately
+5. Convert `BMARK-L1-L3` into explicit follow-up tickets or deliberately
    decline those L1/L2/L3 items as non-goals.
-5. Specify or explicitly defer `AUDIT-CONSUMER-INTERFACE`.
+6. Specify or explicitly defer `AUDIT-CONSUMER-INTERFACE`.
 
 ## Ticket-Owned Active Work
 
@@ -56,6 +66,7 @@ Scope included here:
 |---|---|---|---|---|
 | `T-20260416-01` | `open` | `docs/tickets/2026-04-16-codex-collaboration-dialogue-reply-extraction-mismatch.md` plus `docs/tickets/closed-tickets/2026-03-30-codex-collaboration-dialogue-parity-and-scouting-retirement.md` | The reply-path extraction mismatch remains a live product defect. Ticket body revised with protocol analysis against vendored schema: the `turn/completed.turn.items[]` fallback was withdrawn (`Turn.items` is always empty per `TurnCompletedNotification.json:1285`). Recommended fix is advisory-only `thread/read` fallback (mechanism A) with turn-ID lookup, best-effort failure semantics, and 9 implementation tests. Mechanism C (notification-stream investigation) is optional diagnostic work, not a gate. | Land the extraction fix with tests (#1-#9 including fallback failure cases and execution-turn isolation) and one post-patch verification, then close the ticket. |
 | `T-20260429-01` | `open` | `docs/tickets/2026-04-29-codex-collaboration-delegation-friction-reduction.md` | T-01's closing live `/delegate` smoke required 24 operator escalations to produce a 1-line edit, surfacing three plugin friction sources: `~/.codex/` reads (Codex consulting its own memory + skill cache), worktree `.git` cross-pointer reads (in-worktree `rg`/`git` traversing the gitdir target outside the worktree), and opaque `file_change` escalation payloads (empty `requested_scope` denies operator visibility). Phase 1 (Options B + E) is mechanical sandbox-policy carve-outs in `runtime.py`; Phase 2 (Option F) is investigation-first because the empty `requested_scope` may be a plugin gap or an App Server limitation. | Land the sandbox carve-outs and either resolve the file_change payload opacity or document it as an upstream limitation, then validate via a comparable smoke run with <=2 escalations. |
+| `T-20260429-02` | `open` | `docs/tickets/2026-04-29-codex-collaboration-unsupported-server-request-reachability.md` | The current delegation runtime parks only three server-request kinds (`command_approval`, `file_change`, `request_user_input`). Other App Server request methods that the current parser cannot fully support can still create minimal `unknown` records and terminalize jobs as `unknown`. The open work is to classify each unsupported method by reachability and then provide one of: supported handling, a regression test proving intentional safe terminal behavior, or a documented non-reachability proof. | Classify each unsupported `ServerRequest` method and land either support, regression coverage for intentional safe terminal behavior, or a recorded non-reachability proof for current advisory/delegation flows. |
 
 ## Residual Carry-Forward Debt
 
@@ -90,6 +101,8 @@ Scope included here:
 |---|---|---|---|---|
 | `DIALOGUE-FORK` | `deferred` | `docs/superpowers/specs/codex-collaboration/decisions.md` and `docs/superpowers/specs/codex-collaboration/contracts.md` | `codex.dialogue.fork` and fork-specific lineage operations are intentionally deferred from the current dialogue milestone. This is a live future-scope surface, not a forgotten gap. | A concrete branched-dialogue use case enters scope and a follow-up packet is opened. |
 | `MCP-STRUCTURED-ERROR-REASON` | `deferred` | `docs/superpowers/specs/codex-collaboration/contracts.md` | MCP clients still rely on text-prefix recoverability for certain delegation errors because a structured wire-level `reason` field is explicitly deferred to a future packet. | Define and land the structured wire field in a follow-up packet. |
+| `ADVISORY-WIDENING-ROTATION` | `deferred` | `docs/superpowers/specs/codex-collaboration/advisory-runtime-policy.md` plus `packages/plugins/codex-collaboration/server/control_plane.py` and `packages/plugins/codex-collaboration/server/profiles.py` | Advisory widening, narrowing, freeze-and-rotate, and reap behavior remain specified as future implementation work rather than live behavior. The current implementation rejects widened advisory requests and rejects widened profile settings until rotate support exists. | Either implement advisory widening/rotation with matching recovery and profile behavior, or rewrite the active policy text so it clearly scopes these paths as future-scope rather than live runtime behavior. |
+| `PHASED-CONSULTATION-PROFILES` | `deferred` | `packages/plugins/codex-collaboration/references/consultation-profiles.yaml` plus `packages/plugins/codex-collaboration/server/profiles.py` | The profile catalog includes phased profiles such as `debugging`, but the resolver currently rejects any profile with `phases` until phase-progression support exists. This is an intentional future-scope surface, not an accidental runtime bug. | Implement phase-progression support for phased profiles, or narrow the shipped profile catalog/documentation so only currently resolvable profiles are advertised. |
 
 ## Maintenance Rule
 
