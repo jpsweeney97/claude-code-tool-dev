@@ -1,0 +1,1028 @@
+{
+  "checked_equal": {
+    "CommandExecutionRequestApprovalResponse.json": true,
+    "FileChangeRequestApprovalParams.json": true,
+    "FileChangeRequestApprovalResponse.json": true,
+    "ToolRequestUserInputParams.json": true,
+    "ToolRequestUserInputResponse.json": true,
+    "v1/InitializeParams.json": true,
+    "v1/InitializeResponse.json": true,
+    "v2/ThreadReadParams.json": true,
+    "v2/TurnInterruptParams.json": true,
+    "v2/TurnSteerParams.json": true
+  },
+  "command_approval_details": {
+    "additional_file_system_permissions": {
+      "new": {
+        "present": true,
+        "properties": [
+          "entries",
+          "globScanMaxDepth",
+          "read",
+          "write"
+        ],
+        "property_schemas": {
+          "entries": {
+            "items": {
+              "$ref": "#/definitions/FileSystemSandboxEntry"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "globScanMaxDepth": {
+            "format": "uint",
+            "minimum": 1.0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "read": {
+            "description": "This will be removed in favor of `entries`.",
+            "items": {
+              "$ref": "#/definitions/AbsolutePathBuf"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "write": {
+            "description": "This will be removed in favor of `entries`.",
+            "items": {
+              "$ref": "#/definitions/AbsolutePathBuf"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        }
+      },
+      "old": {
+        "present": true,
+        "properties": [
+          "read",
+          "write"
+        ],
+        "property_schemas": {
+          "read": {
+            "items": {
+              "$ref": "#/definitions/AbsolutePathBuf"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "write": {
+            "items": {
+              "$ref": "#/definitions/AbsolutePathBuf"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "additional_permission_profile": {
+      "new": {
+        "present": true,
+        "properties": [
+          "fileSystem",
+          "network"
+        ],
+        "property_schemas": {
+          "fileSystem": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/AdditionalFileSystemPermissions"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "network": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/AdditionalNetworkPermissions"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Partial overlay used for per-command permission requests."
+          }
+        }
+      },
+      "old": {
+        "present": true,
+        "properties": [
+          "fileSystem",
+          "macos",
+          "network"
+        ],
+        "property_schemas": {
+          "fileSystem": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/AdditionalFileSystemPermissions"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "macos": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/AdditionalMacOsPermissions"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "network": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/AdditionalNetworkPermissions"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "command_action_variants": {
+      "new": {
+        "ListFilesCommandAction": {
+          "path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "required": [
+            "command",
+            "type"
+          ]
+        },
+        "ReadCommandAction": {
+          "path": {
+            "$ref": "#/definitions/AbsolutePathBuf"
+          },
+          "required": [
+            "command",
+            "name",
+            "path",
+            "type"
+          ]
+        },
+        "SearchCommandAction": {
+          "path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "required": [
+            "command",
+            "type"
+          ]
+        },
+        "UnknownCommandAction": {
+          "path": null,
+          "required": [
+            "command",
+            "type"
+          ]
+        }
+      },
+      "old": {
+        "ListFilesCommandAction": {
+          "path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "required": [
+            "command",
+            "type"
+          ]
+        },
+        "ReadCommandAction": {
+          "path": {
+            "type": "string"
+          },
+          "required": [
+            "command",
+            "name",
+            "path",
+            "type"
+          ]
+        },
+        "SearchCommandAction": {
+          "path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "required": [
+            "command",
+            "type"
+          ]
+        },
+        "UnknownCommandAction": {
+          "path": null,
+          "required": [
+            "command",
+            "type"
+          ]
+        }
+      }
+    },
+    "cwd": {
+      "new": {
+        "anyOf": [
+          {
+            "$ref": "#/definitions/AbsolutePathBuf"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "description": "The command's working directory."
+      },
+      "old": {
+        "description": "The command's working directory.",
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "macos_definition_names": {
+      "new": [],
+      "old": [
+        "AdditionalMacOsPermissions",
+        "MacOsAutomationPermission",
+        "MacOsContactsPermission",
+        "MacOsPreferencesPermission"
+      ]
+    },
+    "top_level": {
+      "added_props": [],
+      "equal": false,
+      "removed_props": [],
+      "required_new": [
+        "itemId",
+        "threadId",
+        "turnId"
+      ],
+      "required_old": [
+        "itemId",
+        "threadId",
+        "turnId"
+      ]
+    }
+  },
+  "digests": {
+    "new_schema_only": {
+      "files": 227,
+      "sha256": "41e0dd76f24eafe79edbc188dfdd75416aa577c469ea91b061c0597de043109d"
+    },
+    "old_all_json": {
+      "files": 197,
+      "sha256": "f533e52c6a5839a3d27ad96e9e8fd898011402997e0704fd5cd3e9d755a77ee1"
+    },
+    "old_schema_only": {
+      "files": 196,
+      "sha256": "51d10bb7c327619205171c76ba0164a2f9bd62bd0fee37c3e6f2498b3c0b46b9"
+    }
+  },
+  "direct_runtime_consumed": {
+    "v2/ItemCompletedNotification.json": {
+      "added_props": [],
+      "equal": false,
+      "removed_props": [],
+      "required_new": [
+        "item",
+        "threadId",
+        "turnId"
+      ],
+      "required_old": [
+        "item",
+        "threadId",
+        "turnId"
+      ]
+    },
+    "v2/ItemStartedNotification.json": {
+      "added_props": [],
+      "equal": false,
+      "removed_props": [],
+      "required_new": [
+        "item",
+        "threadId",
+        "turnId"
+      ],
+      "required_old": [
+        "item",
+        "threadId",
+        "turnId"
+      ]
+    },
+    "v2/ThreadReadResponse.json": {
+      "added_props": [],
+      "equal": false,
+      "removed_props": [],
+      "required_new": [
+        "thread"
+      ],
+      "required_old": [
+        "thread"
+      ]
+    },
+    "v2/ThreadStartedNotification.json": {
+      "added_props": [],
+      "equal": false,
+      "removed_props": [],
+      "required_new": [
+        "thread"
+      ],
+      "required_old": [
+        "thread"
+      ]
+    },
+    "v2/TurnCompletedNotification.json": {
+      "added_props": [],
+      "equal": false,
+      "removed_props": [],
+      "required_new": [
+        "threadId",
+        "turn"
+      ],
+      "required_old": [
+        "threadId",
+        "turn"
+      ]
+    },
+    "v2/TurnStartResponse.json": {
+      "added_props": [],
+      "equal": false,
+      "removed_props": [],
+      "required_new": [
+        "turn"
+      ],
+      "required_old": [
+        "turn"
+      ]
+    },
+    "v2/TurnStartedNotification.json": {
+      "added_props": [],
+      "equal": false,
+      "removed_props": [],
+      "required_new": [
+        "threadId",
+        "turn"
+      ],
+      "required_old": [
+        "threadId",
+        "turn"
+      ]
+    }
+  },
+  "enum_changes": {
+    "ApprovalsReviewer": {
+      "added": [
+        "auto_review"
+      ],
+      "new": [
+        "auto_review",
+        "guardian_subagent",
+        "user"
+      ],
+      "old": [
+        "guardian_subagent",
+        "user"
+      ],
+      "removed": []
+    }
+  },
+  "file_churn": {
+    "added": 32,
+    "added_files": [
+      "v2/DeviceKeyCreateParams.json",
+      "v2/DeviceKeyCreateResponse.json",
+      "v2/DeviceKeyPublicParams.json",
+      "v2/DeviceKeyPublicResponse.json",
+      "v2/DeviceKeySignParams.json",
+      "v2/DeviceKeySignResponse.json",
+      "v2/ExternalAgentConfigImportCompletedNotification.json",
+      "v2/FileChangePatchUpdatedNotification.json",
+      "v2/GuardianWarningNotification.json",
+      "v2/MarketplaceAddParams.json",
+      "v2/MarketplaceAddResponse.json",
+      "v2/MarketplaceRemoveParams.json",
+      "v2/MarketplaceRemoveResponse.json",
+      "v2/MarketplaceUpgradeParams.json",
+      "v2/MarketplaceUpgradeResponse.json",
+      "v2/McpResourceReadParams.json",
+      "v2/McpResourceReadResponse.json",
+      "v2/McpServerToolCallParams.json",
+      "v2/McpServerToolCallResponse.json",
+      "v2/ModelVerificationNotification.json",
+      "v2/SendAddCreditsNudgeEmailParams.json",
+      "v2/SendAddCreditsNudgeEmailResponse.json",
+      "v2/ThreadApproveGuardianDeniedActionParams.json",
+      "v2/ThreadApproveGuardianDeniedActionResponse.json",
+      "v2/ThreadInjectItemsParams.json",
+      "v2/ThreadInjectItemsResponse.json",
+      "v2/ThreadRealtimeSdpNotification.json",
+      "v2/ThreadRealtimeTranscriptDeltaNotification.json",
+      "v2/ThreadRealtimeTranscriptDoneNotification.json",
+      "v2/ThreadTurnsListParams.json",
+      "v2/ThreadTurnsListResponse.json",
+      "v2/WarningNotification.json"
+    ],
+    "added_notification_files": [
+      "v2/ExternalAgentConfigImportCompletedNotification.json",
+      "v2/FileChangePatchUpdatedNotification.json",
+      "v2/GuardianWarningNotification.json",
+      "v2/ModelVerificationNotification.json",
+      "v2/ThreadRealtimeSdpNotification.json",
+      "v2/ThreadRealtimeTranscriptDeltaNotification.json",
+      "v2/ThreadRealtimeTranscriptDoneNotification.json",
+      "v2/WarningNotification.json"
+    ],
+    "changed_common": 63,
+    "changed_common_files": [
+      "ApplyPatchApprovalResponse.json",
+      "ClientRequest.json",
+      "CommandExecutionRequestApprovalParams.json",
+      "DynamicToolCallParams.json",
+      "ExecCommandApprovalResponse.json",
+      "PermissionsRequestApprovalParams.json",
+      "PermissionsRequestApprovalResponse.json",
+      "ServerNotification.json",
+      "ServerRequest.json",
+      "codex_app_server_protocol.schemas.json",
+      "codex_app_server_protocol.v2.schemas.json",
+      "v2/AccountRateLimitsUpdatedNotification.json",
+      "v2/AccountUpdatedNotification.json",
+      "v2/CommandExecParams.json",
+      "v2/ConfigReadResponse.json",
+      "v2/ConfigRequirementsReadResponse.json",
+      "v2/ErrorNotification.json",
+      "v2/ExternalAgentConfigDetectResponse.json",
+      "v2/ExternalAgentConfigImportParams.json",
+      "v2/FeedbackUploadParams.json",
+      "v2/FsChangedNotification.json",
+      "v2/FsGetMetadataResponse.json",
+      "v2/FsUnwatchParams.json",
+      "v2/FsWatchParams.json",
+      "v2/FsWatchResponse.json",
+      "v2/GetAccountRateLimitsResponse.json",
+      "v2/GetAccountResponse.json",
+      "v2/HookCompletedNotification.json",
+      "v2/HookStartedNotification.json",
+      "v2/ItemCompletedNotification.json",
+      "v2/ItemGuardianApprovalReviewCompletedNotification.json",
+      "v2/ItemGuardianApprovalReviewStartedNotification.json",
+      "v2/ItemStartedNotification.json",
+      "v2/ListMcpServerStatusParams.json",
+      "v2/LoginAccountParams.json",
+      "v2/LoginAccountResponse.json",
+      "v2/ModelListResponse.json",
+      "v2/PluginInstallParams.json",
+      "v2/PluginListParams.json",
+      "v2/PluginListResponse.json",
+      "v2/PluginReadParams.json",
+      "v2/PluginReadResponse.json",
+      "v2/PluginUninstallParams.json",
+      "v2/RawResponseItemCompletedNotification.json",
+      "v2/ReviewStartResponse.json",
+      "v2/SkillsListResponse.json",
+      "v2/ThreadForkParams.json",
+      "v2/ThreadForkResponse.json",
+      "v2/ThreadListParams.json",
+      "v2/ThreadListResponse.json",
+      "v2/ThreadMetadataUpdateResponse.json",
+      "v2/ThreadReadResponse.json",
+      "v2/ThreadResumeParams.json",
+      "v2/ThreadResumeResponse.json",
+      "v2/ThreadRollbackResponse.json",
+      "v2/ThreadStartParams.json",
+      "v2/ThreadStartResponse.json",
+      "v2/ThreadStartedNotification.json",
+      "v2/ThreadUnarchiveResponse.json",
+      "v2/TurnCompletedNotification.json",
+      "v2/TurnStartParams.json",
+      "v2/TurnStartResponse.json",
+      "v2/TurnStartedNotification.json"
+    ],
+    "changed_common_notification_files": [
+      "ServerNotification.json",
+      "v2/AccountRateLimitsUpdatedNotification.json",
+      "v2/AccountUpdatedNotification.json",
+      "v2/ErrorNotification.json",
+      "v2/FsChangedNotification.json",
+      "v2/HookCompletedNotification.json",
+      "v2/HookStartedNotification.json",
+      "v2/ItemCompletedNotification.json",
+      "v2/ItemGuardianApprovalReviewCompletedNotification.json",
+      "v2/ItemGuardianApprovalReviewStartedNotification.json",
+      "v2/ItemStartedNotification.json",
+      "v2/RawResponseItemCompletedNotification.json",
+      "v2/ThreadStartedNotification.json",
+      "v2/TurnCompletedNotification.json",
+      "v2/TurnStartedNotification.json"
+    ],
+    "common": 195,
+    "new_schema_files": 227,
+    "old_schema_files": 196,
+    "removed": 1,
+    "removed_files": [
+      "v2/ThreadRealtimeTranscriptUpdatedNotification.json"
+    ],
+    "removed_notification_files": [
+      "v2/ThreadRealtimeTranscriptUpdatedNotification.json"
+    ]
+  },
+  "method_surfaces": {
+    "ClientRequest": {
+      "added": [
+        "account/sendAddCreditsNudgeEmail",
+        "device/key/create",
+        "device/key/public",
+        "device/key/sign",
+        "marketplace/add",
+        "marketplace/remove",
+        "marketplace/upgrade",
+        "mcpServer/resource/read",
+        "mcpServer/tool/call",
+        "thread/approveGuardianDeniedAction",
+        "thread/inject_items",
+        "thread/turns/list"
+      ],
+      "new_count": 71,
+      "old_count": 59,
+      "removed": []
+    },
+    "ServerRequest": {
+      "added": [],
+      "new_count": 9,
+      "old_count": 9,
+      "removed": []
+    }
+  },
+  "roots": {
+    "new": "/private/tmp/codex-app-server-schema-0.125.0-cleanroom.2onDzw",
+    "new_resolved": "/private/tmp/codex-app-server-schema-0.125.0-cleanroom.2onDzw",
+    "old": "packages/plugins/codex-collaboration/tests/fixtures/codex-app-server/0.117.0",
+    "old_resolved": "/Users/jp/Projects/active/claude-code-tool-dev/packages/plugins/codex-collaboration/tests/fixtures/codex-app-server/0.117.0"
+  },
+  "server_requests": {
+    "account/chatgptAuthTokens/refresh": {
+      "params": {
+        "added_props": [],
+        "equal": true,
+        "removed_props": [],
+        "required_new": [
+          "reason"
+        ],
+        "required_old": [
+          "reason"
+        ]
+      },
+      "params_file": "ChatgptAuthTokensRefreshParams.json",
+      "response": {
+        "added_props": [],
+        "equal": true,
+        "removed_props": [],
+        "required_new": [
+          "accessToken",
+          "chatgptAccountId"
+        ],
+        "required_old": [
+          "accessToken",
+          "chatgptAccountId"
+        ]
+      },
+      "response_file": "ChatgptAuthTokensRefreshResponse.json"
+    },
+    "applyPatchApproval": {
+      "params": {
+        "added_props": [],
+        "equal": true,
+        "removed_props": [],
+        "required_new": [
+          "callId",
+          "conversationId",
+          "fileChanges"
+        ],
+        "required_old": [
+          "callId",
+          "conversationId",
+          "fileChanges"
+        ]
+      },
+      "params_file": "ApplyPatchApprovalParams.json",
+      "response": {
+        "added_props": [],
+        "equal": false,
+        "removed_props": [],
+        "required_new": [
+          "decision"
+        ],
+        "required_old": [
+          "decision"
+        ]
+      },
+      "response_file": "ApplyPatchApprovalResponse.json"
+    },
+    "execCommandApproval": {
+      "params": {
+        "added_props": [],
+        "equal": true,
+        "removed_props": [],
+        "required_new": [
+          "callId",
+          "command",
+          "conversationId",
+          "cwd",
+          "parsedCmd"
+        ],
+        "required_old": [
+          "callId",
+          "command",
+          "conversationId",
+          "cwd",
+          "parsedCmd"
+        ]
+      },
+      "params_file": "ExecCommandApprovalParams.json",
+      "response": {
+        "added_props": [],
+        "equal": false,
+        "removed_props": [],
+        "required_new": [
+          "decision"
+        ],
+        "required_old": [
+          "decision"
+        ]
+      },
+      "response_file": "ExecCommandApprovalResponse.json"
+    },
+    "item/commandExecution/requestApproval": {
+      "params": {
+        "added_props": [],
+        "equal": false,
+        "removed_props": [],
+        "required_new": [
+          "itemId",
+          "threadId",
+          "turnId"
+        ],
+        "required_old": [
+          "itemId",
+          "threadId",
+          "turnId"
+        ]
+      },
+      "params_file": "CommandExecutionRequestApprovalParams.json",
+      "response": {
+        "added_props": [],
+        "equal": true,
+        "removed_props": [],
+        "required_new": [
+          "decision"
+        ],
+        "required_old": [
+          "decision"
+        ]
+      },
+      "response_file": "CommandExecutionRequestApprovalResponse.json"
+    },
+    "item/fileChange/requestApproval": {
+      "params": {
+        "added_props": [],
+        "equal": true,
+        "removed_props": [],
+        "required_new": [
+          "itemId",
+          "threadId",
+          "turnId"
+        ],
+        "required_old": [
+          "itemId",
+          "threadId",
+          "turnId"
+        ]
+      },
+      "params_file": "FileChangeRequestApprovalParams.json",
+      "response": {
+        "added_props": [],
+        "equal": true,
+        "removed_props": [],
+        "required_new": [
+          "decision"
+        ],
+        "required_old": [
+          "decision"
+        ]
+      },
+      "response_file": "FileChangeRequestApprovalResponse.json"
+    },
+    "item/permissions/requestApproval": {
+      "params": {
+        "added_props": [
+          "cwd"
+        ],
+        "equal": false,
+        "removed_props": [],
+        "required_new": [
+          "cwd",
+          "itemId",
+          "permissions",
+          "threadId",
+          "turnId"
+        ],
+        "required_old": [
+          "itemId",
+          "permissions",
+          "threadId",
+          "turnId"
+        ]
+      },
+      "params_file": "PermissionsRequestApprovalParams.json",
+      "response": {
+        "added_props": [
+          "strictAutoReview"
+        ],
+        "equal": false,
+        "removed_props": [],
+        "required_new": [
+          "permissions"
+        ],
+        "required_old": [
+          "permissions"
+        ]
+      },
+      "response_file": "PermissionsRequestApprovalResponse.json"
+    },
+    "item/tool/call": {
+      "params": {
+        "added_props": [
+          "namespace"
+        ],
+        "equal": false,
+        "removed_props": [],
+        "required_new": [
+          "arguments",
+          "callId",
+          "threadId",
+          "tool",
+          "turnId"
+        ],
+        "required_old": [
+          "arguments",
+          "callId",
+          "threadId",
+          "tool",
+          "turnId"
+        ]
+      },
+      "params_file": "DynamicToolCallParams.json",
+      "response": {
+        "added_props": [],
+        "equal": true,
+        "removed_props": [],
+        "required_new": [
+          "contentItems",
+          "success"
+        ],
+        "required_old": [
+          "contentItems",
+          "success"
+        ]
+      },
+      "response_file": "DynamicToolCallResponse.json"
+    },
+    "item/tool/requestUserInput": {
+      "params": {
+        "added_props": [],
+        "equal": true,
+        "removed_props": [],
+        "required_new": [
+          "itemId",
+          "questions",
+          "threadId",
+          "turnId"
+        ],
+        "required_old": [
+          "itemId",
+          "questions",
+          "threadId",
+          "turnId"
+        ]
+      },
+      "params_file": "ToolRequestUserInputParams.json",
+      "response": {
+        "added_props": [],
+        "equal": true,
+        "removed_props": [],
+        "required_new": [
+          "answers"
+        ],
+        "required_old": [
+          "answers"
+        ]
+      },
+      "response_file": "ToolRequestUserInputResponse.json"
+    },
+    "mcpServer/elicitation/request": {
+      "params": {
+        "added_props": [],
+        "equal": true,
+        "removed_props": [],
+        "required_new": [
+          "serverName",
+          "threadId"
+        ],
+        "required_old": [
+          "serverName",
+          "threadId"
+        ]
+      },
+      "params_file": "McpServerElicitationRequestParams.json",
+      "response": {
+        "added_props": [],
+        "equal": true,
+        "removed_props": [],
+        "required_new": [
+          "action"
+        ],
+        "required_old": [
+          "action"
+        ]
+      },
+      "response_file": "McpServerElicitationRequestResponse.json"
+    }
+  },
+  "thread_permission_responses": {
+    "v2/ThreadForkResponse.json": {
+      "added_props": [
+        "instructionSources",
+        "permissionProfile"
+      ],
+      "equal": false,
+      "permissionProfile_description": "Canonical active permissions view for this thread.",
+      "removed_props": [],
+      "required_new": [
+        "approvalPolicy",
+        "approvalsReviewer",
+        "cwd",
+        "model",
+        "modelProvider",
+        "sandbox",
+        "thread"
+      ],
+      "required_old": [
+        "approvalPolicy",
+        "approvalsReviewer",
+        "cwd",
+        "model",
+        "modelProvider",
+        "sandbox",
+        "thread"
+      ],
+      "sandbox_description": "Legacy sandbox policy retained for compatibility. New clients should use `permissionProfile` when present as the canonical active permissions view."
+    },
+    "v2/ThreadResumeResponse.json": {
+      "added_props": [
+        "instructionSources",
+        "permissionProfile"
+      ],
+      "equal": false,
+      "permissionProfile_description": "Canonical active permissions view for this thread.",
+      "removed_props": [],
+      "required_new": [
+        "approvalPolicy",
+        "approvalsReviewer",
+        "cwd",
+        "model",
+        "modelProvider",
+        "sandbox",
+        "thread"
+      ],
+      "required_old": [
+        "approvalPolicy",
+        "approvalsReviewer",
+        "cwd",
+        "model",
+        "modelProvider",
+        "sandbox",
+        "thread"
+      ],
+      "sandbox_description": "Legacy sandbox policy retained for compatibility. New clients should use `permissionProfile` when present as the canonical active permissions view."
+    },
+    "v2/ThreadStartResponse.json": {
+      "added_props": [
+        "instructionSources",
+        "permissionProfile"
+      ],
+      "equal": false,
+      "permissionProfile_description": "Canonical active permissions view for this thread.",
+      "removed_props": [],
+      "required_new": [
+        "approvalPolicy",
+        "approvalsReviewer",
+        "cwd",
+        "model",
+        "modelProvider",
+        "sandbox",
+        "thread"
+      ],
+      "required_old": [
+        "approvalPolicy",
+        "approvalsReviewer",
+        "cwd",
+        "model",
+        "modelProvider",
+        "sandbox",
+        "thread"
+      ],
+      "sandbox_description": "Legacy sandbox policy retained for compatibility. New clients should use `permissionProfile` when present as the canonical active permissions view."
+    }
+  },
+  "thread_turn_requests": {
+    "v2/ThreadForkParams.json": {
+      "added_props": [
+        "excludeTurns",
+        "permissionProfile"
+      ],
+      "equal": false,
+      "permissionProfile_description": "Full permissions override for the forked thread. Cannot be combined with `sandbox`.",
+      "removed_props": [],
+      "required_new": [
+        "threadId"
+      ],
+      "required_old": [
+        "threadId"
+      ]
+    },
+    "v2/ThreadResumeParams.json": {
+      "added_props": [
+        "excludeTurns",
+        "permissionProfile"
+      ],
+      "equal": false,
+      "permissionProfile_description": "Full permissions override for the resumed thread. Cannot be combined with `sandbox`.",
+      "removed_props": [],
+      "required_new": [
+        "threadId"
+      ],
+      "required_old": [
+        "threadId"
+      ]
+    },
+    "v2/ThreadStartParams.json": {
+      "added_props": [
+        "permissionProfile",
+        "sessionStartSource"
+      ],
+      "equal": false,
+      "permissionProfile_description": "Full permissions override for this thread. Cannot be combined with `sandbox`.",
+      "removed_props": [],
+      "required_new": null,
+      "required_old": null
+    },
+    "v2/TurnStartParams.json": {
+      "added_props": [
+        "permissionProfile"
+      ],
+      "equal": false,
+      "permissionProfile_description": "Override the full permissions profile for this turn and subsequent turns. Cannot be combined with `sandboxPolicy`.",
+      "removed_props": [],
+      "required_new": [
+        "input",
+        "threadId"
+      ],
+      "required_old": [
+        "input",
+        "threadId"
+      ]
+    }
+  }
+}
