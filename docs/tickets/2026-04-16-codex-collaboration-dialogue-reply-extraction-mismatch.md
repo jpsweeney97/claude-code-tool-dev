@@ -17,7 +17,7 @@ This ticket captures two independent facts. Do not conflate them when revisiting
 
 **Benchmark status.** The B3 candidate run (`B3-candidate`, thread `019d979c-f50c-7213-9729-be04ad765642`, commit `fa75111b`) is preserved as captured — transcript, synthesis, and metadata exported to staging. The extraction-path failure this ticket tracks does not on its own meet any invalidation trigger at `docs/benchmarks/dialogue-supersession/v1/operator-procedure.md:660-666`, and the non-convergence is accurately recorded in metadata (`converged_within_budget: false`, `termination_code: error`). **Final scored-validity classification for this row belongs to the parent benchmark track `T-20260330`** — including how the commit-reconciliation question in §"Why the B3 run stays valid" is resolved. This bug ticket does not assert a scored-validity verdict; it preserves the artifact and its finding. **Do not reclassify the run as invalid + superseded from this ticket's side** — that would erase the finding the benchmark was designed to surface and preempt a decision that is not this ticket's to make.
 
-**Product defect.** Independently, there is a real parse-path bug in `codex.dialogue.reply`: the live notification stream can fail to deliver an `item/completed` notification for the agent message, leaving `TurnExecutionResult.agent_message` as empty string and producing a `Consult result parse failed: expected JSON object` error that hard-terminates the dialogue. The committed turn history contains the agent message text (retrievable via `thread/read`), but the live dispatch path does not recover it. This is the bug this ticket tracks and will eventually fix.
+**Product defect.** Independently, there is a real parse-path bug in `codex.dialogue.reply`: the live notification stream can fail to deliver an `item/completed` notification for the agent message, leaving `TurnExecutionResult.agent_message` as empty string and producing a `Consult result parse failed: expected JSON object` error that hard-terminates the dialogue. The Codex session log contains the agent message text (verified in B3 rollout), and `thread/read` projection recovery is the implementation hypothesis — but the exact projection behavior for this failure class has not been directly captured. This is the bug this ticket tracks and will eventually fix.
 
 ## Symptom
 
@@ -25,7 +25,7 @@ This ticket captures two independent facts. Do not conflate them when revisiting
 
 Observable outcomes:
 - Dialogue terminates mid-turn
-- The turn IS committed to durable state (per the commit-before-parse design at `dialogue.py:498-499`) and can be retrieved via `codex.dialogue.read`, but the in-dialogue caller sees only the error
+- The turn IS committed to durable state (per the commit-before-parse design at `dialogue.py:498-499`) and the agent message text is present in the Codex session log, but the in-dialogue caller sees only the error. Whether `codex.dialogue.read` (which calls `thread/read`) can retrieve the text for this failure class is the implementation hypothesis to prove
 - Metadata fields: `converged_within_budget: false`, `termination_code: error`, `termination_reason` populated with the parse error message
 
 ## Reproduction context
@@ -373,8 +373,8 @@ verification.
 | Benchmark contract — invalidation triggers | `docs/benchmarks/dialogue-supersession/v1/operator-procedure.md:660-666` |
 | Benchmark contract — run_commit rule | `docs/benchmarks/dialogue-supersession/v1/operator-procedure.md:66` |
 | Benchmark contract — diagnostic metrics | `docs/benchmarks/dialogue-supersession/v1/operator-procedure.md:519` |
-| B3 candidate metadata | `/private/tmp/benchmark-v1-staging-20260415/B3-candidate-metadata.json` |
-| B3 candidate synthesis | `/private/tmp/benchmark-v1-staging-20260415/B3-candidate-synthesis.md` |
-| B3 candidate transcript | `/private/tmp/benchmark-v1-staging-20260415/B3-candidate-transcript.md` |
+| B3 candidate metadata | `docs/benchmarks/dialogue-supersession/v1/runs.json` (B3-candidate entry) |
+| B3 candidate synthesis | `docs/benchmarks/dialogue-supersession/v1/transcripts/B3-candidate-synthesis.md` |
+| B3 candidate transcript | `docs/benchmarks/dialogue-supersession/v1/transcripts/B3-candidate-transcript.md` |
 | Codex session rollout (B3 candidate) | `/Users/jp/.codex/sessions/2026/04/16/rollout-2026-04-16T14-45-39-019d979c-*.jsonl` |
 | Parent ticket (supersession benchmark) | `docs/tickets/closed-tickets/2026-03-30-codex-collaboration-dialogue-parity-and-scouting-retirement.md` |
