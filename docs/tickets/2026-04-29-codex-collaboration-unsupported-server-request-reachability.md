@@ -49,17 +49,32 @@ classified method by method.
 
 ## Methods To Classify
 
-| Method | Current parser result | Classification needed |
-|---|---|---|
-| `item/commandExecution/requestApproval` | Supported as `command_approval` | Current-flow regression coverage |
-| `item/fileChange/requestApproval` | Supported as `file_change` | Current-flow regression coverage |
-| `item/tool/requestUserInput` | Supported as `request_user_input` | Current-flow regression coverage |
-| `mcpServer/elicitation/request` | Parse failure with current required-field contract | Reachability in current advisory/delegation flows |
-| `item/permissions/requestApproval` | Parsed as `unknown` when context fields are present | Reachability and intended terminal/support behavior |
-| `item/tool/call` | Parse failure with current required-field contract | Reachability in current advisory/delegation flows |
-| `account/chatgptAuthTokens/refresh` | Parse failure with current required-field contract | Runtime/auth reachability and intended handling |
-| `applyPatchApproval` | Parse failure with current required-field contract | Whether alternate approval surface can appear in delegated execution |
-| `execCommandApproval` | Parse failure with current required-field contract | Whether alternate approval surface can appear in delegated execution |
+The delegation controller has two distinct code paths for unsupported
+server requests. Both terminalize the job as `unknown`, but the
+diagnostic quality differs:
+
+| Path | Code location | Trigger | Diagnostic quality |
+|---|---|---|---|
+| Parse-failure | `delegation_controller.py:984` catch | `_require_string` raises for missing `itemId`, `threadId`, or `turnId` | Minimal: empty context fields, only `raw_method` in `requested_scope` |
+| Known-parsed non-parkable | `delegation_controller.py:1072` | Parse succeeds but `kind` is not in the parkable set | Full: real context fields preserved, full `requested_scope` |
+
+Note: `availableDecisions` is also in `_REQUEST_CONTEXT_KEYS`
+(`approval_router.py:13`) and is stripped from `requested_scope` by the
+context-key filter, but it is not a required string field for parser
+acceptance. Methods that carry `availableDecisions` will have those
+values silently excluded from the preserved `requested_scope`.
+
+| Method | Current parser result | Failure path | Classification needed |
+|---|---|---|---|
+| `item/commandExecution/requestApproval` | Supported as `command_approval` | Supported (parked) | Current-flow regression coverage |
+| `item/fileChange/requestApproval` | Supported as `file_change` | Supported (parked) | Current-flow regression coverage |
+| `item/tool/requestUserInput` | Supported as `request_user_input` | Supported (parked) | Current-flow regression coverage |
+| `item/permissions/requestApproval` | Parsed successfully as `unknown` (has `itemId`, `threadId`, `turnId` per schema) | Known-parsed non-parkable | Reachability and intended terminal/support behavior |
+| `mcpServer/elicitation/request` | Parse failure: `turnId` is nullable/non-required | Parse-failure | Reachability in current advisory/delegation flows |
+| `item/tool/call` | Parse failure: missing `itemId` | Parse-failure | Reachability in current advisory/delegation flows |
+| `account/chatgptAuthTokens/refresh` | Parse failure: missing `itemId`, `threadId`, `turnId` | Parse-failure | Runtime/auth reachability and intended handling |
+| `applyPatchApproval` | Parse failure: missing `itemId`, `threadId`, `turnId` | Parse-failure | Whether alternate approval surface can appear in delegated execution |
+| `execCommandApproval` | Parse failure: missing `itemId`, `threadId`, `turnId` | Parse-failure | Whether alternate approval surface can appear in delegated execution |
 
 ## Acceptance Criteria
 
