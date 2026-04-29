@@ -17,11 +17,11 @@ This ticket captures two independent facts. Do not conflate them when revisiting
 
 **Benchmark status.** The B3 candidate run (`B3-candidate`, thread `019d979c-f50c-7213-9729-be04ad765642`, commit `fa75111b`) is preserved as captured — transcript, synthesis, and metadata exported to staging. The extraction-path failure this ticket tracks does not on its own meet any invalidation trigger at `docs/benchmarks/dialogue-supersession/v1/operator-procedure.md:660-666`, and the non-convergence is accurately recorded in metadata (`converged_within_budget: false`, `termination_code: error`). **Final scored-validity classification for this row belongs to the parent benchmark track `T-20260330`** — including how the commit-reconciliation question in §"Why the B3 run stays valid" is resolved. This bug ticket does not assert a scored-validity verdict; it preserves the artifact and its finding. **Do not reclassify the run as invalid + superseded from this ticket's side** — that would erase the finding the benchmark was designed to surface and preempt a decision that is not this ticket's to make.
 
-**Product defect.** Independently, there is a real parse-path bug in `codex.dialogue.reply`: replies delivered via the `items[] -> agentMessage` shape are extracted as empty string, producing a `Consult result parse failed: expected JSON object` error that hard-terminates the dialogue. This is the bug this ticket tracks and will eventually fix.
+**Product defect.** Independently, there is a real parse-path bug in `codex.dialogue.reply`: the live notification stream can fail to deliver an `item/completed` notification for the agent message, leaving `TurnExecutionResult.agent_message` as empty string and producing a `Consult result parse failed: expected JSON object` error that hard-terminates the dialogue. The committed turn history contains the agent message text (retrievable via `thread/read`), but the live dispatch path does not recover it. This is the bug this ticket tracks and will eventually fix.
 
 ## Symptom
 
-`codex.dialogue.reply` terminates a dialogue with `CommittedTurnParseError` and error text `"Reply turn committed but response parsing failed: Consult result parse failed: expected JSON object. Got: ''"` when the Codex runtime delivers the agent message via `items[] -> agentMessage` instead of the top-level `agentMessage` field.
+`codex.dialogue.reply` terminates a dialogue with `CommittedTurnParseError` and error text `"Reply turn committed but response parsing failed: Consult result parse failed: expected JSON object. Got: ''"` when the live notification stream fails to populate `TurnExecutionResult.agent_message` — even though the committed turn history contains the full agent message text.
 
 Observable outcomes:
 - Dialogue terminates mid-turn
@@ -153,10 +153,24 @@ shapes are distinct.
 Three viable approaches, ordered by implementation simplicity:
 
 **A: Post-completion `thread/read` fallback.** When `agent_message == ""`
-after `turn/completed`, call `read_thread(thread_id)` and extract from
-the last completed turn's projection using the existing
-`_read_turn_agent_message` logic. The B3 evidence proves the text is
-in the session log — `thread/read` is a guaranteed recovery path.
+after `turn/completed` with `status == "completed"`, call
+`read_thread(thread_id)` and extract from the last completed turn's
+projection using the existing `_read_turn_agent_message` logic. The B3
+evidence proves the text is in the session log — `thread/read` is a
+guaranteed recovery path.
+
+**Scope constraint:** The fallback MUST be scoped to advisory turns
+only. `_run_turn()` is shared between `run_advisory_turn()` (advisory
+path — `allowed_terminal_statuses=("completed",)`) and
+`run_execution_turn()` (delegation path —
+`allowed_terminal_statuses=("completed", "interrupted", "failed")`).
+Execution turns legitimately complete with empty `agent_message` on
+`interrupted` or `failed` status. An unconditional fallback would add
+`thread/read` calls to delegation paths where empty is correct, and
+could introduce new failure modes. Implementation options: (a) add a
+`fallback_on_empty_message: bool` parameter to `_run_turn()`, set `True`
+only in `run_advisory_turn()`; (b) apply the fallback as post-processing
+in `run_advisory_turn()` rather than in the shared `_run_turn()`.
 
 - Pro: Guaranteed to have the data (B3 proves the session log had the
   text)
@@ -182,18 +196,26 @@ from the accumulated deltas.
 - Con: Cannot prove correctness without confirming the B3 failure mode
   involved missing `item/completed` but present deltas
 
-**C: Investigate `item/completed` failure mode first.** Before building
-fallbacks, examine the B3 rollout to determine why `item/completed` with
+**C: Investigate `item/completed` failure mode.** Reproduce the B3
+scenario with instrumentation to determine why `item/completed` with
 `type: "agentMessage"` did not fire. Possible causes: `turnId` filtering
 mismatch (`runtime.py:260`), item not emitted for this turn pattern,
-notification dropped. `TurnExecutionResult.notifications` preserves the
-full notification stream from the B3 turn.
+notification dropped.
+
+Note: `TurnExecutionResult.notifications` preserves the notification
+stream in memory, but `dialogue.reply()` does not persist it when
+parsing fails — the tuple is lost with the `TurnExecutionResult` object.
+The B3 rollout file (`/Users/jp/.codex/sessions/.../rollout-*.jsonl`) is
+the Codex Desktop session log, not the App Server JSON-RPC notification
+stream. This mechanism therefore requires fresh reproduction with
+notification-stream logging, not examination of existing B3 artifacts.
 
 - Pro: Might reveal the bug is simpler (e.g., a `turnId` filter issue
   fixable in one line)
 - Pro: Understanding the failure mode improves confidence in any
   fallback
-- Con: Requires access to the B3 rollout file; reproduction is uncertain
+- Con: Requires fresh reproduction; the B3 notification stream was not
+  persisted
 - Con: Even if found, a fallback is still prudent for robustness
 
 **Recommended approach:** Start with C (investigate the B3 notification
