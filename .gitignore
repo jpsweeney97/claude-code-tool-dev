@@ -17,7 +17,8 @@ CLAUDE.local.md
 
 # Ephemeral
 tmp/
-docs/decisions/
+docs/decisions/*
+!docs/decisions/2026-04-29-codex-collaboration-drift-synthesis-recovery.md
 docs/handoffs/
 
 # Node
