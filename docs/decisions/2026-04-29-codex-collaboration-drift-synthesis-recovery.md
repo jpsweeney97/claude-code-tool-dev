@@ -209,10 +209,10 @@ better than register-only for this repo.
 **Readiness:** `verifiably best`
 
 The topology branch is now resolved, the owner model is explicit, and the reader
-routing can be implemented directly in the artifacts.
+routing has already been implemented in the shipped status-layer artifacts.
 
-Remaining work is implementation of the chosen topology, not further
-architecture selection.
+Remaining work, if any, is follow-on maintenance of those artifacts rather than
+topology implementation or further architecture selection.
 
 ## References
 
