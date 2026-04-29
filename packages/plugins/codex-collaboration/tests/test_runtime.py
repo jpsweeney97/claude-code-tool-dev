@@ -175,7 +175,7 @@ def test_build_workspace_write_sandbox_policy_restricts_reads_and_writes(
         "readOnlyAccess": {
             "type": "restricted",
             "readableRoots": [str(worktree_path.resolve())],
-            "includePlatformDefaults": False,
+            "includePlatformDefaults": True,
         },
         "networkAccess": False,
         "excludeSlashTmp": True,

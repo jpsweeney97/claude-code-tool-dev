@@ -40,12 +40,13 @@ function `build_workspace_write_sandbox_policy`.
 
 ### Observed behavior
 
-The execution sandbox policy sets `includePlatformDefaults: False` within
-`readOnlyAccess`. This prevents the delegated agent from reading platform
-binaries (e.g., `/usr/bin/*`, `/usr/lib/*`), which are required for any
-shell command execution. All shell commands fail with exit code -1.
+Before the Candidate A implementation patch, the execution sandbox policy set
+`includePlatformDefaults: False` within `readOnlyAccess`. This prevented the
+delegated agent from reading platform binaries (e.g., `/usr/bin/*`,
+`/usr/lib/*`), which are required for any shell command execution. All shell
+commands failed with exit code -1.
 
-### Current policy shape
+### Original policy shape (pre-fix)
 
 ```python
 {
@@ -88,6 +89,26 @@ it, establish:
 
 Record diagnostic findings as evidence in the implementation plan before
 committing to a policy change.
+
+### Implementation update (2026-04-29)
+
+Candidate A diagnostic closure is recorded in
+`docs/diagnostics/2026-04-28-delegate-execution-diagnostic.md`.
+
+The diagnostic established that `includePlatformDefaults: True` is sufficient
+for the canonical delegated shell workload, and that the probed security
+boundary still holds for network access, sensitive host-path reads, and sibling
+worktree reads. This implementation slice promotes the Candidate A policy by
+setting `includePlatformDefaults: True` in
+`packages/plugins/codex-collaboration/server/runtime.py`, while preserving the
+existing worktree-only writable/readable roots, `networkAccess: False`,
+`excludeSlashTmp: True`, and `excludeTmpdirEnvVar: True`.
+
+Regression coverage: `packages/plugins/codex-collaboration/tests/test_runtime.py`
+asserts the promoted policy shape.
+
+This ticket remains open until the post-restart live `/delegate` smoke verifies
+the end-to-end acceptance criteria below.
 
 ## Defect 2: Approval path does not grant the original request
 
@@ -273,7 +294,7 @@ Verify all acceptance criteria.
 
 | Defect | File | Line | Verified |
 |--------|------|------|----------|
-| Sandbox policy | `runtime.py` | 23-38 | `includePlatformDefaults: False` confirmed |
+| Sandbox policy | `runtime.py` | 23-38 | pre-fix `includePlatformDefaults: False` confirmed; Candidate A implementation promotes `True` |
 | Cancel response | `delegation_controller.py` | 718-719 | `{"decision": "cancel"}` confirmed |
 | Resume prompt | `execution_prompt_builder.py` | 41-77 | Natural-language-only resume confirmed |
 | Cancel-capable kinds | `delegation_controller.py` | 642 | `{"command_approval", "file_change"}` confirmed |
