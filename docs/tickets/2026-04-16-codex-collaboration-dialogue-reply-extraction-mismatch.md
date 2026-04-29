@@ -1,4 +1,4 @@
-# T-20260416-01: codex.dialogue.reply extraction mismatch on items-array response shape
+# T-20260416-01: codex.dialogue.reply returns empty agent_message despite committed turn history
 
 ```yaml
 id: T-20260416-01
@@ -154,10 +154,21 @@ Three viable approaches, ordered by implementation simplicity:
 
 **A: Post-completion `thread/read` fallback.** When `agent_message == ""`
 after `turn/completed` with `status == "completed"`, call
-`read_thread(thread_id)` and extract from the last completed turn's
-projection using the existing `_read_turn_agent_message` logic. The B3
-evidence proves the text is in the session log — `thread/read` is a
-guaranteed recovery path.
+`read_thread(thread_id)` and extract from the turn matching `turn_id`
+in the returned turns list. The B3 evidence proves the text existed
+in the Codex session log — `thread/read` is a plausible recovery path,
+but its projection shape for this failure class has not been directly
+captured. The post-patch live reproduction is the proof point.
+
+**Turn selection:** Look up by `raw_turn["id"] == turn_id`, not by
+position ("last completed turn"). Position-based selection is unsafe:
+`thread/read` ordering may differ from notification order, overlapping
+advisory turns could exist in future, and recovery/fork state can change
+ordering. A wrong but schema-valid stale turn would pass
+`parse_consult_response` and corrupt the dialogue semantics. If no
+turn matching `turn_id` is found, or the matching turn has no
+extractable message, fall through to the existing empty-string behavior
+(see failure semantics below).
 
 **Scope constraint:** The fallback MUST be scoped to advisory turns
 only. `_run_turn()` is shared between `run_advisory_turn()` (advisory
@@ -172,12 +183,24 @@ could introduce new failure modes. Implementation options: (a) add a
 only in `run_advisory_turn()`; (b) apply the fallback as post-processing
 in `run_advisory_turn()` rather than in the shared `_run_turn()`.
 
-- Pro: Guaranteed to have the data (B3 proves the session log had the
-  text)
+**Failure semantics:** The fallback is best-effort. If `read_thread()`
+raises, returns no matching turn, or the matching turn has no extractable
+message, the fallback MUST NOT raise — it falls through and returns the
+original `TurnExecutionResult` with `agent_message == ""`. The caller
+(`dialogue.reply()`) then hits the existing `CommittedTurnParseError`
+path, preserving today's committed-turn parse-failure semantics. An
+unguarded exception from the fallback would escalate to dispatch-failure
+semantics, potentially invalidating the runtime and quarantining the
+handle — a worse outcome than the parse error it was trying to prevent.
+
+- Pro: Plausible recovery path (B3 proves the text existed in session
+  state)
 - Pro: Simple — one conditional `read_thread()` call on the failure path
 - Pro: Reuses the proven `_read_turn_agent_message` extraction (it
   parses `thread/read` projections, which is exactly this data source)
 - Con: Extra round-trip latency on the failure path
+- Con: `thread/read` projection shape for this failure class is unproven
+  — post-patch reproduction is the proof point
 - Con: Requires `thread_id` access in the notification loop (available
   from `turn/completed` params at `runtime.py:275`)
 
@@ -218,10 +241,13 @@ notification-stream logging, not examination of existing B3 artifacts.
   persisted
 - Con: Even if found, a fallback is still prudent for robustness
 
-**Recommended approach:** Start with C (investigate the B3 notification
-stream if available) to understand the failure mode, then implement A
-(`thread/read` fallback) as the guaranteed-correct recovery. B (delta
-assembly) is a future enhancement if the delivery pattern warrants it.
+**Recommended approach:** Implement A (`thread/read` fallback) as the
+primary fix — it is the only mechanism that can be tested without
+reproducing the exact B3 failure mode. C (notification-stream
+investigation) is optional confidence-building diagnostic work: useful
+for understanding the root cause but not a gate for landing the fix.
+B (delta assembly) is a future enhancement if the delivery pattern
+warrants it.
 
 ### Shared helper (still applicable)
 
@@ -258,16 +284,24 @@ fixed.
 2. Unit: shared extractor handles `items[]` with `type: "agentMessage"`.
 3. Unit: shared extractor returns `""` when neither shape exists, and
    ignores malformed/non-dict items.
-4. Runtime integration (load-bearing regression): test the chosen
-   fallback mechanism. For mechanism A: fake JSON-RPC emits only
-   `turn/completed` (no preceding `item/completed` notification);
-   `_run_turn()` returns `TurnExecutionResult.agent_message` populated
-   from the `thread/read` fallback. For mechanism B: fake emits
-   `item/agentMessage/delta` notifications without `item/completed`;
-   verify delta assembly.
+4. Runtime integration (load-bearing regression): fake JSON-RPC emits
+   only `turn/completed` (no preceding `item/completed` notification);
+   `run_advisory_turn()` returns `TurnExecutionResult.agent_message`
+   populated from the `thread/read` fallback via turn-ID lookup.
 5. Downstream regression: a reply flow backed by the runtime projection
    succeeds when the runtime result came from the fallback path —
    verify `parse_consult_response` receives valid canonical text.
+6. Fallback failure — `read_thread` raises: verify
+   `run_advisory_turn()` returns the original `TurnExecutionResult`
+   with `agent_message == ""` (does not escalate to dispatch failure).
+7. Fallback failure — no matching turn ID: `thread/read` returns turns
+   but none match `turn_id`; verify same fall-through behavior as #6.
+8. Fallback failure — matching turn, no extractable message: matching
+   turn exists but `extract_agent_message` returns `""`; verify same
+   fall-through behavior as #6.
+9. Execution turn not affected: `run_execution_turn()` with empty
+   `agent_message` on `interrupted` status does NOT trigger the
+   `thread/read` fallback.
 
 ### Out of scope
 
@@ -290,9 +324,10 @@ is closed.
 **Reproduction results:**
 
 - The bug reproduced on B3 candidate and B5 candidate (both terminated
-  with the same `CommittedTurnParseError` / items-array extraction
-  mismatch). Evidence: `docs/benchmarks/dialogue-supersession/v1/summary.md`
-  and `docs/benchmarks/dialogue-supersession/v1/runs.json`.
+  with `CommittedTurnParseError` — empty `agent_message` despite
+  committed turn history containing the reply text). Evidence:
+  `docs/benchmarks/dialogue-supersession/v1/summary.md` and
+  `docs/benchmarks/dialogue-supersession/v1/runs.json`.
 - The bug did not reproduce on B8 candidate (converged normally).
   Evidence: same sources.
 
@@ -307,11 +342,16 @@ verification.
 
 - Patch landed on main with unit tests for both extraction shapes
   (tests #1-#3)
-- Runtime integration test proving the chosen fallback mechanism
-  populates `TurnExecutionResult.agent_message` when `item/completed`
-  does not fire (test #4 — load-bearing regression)
+- Runtime integration test proving the fallback populates
+  `TurnExecutionResult.agent_message` via turn-ID lookup when
+  `item/completed` does not fire (test #4 — load-bearing regression)
 - Downstream regression test proving `reply()` →
   `parse_consult_response` succeeds on fallback-produced text (test #5)
+- Fallback failure tests proving best-effort semantics: read failure,
+  no matching turn, and empty extraction all fall through without
+  escalating to dispatch failure (tests #6-#8)
+- Execution-turn isolation test proving `run_execution_turn()` does not
+  trigger the fallback (test #9)
 - One-run verification: rerun the B3 adversarial prompt on the patched
   commit in a fresh session, confirm convergence or natural termination
   without parse error
