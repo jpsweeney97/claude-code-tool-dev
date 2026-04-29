@@ -44,6 +44,21 @@ Root cause is two codex-collaboration execution-domain defects:
    saying "treat as approved," but the new turn hits the same sandbox
    restriction and re-escalates.
 
+> **Status update (post-2026-04-29):** Both root causes above are now closed
+> in production. Defect 1 (sandbox policy) was remediated by Candidate A
+> promotion (`includePlatformDefaults: True`) in commit `ce0579f6`,
+> empirically validated by the T-01 diagnostic (smoke artifact succeeded;
+> 3 security probes BLOCKED). Defect 2 (approve path) was remediated as
+> part of T-20260423-02 Packet 1 (deferred-approval response, PR #126
+> merged at `36ef13e8`). The descriptions above are preserved as
+> point-in-time T-07-closure context. Current state references:
+>
+> - `docs/diagnostics/2026-04-28-delegate-execution-diagnostic.md` —
+>   Candidate A diagnostic closure record
+> - `docs/tickets/2026-04-23-codex-collaboration-delegate-execution-remediation.md` —
+>   T-01 remediation ticket (open until live `/delegate` smoke validates
+>   acceptance criteria post-`ce0579f6` plugin restart)
+
 **What was proved:** App Server availability, authentication, delegation
 pipeline infrastructure (start/escalate/decide/complete/poll/inspect),
 artifact materialization, artifact hash computation.
