@@ -6,7 +6,7 @@ Start at [codex-collaboration Current State](./codex-collaboration-current-state
 for project orientation, implemented-now surface, authority ownership, and
 reader routing.
 
-Last reconciled: 2026-04-29
+Last reconciled: 2026-04-30
 
 ## Authority
 
@@ -51,7 +51,8 @@ Scope included here:
 
 1. Land the `T-20260416-01` extraction fix and run one post-patch verification.
 2. Implement `T-20260429-01` Phase 1 sandbox carve-outs (Options B + E) and
-   validate via a comparable `/delegate` smoke with ≤2 escalations.
+   validate via a comparable `/delegate` smoke with avoidable sandbox-friction
+   escalations <=2. Count legitimate operator-gated approvals separately.
 3. Classify or intentionally safe-terminalize the currently unsupported App
    Server request kinds tracked by `T-20260429-02`.
 4. Sweep residual typing and minor Packet 1 carry-forward debt (`TT.1`,
@@ -65,7 +66,7 @@ Scope included here:
 | ID | State | Owning artifact | Current truth | Exit condition |
 |---|---|---|---|---|
 | `T-20260416-01` | `open` | `docs/tickets/2026-04-16-codex-collaboration-dialogue-reply-extraction-mismatch.md` plus `docs/tickets/closed-tickets/2026-03-30-codex-collaboration-dialogue-parity-and-scouting-retirement.md` | The reply-path extraction mismatch remains a live product defect. Ticket body revised with protocol analysis against vendored schema: the `turn/completed.turn.items[]` fallback was withdrawn (`Turn.items` is always empty per `TurnCompletedNotification.json:1285`). Recommended fix is advisory-only `thread/read` fallback (mechanism A) with turn-ID lookup, best-effort failure semantics, and 9 implementation tests. Mechanism C (notification-stream investigation) is optional diagnostic work, not a gate. | Land the extraction fix with tests (#1-#9 including fallback failure cases and execution-turn isolation) and one post-patch verification, then close the ticket. |
-| `T-20260429-01` | `open` | `docs/tickets/2026-04-29-codex-collaboration-delegation-friction-reduction.md` | T-01's closing live `/delegate` smoke required 24 operator escalations to produce a 1-line edit, surfacing three plugin friction sources: `~/.codex/` reads (Codex consulting its own memory + skill cache), worktree `.git` cross-pointer reads (in-worktree `rg`/`git` traversing the gitdir target outside the worktree), and opaque `file_change` escalation payloads. Phase 1 (Options B + E) is mechanical sandbox-policy carve-outs in `runtime.py`; Phase 2 Option F investigation is complete — `file_change` payload opacity is confirmed as an upstream schema limitation (`FileChangeRequestApprovalParams` carries only `grantRoot` and `reason`), `/delegate` SKILL.md rendering narrowed accordingly (D-06). | Land the Phase 1 sandbox carve-outs and validate via a comparable smoke run with <=2 escalations. |
+| `T-20260429-01` | `open` | `docs/tickets/2026-04-29-codex-collaboration-delegation-friction-reduction.md` | T-01's closing live `/delegate` smoke required 24 operator escalations to produce a 1-line edit, surfacing three plugin friction sources: `~/.codex/` reads (Codex consulting its own memory + skill cache), worktree `.git` cross-pointer reads (in-worktree `rg`/`git` traversing the gitdir target outside the worktree), and opaque `file_change` escalation payloads. Phase 1 (Options B + E) is mechanical sandbox-policy carve-outs in `runtime.py`; Phase 2 Option F investigation is complete — `file_change` payload opacity is confirmed as an upstream schema limitation (`FileChangeRequestApprovalParams` carries only `grantRoot` and `reason`), `/delegate` SKILL.md rendering narrowed accordingly (D-06). `file_change` opacity is counted separately from avoidable sandbox friction. | Land the Phase 1 sandbox carve-outs and validate via a comparable smoke run with avoidable sandbox-friction escalations <=2. Count legitimate operator-gated approvals separately. |
 | `T-20260429-02` | `open` | `docs/tickets/2026-04-29-codex-collaboration-unsupported-server-request-reachability.md` | The current delegation runtime parks only three server-request kinds (`command_approval`, `file_change`, `request_user_input`). Other App Server request methods that the current parser cannot fully support can still create minimal `unknown` records and terminalize jobs as `unknown`. The open work is to classify each unsupported method by reachability and then provide one of: supported handling, a regression test proving intentional safe terminal behavior, or a documented non-reachability proof. | Classify each unsupported `ServerRequest` method and land either support, regression coverage for intentional safe terminal behavior, or a recorded non-reachability proof for current advisory/delegation flows. |
 
 ## Residual Carry-Forward Debt
@@ -81,12 +82,6 @@ Scope included here:
 | ID | State | Owning artifact | Current truth | Exit condition |
 |---|---|---|---|---|
 | `BMARK-L1-L3` | `open` | `docs/tickets/closed-tickets/2026-03-30-codex-collaboration-dialogue-parity-and-scouting-retirement.md` | The benchmark closeout preserved three candidate mechanism losses as future work rather than closure blockers: `L1` scout integrity, `L2` plateau / budget control, and `L3` per-scout redaction of raw host-tool output. These are not yet decomposed into standalone backlog artifacts. | Convert the three caveats into explicit follow-up tickets / packets, or explicitly decline them as non-goals. |
-
-## Spec And Documentation Reconciliation Debt
-
-| ID | State | Owning artifact | Current truth | Exit condition |
-|---|---|---|---|---|
-| `CONTRACTS-T02-TEMPORAL-MARKER` | `drift` | `docs/superpowers/specs/codex-collaboration/contracts.md` | `contracts.md:327` uses `T-20260423-02` as a temporal marker ("Post-Packet 1 (T-20260423-02)") in normative contract text. Now that T-02 is closed, the reference is stale attribution in a normative document. | Rewrite to a non-ticket-specific temporal marker or add a "(closed)" annotation. |
 
 ## Open Spec Questions
 

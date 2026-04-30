@@ -24,10 +24,11 @@ sources that the operator had to manually grant per-escalation:
 2. Tools (ripgrep, git) traversing the worktree's `.git` cross-pointer
 3. Opaque `file_change` escalations with empty `requested_scope` payloads
 
-Each friction source is independently addressable. Resolving items 1 and 2
-(sandbox policy carve-outs) is mechanical. Resolving item 3 requires
-investigating whether the empty payload is a plugin pass-through gap or an
-App Server limitation.
+The three friction sources now have separate dispositions. Resolving items 1
+and 2 (sandbox policy carve-outs) is mechanical. Item 3 has been investigated
+and is now recorded as an upstream schema limitation, not a plugin pass-through
+gap; under the current wire shape, it is not part of the Phase 1
+sandbox-friction implementation.
 
 ## Friction surface 1: `~/.codex/` reads (Option B)
 
@@ -141,9 +142,9 @@ A deny test (request 14) confirmed the opacity is structural, not strategic
 3. Worktree isolation + Gate 1 (review-before-promote) preserved overall
    safety, but the per-escalation visibility gap is real.
 
-### Investigation gate (before implementation)
+### Investigation result
 
-Before changing plugin code, determine:
+The Option F investigation used this frame:
 
 1. **App Server response shape.** Inspect the App Server's actual JSON-RPC
    response for `applyPatchApprovalRequest` (or equivalent file-change-class
@@ -158,28 +159,25 @@ Before changing plugin code, determine:
    `tests/fixtures/codex-app-server/0.117.0/` for the file-change request
    shape and any associated approval-response payload structure.
 
-Record diagnostic findings as evidence before committing to an implementation
-path.
-
 > **Investigation result (2026-04-30, D-06 closure):** All three questions answered. (1) The current `item/fileChange/requestApproval` method's `FileChangeRequestApprovalParams` schema defines only `grantRoot` (nullable string), `reason` (nullable string), and context IDs (`itemId`, `threadId`, `turnId`). No file path, change type, or diff fields exist at the wire level. Live T-01 smoke evidence confirms: `{grantRoot: null, reason: null}`. (2) `approval_router.py:58-60` preserves all non-context params opaquely into `requested_scope`; `delegation_controller.py:1812` projects `requested_scope` unchanged into `PendingEscalationView`. The plugin does not drop fields — there are none to drop. (3) `applyPatchApproval` carries `fileChanges` but lacks `itemId`/`threadId`/`turnId` and is classified as an unsupported parser shape (see schema delta line 238). **Conclusion:** file-level visibility is an upstream schema limitation. The `/delegate` SKILL.md rendering guidance has been narrowed accordingly. Future enrichment requires either upstream `FileChangeRequestApprovalParams` changes or `applyPatchApproval` support (separate design item).
 
-### Implementation (conditional on investigation)
+### Current implementation boundary
 
-If the data is available in the App Server response: implementation is
-straightforward plugin-side mapping — extend the escalation rendering to
-surface `file_path`, `change_type`, and (if available) a `diff` preview.
-
-If the data is not available: document the limitation as an upstream App
-Server boundary; consider an opt-in operator-side preflight (e.g., the
-plugin runs `git diff HEAD` against the delegation worktree and shows the
-output as part of escalation rendering when an env var enables this).
+No current plugin-side mapping can surface file paths, change types, or diff
+preview for `item/fileChange/requestApproval`, because those fields are not
+present in `FileChangeRequestApprovalParams`. Future file-level enrichment is a
+separate design item: it requires either upstream schema changes to
+`FileChangeRequestApprovalParams`, or deliberate `applyPatchApproval` support
+with equivalent context binding.
 
 ## Acceptance criteria
 
 - [ ] After Friction surfaces 1 and 2 (Phase 1) land, a comparable smoke run
       (1-line type-suppression or similarly small repo edit) completes with
-      **0-2 operator escalations**, down from 24. Acceptance is measured
-      against a fresh small-edit objective.
+      **avoidable sandbox-friction escalations <=2**, down from the prior
+      ~11 avoidable Option B/E escalations. Acceptance is measured against a
+      fresh small-edit objective. Legitimate operator-gated approvals are
+      counted separately and do not fail this criterion.
 - [ ] `runtime.py`'s `build_workspace_write_sandbox_policy` continues to
       preserve the credential boundary: `~/.codex/auth.json`,
       `~/.codex/config.toml`, `~/.codex/history.jsonl`, and
@@ -189,11 +187,8 @@ output as part of escalation rendering when an env var enables this).
 - [ ] `test_runtime.py` regression assertion updated to expect the new
       `readableRoots` shape (including the dynamic gitdir resolution); full
       codex-collaboration test suite passes.
-- [ ] Friction surface 3 (file_change opacity) is either:
-      - Resolved with a plugin change that surfaces `file_path`,
-        `change_type`, and diff preview in the escalation rendering, OR
-      - Documented as an upstream App Server limitation with a recorded
-        workaround path.
+- [x] Friction surface 3 (file_change opacity) is documented as an upstream
+      App Server schema limitation with a recorded future-enrichment path.
 
 ## Implementation sequence
 
@@ -202,20 +197,35 @@ output as part of escalation rendering when an env var enables this).
 Implement Friction surfaces 1 and 2 in a single commit (same `runtime.py`
 surface, same test surface). Land with regression test updates.
 
-### Phase 2: file_change opacity investigation (Option F gate)
+### Phase 2: Option F recorded limitation (complete)
 
-Investigate per the gate in Friction surface 3. Record findings as evidence.
+The D-06 investigation is complete. `file_change` opacity is not avoidable
+sandbox friction under the current App Server schema and should not be counted
+against Phase 1's avoidable sandbox-friction metric.
 
-### Phase 3: file_change opacity implementation (conditional)
+### Phase 3: Future file-level enrichment (separate design item)
 
-Based on Phase 2 findings, either implement the plugin-side mapping or
-document the limitation.
+Do not implement plugin-side file path/change type/diff rendering for
+`item/fileChange/requestApproval` under the current wire shape. Track future
+enrichment separately if upstream `FileChangeRequestApprovalParams` gains
+file-level fields or if `applyPatchApproval` support is designed with
+equivalent context binding.
 
 ### Phase 4: Acceptance smoke
 
 Run a comparable small-edit `/delegate` smoke. Record escalation count.
-If <= 2, acceptance criterion #1 is satisfied. If higher, decompose remaining
-friction sources and address.
+If avoidable sandbox-friction escalations are <=2, acceptance criterion #1 is
+satisfied. If higher, decompose remaining friction sources and address.
+
+Classify escalation causes in the smoke record:
+
+- Avoidable sandbox friction: Option B `~/.codex/memories` and
+  `~/.codex/plugins/cache` support reads; Option E worktree gitdir reads.
+- Legitimate operator-gated approvals: command approvals, file-write approvals,
+  verification commands, artifact-prep operations, and intentional security
+  probe denials.
+- Separately counted upstream limitation: opaque `file_change` approvals caused
+  by the current App Server schema.
 
 ## Evidence
 
@@ -241,6 +251,7 @@ friction sources and address.
 |---|---|---|
 | Sandbox policy builder | `packages/plugins/codex-collaboration/server/runtime.py` | 23-58 |
 | Sandbox policy regression test | `packages/plugins/codex-collaboration/tests/test_runtime.py` | 178 |
-| App Server response handler (file_change) | `packages/plugins/codex-collaboration/server/delegation_controller.py` | TBD (to be confirmed in Phase 2) |
+| App Server response handler (file_change) | `packages/plugins/codex-collaboration/server/approval_router.py` | 58-60 |
+| Escalation projection (file_change) | `packages/plugins/codex-collaboration/server/delegation_controller.py` | 1809-1812 |
 | Vendored App Server schemas | `packages/plugins/codex-collaboration/tests/fixtures/codex-app-server/0.117.0/` | (file_change shape) |
 | Diagnostic record (Candidate A) | `docs/diagnostics/2026-04-28-delegate-execution-diagnostic.md` | (security probe pattern reusable here) |

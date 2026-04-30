@@ -335,7 +335,7 @@ that cannot be handled under the opening-slice constraints.
 
 ### Decide Result
 
-Returned by `codex.delegate.decide` on success. Post-Packet 1 (T-20260423-02): `decide()` uses an async acceptance model — it returns once the operator's decision has been accepted for dispatch (journal intent durable, reservation committed). Dispatch completion is observed asynchronously via `codex.delegate.poll`.
+Returned by `codex.delegate.decide` on success. Post-Packet 1 deferred-approval-response baseline: `decide()` uses an async acceptance model — it returns once the operator's decision has been accepted for dispatch (journal intent durable, reservation committed). Dispatch completion is observed asynchronously via `codex.delegate.poll`.
 
 | Field | Type | Description |
 |---|---|---|
