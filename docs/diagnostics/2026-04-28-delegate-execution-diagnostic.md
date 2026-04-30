@@ -1396,7 +1396,7 @@ The 15-minute approval timeout observed in Candidate A attempt 1 (audit L65 `del
 
 | # | Code location | Detail |
 |---|---|---|
-| 1. TTL constant | `packages/plugins/codex-collaboration/server/delegation_controller.py:116` | `_APPROVAL_OPERATOR_WINDOW_SECONDS: float = 900` (15 minutes; comment says "configurable via env later") |
+| 1. TTL constant | `packages/plugins/codex-collaboration/server/delegation_controller.py:116` | ~~`_APPROVAL_OPERATOR_WINDOW_SECONDS: float = 900` (15 minutes; comment says "configurable via env later")~~ **Superseded:** Now env-tunable via `CODEX_COLLAB_APPROVAL_OPERATOR_WINDOW_SECONDS` at `delegation_controller.py:117-157`; validated, fallback to 900s default. |
 | 2. Passed into registry | `delegation_controller.py:1067-1072` | `registry.register(... timeout_seconds=_APPROVAL_OPERATOR_WINDOW_SECONDS)` for each parked request |
 | 3. Per-request `threading.Timer` | `resolution_registry.py:238-242` | `entry.timer = threading.Timer(timeout_seconds, self._timer_fire, args=(request_id,))`; daemon thread, started immediately |
 | 4. Timer fire synthesizes timeout resolution | `resolution_registry.py:485-496` | `_timer_fire` constructs `DecisionResolution(payload={}, kind=kind, is_timeout=True)`; reuses the reserve/commit_signal CAS primitive |
@@ -1406,7 +1406,7 @@ The 15-minute approval timeout observed in Candidate A attempt 1 (audit L65 `del
 **Implications:**
 
 - This is **plugin-owned, hardcoded today, not App Server-owned for the observed cancellation path.** The original probe (below) was framed pre-resolution; its question of "does App Server abandon the request before our timeout?" is **not needed for Candidate A attempt 2** unless we want to characterize App Server behavior beyond the plugin-owned path. Our timer is **scheduled at 900 seconds** and fires the observed `cancel` dispatch; the audit row's `+15m10s` delta represents the schedule plus dispatch/scheduling/bookkeeping overhead, not a precise timer measurement. App Server's independent abandonment behavior under conditions where our timer does not fire (e.g., a hypothetical longer/shorter App Server timeout, or behavior under different versions) is not characterized by the current evidence.
-- The L116 comment "configurable via env later" indicates **env tuning is not implemented today.** Changing the TTL for a single run requires a code edit and plugin reload, not a flag flip.
+- ~~The L116 comment "configurable via env later" indicates **env tuning is not implemented today.** Changing the TTL for a single run requires a code edit and plugin reload, not a flag flip.~~ **Superseded:** Env tuning landed in Packet 1. Set `CODEX_COLLAB_APPROVAL_OPERATOR_WINDOW_SECONDS=<seconds>` before plugin start; no code edit needed. See `delegation_controller.py:117-157` and package README.
 - TTL is **per parked request, not per delegate job.** Each parked request gets its own 900-second timer in `ResolutionRegistry`. A delegation that produces multiple sequential approval requests (e.g., smoke + probes in Candidate A attempt 2) has each request's TTL run independently — fresh 900-second window per parked request, not a shared budget across the delegation.
 
 The original probe framing is retained below for historical context.

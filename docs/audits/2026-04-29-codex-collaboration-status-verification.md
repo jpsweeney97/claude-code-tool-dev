@@ -18,16 +18,18 @@ This review verifies claims against the repository at current HEAD `19cd5183`. W
 
 Direct ticket-frontmatter reads:
 
+> **Superseded (2026-04-30):** The three closed tickets below have since been moved to `docs/tickets/closed-tickets/` (D-05 fix). Paths cited here reflect their location at verification time (`19cd5183`).
+
 | Ticket | status | priority | frontmatter file:lines |
 |---|---|---|---|
 | T-20260416-01 | open | medium | `docs/tickets/2026-04-16-codex-collaboration-dialogue-reply-extraction-mismatch.md:3-12` |
 | T-20260429-01 | open | medium | `docs/tickets/2026-04-29-codex-collaboration-delegation-friction-reduction.md:3-12` |
 | T-20260429-02 | open | high | `docs/tickets/2026-04-29-codex-collaboration-unsupported-server-request-reachability.md:3-12` |
-| T-20260423-02 | closed (2026-04-29) | high | `docs/tickets/2026-04-23-deferred-same-turn-approval-response.md:3-15` (status at L6, closed_date at L7) |
-| T-20260330-06 | closed (2026-04-21) | high | `docs/tickets/2026-03-30-codex-collaboration-promotion-flow-and-delegate-ux.md:3-15` (status at L6, closed_date at L7) |
-| T-20260327-01 | closed (2026-04-12) | medium | `docs/tickets/2026-03-27-r1-carry-forward-debt.md:3-18` (status at L6, closed_date at L13) |
+| T-20260423-02 | closed (2026-04-29) | high | `docs/tickets/closed-tickets/2026-04-23-deferred-same-turn-approval-response.md:3-15` (status at L6, closed_date at L7) |
+| T-20260330-06 | closed (2026-04-21) | high | `docs/tickets/closed-tickets/2026-03-30-codex-collaboration-promotion-flow-and-delegate-ux.md:3-15` (status at L6, closed_date at L7) |
+| T-20260327-01 | closed (2026-04-12) | medium | `docs/tickets/closed-tickets/2026-03-27-r1-carry-forward-debt.md:3-18` (status at L6, closed_date at L13) |
 
-All three closed tickets are in `docs/tickets/` (active root), not `docs/tickets/closed-tickets/`.
+~~All three closed tickets are in `docs/tickets/` (active root), not `docs/tickets/closed-tickets/`.~~ **Superseded:** All three have since been moved to `docs/tickets/closed-tickets/` (D-05).
 
 ## Verified TRUE
 
