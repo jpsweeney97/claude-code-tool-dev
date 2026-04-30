@@ -296,7 +296,7 @@ The context-injection retirement decision is governed by
 ### Unit Tests
 
 - Control plane routing logic
-- Policy fingerprint computation and comparison
+- Policy fingerprint computation (comparison across rotation boundaries is future-scope — see [advisory-runtime-policy.md §Future-Scope: Freeze-and-Rotate Design](advisory-runtime-policy.md#future-scope-freeze-and-rotate-design))
 - Idempotency key generation and deduplication
 - Promotion precondition checks
 - Promotion state machine transitions
@@ -309,7 +309,7 @@ The context-injection retirement decision is governed by
 - Delegation with worktree isolation
 - Promotion with all preconditions verified
 - Crash recovery from journal replay
-- Advisory runtime rotation on privilege widening
+- Advisory runtime rotation on privilege widening (future-scope — not current Packet 1 runtime behavior; see [advisory-runtime-policy.md §Future-Scope: Freeze-and-Rotate Design](advisory-runtime-policy.md#future-scope-freeze-and-rotate-design))
 
 ### Contract Tests
 

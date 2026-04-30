@@ -135,7 +135,7 @@ The session-id subdirectory isolates each session's handles. `${CLAUDE_PLUGIN_DA
 | `get` | Retrieve handle by `collaboration_id` | `codex.dialogue.reply`, `codex.dialogue.read`, control plane routing |
 | `list` | Query handles by session, repo root, and optional status filter | Crash recovery (step 2), internal enumeration |
 | `update_status` | Transition handle lifecycle status | Handle completion, crash recovery |
-| `update_runtime` | Remap handle to a new runtime and, if `thread/resume` yields a new thread identity, update `codex_thread_id` | Advisory runtime rotation ([advisory-runtime-policy.md §Rotate](advisory-runtime-policy.md#rotate) step 4), crash recovery (step 4) |
+| `update_runtime` | Remap handle to a new runtime and, if `thread/resume` yields a new thread identity, update `codex_thread_id` | Crash recovery (step 4); future-scope advisory runtime rotation ([advisory-runtime-policy.md §Rotate](advisory-runtime-policy.md#rotate) step 4 — not current Packet 1 runtime behavior) |
 
 Fork-specific operations (`get_children`, `get_parent`, tree reconstruction) are not needed under the copy-and-diverge model — seeded dialogues are independent linear handles. If `seed_from` lands, the lineage store gains no new operations; provenance is recorded via the existing `parent_collaboration_id` field on [CollaborationHandle](#collaborationhandle). See [decisions.md §Dialogue Fork Scope](decisions.md#dialogue-fork-scope).
 
@@ -217,9 +217,9 @@ Append-only event record for human reconstruction and diagnostics. Write behavio
 | `discard` | execution | Result discarded |
 | `crash` | both | Runtime crashed |
 | `restart` | both | Runtime restarted after crash |
-| `rotate` | advisory | Advisory runtime rotated — see [advisory-runtime-policy.md §Freeze-and-Rotate](advisory-runtime-policy.md#freeze-and-rotate-semantics) |
-| `freeze` | advisory | Advisory runtime frozen — see [advisory-runtime-policy.md §Freeze](advisory-runtime-policy.md#freeze) |
-| `reap` | advisory | Frozen runtime reaped — see [advisory-runtime-policy.md §Reap Conditions](advisory-runtime-policy.md#reap-conditions) |
+| `rotate` | advisory | Advisory runtime rotated (reserved — not currently emitted; future-scope freeze-and-rotate design, not current Packet 1 runtime behavior; see [advisory-runtime-policy.md §Freeze-and-Rotate](advisory-runtime-policy.md#freeze-and-rotate-semantics)) |
+| `freeze` | advisory | Advisory runtime frozen (reserved — not currently emitted; future-scope freeze-and-rotate design, not current Packet 1 runtime behavior; see [advisory-runtime-policy.md §Freeze](advisory-runtime-policy.md#freeze)) |
+| `reap` | advisory | Frozen runtime reaped (reserved — not currently emitted; future-scope freeze-and-rotate design, not current Packet 1 runtime behavior; see [advisory-runtime-policy.md §Reap Conditions](advisory-runtime-policy.md#reap-conditions)) |
 
 ## Typed Response Shapes
 

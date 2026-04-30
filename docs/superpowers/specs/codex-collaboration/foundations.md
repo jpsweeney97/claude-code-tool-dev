@@ -44,7 +44,7 @@ authority: foundation
 | **Runtime domain** | The App Server process scope in which Codex operates. Advisory and execution are the two domains. |
 | **Advisory domain** | A long-lived App Server runtime for consultation and dialogue. One per Claude session and repo root. See [advisory-runtime-policy.md](advisory-runtime-policy.md) for lifecycle rules. |
 | **Execution domain** | An ephemeral App Server runtime for delegation. One per delegation job, always in an isolated git worktree. |
-| **Policy fingerprint** | An immutable identifier for the exact policy configuration of a runtime instance. See [advisory-runtime-policy.md §Policy Fingerprint Model](advisory-runtime-policy.md#policy-fingerprint-model). |
+| **Policy fingerprint** | An immutable identifier for the exact policy configuration of a runtime instance. See [advisory-runtime-policy.md §Policy Fingerprint](advisory-runtime-policy.md#policy-fingerprint). |
 | **Collaboration handle** | The plugin's logical identifier for a Codex interaction. Wraps raw Codex thread IDs. See [contracts.md §CollaborationHandle](contracts.md#collaborationhandle). |
 | **Delegation job** | A unit of autonomous execution work. One job = one runtime = one worktree. See [contracts.md §DelegationJob](contracts.md#delegationjob). |
 | **Promotion** | Applying delegation results from an isolated worktree back to the user's primary workspace. See [promotion-protocol.md](promotion-protocol.md). |
@@ -94,7 +94,7 @@ Policy defaults:
 | File-change approvals | auto-declined |
 | Network approvals | auto-declined unless explicitly requested |
 
-Consultation and dialogue share the advisory runtime because they are the same capability class. For advisory runtime lifecycle rules (policy widening, narrowing, rotation), see [advisory-runtime-policy.md](advisory-runtime-policy.md).
+Consultation and dialogue share the advisory runtime because they are the same capability class. For advisory runtime lifecycle rules, see [advisory-runtime-policy.md](advisory-runtime-policy.md). Current Packet 1 behavior is a fixed advisory posture (read-only, no-network, approvals disabled); policy widening, narrowing, and rotation are [future-scope freeze-and-rotate design](advisory-runtime-policy.md#future-scope-freeze-and-rotate-design).
 
 ### Execution Domain
 
@@ -151,7 +151,7 @@ App Server enforces sandboxing, approval semantics, and thread/session state. Th
 
 **Session-scoped approvals never cross capability classes or delegation jobs.**
 
-- Consult and dialogue share an advisory runtime. All approvals within it are per-request only — `acceptForSession` is never used in the advisory domain (see [advisory-runtime-policy.md §Advisory Approval Scope](advisory-runtime-policy.md#advisory-approval-scope)).
+- Consult and dialogue share an advisory runtime. Advisory approvals are disabled under Packet 1 (`approval_policy="never"`, no server-request handler installed). When advisory-domain server-request handling is implemented, approvals will be per-request only — `acceptForSession` will never be applied in the advisory domain (see [advisory-runtime-policy.md §Advisory Approval Scope](advisory-runtime-policy.md#advisory-approval-scope)).
 - Each delegation job gets its own runtime, so `acceptForSession` can never affect any other job.
 - If a future capability needs broader access than advisory but less than full delegation, it gets its own runtime class.
 

@@ -26,9 +26,11 @@ authorities:
 
   advisory-policy:
     description: >-
-      Advisory runtime lifecycle, policy fingerprints, privilege
-      widening and narrowing rules, freeze-and-rotate semantics,
-      reap conditions, and turn-boundary invariants.
+      Advisory runtime lifecycle: current fixed advisory posture
+      (read-only, no-network, approvals disabled), policy fingerprints,
+      post-promotion coherence (current); privilege widening and
+      narrowing rules, freeze-and-rotate semantics, reap conditions,
+      and turn-boundary invariants (future-scope).
     default_claims: [behavior_contract, enforcement_mechanism]
 
   recovery-contract:

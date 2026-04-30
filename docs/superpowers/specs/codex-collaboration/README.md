@@ -30,7 +30,7 @@ Official plugin comparison is pinned to upstream commit `9cb4fe4`. If upstream c
 | **foundation** | Scope, trust model, runtime domains, flow baselines, defaults | `architecture_rule` |
 | **contracts** | MCP tool surface, data model types, audit event schema, response shapes | `interface_contract` |
 | **promotion-contract** | Promotion state machine, preconditions, typed rejections, artifact integrity | `behavior_contract` |
-| **advisory-policy** | Advisory runtime lifecycle, policy fingerprints, widening/narrowing, rotation | `behavior_contract`, `enforcement_mechanism` |
+| **advisory-policy** | Advisory runtime lifecycle, fixed advisory posture (current), policy fingerprints, widening/narrowing/rotation (future-scope) | `behavior_contract`, `enforcement_mechanism` |
 | **recovery-contract** | Operation journal, audit log behavior, crash recovery, concurrency, retention | `behavior_contract` |
 | **delivery** | Build sequence, compatibility policy, test strategy | `implementation_plan`, `verification_strategy` |
 | **decisions** | Greenfield rules, accepted tradeoffs, open questions | `decision_record` |
@@ -45,7 +45,7 @@ Official plugin comparison is pinned to upstream commit `9cb4fe4`. If upstream c
 | 1 | [foundations.md](foundations.md) | foundation | Scope, trust model, runtime domains, approval invariant, core flow baselines, chosen defaults |
 | 2 | [contracts.md](contracts.md) | contracts | MCP tool surface, logical data model types, audit event schema, typed response shapes |
 | 3 | [promotion-protocol.md](promotion-protocol.md) | promotion-contract | Promotion preconditions, state machine, artifact hash integrity, rollback |
-| 4 | [advisory-runtime-policy.md](advisory-runtime-policy.md) | advisory-policy | Policy fingerprints, privilege widening/narrowing, freeze-and-rotate, reap conditions |
+| 4 | [advisory-runtime-policy.md](advisory-runtime-policy.md) | advisory-policy | Fixed advisory posture, policy fingerprints (current); privilege widening/narrowing, freeze-and-rotate, reap conditions (future-scope) |
 | 5 | [recovery-and-journal.md](recovery-and-journal.md) | recovery-contract | Two-log architecture, idempotency keys, crash recovery, concurrency limits, retention |
 | 6 | [delivery.md](delivery.md) | delivery | Build sequence, compatibility policy, plugin structure, test strategy |
 | 7 | [dialogue-supersession-benchmark.md](dialogue-supersession-benchmark.md) | delivery | Fixed-corpus benchmark contract for retiring context-injection by default |

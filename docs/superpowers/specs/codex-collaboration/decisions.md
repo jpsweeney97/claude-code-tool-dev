@@ -58,7 +58,7 @@ than ported from cross-model's JSONL schema.
 
 **Likely failure story:** The system keeps isolation but mismanages runtime state after crash or overload, creating orphaned jobs, stale approvals, or silently broadened advisory permissions.
 
-**Mitigations:** The [operation journal](recovery-and-journal.md#operation-journal) provides idempotent replay. [Max-1 concurrent delegation](recovery-and-journal.md#concurrency-limits) bounds the state surface. [Advisory rotation](advisory-runtime-policy.md) prevents permission accumulation.
+**Mitigations:** The [operation journal](recovery-and-journal.md#operation-journal) provides idempotent replay. [Max-1 concurrent delegation](recovery-and-journal.md#concurrency-limits) bounds the state surface. The fixed advisory posture (read-only, no-network, approvals disabled) prevents permission accumulation today; future advisory widening will use [rotation](advisory-runtime-policy.md#future-scope-freeze-and-rotate-design) to maintain the same invariant.
 
 ### T2: Execution Isolation vs. Reversibility
 

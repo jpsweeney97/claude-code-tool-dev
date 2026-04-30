@@ -114,11 +114,12 @@ An audit event is emitted for every state transition that crosses a trust or cap
 | Result discarded | `discard` | `job_id` |
 | Runtime crashed | `crash` | `runtime_id`, `policy_fingerprint` |
 | Runtime restarted | `restart` | `runtime_id`, `causal_parent` |
-| Advisory runtime rotated | `rotate` | `runtime_id`, `policy_fingerprint` |
-| Advisory runtime frozen | `freeze` | `runtime_id` |
-| Frozen runtime reaped | `reap` | `runtime_id` |
+| Advisory runtime rotated (reserved — not currently emitted; future-scope) | `rotate` | `runtime_id`, `policy_fingerprint` |
+| Advisory runtime frozen (reserved — not currently emitted; future-scope) | `freeze` | `runtime_id` |
+| Frozen runtime reaped (reserved — not currently emitted; future-scope) | `reap` | `runtime_id` |
+| Thread forked (reserved — not currently emitted) | `fork` | `collaboration_id`, `causal_parent` |
 
-**Reserved trigger (not currently emitted):** `fork` (`collaboration_id`, `causal_parent`) — will be produced by `seed_from` on `codex.dialogue.start` when implemented. See [decisions.md §Dialogue Fork Scope](decisions.md#dialogue-fork-scope).
+**Reserved triggers:** `fork` will be produced by `seed_from` on `codex.dialogue.start` when implemented (see [decisions.md §Dialogue Fork Scope](decisions.md#dialogue-fork-scope)). `rotate`, `freeze`, `reap` are future-scope freeze-and-rotate design, not current Packet 1 runtime behavior (see [advisory-runtime-policy.md §Future-Scope: Freeze-and-Rotate Design](advisory-runtime-policy.md#future-scope-freeze-and-rotate-design)).
 
 ### Retention
 
@@ -157,7 +158,7 @@ App Server's `serverRequest/resolved` is authoritative for closing approval and 
 
 ### Unknown Request Handling
 
-Under current architecture, server-request handling is implemented only in execution-domain turns (advisory turns do not install a `server_request_handler`). Advisory-domain server-request handling described in [advisory-runtime-policy.md](advisory-runtime-policy.md) is not validated by this contract and remains an unresolved spec-code divergence.
+Under current architecture, server-request handling is implemented only in execution-domain turns (advisory turns do not install a `server_request_handler`). Advisory-domain server-request handling is future-scope advisory policy, not current Packet 1 runtime behavior — see [advisory-runtime-policy.md §Future-Scope: Freeze-and-Rotate Design](advisory-runtime-policy.md#future-scope-freeze-and-rotate-design).
 
 When the execution-domain control plane receives a server request with an unrecognized `kind` (captured as `unknown` in [PendingServerRequest](contracts.md#pendingserverrequest)), the delegation job terminalizes as `unknown`. The request does not enter [PendingEscalationView](contracts.md#pending-escalation-view) and is not resolved via `codex.delegate.decide`. Two code paths produce this terminal state with different diagnostic quality:
 
