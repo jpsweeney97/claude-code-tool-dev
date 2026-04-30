@@ -80,7 +80,7 @@ Records in `events.jsonl`:
 | `runtime_id` | string | Runtime that served the action |
 | `policy_fingerprint` | string or null | Advisory policy hash (consult events) |
 | `job_id` | string or null | Delegation job (delegation actions only) |
-| `request_id` | string or null | Server request (escalation/approval/timeout only) |
+| `request_id` | string or null | Server request (escalation, approval, denial, timeout, internal abort, dispatch failure) |
 | `turn_id` | string or null | Codex turn context |
 | `decision` | string or null | `"approve"` or `"deny"` (approval/deny/promote actions) |
 | `context_size` | int or null | Assembled context size (advisory events) |
