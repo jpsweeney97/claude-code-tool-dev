@@ -307,5 +307,5 @@ the delegation completion packet (`T-20260330-06`). Both are now closed.
 | Cross-model README | `packages/plugins/cross-model/README.md` | Migration inventory |
 | Analytics/review cutover decision | `docs/superpowers/specs/codex-collaboration/decisions.md` | Architecture decision |
 | T-04 retirement decision | `docs/tickets/2026-03-30-codex-collaboration-dialogue-parity-and-scouting-retirement.md` | Context-injection evidence |
-| T-06 closed ticket | `docs/tickets/2026-03-30-codex-collaboration-promotion-flow-and-delegate-ux.md` | Delegate evidence |
+| T-06 closed ticket | `docs/tickets/closed-tickets/2026-03-30-codex-collaboration-promotion-flow-and-delegate-ux.md` | Delegate evidence |
 | Capability analysis | `docs/reviews/2026-03-17-cross-model-capability-analysis.md` | Migration inventory |

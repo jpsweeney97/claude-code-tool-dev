@@ -131,5 +131,5 @@ Verification:
 | Current patterns | `context_assembly.py` `_SECRET_PATTERNS` | Starting point |
 | Internal precedent | `context-injection/redact.py` `_API_KEY_PREFIX_RE` through `_CREDENTIAL_RE` | Pattern reference (adapt, don't copy) |
 | Secret taxonomy | `cross-model/scripts/secret_taxonomy.py` | Broader classification reference |
-| R1 carry-forward ticket | `docs/tickets/2026-03-27-r1-carry-forward-debt.md` | Parent tracking artifact |
+| R1 carry-forward ticket | `docs/tickets/closed-tickets/2026-03-27-r1-carry-forward-debt.md` | Parent tracking artifact |
 | Item 7 fix | `e6792de8` | Binary file hardening (closed) |

@@ -432,7 +432,7 @@ Reserved subcommands with unexpected trailing text error with escape guidance. T
 
 | Document | Location | Role |
 |----------|----------|------|
-| T-06 ticket | `docs/tickets/2026-03-30-codex-collaboration-promotion-flow-and-delegate-ux.md` | Ticket scope and ACs |
+| T-06 ticket | `docs/tickets/closed-tickets/2026-03-30-codex-collaboration-promotion-flow-and-delegate-ux.md` | Ticket scope and ACs |
 | Contracts | `docs/superpowers/specs/codex-collaboration/contracts.md` | MCP tool surface and response shapes |
 | Promotion protocol | `docs/superpowers/specs/codex-collaboration/promotion-protocol.md` | Promotion state machine, preconditions, rollback |
 | Recovery and journal | `docs/superpowers/specs/codex-collaboration/recovery-and-journal.md` | Concurrency limits, journal phases |

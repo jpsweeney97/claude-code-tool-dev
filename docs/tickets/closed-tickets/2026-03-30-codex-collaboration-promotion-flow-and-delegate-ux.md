@@ -113,4 +113,6 @@ Closed 2026-04-21. All 7 ACs met across 5 PRs (#109, #110, #111, #112, #113, #11
 
 **Deferred to T-07 or standalone session:** Live `/delegate` invocation through full execution and promotion cycle. Requires Codex App Server. All server-side behavior is verified by automated tests; the deferred item covers only skill rendering UX (diff display, escalation formatting, ceremony gate enforcement as experienced by Claude in a live session).
 
+> **Superseded (2026-04-29):** The deferred live `/delegate` smoke was satisfied during T-01 delegate execution remediation. Live smoke artifact at `a7a4e9c9`, T-20260423-01 closed at `6580d86e`. See `docs/tickets/closed-tickets/2026-04-23-codex-collaboration-delegate-execution-remediation.md`.
+
 **Final test count progression:** T-05 baseline 698 → decide 734 → poll 765 → sidecar 771 → promote/discard 816 → projection 818 → delegate skill 845.

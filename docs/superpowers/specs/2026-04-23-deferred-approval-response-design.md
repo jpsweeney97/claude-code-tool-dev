@@ -14,7 +14,7 @@
 
 Redesigns the delegation runtime's control plane so that a Codex App Server turn can stay live across operator delay and receive an approval response in the same turn. Replaces the current synchronous capture-and-cancel flow with a worker-thread execution model coordinated through a resolution registry.
 
-**Ticket:** T-20260423-02 (`docs/tickets/2026-04-23-deferred-same-turn-approval-response.md`).
+**Ticket:** T-20260423-02 (`docs/tickets/closed-tickets/2026-04-23-deferred-same-turn-approval-response.md`).
 
 **Blocked (historical):** T-20260423-01 — resolved; T-01 closed 2026-04-29 at commit `6580d86e`.
 

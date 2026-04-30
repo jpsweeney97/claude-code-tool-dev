@@ -87,7 +87,7 @@ Scope included here:
 | ID | State | Owning artifact | Current truth | Exit condition |
 |---|---|---|---|---|
 | `CONTRACTS-T02-TEMPORAL-MARKER` | `drift` | `docs/superpowers/specs/codex-collaboration/contracts.md` | `contracts.md:327` uses `T-20260423-02` as a temporal marker ("Post-Packet 1 (T-20260423-02)") in normative contract text. Now that T-02 is closed, the reference is stale attribution in a normative document. | Rewrite to a non-ticket-specific temporal marker or add a "(closed)" annotation. |
-| `T02-CLOSED-TICKET-PATH` | `drift` | `docs/tickets/2026-04-23-deferred-same-turn-approval-response.md` | T-20260423-02 was closed in place at `docs/tickets/` rather than moved to `docs/tickets/closed-tickets/` to avoid rename-detection noise in the 7-file reconciliation commit. | `git mv` to `closed-tickets/` in a subsequent housekeeping commit. |
+| `T02-CLOSED-TICKET-PATH` | ~~`drift`~~ `resolved` | `docs/tickets/closed-tickets/2026-04-23-deferred-same-turn-approval-response.md`, `docs/tickets/closed-tickets/2026-03-30-codex-collaboration-promotion-flow-and-delegate-ux.md`, `docs/tickets/closed-tickets/2026-03-27-r1-carry-forward-debt.md` | Three closed codex-collaboration tickets (T-20260423-02, T-20260330-06, T-20260327-01) moved from `docs/tickets/` root to `docs/tickets/closed-tickets/`. Current-facing path references updated. T-06 deferred live-smoke item annotated as superseded by T-01 closure. | Resolved. |
 
 ## Open Spec Questions
 

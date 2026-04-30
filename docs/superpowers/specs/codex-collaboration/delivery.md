@@ -243,7 +243,7 @@ Original R1/R2 rollout target (superseded by post-R2 implementation):
 - Deployment shape: MCP server launched from the repo checkout; not a packaged plugin artifact
 - Operational assumptions: serialized MCP dispatch, read-only advisory runtime, no advisory widening, no delegation/promotion path, no hook-guard enforcement
 - Out of scope for this rollout target: packaged-plugin structure, delegation/execution components, promotion wiring, and broader production hardening gates
-- Risk acceptance for remaining R1/R2 parked debt lives in `docs/tickets/2026-03-27-r1-carry-forward-debt.md`
+- Risk acceptance for remaining R1/R2 parked debt lives in `docs/tickets/closed-tickets/2026-03-27-r1-carry-forward-debt.md`
 
 ### Current Dev-Repo Deployment Profile (2026-04-29)
 
