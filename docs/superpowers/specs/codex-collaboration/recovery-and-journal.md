@@ -135,7 +135,7 @@ An audit event is emitted for every state transition that crosses a trust or cap
 3. Use `thread/read` and `thread/resume` to recover the latest completed state.
 4. Reload any `stale_advisory_context` marker from the operation journal and preserve the post-promotion injection requirement for the next advisory turn.
 5. Mark any pending server requests as canceled.
-6. Allow Claude to continue from the last completed turn or fork from the interrupted snapshot.
+6. Allow Claude to continue from the last completed turn. Seeding a new dialogue from the interrupted snapshot remains deferred until `seed_from` on `codex.dialogue.start` enters scope (see [decisions.md §Dialogue Fork Scope](decisions.md#dialogue-fork-scope)).
 
 An [audit event](contracts.md#auditevent) with `action: crash` is emitted when the crash is detected. An event with `action: restart` is emitted when recovery completes, with `causal_parent` linking to the crash event.
 
