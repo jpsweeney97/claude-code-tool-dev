@@ -192,7 +192,7 @@ Next steps:
 | Kind | Rendering |
 |------|-----------|
 | `command_approval` | Show the command being requested. |
-| `file_change` | Show the file path and change type. |
+| `file_change` | Show `grantRoot` and `reason` from `requested_scope` if non-null. File-level visibility (path, change type, diff) is not provided by the current `item/fileChange/requestApproval` wire method — approve/deny is based on worktree isolation and Gate 1 review, not per-file inspection. |
 | `request_user_input` | Show what the agent is asking. Include question identifiers from `requested_scope`. |
 | unknown kind | **Unreachable under Packet 1** — `unknown` requests terminalize the job before reaching `PendingEscalationView`. If encountered, treat as invariant violation: render raw `requested_scope` JSON, warn that this state is unexpected, do NOT approve or deny. Poll/inspect until the job reaches a terminal state (`unknown`, `failed`, or `canceled`), then advise `/delegate discard`. |
 

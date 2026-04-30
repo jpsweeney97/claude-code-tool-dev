@@ -161,6 +161,8 @@ Before changing plugin code, determine:
 Record diagnostic findings as evidence before committing to an implementation
 path.
 
+> **Investigation result (2026-04-30, D-06 closure):** All three questions answered. (1) The current `item/fileChange/requestApproval` method's `FileChangeRequestApprovalParams` schema defines only `grantRoot` (nullable string), `reason` (nullable string), and context IDs (`itemId`, `threadId`, `turnId`). No file path, change type, or diff fields exist at the wire level. Live T-01 smoke evidence confirms: `{grantRoot: null, reason: null}`. (2) `approval_router.py:58-60` preserves all non-context params opaquely into `requested_scope`; `delegation_controller.py:1812` projects `requested_scope` unchanged into `PendingEscalationView`. The plugin does not drop fields — there are none to drop. (3) `applyPatchApproval` carries `fileChanges` but lacks `itemId`/`threadId`/`turnId` and is classified as an unsupported parser shape (see schema delta line 238). **Conclusion:** file-level visibility is an upstream schema limitation. The `/delegate` SKILL.md rendering guidance has been narrowed accordingly. Future enrichment requires either upstream `FileChangeRequestApprovalParams` changes or `applyPatchApproval` support (separate design item).
+
 ### Implementation (conditional on investigation)
 
 If the data is available in the App Server response: implementation is
@@ -240,5 +242,5 @@ friction sources and address.
 | Sandbox policy builder | `packages/plugins/codex-collaboration/server/runtime.py` | 23-58 |
 | Sandbox policy regression test | `packages/plugins/codex-collaboration/tests/test_runtime.py` | 178 |
 | App Server response handler (file_change) | `packages/plugins/codex-collaboration/server/delegation_controller.py` | TBD (to be confirmed in Phase 2) |
-| Vendored App Server schemas | `tests/fixtures/codex-app-server/0.117.0/` | (file_change shape) |
+| Vendored App Server schemas | `packages/plugins/codex-collaboration/tests/fixtures/codex-app-server/0.117.0/` | (file_change shape) |
 | Diagnostic record (Candidate A) | `docs/diagnostics/2026-04-28-delegate-execution-diagnostic.md` | (security probe pattern reusable here) |
