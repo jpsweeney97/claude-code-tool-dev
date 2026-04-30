@@ -335,27 +335,36 @@ The contract-integrity constraint on mid-track patching (§"Why the B3
 run stays valid") is now historical — the benchmark track is complete.
 The fix is no longer deferred.
 
-**Next step:** Land the fix with tests and run one post-patch
-verification.
+**Current status (2026-04-30):** Implementation and tests landed in
+`00ec0054`. Live post-patch non-regression evidence landed in `c5807d84`
+(5 adversarial turns across 3 sessions on Codex `0.125.0`, all completed
+without error). The fallback did not fire in any live run —
+`item/completed` delivered agent messages on the normal path every time.
+The original failure-class recovery (missing `item/completed` → fallback
+via `thread/read`) remains unproven by live evidence.
+
+**Next step:** Accept test coverage plus App Server version drift as
+sufficient closure evidence, or wait for a natural live fallback recovery
+proof.
 
 **Closure criteria:**
 
-- Patch landed on main with unit tests for both extraction shapes
+- [x] Patch landed on main with unit tests for both extraction shapes
   (tests #1-#3)
-- Runtime integration test proving the fallback populates
+- [x] Runtime integration test proving the fallback populates
   `TurnExecutionResult.agent_message` via turn-ID lookup when
   `item/completed` does not fire (test #4 — load-bearing regression)
-- Downstream regression test proving `reply()` →
+- [x] Downstream regression test proving `reply()` →
   `parse_consult_response` succeeds on fallback-produced text (test #5)
-- Fallback failure tests proving best-effort semantics: read failure,
+- [x] Fallback failure tests proving best-effort semantics: read failure,
   no matching turn, and empty extraction all fall through without
   escalating to dispatch failure (tests #6-#8)
-- Execution-turn isolation test proving `run_execution_turn()` does not
+- [x] Execution-turn isolation test proving `run_execution_turn()` does not
   trigger the fallback (test #9)
-- One-run verification: rerun the B3 adversarial prompt on the patched
+- [x] One-run verification: rerun the B3 adversarial prompt on the patched
   commit in a fresh session, confirm convergence or natural termination
   without parse error
-- Update this ticket with final commit SHA and mark `status: closed`
+- [ ] Update this ticket with final commit SHA and mark `status: closed`
 
 ## References
 
