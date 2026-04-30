@@ -49,9 +49,10 @@ Scope included here:
 
 ## Current Priority Order
 
-1. Close `T-20260416-01`: accept test coverage as sufficient or wait for
-   natural live fallback proof (implementation and non-regression evidence
-   landed; fallback recovery path unproven by live run).
+1. Resolve `T-20260416-01` closure standard: accept test coverage plus
+   App Server version drift as sufficient, or wait for natural live
+   fallback proof (implementation and non-regression evidence landed;
+   fallback recovery path unproven by live run).
 2. Implement `T-20260429-01` Phase 1 sandbox carve-outs (Options B + E) and
    validate via a comparable `/delegate` smoke with avoidable sandbox-friction
    escalations <=2. Count legitimate operator-gated approvals separately.
