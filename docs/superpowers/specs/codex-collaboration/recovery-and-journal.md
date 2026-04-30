@@ -107,7 +107,6 @@ An audit event is emitted for every state transition that crosses a trust or cap
 |---|---|---|
 | Consultation initiated | `consult` | `collaboration_id`, `runtime_id`, `context_size` |
 | Dialogue turn dispatched | `dialogue_turn` | `collaboration_id`, `runtime_id`, `turn_id` |
-| Thread forked | `fork` | `collaboration_id`, `causal_parent` |
 | Delegation started | `delegate_start` | `collaboration_id`, `job_id`, `runtime_id` |
 | Approval resolved | `approve` | `request_id`, `decision` |
 | Escalation surfaced | `escalate` | `request_id`, `collaboration_id` |
@@ -118,6 +117,8 @@ An audit event is emitted for every state transition that crosses a trust or cap
 | Advisory runtime rotated | `rotate` | `runtime_id`, `policy_fingerprint` |
 | Advisory runtime frozen | `freeze` | `runtime_id` |
 | Frozen runtime reaped | `reap` | `runtime_id` |
+
+**Reserved trigger (not currently emitted):** `fork` (`collaboration_id`, `causal_parent`) — will be produced by `seed_from` on `codex.dialogue.start` when implemented. See [decisions.md §Dialogue Fork Scope](decisions.md#dialogue-fork-scope).
 
 ### Retention
 

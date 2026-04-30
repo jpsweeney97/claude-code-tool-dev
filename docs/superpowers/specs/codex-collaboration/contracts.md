@@ -18,7 +18,7 @@ The official plugin exposes native app-server methods directly to Claude. This s
 | Tool | Purpose |
 |---|---|
 | `codex.consult` | One-shot second opinion using the advisory runtime |
-| `codex.dialogue.start` | Create a durable dialogue thread (accepts optional `seed_from` for copy-and-diverge; see [decisions.md §Dialogue Fork Scope](decisions.md#dialogue-fork-scope)) |
+| `codex.dialogue.start` | Create a durable dialogue thread. Future copy-and-diverge support is planned via `seed_from`; see [decisions.md §Dialogue Fork Scope](decisions.md#dialogue-fork-scope) |
 | `codex.dialogue.reply` | Continue a dialogue turn |
 | `codex.dialogue.read` | Read dialogue state and summaries |
 | `codex.delegate.start` | Start an isolated execution job |
