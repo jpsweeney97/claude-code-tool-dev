@@ -180,9 +180,11 @@ This category captures findings whose claim was true at the report's declared an
 1. **Addressed-status correction for D-04 and Section 8 step 4**: annotate as "already addressed in commit `a5fd568d` — the same commit that saved this report — except the closed-ticket-path widening half." Split Section 8 step 4 into the addressed half and the still-actionable half. Without this, future readers will treat a stale snapshot finding as a current omission and submit a register edit that is already done.
 2. **Skill-surface correction**: revise Section 3 line 40 and Section 4 line 52 to enumerate 7 user-invocable skills + 1 non-user-invocable. This is wrong at both snapshot and current HEAD, not just stale, and is logically separate from D-08's package-README understatement (which remains true).
 
-Drift findings D-01, D-02, D-03, D-05, D-06, D-07, D-08, and D-09 remain genuinely actionable against current HEAD `19cd5183` and form the operationally useful basis for cleanup work.
+~~Drift findings D-01, D-02, D-03, D-05, D-06, D-07, D-08, and D-09 remain genuinely actionable against current HEAD `19cd5183` and form the operationally useful basis for cleanup work.~~ **Superseded (2026-04-30):** All 9 drift findings (D-01 through D-09) have been addressed across commits `7429e470` through `5f89e58f`. This bottom line was correct at audit HEAD `19cd5183`; it no longer reflects current state.
 
 ## Cleanup Sequencing
+
+> **Superseded (2026-04-30):** All findings below have been addressed. This sequencing advice was valid at audit time; it is retained as historical context.
 
 For cleanup sequencing, distinguish doc-only from behavior-decision work:
 
