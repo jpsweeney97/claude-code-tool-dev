@@ -119,9 +119,13 @@ class _StubClientForTurnStart:
         pass
 
     def request(self, method: str, params: dict[str, object]) -> dict[str, object]:
-        self.last_method = method
-        self.last_params = dict(params)
-        return {"turn": {"id": "turn-1"}}
+        if method == "turn/start":
+            self.last_method = method
+            self.last_params = dict(params)
+            return {"turn": {"id": "turn-1"}}
+        if method == "thread/read":
+            return {"thread": {"id": "thr-1", "turns": []}}
+        return {}
 
     def next_notification(self, timeout: float = 60.0) -> dict:
         return {
@@ -226,6 +230,7 @@ class FakeServerProcess:
 
     def __init__(self) -> None:
         self._responses: dict[str, dict] = {}
+        self._errors: dict[str, Exception] = {}
         self._notifications: list[dict] = []
         self._notification_index = 0
         self.requests: list[tuple[str, dict]] = []
@@ -233,6 +238,9 @@ class FakeServerProcess:
 
     def queue_response(self, method: str, result: dict) -> None:
         self._responses[method] = result
+
+    def queue_error(self, method: str, error: Exception) -> None:
+        self._errors[method] = error
 
     def queue_notification(self, method: str, params: dict) -> None:
         self._notifications.append({"method": method, "params": params})
@@ -249,6 +257,8 @@ class _FakeJsonRpcClient:
 
     def request(self, method: str, params: dict) -> dict:
         self._server.requests.append((method, params))
+        if method in self._server._errors:
+            raise self._server._errors[method]
         return self._server._responses.get(method, {})
 
     def next_notification(self, timeout: float = 60.0) -> dict:
@@ -330,3 +340,265 @@ def test_run_turn_accepts_failed_status_when_allowed(
     )
 
     assert result.status == "failed"
+
+
+# ---------------------------------------------------------------------------
+# Tests #4-#9: thread/read fallback for empty agent_message
+# ---------------------------------------------------------------------------
+
+import json
+
+FALLBACK_AGENT_TEXT = json.dumps(
+    {
+        "position": "recovered via fallback",
+        "evidence": [
+            {"claim": "test claim", "citation": "test.py:1-5"},
+        ],
+        "uncertainties": ["none"],
+        "follow_up_branches": ["branch-a"],
+    }
+)
+
+
+def _setup_advisory_session_no_item_completed(
+    fake_server_process: FakeServerProcess,
+) -> AppServerRuntimeSession:
+    """Common setup: advisory turn completes without item/completed notification."""
+    fake_server_process.queue_response(
+        "turn/start",
+        {"turn": {"id": "t1", "status": "inProgress", "items": []}},
+    )
+    fake_server_process.queue_notification(
+        "turn/completed",
+        {
+            "threadId": "thr-1",
+            "turnId": "t1",
+            "turn": {"id": "t1", "status": "completed", "items": []},
+        },
+    )
+    session = AppServerRuntimeSession(repo_root=Path("/repo"))
+    session._client = fake_server_process.client  # type: ignore[assignment]
+    return session
+
+
+def test_advisory_turn_fallback_populates_agent_message(
+    fake_server_process: FakeServerProcess,
+) -> None:
+    """Test #4: fallback via thread/read populates agent_message when
+    item/completed did not fire."""
+    session = _setup_advisory_session_no_item_completed(fake_server_process)
+    fake_server_process.queue_response(
+        "thread/read",
+        {
+            "thread": {
+                "id": "thr-1",
+                "turns": [
+                    {
+                        "id": "t1",
+                        "status": "completed",
+                        "agentMessage": FALLBACK_AGENT_TEXT,
+                    },
+                ],
+            },
+        },
+    )
+
+    result = session.run_advisory_turn(
+        thread_id="thr-1",
+        prompt_text="test",
+        output_schema={},
+    )
+
+    assert result.agent_message == FALLBACK_AGENT_TEXT
+    assert result.turn_id == "t1"
+    assert result.status == "completed"
+    thread_read_calls = [
+        (m, p) for m, p in fake_server_process.requests if m == "thread/read"
+    ]
+    assert len(thread_read_calls) == 1
+    assert thread_read_calls[0][1] == {"threadId": "thr-1", "includeTurns": True}
+
+
+def test_advisory_turn_fallback_uses_turn_id_lookup(
+    fake_server_process: FakeServerProcess,
+) -> None:
+    """Test #4 supplement: fallback selects the correct turn by ID, not position."""
+    session = _setup_advisory_session_no_item_completed(fake_server_process)
+    fake_server_process.queue_response(
+        "thread/read",
+        {
+            "thread": {
+                "id": "thr-1",
+                "turns": [
+                    {
+                        "id": "earlier-turn",
+                        "status": "completed",
+                        "agentMessage": "wrong turn",
+                    },
+                    {
+                        "id": "t1",
+                        "status": "completed",
+                        "agentMessage": FALLBACK_AGENT_TEXT,
+                    },
+                ],
+            },
+        },
+    )
+
+    result = session.run_advisory_turn(
+        thread_id="thr-1",
+        prompt_text="test",
+        output_schema={},
+    )
+
+    assert result.agent_message == FALLBACK_AGENT_TEXT
+
+
+def test_fallback_output_parses_as_consult_response(
+    fake_server_process: FakeServerProcess,
+) -> None:
+    """Test #5: fallback-produced agent_message passes through
+    parse_consult_response without error."""
+    from server.prompt_builder import parse_consult_response
+
+    session = _setup_advisory_session_no_item_completed(fake_server_process)
+    fake_server_process.queue_response(
+        "thread/read",
+        {
+            "thread": {
+                "id": "thr-1",
+                "turns": [
+                    {
+                        "id": "t1",
+                        "status": "completed",
+                        "agentMessage": FALLBACK_AGENT_TEXT,
+                    },
+                ],
+            },
+        },
+    )
+
+    result = session.run_advisory_turn(
+        thread_id="thr-1",
+        prompt_text="test",
+        output_schema={},
+    )
+
+    position, evidence, uncertainties, follow_up_branches = parse_consult_response(
+        result.agent_message
+    )
+    assert position == "recovered via fallback"
+    assert len(evidence) == 1
+    assert uncertainties == ("none",)
+    assert follow_up_branches == ("branch-a",)
+
+
+def test_fallback_read_thread_raises(
+    fake_server_process: FakeServerProcess,
+) -> None:
+    """Test #6: read_thread raises — fall through with agent_message == ""."""
+    session = _setup_advisory_session_no_item_completed(fake_server_process)
+    fake_server_process.queue_error(
+        "thread/read", RuntimeError("connection lost")
+    )
+
+    result = session.run_advisory_turn(
+        thread_id="thr-1",
+        prompt_text="test",
+        output_schema={},
+    )
+
+    assert result.agent_message == ""
+    assert result.status == "completed"
+
+
+def test_fallback_no_matching_turn_id(
+    fake_server_process: FakeServerProcess,
+) -> None:
+    """Test #7: thread/read returns turns but none match turn_id."""
+    session = _setup_advisory_session_no_item_completed(fake_server_process)
+    fake_server_process.queue_response(
+        "thread/read",
+        {
+            "thread": {
+                "id": "thr-1",
+                "turns": [
+                    {
+                        "id": "other-turn",
+                        "status": "completed",
+                        "agentMessage": "wrong turn",
+                    },
+                ],
+            },
+        },
+    )
+
+    result = session.run_advisory_turn(
+        thread_id="thr-1",
+        prompt_text="test",
+        output_schema={},
+    )
+
+    assert result.agent_message == ""
+    assert result.status == "completed"
+
+
+def test_fallback_matching_turn_no_extractable_message(
+    fake_server_process: FakeServerProcess,
+) -> None:
+    """Test #8: matching turn exists but extract_agent_message returns ""."""
+    session = _setup_advisory_session_no_item_completed(fake_server_process)
+    fake_server_process.queue_response(
+        "thread/read",
+        {
+            "thread": {
+                "id": "thr-1",
+                "turns": [
+                    {"id": "t1", "status": "completed"},
+                ],
+            },
+        },
+    )
+
+    result = session.run_advisory_turn(
+        thread_id="thr-1",
+        prompt_text="test",
+        output_schema={},
+    )
+
+    assert result.agent_message == ""
+    assert result.status == "completed"
+
+
+def test_execution_turn_does_not_trigger_fallback(
+    fake_server_process: FakeServerProcess,
+) -> None:
+    """Test #9: run_execution_turn with empty agent_message on interrupted
+    status does NOT call thread/read."""
+    fake_server_process.queue_response(
+        "turn/start",
+        {"turn": {"id": "t1", "status": "inProgress", "items": []}},
+    )
+    fake_server_process.queue_notification(
+        "turn/completed",
+        {
+            "threadId": "thr-1",
+            "turn": {"id": "t1", "status": "interrupted", "items": []},
+        },
+    )
+    session = AppServerRuntimeSession(repo_root=Path("/repo"))
+    session._client = fake_server_process.client  # type: ignore[assignment]
+
+    result = session.run_execution_turn(
+        thread_id="thr-1",
+        prompt_text="do work",
+        sandbox_policy={"type": "workspaceWrite"},
+        approval_policy="on-request",
+    )
+
+    assert result.agent_message == ""
+    assert result.status == "interrupted"
+    thread_read_calls = [
+        (m, p) for m, p in fake_server_process.requests if m == "thread/read"
+    ]
+    assert len(thread_read_calls) == 0

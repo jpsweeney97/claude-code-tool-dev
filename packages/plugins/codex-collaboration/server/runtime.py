@@ -7,11 +7,15 @@ silently blur the runtime boundary.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, Callable
 
 from .jsonrpc_client import JsonRpcClient
 from .models import AccountState, RuntimeHandshake, TurnExecutionResult
+from .turn_extraction import extract_agent_message
+
+log = logging.getLogger(__name__)
 
 
 def _build_read_only_sandbox_policy() -> dict[str, Any]:
@@ -174,6 +178,7 @@ class AppServerRuntimeSession:
             sandbox_policy=_build_read_only_sandbox_policy(),
             approval_policy="never",
             allowed_terminal_statuses=("completed",),
+            fallback_on_empty_message=True,
         )
 
     def run_execution_turn(
@@ -222,6 +227,7 @@ class AppServerRuntimeSession:
         allowed_terminal_statuses: tuple[str, ...] = ("completed",),
         server_request_handler: Callable[[dict[str, Any]], dict[str, Any] | None]
         | None = None,
+        fallback_on_empty_message: bool = False,
     ) -> TurnExecutionResult:
         """Start a turn and collect notifications until completion."""
 
@@ -284,12 +290,54 @@ class AppServerRuntimeSession:
                         "Turn completion failed: turn status not in allowed set. "
                         f"Got: {status!r:.100}, allowed: {allowed_terminal_statuses!r}"
                     )
+                if (
+                    fallback_on_empty_message
+                    and not agent_message
+                    and status == "completed"
+                ):
+                    agent_message = self._fallback_extract_agent_message(
+                        thread_id, turn_id
+                    )
                 return TurnExecutionResult(
                     turn_id=turn_id,
                     status=str(status),
                     agent_message=agent_message,
                     notifications=tuple(notifications),
                 )
+
+    def _fallback_extract_agent_message(
+        self, thread_id: str, turn_id: str
+    ) -> str:
+        """Best-effort agent message recovery via thread/read.
+
+        Called when the live notification stream did not deliver an
+        item/completed notification for the agent message. Falls through
+        to "" on any failure — must never raise.
+        """
+        try:
+            thread_data = self.read_thread(thread_id)
+        except Exception:
+            log.debug(
+                "thread/read fallback failed for thread=%s turn=%s",
+                thread_id,
+                turn_id,
+                exc_info=True,
+            )
+            return ""
+
+        thread = thread_data.get("thread")
+        if not isinstance(thread, dict):
+            return ""
+        turns = thread.get("turns")
+        if not isinstance(turns, list):
+            return ""
+
+        for raw_turn in turns:
+            if not isinstance(raw_turn, dict):
+                continue
+            if raw_turn.get("id") == turn_id:
+                return extract_agent_message(raw_turn)
+        return ""
 
     def read_thread(self, thread_id: str) -> dict[str, Any]:
         """Read thread state and turn history via thread/read."""

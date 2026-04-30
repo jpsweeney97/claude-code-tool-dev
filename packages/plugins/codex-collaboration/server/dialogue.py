@@ -33,6 +33,7 @@ from .prompt_builder import (
     build_consult_turn_text,
     parse_consult_response,
 )
+from .turn_extraction import extract_agent_message
 from .turn_store import TurnStore
 
 
@@ -944,7 +945,7 @@ class DialogueController:
             if raw_turn.get("status") != "completed":
                 continue
             seq += 1
-            agent_message = self._read_turn_agent_message(raw_turn)
+            agent_message = extract_agent_message(raw_turn)
             position = ""
             if isinstance(agent_message, str) and agent_message:
                 try:
@@ -980,25 +981,6 @@ class DialogueController:
             created_at=handle.created_at,
             turns=tuple(turns),
         )
-
-    @staticmethod
-    def _read_turn_agent_message(raw_turn: dict[str, object]) -> str:
-        """Extract agent message text from legacy or live thread/read turn shapes."""
-        agent_message = raw_turn.get("agentMessage")
-        if isinstance(agent_message, str):
-            return agent_message
-
-        items = raw_turn.get("items")
-        if isinstance(items, list):
-            for item in items:
-                if not isinstance(item, dict):
-                    continue
-                if item.get("type") != "agentMessage":
-                    continue
-                text = item.get("text")
-                if isinstance(text, str):
-                    return text
-        return ""
 
     @staticmethod
     def _read_turn_timestamp(raw_turn: dict[str, object]) -> str:
