@@ -158,7 +158,7 @@ Original finding at report snapshot (`88f098a1`): the T-01 diagnostic still said
 
 Why it mattered: low-risk, but made a still-linked diagnostic artifact inaccurate about a present operator control.
 
-Fix type: resolved via inline supersession annotations at three stale TTL/env-tuning claims within the diagnostic body.
+Fix type: resolved via inline supersession annotations at all five stale TTL/env-tuning claims within the diagnostic body.
 
 ## 7. Open Work And Roadmap Reconciliation
 
