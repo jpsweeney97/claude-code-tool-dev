@@ -89,7 +89,7 @@ For implementation details, start from:
 
 The following remain intentionally deferred or not yet implemented:
 
-- `codex.dialogue.fork` and fork-specific lineage/tree operations
+- dialogue branching via `seed_from` on `codex.dialogue.start` (copy-and-diverge; `codex.dialogue.fork` as a standalone tool is permanently replaced — see [decisions.md §Dialogue Fork Scope](../superpowers/specs/codex-collaboration/decisions.md#dialogue-fork-scope))
 - advisory widening / narrowing / rotation behavior as live implementation
 - phased consultation profiles
 - broader structured MCP error reasons for certain delegation failures

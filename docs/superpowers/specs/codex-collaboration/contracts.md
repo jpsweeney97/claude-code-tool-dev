@@ -18,10 +18,9 @@ The official plugin exposes native app-server methods directly to Claude. This s
 | Tool | Purpose |
 |---|---|
 | `codex.consult` | One-shot second opinion using the advisory runtime |
-| `codex.dialogue.start` | Create a durable dialogue thread |
+| `codex.dialogue.start` | Create a durable dialogue thread (accepts optional `seed_from` for copy-and-diverge; see [decisions.md §Dialogue Fork Scope](decisions.md#dialogue-fork-scope)) |
 | `codex.dialogue.reply` | Continue a dialogue turn |
-| `codex.dialogue.fork` | Branch a dialogue thread |
-| `codex.dialogue.read` | Read dialogue state, branches, and summaries |
+| `codex.dialogue.read` | Read dialogue state and summaries |
 | `codex.delegate.start` | Start an isolated execution job |
 | `codex.delegate.poll` | Poll job progress and pending approvals |
 | `codex.delegate.decide` | Resolve a pending escalation or approval |
@@ -138,7 +137,7 @@ The session-id subdirectory isolates each session's handles. `${CLAUDE_PLUGIN_DA
 | `update_status` | Transition handle lifecycle status | Handle completion, crash recovery |
 | `update_runtime` | Remap handle to a new runtime and, if `thread/resume` yields a new thread identity, update `codex_thread_id` | Advisory runtime rotation ([advisory-runtime-policy.md §Rotate](advisory-runtime-policy.md#rotate) step 4), crash recovery (step 4) |
 
-Fork-specific operations (`get_children`, `get_parent`, tree reconstruction) are deferred until `codex.dialogue.fork` enters scope. See [decisions.md §Dialogue Fork Scope](decisions.md#dialogue-fork-scope).
+Fork-specific operations (`get_children`, `get_parent`, tree reconstruction) are not needed under the copy-and-diverge model — seeded dialogues are independent linear handles. If `seed_from` lands, the lineage store gains no new operations; provenance is recorded via the existing `parent_collaboration_id` field on [CollaborationHandle](#collaborationhandle). See [decisions.md §Dialogue Fork Scope](decisions.md#dialogue-fork-scope).
 
 ### Handle Lifecycle
 
@@ -161,7 +160,7 @@ When an advisory runtime crashes ([recovery-and-journal.md §Advisory Runtime Cr
 4. For each enumerated handle, the control plane uses Codex `thread/read` on the handle's `codex_thread_id` to recover the latest completed state, then `thread/resume` to reattach the thread in the replacement runtime.
 5. The control plane calls `update_runtime` on each recovered handle to point to the new runtime instance. If `thread/resume` yields a new thread identity, the handle's `codex_thread_id` must also be updated.
 6. Pending server requests associated with crashed handles are marked canceled.
-7. Claude may continue from the last completed turn. Forking from the interrupted snapshot requires `codex.dialogue.fork` to be in scope.
+7. Claude may continue from the last completed turn. Seeding a new dialogue from the interrupted snapshot requires `seed_from` on `codex.dialogue.start` to be in scope (see [decisions.md §Dialogue Fork Scope](decisions.md#dialogue-fork-scope)).
 
 Future producers of `status: unknown` must either be compatible with this eligibility predicate or introduce stronger provenance before they can participate in startup reattach.
 
@@ -210,7 +209,7 @@ Append-only event record for human reconstruction and diagnostics. Write behavio
 |---|---|---|
 | `consult` | advisory | Consultation initiated |
 | `dialogue_turn` | advisory | Dialogue turn dispatched |
-| `fork` | advisory | Thread forked |
+| `fork` | advisory | Thread forked (reserved — not currently emitted; will be produced by `seed_from` on `codex.dialogue.start` when implemented; see [decisions.md §Dialogue Fork Scope](decisions.md#dialogue-fork-scope)) |
 | `delegate_start` | execution | Delegation job started |
 | `approve` | both | Approval resolved |
 | `escalate` | both | Escalation surfaced to Claude |

@@ -171,9 +171,9 @@ App Server enforces sandboxing, approval semantics, and thread/session state. Th
 1. Claude calls `codex.dialogue.start`.
 2. The plugin creates a root advisory thread and returns a [collaboration_id](contracts.md#collaborationhandle).
 3. Follow-up turns call `codex.dialogue.reply`.
-4. Branches call `codex.dialogue.fork`, which maps to App Server `thread/fork`.
-5. The plugin records parent-child lineage independently of raw `threadId`.
-6. `codex.dialogue.read` reconstructs the logical dialogue tree from plugin lineage plus Codex thread history.
+4. `codex.dialogue.read` reconstructs the linear dialogue from plugin lineage plus Codex thread history.
+
+Dialogue is architecturally branchable: a new dialogue can be seeded from an existing one via `seed_from` on `codex.dialogue.start`, creating an independent linear dialogue forked at the current head of the source thread. The seeded dialogue has its own `collaboration_id` and lifecycle; the source is unmodified. This is copy-and-diverge, not tree-structured dialogue — there is no tree traversal, reconvergence, or shared state. See [decisions.md §Dialogue Fork Scope](decisions.md#dialogue-fork-scope) for the full decision and implementation constraints.
 
 ### Delegation
 

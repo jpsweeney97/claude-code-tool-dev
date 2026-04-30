@@ -219,7 +219,7 @@ R2 implements the lineage store (delivery step 3) and the minimum dialogue surfa
 
 **Deferred**
 
-- `codex.dialogue.fork` and tree reconstruction in `codex.dialogue.read` — see [decisions.md §Dialogue Fork Scope](decisions.md#dialogue-fork-scope)
+- Dialogue branching via `seed_from` on `codex.dialogue.start` (copy-and-diverge, not tree-structured) — see [decisions.md §Dialogue Fork Scope](decisions.md#dialogue-fork-scope)
 - Hook guard integration for dialogue tool calls
 - Delegation runtime, worktree orchestration, and promotion
 - `turn/steer`-based coherence
@@ -305,7 +305,7 @@ The context-injection retirement decision is governed by
 ### Integration Tests
 
 - Full consultation flow through advisory runtime
-- Dialogue with fork and read
+- Dialogue with seeded start and read
 - Delegation with worktree isolation
 - Promotion with all preconditions verified
 - Crash recovery from journal replay

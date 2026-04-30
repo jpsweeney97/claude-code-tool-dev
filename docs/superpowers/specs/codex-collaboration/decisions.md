@@ -139,13 +139,22 @@ The [audit event model](contracts.md#auditevent) defines the record shape and [r
 
 ### Dialogue Fork Scope
 
-**Resolved.** `codex.dialogue.fork` is deferred from the first post-R1 dialogue milestone. The milestone implements `.start`, `.reply`, and `.read` only, matching [delivery.md step 4](delivery.md).
+**Resolved.** Dialogue remains architecturally branchable. The near-term implementation target is copy-and-diverge via current-head forking, not full tree-structured dialogue or arbitrary prefix seeding. A standalone `codex.dialogue.fork` tool is permanently replaced by a `seed_from` parameter on `codex.dialogue.start`.
 
-**Rationale:** [delivery.md:158](delivery.md) explicitly scopes step 4 without fork. Deferring fork allows the [lineage store](contracts.md#lineage-store) to start as flat handle tracking without tree-traversal operations. The [CollaborationHandle](contracts.md#collaborationhandle) schema already includes `parent_collaboration_id` and `fork_reason` — no schema migration will be needed when fork enters scope.
+**Rationale:** Branchability is woven into the architectural narrative — scope/goals ([foundations.md §Scope](foundations.md#scope)), dialogue flow ([foundations.md §Dialogue](foundations.md#dialogue)), and the [CollaborationHandle](contracts.md#collaborationhandle) schema (`parent_collaboration_id`, `fork_reason`). Removing it would smuggle a cancellation decision into a docs cleanup. But the originally specified shape — a separate `codex.dialogue.fork` tool with full tree-structured `dialogue.read` — is heavier than needed. Copy-and-diverge captures the primary use case (explore an alternative from a decision point without losing accumulated context) without tree state, tree-read, or lineage-store tree traversal.
 
-**Forward compatibility:** `thread/fork` is already implemented in `runtime.py` for consultation branching. Adding `codex.dialogue.fork` is additive, not architectural.
+**Planned surface:** `seed_from` on `codex.dialogue.start`, accepting a `collaboration_id` with implicit current-head semantics. The App Server `thread/fork` creates a new independent thread; the plugin creates a new `CollaborationHandle` with `parent_collaboration_id` pointing to the source. The seeded dialogue is an independent linear dialogue — no shared state, no tree traversal, no reconvergence. Arbitrary prefix seeding (`up_to_turn`) is a separate design question, deferred: it requires either replaying Codex turn content across threads or constructing synthetic seed context, both of which have fundamentally different implementation surfaces than current-head fork.
 
-**Change trigger:** When a use case for branched dialogue is identified. Fork is not blocked — it is deferred for scope reasons, not design reasons.
+**Forward compatibility:** `thread/fork` is already implemented in `runtime.py` for consultation branching. `CollaborationHandle` already includes `parent_collaboration_id` and `fork_reason` as reserved nullable fields — no schema migration needed.
+
+#### Constraints
+
+- **Admissibility:** `seed_from` is admissible only from a readable, same-session/same-repo dialogue handle with consistent turn metadata. Unsafe source states (handle status `unknown` with incomplete recovery, `dialogue.read` failure, turn metadata replay diagnostics) reject rather than create partial provenance.
+- **Fresh control resolution:** A seeded dialogue resolves its own profile, posture, and turn budget from explicit `dialogue.start` arguments or defaults. Source dialogue execution controls are not implicitly inherited.
+- **Dialogue-thread verification required:** `thread/fork` is currently exercised only through the consultation path in `control_plane.py`. Implementation must verify that `thread/fork` works correctly for dialogue threads before shipping `seed_from`.
+- **D-07 ordering dependency:** Seeded-dialogue provenance tracking interacts with the audit schema alignment work (D-07). Whichever lands first should account for the other — the `fork` audit action ([contracts.md §Audit Event Actions](contracts.md#audit-event-actions)) is reserved for seeded-dialogue provenance rather than currently emitted.
+
+**Change trigger:** Implementation enters scope when a concrete seeded-dialogue use case justifies the work. The design direction is set; the constraints above govern implementation.
 
 ### `codex.consult` Surface
 

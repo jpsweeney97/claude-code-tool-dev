@@ -74,11 +74,13 @@
 
 ### D-01
 
+> **Addressed-status note (2026-04-29):** Resolved via [decisions.md §Dialogue Fork Scope](../superpowers/specs/codex-collaboration/decisions.md#dialogue-fork-scope): dialogue remains architecturally branchable via deferred copy-and-diverge (`seed_from` on `codex.dialogue.start`); `codex.dialogue.fork` as a standalone tool is permanently replaced. Spec edits applied across `foundations.md`, `contracts.md`, `delivery.md`, current-state doc, and reconciliation register.
+
 Current claim: dialogue is “branchable” and branches call `codex.dialogue.fork`, and the MCP tool surface lists `codex.dialogue.fork` (`docs/superpowers/specs/codex-collaboration/foundations.md:17-18`, `:23`, `:174-176`; `docs/superpowers/specs/codex-collaboration/contracts.md:21-24`). Conflict: `decisions.md` and `delivery.md` defer fork, the MCP server does not register it, and tests assert it must not exist (`docs/superpowers/specs/codex-collaboration/decisions.md:142-148`; `docs/superpowers/specs/codex-collaboration/delivery.md:220-236`; `packages/plugins/codex-collaboration/server/mcp_server.py:18-187`; `packages/plugins/codex-collaboration/tests/test_mcp_server.py:21-23`; `packages/plugins/codex-collaboration/tests/test_dialogue_integration.py:380-384`).
 
 Why it matters: this misstates the live tool surface and dialogue-tree capability.
 
-Fix type: source doc edit, unless fork is actually being brought into scope.
+Fix type: behavior-decision resolved — branchable via deferred copy-and-diverge. Not a source doc edit; the decision changed the intended future surface.
 
 ### D-02
 
