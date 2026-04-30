@@ -110,7 +110,7 @@ Policy defaults:
 | Sandbox | workspace-write inside isolated worktree only |
 | Network | disabled |
 | Approvals | disabled |
-| Unsupported escalations | become `needs_escalation` job state |
+| Unsupported escalations | terminalize job as `unknown` (see [decisions.md §Unknown Request Kinds](decisions.md#unknown-request-kinds)) |
 | App connectors | disabled |
 
 No session-scoped approval or write state can leak between jobs. Codex never mutates the user's primary working tree directly. Claude stays primary by reviewing and promoting results after the job ends.
@@ -181,7 +181,7 @@ Dialogue is architecturally branchable. When the deferred copy-and-diverge surfa
 2. The plugin creates an isolated worktree from the current branch tip.
 3. The plugin starts a fresh execution runtime bound to that worktree.
 4. Codex executes autonomously inside the worktree.
-5. If App Server raises a server request: unsupported escalations become `needs_escalation`; Claude resolves them with `codex.delegate.decide`.
+5. If App Server raises a server request: supported kinds (`command_approval`, `file_change`, `request_user_input`) are parked as escalations for Claude to resolve via `codex.delegate.decide`; unsupported kinds terminalize the job as `unknown` (see [decisions.md §Unknown Request Kinds](decisions.md#unknown-request-kinds)).
 6. When the job reaches `completed`, the job becomes eligible for review via `codex.delegate.poll`. Promotion eligibility requires a reviewed snapshot to exist.
 7. On first `codex.delegate.poll` of a completed job, the plugin materializes the inspection artifacts, computes the reviewed artifact hash, and returns the review snapshot. See [promotion-protocol.md §Artifact Hash Integrity](promotion-protocol.md#artifact-hash-integrity).
 8. Claude reviews the result.

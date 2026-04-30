@@ -157,14 +157,18 @@ App Server's `serverRequest/resolved` is authoritative for closing approval and 
 
 ### Unknown Request Handling
 
-When the control plane receives a server request with an unrecognized `kind` (captured as `unknown` in [PendingServerRequest](contracts.md#pendingserverrequest)):
+Under current architecture, server-request handling is implemented only in execution-domain turns (advisory turns do not install a `server_request_handler`). Advisory-domain server-request handling described in [advisory-runtime-policy.md](advisory-runtime-policy.md) is not validated by this contract and remains an unresolved spec-code divergence.
 
-- In the **execution domain:** The job transitions to `needs_escalation`. Claude resolves via `codex.delegate.decide`.
-- In the **advisory domain:** The request is surfaced to Claude as a pending escalation. Claude resolves per-request only (see [advisory-runtime-policy.md §Advisory Approval Scope](advisory-runtime-policy.md#advisory-approval-scope)).
+When the execution-domain control plane receives a server request with an unrecognized `kind` (captured as `unknown` in [PendingServerRequest](contracts.md#pendingserverrequest)), the delegation job terminalizes as `unknown`. The request does not enter [PendingEscalationView](contracts.md#pending-escalation-view) and is not resolved via `codex.delegate.decide`. Two code paths produce this terminal state with different diagnostic quality:
+
+- **Parse failure:** The request lacks required context fields (`itemId`, `threadId`, or `turnId`). A minimal `PendingServerRequest(kind="unknown")` causal record is created with empty context and only `raw_method` in `requested_scope`. The running turn is interrupted. The causal record may remain in `pending` status.
+- **Known-parsed non-parkable:** The request parses successfully (has all context fields) but its `kind` is not in the Packet 1 parkable set (`command_approval`, `file_change`, `request_user_input`). A full-context `PendingServerRequest(kind="unknown")` is created with preserved context fields and non-context `requested_scope` (context keys are stripped by the parser into dedicated fields). The running turn is interrupted. The finalizer may mark the request `resolved`.
 
 Unknown requests are **never auto-approved**. This is the fail-closed default: no automatic grant of unrecognized permissions.
 
-An [audit event](contracts.md#auditevent) with `action: escalate` is emitted for every unknown request received.
+No `action: escalate` [audit event](contracts.md#auditevent) is emitted for unknown terminalization. Terminal evidence is the persisted request record plus `DelegationOutcomeRecord(outcome_type="delegation_terminal", terminal_status="unknown")`.
+
+[T-20260429-02](../../../tickets/2026-04-29-codex-collaboration-unsupported-server-request-reachability.md) classifies each unsupported App Server method individually — methods may be promoted to the parkable/supported set, proven as intentionally safe-terminal, or proven non-reachable in current flows.
 
 ## Concurrency Limits
 

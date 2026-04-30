@@ -90,7 +90,7 @@ A server-initiated request from Codex that requires resolution.
 | `available_decisions` | list\[string\] | Valid resolution options |
 | `status` | enum | Lifecycle governed by [recovery-and-journal.md §Pending Request Ordering](recovery-and-journal.md#pending-request-ordering) |
 
-`kind: unknown` is a first-class value. Unrecognized server request types from future App Server versions are captured as `unknown` rather than rejected or ignored. See [decisions.md §Unknown Request Kinds](decisions.md#unknown-request-kinds).
+`kind: unknown` is a first-class value. Unsupported or unrecognized server request methods — whether from the current App Server schema or future versions — are captured as `unknown` rather than rejected or ignored. Under Packet 1, `unknown` requests terminalize the delegation job; they do not enter [PendingEscalationView](#pending-escalation-view). See [decisions.md §Unknown Request Kinds](decisions.md#unknown-request-kinds) and [recovery-and-journal.md §Unknown Request Handling](recovery-and-journal.md#unknown-request-handling).
 
 ## Lineage Store
 
@@ -301,7 +301,7 @@ Returned by `codex.delegate.start` when the first execution turn triggers a serv
 |---|---|---|
 | Parked (parkable capture) | `DelegationEscalation` | `{"job": {...}, "pending_escalation": {...}, "agent_context": "...", "escalated": true}` |
 | Turn completed without capture | plain `DelegationJob` | `{"job_id": "...", "status": "completed", ...}` (no `pending_escalation`, no `escalated`) |
-| Unknown-kind parse failure | plain `DelegationJob` | `{"job_id": "...", "status": "unknown", ...}` (no `pending_escalation`, no `escalated`) |
+| Unknown-kind terminalization | plain `DelegationJob` | `{"job_id": "...", "status": "unknown", ...}` (no `pending_escalation`, no `escalated`). Covers both parse-failure and known-parsed non-parkable paths (see [recovery-and-journal.md §Unknown Request Handling](recovery-and-journal.md#unknown-request-handling)). |
 | Start-wait budget elapsed | plain `DelegationJob` | `{"job_id": "...", "status": "running", ...}` (caller polls; NOT a failure) |
 | Worker exception (pre-capture) | N/A — raises | MCP tool error: `DelegationStartError` with text prefix `worker_failed_before_capture` |
 | Parked projection invariant violation | N/A — raises | MCP tool error: `DelegationStartError` with text prefix `parked_projection_invariant_violation` |
@@ -355,7 +355,7 @@ Caller-visible projection returned by `codex.delegate.start` and `codex.delegate
 | Field | Type | Description |
 |---|---|---|
 | `request_id` | string | Plugin request identifier |
-| `kind` | enum | `command_approval`, `file_change`, `request_user_input`. `unknown` is a valid `PendingRequestKind` at the store/audit layer but cannot appear in a `PendingEscalationView` under Packet 1 — such requests terminalize the job instead (see §Unknown-kind contract in the design spec). |
+| `kind` | enum | `command_approval`, `file_change`, `request_user_input`. `unknown` is a valid `PendingRequestKind` at the store/audit layer but cannot appear in a `PendingEscalationView` under Packet 1 — such requests terminalize the job instead (see [decisions.md §Unknown Request Kinds](decisions.md#unknown-request-kinds) and [recovery-and-journal.md §Unknown Request Handling](recovery-and-journal.md#unknown-request-handling)). |
 | `requested_scope` | object | Opaque request payload needed for resolution |
 | `available_decisions` | list\[string\] | Valid resolution options |
 

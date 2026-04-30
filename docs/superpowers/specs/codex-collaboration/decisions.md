@@ -121,7 +121,11 @@ outcome/audit split cannot serve.
 
 ### Unknown Request Kinds
 
-**Resolved.** When App Server sends a server request with an unrecognized `kind`, the system treats it as `unknown` (see [PendingServerRequest](contracts.md#pendingserverrequest)). The normative default: unknown requests are held and surfaced to Claude as escalations, never auto-approved. See [recovery-and-journal.md §Unknown Request Handling](recovery-and-journal.md#unknown-request-handling) for the full behavioral contract.
+**Resolved.** Unknown server requests are never auto-approved — this is the fail-closed invariant regardless of mechanism.
+
+Under Packet 1, a persisted `kind="unknown"` [PendingServerRequest](contracts.md#pendingserverrequest) terminalizes the delegation job as `unknown`. The request does not enter [PendingEscalationView](contracts.md#pending-escalation-view) and is not resolved via `codex.delegate.decide`. Terminal evidence is the persisted request record plus `DelegationOutcomeRecord(outcome_type="delegation_terminal", terminal_status="unknown")`.
+
+[T-20260429-02](../../../tickets/2026-04-29-codex-collaboration-unsupported-server-request-reachability.md) classifies each unsupported App Server method individually. Classified methods may be promoted to the parkable/supported set, proven as intentionally safe-terminal, or proven non-reachable in current flows. See [recovery-and-journal.md §Unknown Request Handling](recovery-and-journal.md#unknown-request-handling) for the operational contract.
 
 ### Audit Consumer Interface
 

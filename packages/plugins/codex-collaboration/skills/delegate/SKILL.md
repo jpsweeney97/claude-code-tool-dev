@@ -194,7 +194,7 @@ Next steps:
 | `command_approval` | Show the command being requested. |
 | `file_change` | Show the file path and change type. |
 | `request_user_input` | Show what the agent is asking. Include question identifiers from `requested_scope`. |
-| unknown kind | Render raw `requested_scope` JSON with a note that this is an unrecognized escalation type. |
+| unknown kind | **Unreachable under Packet 1** — `unknown` requests terminalize the job before reaching `PendingEscalationView`. If encountered, treat as invariant violation: render raw `requested_scope` JSON, warn that this state is unexpected, do NOT approve or deny. Poll/inspect until the job reaches a terminal state (`unknown`, `failed`, or `canceled`), then advise `/delegate discard`. |
 
 **3. Agent context** -- if `agent_context` is non-null, show what the agent was doing when the escalation triggered.
 
