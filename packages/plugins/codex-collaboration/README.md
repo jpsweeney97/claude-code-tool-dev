@@ -1,6 +1,6 @@
 # codex-collaboration
 
-Codex advisory consultation and dialogue via direct JSON-RPC to the Codex App Server.
+Codex advisory consultation, durable dialogue, and isolated delegation via direct JSON-RPC to the Codex App Server.
 
 ## Prerequisites
 
@@ -55,10 +55,15 @@ After installing, verify the plugin is working:
 |-------|---------|---------|
 | `codex-status` | `/codex-status` | Runtime health, auth, version diagnostics |
 | `consult-codex` | `/consult-codex <question>` | One-shot advisory consultation with status preflight |
+| `delegate` | `/delegate` | Isolated delegation with worktree execution, escalation handling, and promotion |
+| `codex-review` | `/codex-review` | Code review via the advisory runtime |
+| `codex-analytics` | `/codex-analytics` | Analytics views from audit and outcome streams |
+| `dialogue` | `/dialogue` | Multi-turn durable dialogue with Codex |
+| `shakedown-b1` | `/shakedown-b1` | Pre-benchmark integration shakedown |
 
 ## Architecture
 
-The plugin runs a stdio MCP server (`scripts/codex_runtime_bootstrap.py`) that exposes tools for consultation and dialogue. The server communicates with the Codex App Server via JSON-RPC (`server/runtime.py`).
+The plugin runs a stdio MCP server (`scripts/codex_runtime_bootstrap.py`) that exposes tools for advisory consultation, durable dialogue, and isolated delegation. The server communicates with the Codex App Server via JSON-RPC (`server/runtime.py`). Delegation runs in isolated git worktrees with per-request approval routing and artifact-verified promotion (`server/delegation_controller.py`).
 
 Dialogue state (lineage, journal, turn metadata) is session-scoped. The session identity is published by a `SessionStart` hook and read lazily on the first dialogue tool call.
 

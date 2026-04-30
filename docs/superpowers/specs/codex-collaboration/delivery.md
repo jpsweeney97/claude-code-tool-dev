@@ -28,39 +28,77 @@ Plugin ID: `codex-collaboration`
 packages/plugins/codex-collaboration/
 ├── .claude-plugin/
 │   └── plugin.json
-├── skills/
-│   ├── consult-codex/
-│   │   └── SKILL.md
-│   ├── dialogue-codex/
-│   │   └── SKILL.md
-│   ├── delegate-codex/
-│   │   └── SKILL.md
-│   └── codex-status/
-│       └── SKILL.md
+├── .mcp.json
+├── agents/
+│   ├── context-gatherer-code.md
+│   ├── context-gatherer-falsifier.md
+│   ├── dialogue-orchestrator.md
+│   └── shakedown-dialogue.md
 ├── hooks/
 │   └── hooks.json
-├── .mcp.json
+├── references/
+│   ├── consultation-profiles.yaml
+│   ├── dialogue-turn-contract.md
+│   └── tag-grammar.md
 ├── scripts/
+│   ├── clean_stale_shakedown.py
 │   ├── codex_guard.py
-│   └── codex_runtime_bootstrap.py
+│   ├── codex_runtime_bootstrap.py
+│   ├── compare_app_server_schemas.py
+│   ├── containment_guard.py
+│   ├── containment_lifecycle.py
+│   ├── containment_smoke_setup.py
+│   ├── publish_session_id.py
+│   └── regenerate_schema.sh
 ├── server/
 │   ├── __init__.py
-│   ├── mcp_server.py
-│   ├── control_plane.py
-│   ├── runtime_supervisor.py
-│   ├── jsonrpc_client.py
 │   ├── approval_router.py
-│   ├── worktree_manager.py
+│   ├── artifact_store.py
+│   ├── codex_compat.py
+│   ├── consultation_safety.py
+│   ├── containment.py
+│   ├── context_assembly.py
+│   ├── control_plane.py
+│   ├── credential_scan.py
+│   ├── delegation_controller.py
+│   ├── delegation_job_store.py
+│   ├── dialogue.py
+│   ├── execution_prompt_builder.py
+│   ├── execution_runtime_registry.py
+│   ├── journal.py
+│   ├── jsonrpc_client.py
 │   ├── lineage_store.py
+│   ├── mcp_server.py
+│   ├── models.py
+│   ├── pending_request_store.py
+│   ├── profiles.py
 │   ├── prompt_builder.py
-│   └── artifact_store.py
-├── references/
-│   ├── sources.md
-│   └── prompts/
-│       ├── consult.md
-│       ├── dialogue.md
-│       ├── delegation.md
-│       └── review.md
+│   ├── replay.py
+│   ├── resolution_registry.py
+│   ├── retrieve_learnings.py
+│   ├── runtime.py
+│   ├── secret_taxonomy.py
+│   ├── turn_store.py
+│   ├── worker_runner.py
+│   └── worktree_manager.py
+├── skills/
+│   ├── codex-analytics/
+│   │   ├── scripts/analytics.py
+│   │   └── SKILL.md
+│   ├── codex-review/
+│   │   └── SKILL.md
+│   ├── codex-status/
+│   │   └── SKILL.md
+│   ├── consult-codex/
+│   │   └── SKILL.md
+│   ├── delegate/
+│   │   └── SKILL.md
+│   ├── dialogue/
+│   │   └── SKILL.md
+│   ├── dialogue-codex/          (non-user-invocable)
+│   │   └── SKILL.md
+│   └── shakedown-b1/
+│       └── SKILL.md
 └── tests/
 ```
 
