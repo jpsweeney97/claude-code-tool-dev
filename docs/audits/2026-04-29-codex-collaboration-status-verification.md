@@ -18,7 +18,7 @@ This review verifies claims against the repository at current HEAD `19cd5183`. W
 
 Direct ticket-frontmatter reads:
 
-> **Superseded (2026-04-30):** The three closed tickets below have since been moved to `docs/tickets/closed-tickets/` (D-05 fix). Paths cited here reflect their location at verification time (`19cd5183`).
+> **Superseded (2026-04-30):** The three closed tickets below have since been moved to `docs/tickets/closed-tickets/` (D-05 fix). Path cells updated to current locations; the original root-location claim below is superseded.
 
 | Ticket | status | priority | frontmatter file:lines |
 |---|---|---|---|
