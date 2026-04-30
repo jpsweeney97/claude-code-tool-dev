@@ -75,26 +75,31 @@ Records in `events.jsonl`:
 | `event_id` | string | Unique ID |
 | `timestamp` | string | ISO 8601 UTC |
 | `actor` | `"claude"`, `"codex"`, `"user"`, `"system"` | Who initiated |
-| `action` | string | One of 7 actions (see below) |
+| `action` | string | One of 9 actions (see below) |
 | `collaboration_id` | string | Correlation ID |
 | `runtime_id` | string | Runtime that served the action |
+| `policy_fingerprint` | string or null | Advisory policy hash (consult events) |
 | `job_id` | string or null | Delegation job (delegation actions only) |
-| `request_id` | string or null | Server request (escalation/approval only) |
-| `decision` | string or null | `"approve"` or `"deny"` (approval actions only) |
+| `request_id` | string or null | Server request (escalation/approval/timeout only) |
+| `turn_id` | string or null | Codex turn context |
+| `decision` | string or null | `"approve"` or `"deny"` (approval/deny/promote actions) |
+| `context_size` | int or null | Assembled context size (advisory events) |
 
 ### Audit Actions
 
-| Action | Meaning | Decision field |
-|--------|---------|----------------|
-| `consult` | Advisory consultation | — |
-| `dialogue_turn` | Dialogue turn | — |
-| `delegate_start` | Delegation job created | — |
-| `escalate` | Execution needs user decision | — |
-| `approve` | User resolved escalation | `decision` = `"approve"` or `"deny"` |
-| `promote` | User promoted delegate work | `decision` = `"approve"` |
-| `discard` | User discarded delegate work | — |
+| Action | Actor | Meaning | Decision field |
+|--------|-------|---------|----------------|
+| `consult` | `claude` | Advisory consultation | — |
+| `dialogue_turn` | `claude` | Dialogue turn | — |
+| `delegate_start` | `claude` | Delegation job created | — |
+| `escalate` | `claude` | Execution needs user decision | — |
+| `approve` | `claude` | User approved escalation | `decision` = `"approve"` |
+| `deny` | `claude` | User denied escalation | `decision` = `"deny"` |
+| `promote` | `claude` | User promoted delegate work | `decision` = `"approve"` |
+| `discard` | `claude` | User discarded delegate work | — |
+| `approval_timeout` | `system` | Server request timed out | — |
 
-**IMPORTANT:** The `approve` action carries BOTH approve and deny decisions in its `decision` field. There is no `action="deny"`. To count approvals vs denials, filter `action="approve"` and group by `decision`.
+**Counting approvals vs denials:** Current code emits `action="approve"` with `decision="approve"` for approvals, and `action="deny"` with `decision="deny"` for denials. Legacy data (pre-Packet 1) may contain `action="approve"` with `decision="deny"`. The analytics script handles both shapes.
 
 ## Analytics Script
 

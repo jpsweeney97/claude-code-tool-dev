@@ -101,25 +101,34 @@ The audit log records [AuditEvent](contracts.md#auditevent) records for human re
 
 ### Write Triggers
 
-An audit event is emitted for every state transition that crosses a trust or capability boundary:
+An audit event is emitted for every state transition that crosses a trust or capability boundary.
+
+**Currently emitted:**
 
 | Trigger | Action Value | Required Fields |
 |---|---|---|
-| Consultation initiated | `consult` | `collaboration_id`, `runtime_id`, `context_size` |
-| Dialogue turn dispatched | `dialogue_turn` | `collaboration_id`, `runtime_id`, `turn_id` |
+| Consultation initiated | `consult` | `collaboration_id`, `runtime_id`, `context_size`, `policy_fingerprint`, `turn_id` |
+| Dialogue turn dispatched | `dialogue_turn` | `collaboration_id`, `runtime_id`, `context_size`, `turn_id` |
 | Delegation started | `delegate_start` | `collaboration_id`, `job_id`, `runtime_id` |
-| Approval resolved | `approve` | `request_id`, `decision` |
-| Escalation surfaced | `escalate` | `request_id`, `collaboration_id` |
-| Promotion attempted | `promote` | `job_id`, `artifact_hash`, `decision` |
+| Escalation approved | `approve` | `job_id`, `request_id`, `decision` |
+| Escalation denied | `deny` | `job_id`, `request_id`, `decision` |
+| Escalation surfaced | `escalate` | `collaboration_id`, `job_id`, `request_id` |
+| Promotion completed | `promote` | `job_id`, `decision` |
 | Result discarded | `discard` | `job_id` |
-| Runtime crashed | `crash` | `runtime_id`, `policy_fingerprint` |
-| Runtime restarted | `restart` | `runtime_id`, `causal_parent` |
-| Advisory runtime rotated (reserved — not currently emitted; future-scope) | `rotate` | `runtime_id`, `policy_fingerprint` |
-| Advisory runtime frozen (reserved — not currently emitted; future-scope) | `freeze` | `runtime_id` |
-| Frozen runtime reaped (reserved — not currently emitted; future-scope) | `reap` | `runtime_id` |
-| Thread forked (reserved — not currently emitted) | `fork` | `collaboration_id`, `causal_parent` |
+| Server request timed out | `approval_timeout` | `job_id`, `request_id` |
 
-**Reserved triggers:** `fork` will be produced by `seed_from` on `codex.dialogue.start` when implemented (see [decisions.md §Dialogue Fork Scope](decisions.md#dialogue-fork-scope)). `rotate`, `freeze`, `reap` are future-scope freeze-and-rotate design, not current Packet 1 runtime behavior (see [advisory-runtime-policy.md §Future-Scope: Freeze-and-Rotate Design](advisory-runtime-policy.md#future-scope-freeze-and-rotate-design)).
+**Reserved (not currently emitted):**
+
+| Trigger | Action Value | Required Fields |
+|---|---|---|
+| Runtime crashed | `crash` | `runtime_id`, `policy_fingerprint` |
+| Runtime restarted | `restart` | `runtime_id` |
+| Thread forked | `fork` | `collaboration_id` |
+| Advisory runtime rotated | `rotate` | `runtime_id`, `policy_fingerprint` |
+| Advisory runtime frozen | `freeze` | `runtime_id` |
+| Frozen runtime reaped | `reap` | `runtime_id` |
+
+**Notes on reserved triggers:** `crash` and `restart` will be emitted when crash-recovery audit wiring is implemented. `fork` will be produced by `seed_from` on `codex.dialogue.start` when implemented; provenance is tracked via [CollaborationHandle.parent_collaboration_id](contracts.md#collaborationhandle) (see [decisions.md §Dialogue Fork Scope](decisions.md#dialogue-fork-scope)). `rotate`, `freeze`, `reap` are future-scope freeze-and-rotate design, not current Packet 1 runtime behavior (see [advisory-runtime-policy.md §Future-Scope: Freeze-and-Rotate Design](advisory-runtime-policy.md#future-scope-freeze-and-rotate-design)).
 
 ### Retention
 
@@ -138,7 +147,7 @@ An audit event is emitted for every state transition that crosses a trust or cap
 5. Mark any pending server requests as canceled.
 6. Allow Claude to continue from the last completed turn. Seeding a new dialogue from the interrupted snapshot remains deferred until `seed_from` on `codex.dialogue.start` enters scope (see [decisions.md §Dialogue Fork Scope](decisions.md#dialogue-fork-scope)).
 
-An [audit event](contracts.md#auditevent) with `action: crash` is emitted when the crash is detected. An event with `action: restart` is emitted when recovery completes, with `causal_parent` linking to the crash event.
+Audit events with `action: crash` and `action: restart` are reserved but not currently emitted — see [Audit Event Actions](contracts.md#audit-event-actions). When implemented, the `restart` event should link to the `crash` event for forensic correlation.
 
 ### Delegation Runtime Crash
 

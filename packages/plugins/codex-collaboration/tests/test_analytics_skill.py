@@ -132,7 +132,7 @@ def _write_fixtures(plugin_data: Path) -> None:
             "decision": "approve",
         },
         {
-            "action": "approve",
+            "action": "deny",
             "job_id": "job-1",
             "request_id": "req-1",
             "decision": "deny",

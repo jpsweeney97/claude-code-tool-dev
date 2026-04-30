@@ -130,7 +130,7 @@ If post-application verification fails:
 
 1. Applied changes are reverted (`git checkout -- .` for tracked files; untracked files produced by the diff are removed).
 2. The worktree and artifacts are retained for inspection (retention governed by [recovery-and-journal.md §Retention Defaults](recovery-and-journal.md#retention-defaults)).
-3. An [audit event](contracts.md#auditevent) is emitted with `action: promote` and `decision: deny`.
+3. No rollback-specific audit event is currently emitted. The promotion state machine records the rollback in job state (`promotion_state: rolled_back`). A future `promote` audit event with `decision: deny` may be added when promotion-rejection audit wiring is implemented — see [Known Limitations](../../../packages/plugins/codex-collaboration/skills/codex-analytics/SKILL.md#known-limitations).
 4. Claude receives the verification failure details and can re-delegate, manually apply, or discard.
 
 ## Discard Semantics

@@ -69,7 +69,7 @@ def main(outcomes_path: Path, audit_path: Path) -> None:
     for r in audit_records:
         action = r.get("action", "")
         audit_actions[action] += 1
-        if action == "approve":
+        if action in ("approve", "deny"):
             decisions[r.get("decision", "unknown")] += 1
         elif action == "promote":
             promote_count += 1

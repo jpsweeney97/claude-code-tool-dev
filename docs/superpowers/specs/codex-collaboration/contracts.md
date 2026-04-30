@@ -198,28 +198,38 @@ Append-only event record for human reconstruction and diagnostics. Write behavio
 | `job_id` | string? | Delegation job (for execution-domain events) |
 | `request_id` | string? | Associated [PendingServerRequest](#pendingserverrequest) |
 | `turn_id` | string? | Codex turn context |
-| `artifact_hash` | string? | For promotions and approvals |
-| `decision` | enum? | `approve`, `deny`, `escalate` |
-| `causal_parent` | string? | `event_id` of the triggering event |
+| `decision` | enum? | `approve`, `deny` |
 | `context_size` | integer? | UTF-8 byte length of the final assembled packet sent to Codex, post-assembly and post-redaction. Used for budget enforcement and monitoring. |
+| `extra` | dict? | Optional untyped fields (e.g., `repo_root` for consult events). Not part of the typed contract — consumers should not rely on specific keys. |
+
+Richer analytics and provenance fields (artifact hashes, terminal statuses, workflow discriminators) are carried by [OutcomeRecord and DelegationOutcomeRecord](decisions.md#analytics-and-review-cutover-model), not by AuditEvent. AuditEvent records trust-boundary crossings; outcome records support analytics aggregation.
 
 ### Audit Event Actions
 
+**Currently emitted:**
+
+| Action | Domain | Actor | Description |
+|---|---|---|---|
+| `consult` | advisory | `claude` | Consultation initiated |
+| `dialogue_turn` | advisory | `claude` | Dialogue turn dispatched |
+| `delegate_start` | execution | `claude` | Delegation job started |
+| `approve` | execution | `claude` | Escalation resolved with `decision="approve"` |
+| `deny` | execution | `claude` | Escalation resolved with `decision="deny"` |
+| `escalate` | execution | `claude` | Escalation surfaced to Claude |
+| `promote` | execution | `claude` | Promotion completed successfully |
+| `discard` | execution | `claude` | Result discarded |
+| `approval_timeout` | execution | `system` | Server request timed out without resolution. Carries `job_id` and `request_id`. |
+
+**Reserved (not currently emitted):**
+
 | Action | Domain | Description |
 |---|---|---|
-| `consult` | advisory | Consultation initiated |
-| `dialogue_turn` | advisory | Dialogue turn dispatched |
-| `fork` | advisory | Thread forked (reserved — not currently emitted; will be produced by `seed_from` on `codex.dialogue.start` when implemented; see [decisions.md §Dialogue Fork Scope](decisions.md#dialogue-fork-scope)) |
-| `delegate_start` | execution | Delegation job started |
-| `approve` | both | Approval resolved |
-| `escalate` | both | Escalation surfaced to Claude |
-| `promote` | execution | Promotion attempted |
-| `discard` | execution | Result discarded |
-| `crash` | both | Runtime crashed |
-| `restart` | both | Runtime restarted after crash |
-| `rotate` | advisory | Advisory runtime rotated (reserved — not currently emitted; future-scope freeze-and-rotate design, not current Packet 1 runtime behavior; see [advisory-runtime-policy.md §Freeze-and-Rotate](advisory-runtime-policy.md#freeze-and-rotate-semantics)) |
-| `freeze` | advisory | Advisory runtime frozen (reserved — not currently emitted; future-scope freeze-and-rotate design, not current Packet 1 runtime behavior; see [advisory-runtime-policy.md §Freeze](advisory-runtime-policy.md#freeze)) |
-| `reap` | advisory | Frozen runtime reaped (reserved — not currently emitted; future-scope freeze-and-rotate design, not current Packet 1 runtime behavior; see [advisory-runtime-policy.md §Reap Conditions](advisory-runtime-policy.md#reap-conditions)) |
+| `crash` | both | Runtime crashed — will be emitted when crash-recovery audit wiring is implemented |
+| `restart` | both | Runtime restarted after crash — will be emitted when crash-recovery audit wiring is implemented |
+| `fork` | advisory | Thread forked — will be produced by `seed_from` on `codex.dialogue.start` when implemented; provenance tracked via [CollaborationHandle.parent_collaboration_id](#collaborationhandle). See [decisions.md §Dialogue Fork Scope](decisions.md#dialogue-fork-scope) |
+| `rotate` | advisory | Advisory runtime rotated — future-scope freeze-and-rotate design, not current Packet 1 runtime behavior. See [advisory-runtime-policy.md §Freeze-and-Rotate](advisory-runtime-policy.md#freeze-and-rotate-semantics) |
+| `freeze` | advisory | Advisory runtime frozen — future-scope freeze-and-rotate design. See [advisory-runtime-policy.md §Freeze](advisory-runtime-policy.md#freeze) |
+| `reap` | advisory | Frozen runtime reaped — future-scope freeze-and-rotate design. See [advisory-runtime-policy.md §Reap Conditions](advisory-runtime-policy.md#reap-conditions) |
 
 ## Typed Response Shapes
 
