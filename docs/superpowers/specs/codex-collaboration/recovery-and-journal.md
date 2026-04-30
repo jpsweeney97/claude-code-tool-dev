@@ -116,6 +116,8 @@ An audit event is emitted for every state transition that crosses a trust or cap
 | Promotion completed | `promote` | `job_id`, `decision` |
 | Result discarded | `discard` | `job_id` |
 | Server request timed out | `approval_timeout` | `job_id`, `request_id` |
+| Parked request aborted internally | `internal_abort` | `job_id`, `request_id` |
+| Operator decision dispatch failed | `dispatch_failed` | `job_id`, `request_id` |
 
 **Reserved (not currently emitted):**
 

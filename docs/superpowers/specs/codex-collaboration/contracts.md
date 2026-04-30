@@ -219,6 +219,8 @@ Richer analytics and provenance fields (artifact hashes, terminal statuses, work
 | `promote` | execution | `claude` | Promotion completed successfully |
 | `discard` | execution | `claude` | Result discarded |
 | `approval_timeout` | execution | `system` | Server request timed out without resolution. Carries `job_id` and `request_id`. |
+| `internal_abort` | execution | `system` | Parked server request aborted internally (e.g., job cancellation while waiting for operator decision). Carries `job_id` and `request_id`. |
+| `dispatch_failed` | execution | `system` | Operator decision was made but dispatch to App Server failed. Carries `job_id` and `request_id`. |
 
 **Reserved (not currently emitted):**
 

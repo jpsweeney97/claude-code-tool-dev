@@ -115,7 +115,7 @@ pending ──→ prechecks_passed ──→ applied ──→ verified
 | `prechecks_passed` | `applied` | `git apply` succeeds | Diff applied; journal entry written |
 | `applied` | `verified` | Post-apply verification passes | Audit event emitted; worktree cleanup scheduled; advisory coherence callback may mark stale context |
 | `applied` | `rollback_needed` | Post-apply verification fails | — |
-| `rollback_needed` | `rolled_back` | Workspace restored | Audit event emitted; worktree retained for inspection |
+| `rollback_needed` | `rolled_back` | Workspace restored | Job state updated; worktree retained for inspection. No rollback-specific audit event is currently emitted. |
 | `prechecks_failed` | `pending` | User resolves blocking condition and retries | — |
 
 ### Re-Entry
@@ -130,7 +130,7 @@ If post-application verification fails:
 
 1. Applied changes are reverted (`git checkout -- .` for tracked files; untracked files produced by the diff are removed).
 2. The worktree and artifacts are retained for inspection (retention governed by [recovery-and-journal.md §Retention Defaults](recovery-and-journal.md#retention-defaults)).
-3. No rollback-specific audit event is currently emitted. The promotion state machine records the rollback in job state (`promotion_state: rolled_back`). A future `promote` audit event with `decision: deny` may be added when promotion-rejection audit wiring is implemented — see [Known Limitations](../../../packages/plugins/codex-collaboration/skills/codex-analytics/SKILL.md#known-limitations).
+3. No rollback-specific audit event is currently emitted. The promotion state machine records the rollback in job state (`promotion_state: rolled_back`). A future rollback audit event may be added when promotion-rejection audit wiring is implemented.
 4. Claude receives the verification failure details and can re-delegate, manually apply, or discard.
 
 ## Discard Semantics

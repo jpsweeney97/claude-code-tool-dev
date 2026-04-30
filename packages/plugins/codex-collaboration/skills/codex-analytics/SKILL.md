@@ -75,7 +75,7 @@ Records in `events.jsonl`:
 | `event_id` | string | Unique ID |
 | `timestamp` | string | ISO 8601 UTC |
 | `actor` | `"claude"`, `"codex"`, `"user"`, `"system"` | Who initiated |
-| `action` | string | One of 9 actions (see below) |
+| `action` | string | One of 11 actions (see below) |
 | `collaboration_id` | string | Correlation ID |
 | `runtime_id` | string | Runtime that served the action |
 | `policy_fingerprint` | string or null | Advisory policy hash (consult events) |
@@ -98,6 +98,8 @@ Records in `events.jsonl`:
 | `promote` | `claude` | User promoted delegate work | `decision` = `"approve"` |
 | `discard` | `claude` | User discarded delegate work | — |
 | `approval_timeout` | `system` | Server request timed out | — |
+| `internal_abort` | `system` | Parked request aborted internally | — |
+| `dispatch_failed` | `system` | Operator decision dispatch to App Server failed | — |
 
 **Counting approvals vs denials:** Current code emits `action="approve"` with `decision="approve"` for approvals, and `action="deny"` with `decision="deny"` for denials. Legacy data (pre-Packet 1) may contain `action="approve"` with `decision="deny"`. The analytics script handles both shapes.
 
