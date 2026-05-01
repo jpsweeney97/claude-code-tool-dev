@@ -620,28 +620,37 @@ def test_execution_turn_does_not_trigger_fallback(
 _STATIC_READABLE_ROOT_COUNT = 5  # worktree + 4 carve-outs
 
 
-def test_resolve_worktree_gitdir_absolute_pointer(tmp_path: Path) -> None:
-    worktree = tmp_path / "worktree"
+def _make_worktree_gitdir(
+    tmp_path: Path,
+    worktree_name: str = "worktree",
+    gitdir_name: str = "wk1",
+) -> tuple[Path, Path]:
+    """Create a realistic worktree + gitdir pair with bidirectional pointers."""
+    worktree = tmp_path / worktree_name
     worktree.mkdir()
-    gitdir_target = "/some/repo/.git/worktrees/wk1"
-    (worktree / ".git").write_text(f"gitdir: {gitdir_target}\n")
+    gitdir = tmp_path / "repo" / ".git" / "worktrees" / gitdir_name
+    gitdir.mkdir(parents=True)
+    (worktree / ".git").write_text(f"gitdir: {gitdir}\n")
+    (gitdir / "gitdir").write_text(f"{worktree / '.git'}\n")
+    return worktree, gitdir
+
+
+def test_resolve_worktree_gitdir_absolute_pointer(tmp_path: Path) -> None:
+    worktree, gitdir = _make_worktree_gitdir(tmp_path)
 
     result = _resolve_worktree_gitdir(worktree)
 
-    assert result == gitdir_target
+    assert result == str(gitdir.resolve())
 
 
 def test_resolve_worktree_gitdir_relative_pointer(tmp_path: Path) -> None:
-    worktree = tmp_path / "worktree"
-    worktree.mkdir()
-    repo_git = tmp_path / "repo" / ".git" / "worktrees" / "wk1"
-    repo_git.mkdir(parents=True)
-    rel = os.path.relpath(repo_git, worktree)
+    worktree, gitdir = _make_worktree_gitdir(tmp_path)
+    rel = os.path.relpath(gitdir, worktree)
     (worktree / ".git").write_text(f"gitdir: {rel}\n")
 
     result = _resolve_worktree_gitdir(worktree)
 
-    assert result == str(repo_git.resolve())
+    assert result == str(gitdir.resolve())
 
 
 def test_resolve_worktree_gitdir_none_when_outside_git_worktrees(
@@ -660,6 +669,46 @@ def test_resolve_worktree_gitdir_none_when_git_but_not_worktrees(
     worktree = tmp_path / "worktree"
     worktree.mkdir()
     (worktree / ".git").write_text("gitdir: /some/repo/.git/refs/heads\n")
+
+    assert _resolve_worktree_gitdir(worktree) is None
+
+
+def test_resolve_worktree_gitdir_none_when_worktrees_dir_itself(
+    tmp_path: Path,
+) -> None:
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+    (worktree / ".git").write_text(
+        f"gitdir: {tmp_path}/repo/.git/worktrees\n"
+    )
+
+    assert _resolve_worktree_gitdir(worktree) is None
+
+
+def test_resolve_worktree_gitdir_none_when_sibling_worktree(
+    tmp_path: Path,
+) -> None:
+    worktree_a, _ = _make_worktree_gitdir(
+        tmp_path, worktree_name="wt-a", gitdir_name="wk-a"
+    )
+    _, gitdir_b = _make_worktree_gitdir(
+        tmp_path, worktree_name="wt-b", gitdir_name="wk-b"
+    )
+    # Rewrite wt-a's .git to point at wt-b's gitdir (attack scenario)
+    (worktree_a / ".git").write_text(f"gitdir: {gitdir_b}\n")
+
+    assert _resolve_worktree_gitdir(worktree_a) is None
+
+
+def test_resolve_worktree_gitdir_none_when_back_pointer_missing(
+    tmp_path: Path,
+) -> None:
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+    gitdir = tmp_path / "repo" / ".git" / "worktrees" / "wk1"
+    gitdir.mkdir(parents=True)
+    (worktree / ".git").write_text(f"gitdir: {gitdir}\n")
+    # No back-pointer file created
 
     assert _resolve_worktree_gitdir(worktree) is None
 
@@ -706,16 +755,13 @@ def test_resolve_worktree_gitdir_none_when_missing(tmp_path: Path) -> None:
 def test_policy_includes_gitdir_when_valid_git_pointer_present(
     tmp_path: Path,
 ) -> None:
-    worktree = tmp_path / "worktree"
-    worktree.mkdir()
-    gitdir_target = "/some/repo/.git/worktrees/wk1"
-    (worktree / ".git").write_text(f"gitdir: {gitdir_target}\n")
+    worktree, gitdir = _make_worktree_gitdir(tmp_path)
 
     policy = build_workspace_write_sandbox_policy(worktree)
     readable_roots = policy["readOnlyAccess"]["readableRoots"]
 
     assert len(readable_roots) == _STATIC_READABLE_ROOT_COUNT + 1
-    assert readable_roots[-1] == gitdir_target
+    assert readable_roots[-1] == str(gitdir.resolve())
 
 
 def test_policy_excludes_gitdir_when_pointer_outside_git_worktrees(
@@ -726,6 +772,23 @@ def test_policy_excludes_gitdir_when_pointer_outside_git_worktrees(
     (worktree / ".git").write_text("gitdir: /home/user/.config/secrets\n")
 
     policy = build_workspace_write_sandbox_policy(worktree)
+    readable_roots = policy["readOnlyAccess"]["readableRoots"]
+
+    assert len(readable_roots) == _STATIC_READABLE_ROOT_COUNT
+
+
+def test_policy_excludes_gitdir_when_sibling_worktree_pointer(
+    tmp_path: Path,
+) -> None:
+    worktree_a, _ = _make_worktree_gitdir(
+        tmp_path, worktree_name="wt-a", gitdir_name="wk-a"
+    )
+    _, gitdir_b = _make_worktree_gitdir(
+        tmp_path, worktree_name="wt-b", gitdir_name="wk-b"
+    )
+    (worktree_a / ".git").write_text(f"gitdir: {gitdir_b}\n")
+
+    policy = build_workspace_write_sandbox_policy(worktree_a)
     readable_roots = policy["readOnlyAccess"]["readableRoots"]
 
     assert len(readable_roots) == _STATIC_READABLE_ROOT_COUNT

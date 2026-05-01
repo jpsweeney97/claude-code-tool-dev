@@ -29,9 +29,10 @@ def _resolve_worktree_gitdir(worktree_path: Path) -> str | None:
 
     Returns the resolved absolute path as a string, or None if the
     worktree does not have a .git pointer file, the file cannot be
-    parsed, or the resolved path is outside a ``.git/worktrees/``
-    hierarchy (security constraint: the worktree has write access and
-    could rewrite ``.git`` to point at an arbitrary host path).
+    parsed, the resolved path is outside a ``.git/worktrees/<name>``
+    hierarchy, or the gitdir's back-pointer does not resolve to this
+    worktree. Both checks are security constraints: the worktree has
+    write access and could rewrite ``.git`` to widen the sandbox.
     """
     git_path = worktree_path / ".git"
     try:
@@ -47,14 +48,27 @@ def _resolve_worktree_gitdir(worktree_path: Path) -> str | None:
     if not raw.is_absolute():
         raw = git_path.parent / raw
     resolved = raw.resolve()
-    # Git worktree gitdirs always live under <repo>/.git/worktrees/<name>/.
-    # Reject anything outside that hierarchy — the worktree has write access
-    # and a compromised .git file could widen the sandbox to arbitrary paths.
+    # Structural check: must be inside <repo>/.git/worktrees/<name>[/...].
     parts = resolved.parts
+    valid_structure = False
     for i, part in enumerate(parts):
         if part == ".git" and i + 1 < len(parts) and parts[i + 1] == "worktrees":
-            return str(resolved)
-    return None
+            if i + 2 < len(parts):
+                valid_structure = True
+            break
+    if not valid_structure:
+        return None
+    # Round-trip check: the gitdir must contain a back-pointer to this
+    # worktree's .git file. Prevents a rewritten .git from granting
+    # read access to sibling worktree gitdirs.
+    back_pointer = resolved / "gitdir"
+    try:
+        back_content = back_pointer.read_text().strip()
+    except OSError:
+        return None
+    if Path(back_content).resolve() != git_path.resolve():
+        return None
+    return str(resolved)
 
 
 def build_workspace_write_sandbox_policy(worktree_path: Path) -> dict[str, Any]:
