@@ -6,6 +6,7 @@ import pytest
 
 from server.runtime import (
     AppServerRuntimeSession,
+    _resolve_worktree_gitdir,
     build_workspace_write_sandbox_policy,
 )
 
@@ -173,12 +174,19 @@ def test_build_workspace_write_sandbox_policy_restricts_reads_and_writes(
 ) -> None:
     worktree_path = tmp_path / "worktree"
     policy = build_workspace_write_sandbox_policy(worktree_path)
+    home = Path.home()
     assert policy == {
         "type": "workspaceWrite",
         "writableRoots": [str(worktree_path.resolve())],
         "readOnlyAccess": {
             "type": "restricted",
-            "readableRoots": [str(worktree_path.resolve())],
+            "readableRoots": [
+                str(worktree_path.resolve()),
+                str(home / ".codex" / "memories"),
+                str(home / ".codex" / "plugins" / "cache"),
+                str(home / ".agents" / "skills"),
+                str(home / ".agents" / "plugins"),
+            ],
             "includePlatformDefaults": True,
         },
         "networkAccess": False,
@@ -602,3 +610,94 @@ def test_execution_turn_does_not_trigger_fallback(
         (m, p) for m, p in fake_server_process.requests if m == "thread/read"
     ]
     assert len(thread_read_calls) == 0
+
+
+# ---------------------------------------------------------------------------
+# Option E: gitdir resolution
+# ---------------------------------------------------------------------------
+
+_STATIC_READABLE_ROOT_COUNT = 5  # worktree + 4 carve-outs
+
+
+def test_resolve_worktree_gitdir_absolute_pointer(tmp_path: Path) -> None:
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+    gitdir_target = "/some/repo/.git/worktrees/wk1"
+    (worktree / ".git").write_text(f"gitdir: {gitdir_target}\n")
+
+    result = _resolve_worktree_gitdir(worktree)
+
+    assert result == gitdir_target
+
+
+def test_resolve_worktree_gitdir_relative_pointer(tmp_path: Path) -> None:
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+    (worktree / ".git").write_text("gitdir: ../../.git/worktrees/wk1\n")
+
+    result = _resolve_worktree_gitdir(worktree)
+
+    expected = str((worktree / "../../.git/worktrees/wk1").resolve())
+    assert result == expected
+
+
+def test_resolve_worktree_gitdir_none_when_git_is_directory(tmp_path: Path) -> None:
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+    (worktree / ".git").mkdir()
+
+    assert _resolve_worktree_gitdir(worktree) is None
+
+
+def test_resolve_worktree_gitdir_none_when_malformed(tmp_path: Path) -> None:
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+    (worktree / ".git").write_text("not a gitdir pointer\n")
+
+    assert _resolve_worktree_gitdir(worktree) is None
+
+
+@pytest.mark.skipif(
+    Path("/").stat().st_uid == 0,
+    reason="permission removal ineffective as root",
+)
+def test_resolve_worktree_gitdir_none_when_unreadable(tmp_path: Path) -> None:
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+    git_file = worktree / ".git"
+    git_file.write_text("gitdir: /some/path\n")
+    git_file.chmod(0o000)
+    try:
+        assert _resolve_worktree_gitdir(worktree) is None
+    finally:
+        git_file.chmod(0o644)
+
+
+def test_resolve_worktree_gitdir_none_when_missing(tmp_path: Path) -> None:
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+
+    assert _resolve_worktree_gitdir(worktree) is None
+
+
+def test_policy_includes_gitdir_when_git_pointer_present(tmp_path: Path) -> None:
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+    gitdir_target = "/some/repo/.git/worktrees/wk1"
+    (worktree / ".git").write_text(f"gitdir: {gitdir_target}\n")
+
+    policy = build_workspace_write_sandbox_policy(worktree)
+    readable_roots = policy["readOnlyAccess"]["readableRoots"]
+
+    assert len(readable_roots) == _STATIC_READABLE_ROOT_COUNT + 1
+    assert readable_roots[-1] == gitdir_target
+
+
+def test_policy_excludes_gitdir_when_no_git_pointer(tmp_path: Path) -> None:
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+
+    policy = build_workspace_write_sandbox_policy(worktree)
+    readable_roots = policy["readOnlyAccess"]["readableRoots"]
+
+    assert len(readable_roots) == _STATIC_READABLE_ROOT_COUNT

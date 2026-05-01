@@ -77,6 +77,45 @@ other credential-class files.
 Update `tests/test_runtime.py:178` regression assertion to expect the new
 `readableRoots` shape.
 
+## Friction surface 1b: `~/.agents/` reads
+
+### Scope amendment (2026-04-30)
+
+Added during Step 2 orientation. `~/.agents/` is where Codex's skills
+and plugin metadata live. During delegation, Codex reads from this
+directory as part of its preparation cycle, triggering sandbox
+escalations of the same class as Option B (Codex reading its own
+configuration data).
+
+### Security boundary
+
+`~/.agents/` contains only non-secret instruction metadata — no
+credential files, no session state, no generated logs. All contents
+are world-readable (`drwxr-xr-x`). To match Friction surface 1's
+narrow carve-out model, grant specific subdirectories rather than the
+entire root:
+
+- `~/.agents/skills` — skill definitions and agent configs
+- `~/.agents/plugins` — plugin marketplace metadata
+
+**Invariant:** If `~/.agents/` gains credential files, session state,
+or private connector state, the subdirectory-level carve-out prevents
+silent read-access expansion.
+
+### Implementation
+
+In `runtime.py`, extend `readableRoots` with:
+
+- `Path.home() / ".agents" / "skills"`
+- `Path.home() / ".agents" / "plugins"`
+
+Same security model as Option B, separate subpaths.
+
+### Metric treatment
+
+`~/.agents/` escalations are counted as avoidable sandbox friction
+alongside Option B/E escalations in the smoke metric.
+
 ## Friction surface 2: Worktree `.git` cross-pointer reads (Option E)
 
 ### Observed behavior

@@ -24,6 +24,29 @@ def _build_read_only_sandbox_policy() -> dict[str, Any]:
     return {"type": "readOnly"}
 
 
+def _resolve_worktree_gitdir(worktree_path: Path) -> str | None:
+    """Resolve the gitdir target from a worktree's .git pointer file.
+
+    Returns the resolved absolute path as a string, or None if the
+    worktree does not have a .git pointer file or the file cannot be
+    parsed.
+    """
+    git_path = worktree_path / ".git"
+    try:
+        if not git_path.is_file():
+            return None
+        content = git_path.read_text().strip()
+    except OSError:
+        return None
+    prefix = "gitdir: "
+    if not content.startswith(prefix):
+        return None
+    raw = Path(content[len(prefix) :])
+    if not raw.is_absolute():
+        raw = git_path.parent / raw
+    return str(raw.resolve())
+
+
 def build_workspace_write_sandbox_policy(worktree_path: Path) -> dict[str, Any]:
     """Return the v1 execution sandbox policy for an isolated worktree.
 
@@ -44,15 +67,37 @@ def build_workspace_write_sandbox_policy(worktree_path: Path) -> dict[str, Any]:
     safety (3 security probes — Network, Sensitive-path, Sibling-worktree —
     all returned BLOCKED): T-01 Candidate A diagnostic closure record at
     ``docs/diagnostics/2026-04-28-delegate-execution-diagnostic.md``.
+
+    Read-root grants beyond the worktree itself (T-20260429-01 Phase 1):
+
+    - Option B: ``~/.codex/memories`` and ``~/.codex/plugins/cache``
+      (Codex's memory store and skill cache). Credential paths
+      (``auth.json``, ``config.toml``, ``history.jsonl``) are excluded.
+    - ``~/.agents/skills`` and ``~/.agents/plugins`` (Codex skill
+      definitions and plugin metadata; scope amendment in T-20260429-01).
+    - Option E: dynamic gitdir resolution from the worktree's ``.git``
+      pointer file, so tools (rg, git) can traverse worktree metadata
+      without triggering sandbox escalations.
     """
 
     resolved = worktree_path.resolve()
+    home = Path.home()
+    readable_roots = [
+        str(resolved),
+        str(home / ".codex" / "memories"),
+        str(home / ".codex" / "plugins" / "cache"),
+        str(home / ".agents" / "skills"),
+        str(home / ".agents" / "plugins"),
+    ]
+    gitdir = _resolve_worktree_gitdir(worktree_path)
+    if gitdir is not None:
+        readable_roots.append(gitdir)
     return {
         "type": "workspaceWrite",
         "writableRoots": [str(resolved)],
         "readOnlyAccess": {
             "type": "restricted",
-            "readableRoots": [str(resolved)],
+            "readableRoots": readable_roots,
             "includePlatformDefaults": True,
         },
         "networkAccess": False,
