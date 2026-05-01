@@ -28,8 +28,10 @@ def _resolve_worktree_gitdir(worktree_path: Path) -> str | None:
     """Resolve the gitdir target from a worktree's .git pointer file.
 
     Returns the resolved absolute path as a string, or None if the
-    worktree does not have a .git pointer file or the file cannot be
-    parsed.
+    worktree does not have a .git pointer file, the file cannot be
+    parsed, or the resolved path is outside a ``.git/worktrees/``
+    hierarchy (security constraint: the worktree has write access and
+    could rewrite ``.git`` to point at an arbitrary host path).
     """
     git_path = worktree_path / ".git"
     try:
@@ -44,7 +46,15 @@ def _resolve_worktree_gitdir(worktree_path: Path) -> str | None:
     raw = Path(content[len(prefix) :])
     if not raw.is_absolute():
         raw = git_path.parent / raw
-    return str(raw.resolve())
+    resolved = raw.resolve()
+    # Git worktree gitdirs always live under <repo>/.git/worktrees/<name>/.
+    # Reject anything outside that hierarchy — the worktree has write access
+    # and a compromised .git file could widen the sandbox to arbitrary paths.
+    parts = resolved.parts
+    for i, part in enumerate(parts):
+        if part == ".git" and i + 1 < len(parts) and parts[i + 1] == "worktrees":
+            return str(resolved)
+    return None
 
 
 def build_workspace_write_sandbox_policy(worktree_path: Path) -> dict[str, Any]:
