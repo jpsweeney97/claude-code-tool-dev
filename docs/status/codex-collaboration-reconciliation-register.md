@@ -49,26 +49,21 @@ Scope included here:
 
 ## Current Priority Order
 
-1. Resolve `T-20260416-01` closure standard: accept test coverage plus
-   App Server version drift as sufficient, or wait for natural live
-   fallback proof (implementation and non-regression evidence landed;
-   fallback recovery path unproven by live run).
-2. Implement `T-20260429-01` Phase 1 sandbox carve-outs (Options B + E) and
+1. Implement `T-20260429-01` Phase 1 sandbox carve-outs (Options B + E) and
    validate via a comparable `/delegate` smoke with avoidable sandbox-friction
    escalations <=2. Count legitimate operator-gated approvals separately.
-3. Classify or intentionally safe-terminalize the currently unsupported App
+2. Classify or intentionally safe-terminalize the currently unsupported App
    Server request kinds tracked by `T-20260429-02`.
-4. Sweep residual typing and minor Packet 1 carry-forward debt (`TT.1`,
+3. Sweep residual typing and minor Packet 1 carry-forward debt (`TT.1`,
    `RT.1`, `P1-MINOR-SWEEP`).
-5. Convert `BMARK-L1-L3` into explicit follow-up tickets or deliberately
+4. Convert `BMARK-L1-L3` into explicit follow-up tickets or deliberately
    decline those L1/L2/L3 items as non-goals.
-6. Specify or explicitly defer `AUDIT-CONSUMER-INTERFACE`.
+5. Specify or explicitly defer `AUDIT-CONSUMER-INTERFACE`.
 
 ## Ticket-Owned Active Work
 
 | ID | State | Owning artifact | Current truth | Exit condition |
 |---|---|---|---|---|
-| `T-20260416-01` | `open` | `docs/tickets/2026-04-16-codex-collaboration-dialogue-reply-extraction-mismatch.md` plus `docs/tickets/closed-tickets/2026-03-30-codex-collaboration-dialogue-parity-and-scouting-retirement.md` | Implementation landed (`00ec0054`): advisory-only `thread/read` fallback (mechanism A) with turn-ID lookup, best-effort failure semantics, shared `turn_extraction.py` helper, and 12 tests (5 extraction + 7 runtime). Live post-patch verification (`c5807d84`): 5 adversarial turns on Codex `0.125.0`, all completed without error, fallback did not fire. Non-regression established; fallback recovery path unproven by live evidence (original failure class did not reproduce). | Accept test coverage plus App Server version drift (`0.117.0` → `0.125.0`) as sufficient closure evidence and close the ticket, or wait for a natural live fallback recovery proof. |
 | `T-20260429-01` | `open` | `docs/tickets/2026-04-29-codex-collaboration-delegation-friction-reduction.md` | T-01's closing live `/delegate` smoke required 24 operator escalations to produce a 1-line edit, surfacing three plugin friction sources: `~/.codex/` reads (Codex consulting its own memory + skill cache), worktree `.git` cross-pointer reads (in-worktree `rg`/`git` traversing the gitdir target outside the worktree), and opaque `file_change` escalation payloads. Phase 1 (Options B + E) is mechanical sandbox-policy carve-outs in `runtime.py`; Phase 2 Option F investigation is complete — `file_change` payload opacity is confirmed as an upstream schema limitation (`FileChangeRequestApprovalParams` carries only `grantRoot` and `reason`), `/delegate` SKILL.md rendering narrowed accordingly (D-06). `file_change` opacity is counted separately from avoidable sandbox friction. | Land the Phase 1 sandbox carve-outs and validate via a comparable smoke run with avoidable sandbox-friction escalations <=2. Count legitimate operator-gated approvals separately. |
 | `T-20260429-02` | `open` | `docs/tickets/2026-04-29-codex-collaboration-unsupported-server-request-reachability.md` | The current delegation runtime parks only three server-request kinds (`command_approval`, `file_change`, `request_user_input`). Other App Server request methods that the current parser cannot fully support can still create minimal `unknown` records and terminalize jobs as `unknown`. The open work is to classify each unsupported method by reachability and then provide one of: supported handling, a regression test proving intentional safe terminal behavior, or a documented non-reachability proof. | Classify each unsupported `ServerRequest` method and land either support, regression coverage for intentional safe terminal behavior, or a recorded non-reachability proof for current advisory/delegation flows. |
 

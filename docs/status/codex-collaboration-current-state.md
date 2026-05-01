@@ -103,7 +103,6 @@ and exit conditions.
 
 The main current watchpoints are:
 
-- reply-path extraction defect (`T-20260416-01`)
 - delegation friction reduction (`T-20260429-01`)
 - unsupported App Server request reachability / handling (`T-20260429-02`)
 - Packet 1 carry-forward debt (`TT.1`, `RT.1`, `P1-MINOR-SWEEP`)

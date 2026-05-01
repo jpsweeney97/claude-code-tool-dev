@@ -3,7 +3,7 @@
 ```yaml
 id: T-20260416-01
 date: 2026-04-16
-status: open
+status: closed
 priority: medium
 tags: [codex-collaboration, dialogue, bug, post-benchmark, mcp-dispatch]
 blocked_by: []
@@ -335,17 +335,16 @@ The contract-integrity constraint on mid-track patching (§"Why the B3
 run stays valid") is now historical — the benchmark track is complete.
 The fix is no longer deferred.
 
-**Current status (2026-04-30):** Implementation and tests landed in
-`00ec0054`. Live post-patch non-regression evidence landed in `c5807d84`
-(5 adversarial turns across 3 sessions on Codex `0.125.0`, all completed
-without error). The fallback did not fire in any live run —
-`item/completed` delivered agent messages on the normal path every time.
-The original failure-class recovery (missing `item/completed` → fallback
-via `thread/read`) remains unproven by live evidence.
+**Closed (2026-04-30) by accepted engineering sufficiency standard.**
 
-**Next step:** Accept test coverage plus App Server version drift as
-sufficient closure evidence, or wait for a natural live fallback recovery
-proof.
+Implementation and tests landed in `00ec0054`. Live post-patch
+non-regression evidence landed in `c5807d84` (5 adversarial turns across
+3 sessions on Codex `0.125.0`, all completed without error). The fallback
+did not fire in any live run — `item/completed` delivered agent messages
+on the normal path every time. The original failure-class recovery
+(missing `item/completed` → fallback via `thread/read`) remains unproven
+by live evidence. See [Closure](#closure) for the evidence standard
+applied.
 
 **Closure criteria:**
 
@@ -364,7 +363,66 @@ proof.
 - [x] One-run verification: rerun the B3 adversarial prompt on the patched
   commit in a fresh session, confirm convergence or natural termination
   without parse error
-- [ ] Update this ticket with final commit SHA and mark `status: closed`
+- [x] Record implementation commit SHA (`00ec0054`) and mark `status: closed`
+
+## Closure
+
+**Evidence standard applied: engineering sufficiency with explicit
+evidence downgrade.** This ticket is closed based on test-covered
+fallback implementation plus App Server version drift and current
+non-regression evidence. It is **not** closed based on a live fallback
+firing.
+
+What was proven:
+
+- The `thread/read` fallback implementation is test-covered by 12
+  targeted tests: 5 extraction-shape tests, 1 load-bearing regression
+  test (#4: fallback populates `agent_message` when `item/completed`
+  does not fire), 1 downstream parse parity test (#5), 3 failure-mode
+  tests (#6-#8), and 1 execution-turn isolation test (#9).
+- Live non-regression is established: 5 adversarial turns on Codex
+  `0.125.0` completed without error. The patched code does not interfere
+  with normal `item/completed` delivery.
+- 1082 existing tests pass with the fallback in place.
+
+What was **not** proven:
+
+- The fallback recovery path has never been exercised against the real
+  App Server. No live run produced the original failure condition
+  (missing `item/completed` notification), so the `thread/read`
+  projection shape for that failure class is untested against production
+  infrastructure.
+- The original failure was observed on Codex `0.117.0`. Verification ran
+  on `0.125.0`. Current runtime is `0.128.0`. The `item/completed`
+  delivery behavior may have been fixed server-side between versions.
+  The failure mode may no longer be reproducible.
+
+Why this standard is accepted:
+
+- The fallback code path is covered by unit and integration tests that
+  simulate the exact failure condition (empty `agent_message` on a
+  completed advisory turn). The test-to-production gap is limited to
+  the `thread/read` response shape, which uses the same
+  `extract_agent_message` helper already exercised by the dialogue read
+  path in production.
+- Waiting for natural live proof requires a server-side regression on
+  current App Server versions. There is no monitoring mechanism for this
+  and no indication the failure will recur. Holding the ticket open
+  indefinitely for evidence that requires external infrastructure failure
+  is not operationally useful.
+- The fallback's best-effort semantics mean failure is safe: if the
+  `thread/read` shape differs from expectations, the fallback returns
+  `""` and the original `CommittedTurnParseError` occurs — no worse than
+  the unfixed state.
+
+Evidence artifacts:
+
+- Implementation commit: `00ec0054`
+- Live verification: `docs/diagnostics/2026-04-30-dialogue-reply-extraction-post-patch.md`
+- Diagnostic recommendation at time of verification was "Do not close
+  based solely on this evidence" — this closure overrides that
+  recommendation by explicitly accepting the reduced standard described
+  above.
 
 ## References
 
