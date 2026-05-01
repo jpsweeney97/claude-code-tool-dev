@@ -1,0 +1,642 @@
+{
+  "artifact_version": 1,
+  "created_for": "codex-app-server-client-platform-exploration",
+  "repo": "/Users/jp/Projects/active/claude-code-tool-dev",
+  "worktree_input_provenance": {
+    "worktree_path": "/Users/jp/Projects/active/claude-code-tool-dev/.worktrees/feature/codex-app-server-client-platform-exploration",
+    "parent_branch": "fix/delegation-turn-start-probe",
+    "parent_head": "394868b517f62d97acd601ae36c0c640f899fbfa",
+    "copied_from_parent_workspace_untracked_files": true,
+    "copied_inputs": [
+      {
+        "path": "docs/plans/2026-05-01-codex-app-server-client-platform-exploration-plan.md",
+        "status_in_parent_at_setup": "untracked",
+        "status_in_worktree_after_copy": "untracked"
+      },
+      {
+        "path": "docs/plans/2026-05-01-codex-app-server-v128-execution-sandbox-migration-plan.md",
+        "status_in_parent_at_setup": "untracked",
+        "status_in_worktree_after_copy": "untracked"
+      },
+      {
+        "path": "docs/architecture/2026-05-01-codex-app-server-v128-permission-architecture-implications.md",
+        "status_in_parent_at_setup": "untracked",
+        "status_in_worktree_after_copy": "under_untracked_directory"
+      }
+    ],
+    "parent_status": [
+      "## fix/delegation-turn-start-probe",
+      "?? docs/architecture/",
+      "?? docs/plans/2026-05-01-codex-app-server-client-platform-exploration-plan.md",
+      "?? docs/plans/2026-05-01-codex-app-server-v128-execution-sandbox-migration-plan.md"
+    ],
+    "worktree_status_after_copy": [
+      "## feature/codex-app-server-client-platform-exploration",
+      "?? docs/architecture/",
+      "?? docs/plans/2026-05-01-codex-app-server-client-platform-exploration-plan.md",
+      "?? docs/plans/2026-05-01-codex-app-server-v128-execution-sandbox-migration-plan.md"
+    ],
+    "notes": [
+      "The copied inputs were sourced from the parent workspace because they were untracked there at setup time.",
+      "These copied inputs do not come from committed HEAD history and should not be described as such."
+    ]
+  },
+  "source_snapshot": {
+    "kind": "github_sparse_checkout",
+    "path": "/private/tmp/codex-app-server-exploration/openai-codex-ff27d016",
+    "commit": "ff27d01676a93be7467b3893e82f41a7af7e1418",
+    "used_for_runtime_claims": false,
+    "inventory_file": "/private/tmp/codex-app-server-exploration/pinned-source-file-list.txt",
+    "inventory_file_count": 238
+  },
+  "release_artifacts": {
+    "pr_19447": {
+      "url": "https://github.com/openai/codex/pull/19447",
+      "finding": "standalone codex-app-server is an official release artifact",
+      "protocol_equivalence_proven": false,
+      "merged_at": "2026-04-24T22:29:38Z",
+      "merge_commit": "9b8a1fbefcd507a5c7550b9c64e70f111094f195",
+      "changed_files": [
+        ".github/actions/linux-code-sign/action.yml",
+        ".github/actions/macos-code-sign/action.yml",
+        ".github/actions/windows-code-sign/action.yml",
+        ".github/dotslash-config.json",
+        ".github/workflows/rust-release-windows.yml",
+        ".github/workflows/rust-release.yml"
+      ]
+    },
+    "release_0_128_0": {
+      "url": "https://github.com/openai/codex/releases/tag/rust-v0.128.0",
+      "target_commit": "main",
+      "requested_identifier": "0.128.0",
+      "resolved_tag": "rust-v0.128.0",
+      "published_at": "2026-04-30T16:40:28Z",
+      "notes": [
+        "The GitHub release name is 0.128.0, but the release tag is rust-v0.128.0.",
+        "Standalone codex-app-server assets are visible in the release metadata."
+      ],
+      "standalone_assets": [
+        {
+          "name": "codex-app-server",
+          "digest": "sha256:5df6f77d1bb6a123426041dc0fad8f23d8018ca64da4d24afcccd7d1e5bcaf79"
+        },
+        {
+          "name": "codex-app-server-aarch64-apple-darwin.tar.gz",
+          "digest": "sha256:5d622f679a5207374040f531f15865d735bdf9d736f083865cabbdacdc6805a8"
+        },
+        {
+          "name": "codex-app-server-aarch64-apple-darwin.zst",
+          "digest": "sha256:85a15dce1383e032f19c812bb9a23c07300fac347f51612c0e6abe5e2fb79715"
+        },
+        {
+          "name": "codex-app-server-aarch64-pc-windows-msvc.exe",
+          "digest": "sha256:0265812df3e2a63ca99a541f7d10fd9c3323056cea03800d1fa4d9e2034dc8a9"
+        },
+        {
+          "name": "codex-app-server-aarch64-pc-windows-msvc.exe.tar.gz",
+          "digest": "sha256:f37a2e9a683a8def348a03fc8c1864ef34172d55c126479d4b51ae99dd4dbdfa"
+        },
+        {
+          "name": "codex-app-server-aarch64-pc-windows-msvc.exe.zip",
+          "digest": "sha256:d6da811da61640b9e412e378da4d18cbb0a822d9f809736d013db78de9e60c45"
+        },
+        {
+          "name": "codex-app-server-aarch64-pc-windows-msvc.exe.zst",
+          "digest": "sha256:a3c876c4eebf5f5f2399a20137d1cc96e9a51111576f6d333645ae94e2f08fe6"
+        },
+        {
+          "name": "codex-app-server-aarch64-unknown-linux-musl.sigstore",
+          "digest": "sha256:e7c9c749de82572f09c4a87c86b3a6643a4360b15e02d6c75f6334f5ef58b0f0"
+        },
+        {
+          "name": "codex-app-server-aarch64-unknown-linux-musl.tar.gz",
+          "digest": "sha256:fcbb2f09a090e3d2ce11d60a54b424b239271743b4e6688c7cf019b6558ca7f0"
+        },
+        {
+          "name": "codex-app-server-aarch64-unknown-linux-musl.zst",
+          "digest": "sha256:da4985f24a53f41965adbeb1ab60567752109520b5622a4575cf55f0feda7b30"
+        },
+        {
+          "name": "codex-app-server-x86_64-apple-darwin.tar.gz",
+          "digest": "sha256:671110293d9871b61ad25f685080c9ffb03c4bd0a98214fa3d33b703f252a187"
+        },
+        {
+          "name": "codex-app-server-x86_64-apple-darwin.zst",
+          "digest": "sha256:3b181a1ed85703bb87bb68b4375468371988213d39999632dfe0974b53d8bebe"
+        },
+        {
+          "name": "codex-app-server-x86_64-pc-windows-msvc.exe",
+          "digest": "sha256:8a329ae00e6ffe0f1e757c4434749c9d68bb981be6ea6629cc34c80dede29d0d"
+        },
+        {
+          "name": "codex-app-server-x86_64-pc-windows-msvc.exe.tar.gz",
+          "digest": "sha256:cb65e1ed46c42159a030ca62a0b9568c9631bd7dec9fd5ce5013b1b3eaeb978a"
+        },
+        {
+          "name": "codex-app-server-x86_64-pc-windows-msvc.exe.zip",
+          "digest": "sha256:9af2c26c041c3e9c326296ff5ce67ffd36b7719f00053ed4bd83d4ebf8fa198f"
+        },
+        {
+          "name": "codex-app-server-x86_64-pc-windows-msvc.exe.zst",
+          "digest": "sha256:35776af7e7bf272d72e08721c827dc71752bbf94859cd211a18daa10a79c6231"
+        },
+        {
+          "name": "codex-app-server-x86_64-unknown-linux-musl.sigstore",
+          "digest": "sha256:3f8f44e97db113b6587970396c4a6657c6e7e84f4feb34978fd572553e4bb1e0"
+        },
+        {
+          "name": "codex-app-server-x86_64-unknown-linux-musl.tar.gz",
+          "digest": "sha256:1fdf97aca139c105a38948019f800c9e55fb3f26cc608b6545b7cd7075d800b8"
+        },
+        {
+          "name": "codex-app-server-x86_64-unknown-linux-musl.zst",
+          "digest": "sha256:88a450fcfabb269dc7f2a255f72e09cea6c3aec2b4edb3b7cc126eaefac10644"
+        }
+      ]
+    }
+  },
+  "local_launchers": {
+    "codex_app_server_subcommand": {
+      "status": "present",
+      "path": "/opt/homebrew/bin/codex",
+      "version_output": "codex-cli 0.128.0",
+      "help_sha256": "f231ba38338e0549ef7d6948bfed3b143f9cb9e7b5ac17dadfd0009f26f060eb",
+      "binary_sha256": "ff803d4b5c595af19b99c18db6def26539fdf4da23a035ab30809835631e8e4b",
+      "selected_first_schema_launcher": true,
+      "schema_dirs": {
+        "stable": "/private/tmp/codex-app-server-exploration/schemas/codex-cli-app-server/stable",
+        "experimental": "/private/tmp/codex-app-server-exploration/schemas/codex-cli-app-server/experimental"
+      },
+      "schema_hash_files": {
+        "stable": "/private/tmp/codex-app-server-exploration/schemas/codex-cli-app-server/stable.sha256",
+        "experimental": "/private/tmp/codex-app-server-exploration/schemas/codex-cli-app-server/experimental.sha256"
+      }
+    },
+    "standalone_codex_app_server": {
+      "status": "not_installed",
+      "path": null,
+      "version_output": null,
+      "schema_dirs": {
+        "stable": null,
+        "experimental": null
+      },
+      "release_asset_visible": true
+    }
+  },
+  "static_source_map": [
+    {
+      "area": "launcher_and_transport",
+      "source_refs": [
+        "codex-rs/cli/src/main.rs:868-880",
+        "codex-rs/cli/src/main.rs:1492-1506",
+        "codex-rs/app-server/src/lib.rs:611-660",
+        "codex-rs/app-server/src/transport/stdio.rs:21-93",
+        "codex-rs/app-server/README.md:26-34"
+      ],
+      "appears_to_own": "CLI subcommands, transport selection, and stdio bootstrap",
+      "must_verify_by_schema_or_runtime": true
+    },
+    {
+      "area": "initialization_and_capabilities",
+      "source_refs": [
+        "codex-rs/app-server-protocol/src/protocol/v1.rs:23-55",
+        "codex-rs/app-server-protocol/src/protocol/common.rs:426-435",
+        "codex-rs/app-server/src/transport/stdio.rs:87-111"
+      ],
+      "appears_to_own": "initialize parameters, capabilities, and codexHome-bearing response shape",
+      "must_verify_by_schema_or_runtime": true
+    },
+    {
+      "area": "schema_generation",
+      "source_refs": [
+        "codex-rs/cli/src/main.rs:868-880",
+        "codex-rs/app-server-protocol/src/export.rs:118-203",
+        "codex-rs/app-server-protocol/src/schema_fixtures.rs:64-102"
+      ],
+      "appears_to_own": "generate-ts and generate-json-schema export paths",
+      "must_verify_by_schema_or_runtime": true
+    },
+    {
+      "area": "thread_lifecycle",
+      "source_refs": [
+        "codex-rs/app-server-protocol/src/protocol/common.rs:434-570",
+        "codex-rs/app-server-protocol/src/protocol/v2.rs:3547-3883",
+        "codex-rs/app-server/src/codex_message_processor.rs:2495-2588",
+        "codex-rs/app-server/src/codex_message_processor.rs:4274-4550",
+        "codex-rs/app-server/src/codex_message_processor.rs:4921-4960"
+      ],
+      "appears_to_own": "thread start, resume, fork, read, and related controls",
+      "must_verify_by_schema_or_runtime": true
+    },
+    {
+      "area": "turn_lifecycle",
+      "source_refs": [
+        "codex-rs/app-server-protocol/src/protocol/common.rs:717-764",
+        "codex-rs/app-server-protocol/src/protocol/v2.rs:5528-5563",
+        "codex-rs/app-server/src/codex_message_processor.rs:6640-6718"
+      ],
+      "appears_to_own": "turn start, steer, and interrupt",
+      "must_verify_by_schema_or_runtime": true
+    },
+    {
+      "area": "permissions_and_profiles",
+      "source_refs": [
+        "codex-rs/app-server-protocol/src/protocol/v2.rs:1789-1817",
+        "codex-rs/app-server-protocol/src/protocol/v2.rs:3576",
+        "codex-rs/app-server-protocol/src/protocol/v2.rs:3729",
+        "codex-rs/app-server-protocol/src/protocol/v2.rs:3832",
+        "codex-rs/app-server-protocol/src/protocol/v2.rs:5561",
+        "codex-rs/app-server/src/codex_message_processor.rs:9631-9645"
+      ],
+      "appears_to_own": "named permission selection and bounded writable-root modifications",
+      "must_verify_by_schema_or_runtime": true
+    },
+    {
+      "area": "server_requests_and_approvals",
+      "source_refs": [
+        "codex-rs/app-server-protocol/src/protocol/common.rs:988-1259",
+        "codex-rs/core/src/session/mcp.rs:8-118",
+        "codex-rs/app-server/src/thread_state.rs:143-165"
+      ],
+      "appears_to_own": "server-initiated requests, MCP elicitation, and request resolution bookkeeping",
+      "must_verify_by_schema_or_runtime": true
+    },
+    {
+      "area": "command_execution",
+      "source_refs": [
+        "codex-rs/app-server-protocol/src/protocol/common.rs:879-898",
+        "codex-rs/app-server-protocol/src/protocol/v2.rs:3374-3450",
+        "codex-rs/app-server/src/codex_message_processor.rs:2212-2433",
+        "codex-rs/app-server/src/command_exec.rs:145-190"
+      ],
+      "appears_to_own": "standalone command execution and command-scoped sandbox controls",
+      "must_verify_by_schema_or_runtime": true
+    },
+    {
+      "area": "config_trust_codex_home",
+      "source_refs": [
+        "codex-rs/app-server-protocol/src/protocol/v1.rs:58-76",
+        "codex-rs/app-server/src/codex_message_processor.rs:2742-2779",
+        "codex-rs/app-server/src/config_manager_service.rs:279-312",
+        "codex-rs/app-server/src/config_api.rs:755-812"
+      ],
+      "appears_to_own": "codexHome exposure, trust persistence, and config mutation APIs",
+      "must_verify_by_schema_or_runtime": true
+    },
+    {
+      "area": "release_packaging",
+      "source_refs": [
+        ".github/workflows/rust-release.yml:80-117",
+        ".github/workflows/rust-release.yml:563-570",
+        ".github/dotslash-config.json:31-55"
+      ],
+      "appears_to_own": "standalone app-server bundle publication and dotslash asset mapping",
+      "must_verify_by_schema_or_runtime": false
+    }
+  ],
+  "schema_summary": {
+    "selected_launcher": "codex app-server",
+    "lookup_note": "Stable request properties, not shared definitions, were used to distinguish stable from experimental fields.",
+    "request_property_sets": {
+      "stable": {
+        "ThreadStartParams": [
+          "approvalPolicy",
+          "approvalsReviewer",
+          "baseInstructions",
+          "config",
+          "cwd",
+          "developerInstructions",
+          "ephemeral",
+          "model",
+          "modelProvider",
+          "personality",
+          "sandbox",
+          "serviceName",
+          "serviceTier",
+          "sessionStartSource"
+        ],
+        "TurnStartParams": [
+          "approvalPolicy",
+          "approvalsReviewer",
+          "cwd",
+          "effort",
+          "input",
+          "model",
+          "outputSchema",
+          "personality",
+          "sandboxPolicy",
+          "serviceTier",
+          "summary",
+          "threadId"
+        ],
+        "CommandExecParams": [
+          "command",
+          "cwd",
+          "disableOutputCap",
+          "disableTimeout",
+          "env",
+          "outputBytesCap",
+          "processId",
+          "sandboxPolicy",
+          "size",
+          "streamStdin",
+          "streamStdoutStderr",
+          "timeoutMs",
+          "tty"
+        ]
+      },
+      "experimental_additions": {
+        "ThreadStartParams": [
+          "dynamicTools",
+          "environments",
+          "experimentalRawEvents",
+          "mockExperimentalField",
+          "permissions",
+          "persistExtendedHistory"
+        ],
+        "TurnStartParams": [
+          "collaborationMode",
+          "environments",
+          "permissions",
+          "responsesapiClientMetadata"
+        ],
+        "CommandExecParams": [
+          "permissionProfile"
+        ]
+      },
+      "stable_thread_response_keys": [
+        "approvalPolicy",
+        "approvalsReviewer",
+        "cwd",
+        "instructionSources",
+        "model",
+        "modelProvider",
+        "reasoningEffort",
+        "sandbox",
+        "serviceTier",
+        "thread"
+      ],
+      "experimental_thread_response_additions": [
+        "permissionProfile",
+        "activePermissionProfile"
+      ],
+      "stable_turn_start_response_keys": [
+        "turn"
+      ]
+    }
+  },
+  "surface_classification": [
+    {
+      "surface": "initialize / initialized",
+      "initial_class": "required",
+      "evidence_frame": "source + schema + local launcher docs",
+      "why_it_matters": "Current runtime bootstraps depend on this handshake and its response metadata.",
+      "verification_still_needed": "Live initialize and pre-initialize rejection probe"
+    },
+    {
+      "surface": "capabilities.experimentalApi",
+      "initial_class": "required-for-A1",
+      "evidence_frame": "source + schema + docs",
+      "why_it_matters": "Experimental permission fields and response provenance are gated here.",
+      "verification_still_needed": "Live initialize probe with and without experimentalApi"
+    },
+    {
+      "surface": "optOutNotificationMethods",
+      "initial_class": "future_scope",
+      "evidence_frame": "source + schema + docs",
+      "why_it_matters": "Could reduce event noise for richer clients, but is not needed now.",
+      "verification_still_needed": "Probe exact suppression behavior before any adoption"
+    },
+    {
+      "surface": "stdio transport",
+      "initial_class": "required",
+      "evidence_frame": "local help + source + docs",
+      "why_it_matters": "Current plugin subprocess model is stdio-based.",
+      "verification_still_needed": "Live round-trip probe over stdio"
+    },
+    {
+      "surface": "websocket / unix / off transports",
+      "initial_class": "future_scope",
+      "evidence_frame": "local help + source + docs",
+      "why_it_matters": "Relevant only if the client topology broadens beyond stdio.",
+      "verification_still_needed": "Explicit design decision before adoption"
+    },
+    {
+      "surface": "thread/start",
+      "initial_class": "required",
+      "evidence_frame": "source + schema + current plugin code",
+      "why_it_matters": "Current control-plane bootstrap and advisory thread creation already rely on it.",
+      "verification_still_needed": "Live acceptance and response-shape probe"
+    },
+    {
+      "surface": "thread/resume",
+      "initial_class": "required",
+      "evidence_frame": "source + schema + current plugin code",
+      "why_it_matters": "Recovery and continuation flows depend on it.",
+      "verification_still_needed": "Live resume probe"
+    },
+    {
+      "surface": "thread/fork",
+      "initial_class": "required",
+      "evidence_frame": "source + schema + current plugin code",
+      "why_it_matters": "Current advisory branch behavior already relies on it.",
+      "verification_still_needed": "Live fork probe"
+    },
+    {
+      "surface": "thread/read or turn listing",
+      "initial_class": "required",
+      "evidence_frame": "source + schema + current plugin code",
+      "why_it_matters": "Reply extraction and recovery rely on it.",
+      "verification_still_needed": "Live thread/read or turn-listing projection probe"
+    },
+    {
+      "surface": "turn/start",
+      "initial_class": "required",
+      "evidence_frame": "source + schema + current plugin code",
+      "why_it_matters": "Both advisory and execution flows currently send turn/start.",
+      "verification_still_needed": "Live acceptance and notification-shape probe"
+    },
+    {
+      "surface": "turn/interrupt",
+      "initial_class": "required",
+      "evidence_frame": "source + schema + current plugin code",
+      "why_it_matters": "Current runtime already calls it for cancellation and cleanup.",
+      "verification_still_needed": "Live cancellation probe"
+    },
+    {
+      "surface": "review/start",
+      "initial_class": "unknown",
+      "evidence_frame": "source + schema",
+      "why_it_matters": "Could overlap future codex-review integration.",
+      "verification_still_needed": "Scratch-thread review/start probe and emitted item-shape comparison",
+      "next_evidence_step": "Run review/start on a scratch thread and compare the emitted turn/item sequence against current consult/review needs."
+    },
+    {
+      "surface": "command/exec",
+      "initial_class": "diagnostic",
+      "evidence_frame": "source + schema",
+      "why_it_matters": "Useful for deterministic sandbox diagnostics without a full thread.",
+      "verification_still_needed": "Live probe under scratch home"
+    },
+    {
+      "surface": "thread/shellCommand",
+      "initial_class": "dangerous",
+      "evidence_frame": "source + schema + docs",
+      "why_it_matters": "Runs unsandboxed shell syntax on a thread.",
+      "verification_still_needed": "Separate security review before any use",
+      "default_posture": "Do not call from production clients until separately designed."
+    },
+    {
+      "surface": "permissions / profile fields",
+      "initial_class": "required-for-v128",
+      "evidence_frame": "source + schema",
+      "why_it_matters": "The execution security boundary and provenance story depend on these fields.",
+      "verification_still_needed": "Live v128 decision-packet probes for stable sandboxPolicy, experimental permissions, and profile provenance"
+    },
+    {
+      "surface": "config / trust APIs",
+      "initial_class": "dangerous",
+      "evidence_frame": "source + schema",
+      "why_it_matters": "Can mutate user config and Codex-home trust state.",
+      "verification_still_needed": "Scratch-home probe only; separate security design required",
+      "default_posture": "Do not call from production clients until separately designed."
+    },
+    {
+      "surface": "fs APIs",
+      "initial_class": "dangerous",
+      "evidence_frame": "source + schema",
+      "why_it_matters": "Absolute-path read/write/remove surface could bypass current plugin guardrails.",
+      "verification_still_needed": "Separate security design required",
+      "default_posture": "Do not call from production clients until separately designed."
+    },
+    {
+      "surface": "server requests and approvals",
+      "initial_class": "required",
+      "evidence_frame": "source + schema",
+      "why_it_matters": "Execution can stall or mis-handle approvals unless the client responds correctly.",
+      "verification_still_needed": "Live taxonomy and unknown-handling probe"
+    },
+    {
+      "surface": "skills / plugins / apps / MCP APIs",
+      "initial_class": "future_scope",
+      "evidence_frame": "source + schema",
+      "why_it_matters": "Broader client platform, not the immediate delegate blocker.",
+      "verification_still_needed": "Classify later once the core execution surface is settled"
+    },
+    {
+      "surface": "realtime APIs",
+      "initial_class": "future_scope",
+      "evidence_frame": "source + schema + docs",
+      "why_it_matters": "Separate modality and transport story outside current plugin scope.",
+      "verification_still_needed": "Explicit realtime design and live probe later"
+    },
+    {
+      "surface": "auth endpoints",
+      "initial_class": "diagnostic",
+      "evidence_frame": "source + schema + current plugin code",
+      "why_it_matters": "Current plugin already consumes account/read but does not own login flows.",
+      "verification_still_needed": "Probe only if platform ownership expands beyond auth-state reads"
+    },
+    {
+      "surface": "external agent import",
+      "initial_class": "future_scope",
+      "evidence_frame": "source + schema",
+      "why_it_matters": "Potential migration tooling, not current delegate execution scope.",
+      "verification_still_needed": "Classify later if import/export becomes in-scope"
+    }
+  ],
+  "runtime_probe_backlog": [
+    {
+      "probe": "initialize then initialized",
+      "selected_launcher_required": true,
+      "scratch_codex_home_required": false,
+      "auth_required": false,
+      "blocks_architecture_spec": true,
+      "blocks_implementation": true,
+      "owned_by": "client-platform exploration"
+    },
+    {
+      "probe": "request before initialize rejection",
+      "selected_launcher_required": true,
+      "scratch_codex_home_required": false,
+      "auth_required": false,
+      "blocks_architecture_spec": true,
+      "blocks_implementation": true,
+      "owned_by": "client-platform exploration"
+    },
+    {
+      "probe": "stable schema request accepted path",
+      "selected_launcher_required": true,
+      "scratch_codex_home_required": true,
+      "auth_required": "maybe",
+      "blocks_architecture_spec": false,
+      "blocks_implementation": true,
+      "owned_by": "v128 decision packet"
+    },
+    {
+      "probe": "experimentalApi gating",
+      "selected_launcher_required": true,
+      "scratch_codex_home_required": true,
+      "auth_required": "maybe",
+      "blocks_architecture_spec": false,
+      "blocks_implementation": true,
+      "owned_by": "v128 decision packet"
+    },
+    {
+      "probe": "permission profile provenance",
+      "selected_launcher_required": true,
+      "scratch_codex_home_required": true,
+      "auth_required": "maybe",
+      "blocks_architecture_spec": false,
+      "blocks_implementation": true,
+      "owned_by": "v128 decision packet"
+    },
+    {
+      "probe": "server-request taxonomy and unknown handling",
+      "selected_launcher_required": true,
+      "scratch_codex_home_required": true,
+      "auth_required": "maybe",
+      "blocks_architecture_spec": true,
+      "blocks_implementation": true,
+      "owned_by": "client-platform exploration"
+    },
+    {
+      "probe": "trust/config mutation check",
+      "selected_launcher_required": true,
+      "scratch_codex_home_required": true,
+      "auth_required": false,
+      "blocks_architecture_spec": true,
+      "blocks_implementation": true,
+      "owned_by": "shared"
+    },
+    {
+      "probe": "command/exec diagnostics",
+      "selected_launcher_required": true,
+      "scratch_codex_home_required": true,
+      "auth_required": false,
+      "blocks_architecture_spec": false,
+      "blocks_implementation": true,
+      "owned_by": "v128 decision packet"
+    },
+    {
+      "probe": "thread/read projection shape",
+      "selected_launcher_required": true,
+      "scratch_codex_home_required": true,
+      "auth_required": "maybe",
+      "blocks_architecture_spec": true,
+      "blocks_implementation": true,
+      "owned_by": "client-platform exploration"
+    }
+  ],
+  "architecture_spec_readiness": {
+    "ready": false,
+    "missing_items": [
+      "Live initialize and initialized handshake evidence for the selected launcher",
+      "Live pre-initialize rejection evidence",
+      "Live server-request taxonomy and unknown-handling capture",
+      "Live thread/read projection-shape evidence",
+      "Live trust/config mutation evidence under a scratch Codex home",
+      "Standalone codex-app-server local-launcher evidence if dual-target or equivalence claims are needed"
+    ]
+  }
+}
