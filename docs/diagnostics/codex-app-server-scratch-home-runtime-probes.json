@@ -1,0 +1,937 @@
+{
+  "artifact_version": 1,
+  "codex_home_mutations": {
+    "after": [
+      {
+        "kind": "file",
+        "path": ".personality_migration",
+        "sha256": "2d27fbdf4e8ca207afbfa388ca9172fbcc6c70e534af2476b3b704f87debadcf",
+        "size": 3
+      },
+      {
+        "kind": "file",
+        "path": "installation_id",
+        "sha256": "d284e83eaa36f3b42eed30ac621e7df79d6c29538dad6ca1faad39f66935cc24",
+        "size": 36
+      },
+      {
+        "kind": "file",
+        "path": "logs_2.sqlite",
+        "sha256": "9a426431f79ccc144fc8c1908a79af39645f3ee023eea5b989da9a805aa7708c",
+        "size": 40960
+      },
+      {
+        "kind": "file",
+        "path": "logs_2.sqlite-shm",
+        "sha256": "7700b1c825ae64ebecdf30bf1cebd1e2ff60ef426830a3fe9ad9c30cb22b63ed",
+        "size": 32768
+      },
+      {
+        "kind": "file",
+        "path": "logs_2.sqlite-wal",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0
+      },
+      {
+        "kind": "dir",
+        "path": "memories",
+        "size": 64
+      },
+      {
+        "kind": "dir",
+        "path": "skills",
+        "size": 96
+      },
+      {
+        "kind": "dir",
+        "path": "skills/.system",
+        "size": 256
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/.codex-system-skills.marker",
+        "sha256": "fe088caca7ae8afb0aa250bab41f6663ab2b413674f678893d93424bd0e3cd2f",
+        "size": 17
+      },
+      {
+        "kind": "dir",
+        "path": "skills/.system/imagegen",
+        "size": 256
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/imagegen/LICENSE.txt",
+        "sha256": "4dd13869245e356246a5b770723247bbb80a8f07a181d1d3d873a1734297cdb9",
+        "size": 10776
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/imagegen/SKILL.md",
+        "sha256": "59981d23519222bcecf1be48bb37730bbc50539ceb0e35ad09fcef98a3df19d3",
+        "size": 24003
+      },
+      {
+        "kind": "dir",
+        "path": "skills/.system/imagegen/agents",
+        "size": 96
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/imagegen/agents/openai.yaml",
+        "sha256": "9ca574af14580dc7a2a3dc37a1796d17f93cb8850be66501f0799ef8603e9dc0",
+        "size": 275
+      },
+      {
+        "kind": "dir",
+        "path": "skills/.system/imagegen/assets",
+        "size": 128
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/imagegen/assets/imagegen-small.svg",
+        "sha256": "cff5f34f57ff60b3ee92eaedd17b15e96dd4b9e776df3e78936c9e00d42be294",
+        "size": 2889
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/imagegen/assets/imagegen.png",
+        "sha256": "95952f644064eb9e890f98d8db07216347186526e4c41ad66d3420629eb86e20",
+        "size": 1711
+      },
+      {
+        "kind": "dir",
+        "path": "skills/.system/imagegen/references",
+        "size": 224
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/imagegen/references/cli.md",
+        "sha256": "38d92cdbec5f3430439a3868ced0a3c5694e0e84a75e46d6e7f7a00aca6e673b",
+        "size": 10188
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/imagegen/references/codex-network.md",
+        "sha256": "c88298ca4481f6116a16fa7987434fc977f8b311c1bbc0c3d862ffd0c5981148",
+        "size": 1779
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/imagegen/references/image-api.md",
+        "sha256": "ca5424dfcad5a4c87b4401d1cffb70bfcc18c7ca2c281d12045f822e59fa4093",
+        "size": 6079
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/imagegen/references/prompting.md",
+        "sha256": "a88c459a0306051535d1b68eb899925f08a175cbbcd07d72a9d0c43f330cb81f",
+        "size": 9896
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/imagegen/references/sample-prompts.md",
+        "sha256": "43307821f1db18e06be50189a078f3e1ccc3ee6b5523934614e22e64d27597ab",
+        "size": 19239
+      },
+      {
+        "kind": "dir",
+        "path": "skills/.system/imagegen/scripts",
+        "size": 128
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/imagegen/scripts/image_gen.py",
+        "sha256": "35e8f9fa47deca111e46c63c4ac2008e09198ef664c0926a9dfdcd6745aa37ed",
+        "size": 34271
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/imagegen/scripts/remove_chroma_key.py",
+        "sha256": "3f7b9b14ad5c90f37618bc1c16a039a2076abca12ddc41b3ae470e2b1cad6c0e",
+        "size": 13836
+      },
+      {
+        "kind": "dir",
+        "path": "skills/.system/openai-docs",
+        "size": 256
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/openai-docs/LICENSE.txt",
+        "sha256": "4dd13869245e356246a5b770723247bbb80a8f07a181d1d3d873a1734297cdb9",
+        "size": 10776
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/openai-docs/SKILL.md",
+        "sha256": "1941a2fa1d815f9fa46efbe410df4dbb57092e22140e768c085c4bedba859fa3",
+        "size": 6870
+      },
+      {
+        "kind": "dir",
+        "path": "skills/.system/openai-docs/agents",
+        "size": 96
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/openai-docs/agents/openai.yaml",
+        "sha256": "580081dd6c0896d72307d1f1b90d2248a64b9353bc546fdbf05ddeb3848e8c39",
+        "size": 543
+      },
+      {
+        "kind": "dir",
+        "path": "skills/.system/openai-docs/assets",
+        "size": 128
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/openai-docs/assets/openai-small.svg",
+        "sha256": "45be1f0757eb18889eefb1e7db79668ef46a275dc4e0e78e8df5ebd7f6cdeadc",
+        "size": 1091
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/openai-docs/assets/openai.png",
+        "sha256": "156cc84d7332bfe95b310350bd470b690d22aa33d65340cc6c2e06022946194c",
+        "size": 1429
+      },
+      {
+        "kind": "dir",
+        "path": "skills/.system/openai-docs/references",
+        "size": 160
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/openai-docs/references/latest-model.md",
+        "sha256": "b53eabc8f3204aabe793eccb729fce21eb26709fccb9be85d3a674b0fefb7c6e",
+        "size": 2028
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/openai-docs/references/prompting-guide.md",
+        "sha256": "ecdf49b4a824a87367c7a6ec3c0218e2c5783dff951b30a101c3b6a95152aafa",
+        "size": 14338
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/openai-docs/references/upgrade-guide.md",
+        "sha256": "563784eb13ad1b44c3a592f940aa7ac2086ebeb97df3f4a09ba038b2f1564d39",
+        "size": 11308
+      },
+      {
+        "kind": "dir",
+        "path": "skills/.system/openai-docs/scripts",
+        "size": 96
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/openai-docs/scripts/resolve-latest-model-info.js",
+        "sha256": "3fc420a12ab1a344ac49b852138f599d01e3ac561ec86426ba161f42a03d3e52",
+        "size": 3463
+      },
+      {
+        "kind": "dir",
+        "path": "skills/.system/plugin-creator",
+        "size": 224
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/plugin-creator/SKILL.md",
+        "sha256": "3b43cb214f458a1ae13e1b93a69e493241d8e12c5a474afe8ae81ae0507aa216",
+        "size": 6382
+      },
+      {
+        "kind": "dir",
+        "path": "skills/.system/plugin-creator/agents",
+        "size": 96
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/plugin-creator/agents/openai.yaml",
+        "sha256": "9d4409fa52b1527ee4a9b69b2484499825ca6bf65ea96bb1d5c1b4d8a31e3757",
+        "size": 343
+      },
+      {
+        "kind": "dir",
+        "path": "skills/.system/plugin-creator/assets",
+        "size": 128
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/plugin-creator/assets/plugin-creator-small.svg",
+        "sha256": "6591bf8ea9bb9435890dbdea299e0d2bd05f3aa893a335d26e4c535e93c8e7fb",
+        "size": 1319
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/plugin-creator/assets/plugin-creator.png",
+        "sha256": "a4024b0306ddb05847e1012879d37aaf1e658205199da596f5145ed7a88d9162",
+        "size": 1563
+      },
+      {
+        "kind": "dir",
+        "path": "skills/.system/plugin-creator/references",
+        "size": 96
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/plugin-creator/references/plugin-json-spec.md",
+        "sha256": "5d7223255decc44fcb93f3aa80bb17afc1469b2d3c339d65d9473c5c0c54fcdd",
+        "size": 7152
+      },
+      {
+        "kind": "dir",
+        "path": "skills/.system/plugin-creator/scripts",
+        "size": 96
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/plugin-creator/scripts/create_basic_plugin.py",
+        "sha256": "63ce72d2854c07a42382115c471cfcd42a743be3b84f398fa2d4cdb2fca13362",
+        "size": 10457
+      },
+      {
+        "kind": "dir",
+        "path": "skills/.system/skill-creator",
+        "size": 256
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/skill-creator/SKILL.md",
+        "sha256": "da44c88f6b3845a8fa8c60792ec9a722110a55a9793c279757b48fefb11f819c",
+        "size": 22047
+      },
+      {
+        "kind": "dir",
+        "path": "skills/.system/skill-creator/agents",
+        "size": 96
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/skill-creator/agents/openai.yaml",
+        "sha256": "d07d21b93fcf3d4dc8d9a3399c05fc226a49a333a96d3e1c68b451b8dd9eade6",
+        "size": 183
+      },
+      {
+        "kind": "dir",
+        "path": "skills/.system/skill-creator/assets",
+        "size": 128
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/skill-creator/assets/skill-creator-small.svg",
+        "sha256": "6591bf8ea9bb9435890dbdea299e0d2bd05f3aa893a335d26e4c535e93c8e7fb",
+        "size": 1319
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/skill-creator/assets/skill-creator.png",
+        "sha256": "a4024b0306ddb05847e1012879d37aaf1e658205199da596f5145ed7a88d9162",
+        "size": 1563
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/skill-creator/license.txt",
+        "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        "size": 11358
+      },
+      {
+        "kind": "dir",
+        "path": "skills/.system/skill-creator/references",
+        "size": 96
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/skill-creator/references/openai_yaml.md",
+        "sha256": "ffac39318e408108141d40f820968e59f70434a891694f9bf1d25be8237b150c",
+        "size": 2356
+      },
+      {
+        "kind": "dir",
+        "path": "skills/.system/skill-creator/scripts",
+        "size": 160
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/skill-creator/scripts/generate_openai_yaml.py",
+        "sha256": "ddaf9abdfb3e762ed3c82571e9c607ce964188f49f2146281beb2cb8a553a93d",
+        "size": 6619
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/skill-creator/scripts/init_skill.py",
+        "sha256": "f40cb8fafc34e2d5dbbb8b6b04297af128b70844b67bc9445ef69790e0cdb49e",
+        "size": 14602
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/skill-creator/scripts/quick_validate.py",
+        "sha256": "6cc9dc3199c935916cf6f73fcbbbb0e3bb1b58c8f5109fefa499978908164f51",
+        "size": 3293
+      },
+      {
+        "kind": "dir",
+        "path": "skills/.system/skill-installer",
+        "size": 224
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/skill-installer/LICENSE.txt",
+        "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        "size": 11358
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/skill-installer/SKILL.md",
+        "sha256": "09df0ea7921f63d51befae9fc8f71daece5ef49d7b96e35fff8b18d15d6afda7",
+        "size": 3366
+      },
+      {
+        "kind": "dir",
+        "path": "skills/.system/skill-installer/agents",
+        "size": 96
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/skill-installer/agents/openai.yaml",
+        "sha256": "5ce223d8b1070b82c42298538f1b8d376f788eb9e7a42a987e8c094070d73f0e",
+        "size": 221
+      },
+      {
+        "kind": "dir",
+        "path": "skills/.system/skill-installer/assets",
+        "size": 128
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/skill-installer/assets/skill-installer-small.svg",
+        "sha256": "3928703ff00dc1a681e7a22401843b7edcbd4b2051651ce4c43b75f7e140504e",
+        "size": 923
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/skill-installer/assets/skill-installer.png",
+        "sha256": "d0a230b1a79b71b858b7c215a0fbb0768d6459c14ea4ef80c61592629bf0e605",
+        "size": 1086
+      },
+      {
+        "kind": "dir",
+        "path": "skills/.system/skill-installer/scripts",
+        "size": 160
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/skill-installer/scripts/github_utils.py",
+        "sha256": "61c1bbe2ae217433b4b6f9f09f21aca4df52c12598068343ade719f706e4859b",
+        "size": 659
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/skill-installer/scripts/install-skill-from-github.py",
+        "sha256": "0fbbd36e8ea294442c0bd48d6f610a2e8656216bfef5c322f1dcf448ef2f09f1",
+        "size": 10096
+      },
+      {
+        "kind": "file",
+        "path": "skills/.system/skill-installer/scripts/list-skills.py",
+        "sha256": "e4e1f78ca3d045827f2a05cfd99fae57cc7c1a1bfeba8704029108834debff35",
+        "size": 2967
+      },
+      {
+        "kind": "file",
+        "path": "state_5.sqlite",
+        "sha256": "c1fb638b044102970517d6b36a3d51facc209ae173b9724b93264364a7ea0a23",
+        "size": 4096
+      },
+      {
+        "kind": "file",
+        "path": "state_5.sqlite-shm",
+        "sha256": "ea98d4fc7e33a49739aa9f1cae127f2fe78609aa154d489d3743e2969847307e",
+        "size": 32768
+      },
+      {
+        "kind": "file",
+        "path": "state_5.sqlite-wal",
+        "sha256": "799a0054989b4bd192be50d06a224e0c0239588a18f82ab7700c8634299d4272",
+        "size": 980592
+      },
+      {
+        "kind": "dir",
+        "path": "tmp",
+        "size": 96
+      },
+      {
+        "kind": "dir",
+        "path": "tmp/arg0",
+        "size": 96
+      },
+      {
+        "kind": "dir",
+        "path": "tmp/arg0/codex-arg0Wd5Nh1",
+        "size": 192
+      },
+      {
+        "kind": "file",
+        "path": "tmp/arg0/codex-arg0Wd5Nh1/.lock",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0
+      },
+      {
+        "kind": "file",
+        "path": "tmp/arg0/codex-arg0Wd5Nh1/apply_patch",
+        "sha256": "ff803d4b5c595af19b99c18db6def26539fdf4da23a035ab30809835631e8e4b",
+        "size": 23
+      },
+      {
+        "kind": "file",
+        "path": "tmp/arg0/codex-arg0Wd5Nh1/applypatch",
+        "sha256": "ff803d4b5c595af19b99c18db6def26539fdf4da23a035ab30809835631e8e4b",
+        "size": 23
+      },
+      {
+        "kind": "file",
+        "path": "tmp/arg0/codex-arg0Wd5Nh1/codex-execve-wrapper",
+        "sha256": "ff803d4b5c595af19b99c18db6def26539fdf4da23a035ab30809835631e8e4b",
+        "size": 23
+      }
+    ],
+    "before": [],
+    "created_paths": [
+      ".personality_migration",
+      "installation_id",
+      "logs_2.sqlite",
+      "logs_2.sqlite-shm",
+      "logs_2.sqlite-wal",
+      "memories",
+      "skills",
+      "skills/.system",
+      "skills/.system/.codex-system-skills.marker",
+      "skills/.system/imagegen",
+      "skills/.system/imagegen/LICENSE.txt",
+      "skills/.system/imagegen/SKILL.md",
+      "skills/.system/imagegen/agents",
+      "skills/.system/imagegen/agents/openai.yaml",
+      "skills/.system/imagegen/assets",
+      "skills/.system/imagegen/assets/imagegen-small.svg",
+      "skills/.system/imagegen/assets/imagegen.png",
+      "skills/.system/imagegen/references",
+      "skills/.system/imagegen/references/cli.md",
+      "skills/.system/imagegen/references/codex-network.md",
+      "skills/.system/imagegen/references/image-api.md",
+      "skills/.system/imagegen/references/prompting.md",
+      "skills/.system/imagegen/references/sample-prompts.md",
+      "skills/.system/imagegen/scripts",
+      "skills/.system/imagegen/scripts/image_gen.py",
+      "skills/.system/imagegen/scripts/remove_chroma_key.py",
+      "skills/.system/openai-docs",
+      "skills/.system/openai-docs/LICENSE.txt",
+      "skills/.system/openai-docs/SKILL.md",
+      "skills/.system/openai-docs/agents",
+      "skills/.system/openai-docs/agents/openai.yaml",
+      "skills/.system/openai-docs/assets",
+      "skills/.system/openai-docs/assets/openai-small.svg",
+      "skills/.system/openai-docs/assets/openai.png",
+      "skills/.system/openai-docs/references",
+      "skills/.system/openai-docs/references/latest-model.md",
+      "skills/.system/openai-docs/references/prompting-guide.md",
+      "skills/.system/openai-docs/references/upgrade-guide.md",
+      "skills/.system/openai-docs/scripts",
+      "skills/.system/openai-docs/scripts/resolve-latest-model-info.js",
+      "skills/.system/plugin-creator",
+      "skills/.system/plugin-creator/SKILL.md",
+      "skills/.system/plugin-creator/agents",
+      "skills/.system/plugin-creator/agents/openai.yaml",
+      "skills/.system/plugin-creator/assets",
+      "skills/.system/plugin-creator/assets/plugin-creator-small.svg",
+      "skills/.system/plugin-creator/assets/plugin-creator.png",
+      "skills/.system/plugin-creator/references",
+      "skills/.system/plugin-creator/references/plugin-json-spec.md",
+      "skills/.system/plugin-creator/scripts",
+      "skills/.system/plugin-creator/scripts/create_basic_plugin.py",
+      "skills/.system/skill-creator",
+      "skills/.system/skill-creator/SKILL.md",
+      "skills/.system/skill-creator/agents",
+      "skills/.system/skill-creator/agents/openai.yaml",
+      "skills/.system/skill-creator/assets",
+      "skills/.system/skill-creator/assets/skill-creator-small.svg",
+      "skills/.system/skill-creator/assets/skill-creator.png",
+      "skills/.system/skill-creator/license.txt",
+      "skills/.system/skill-creator/references",
+      "skills/.system/skill-creator/references/openai_yaml.md",
+      "skills/.system/skill-creator/scripts",
+      "skills/.system/skill-creator/scripts/generate_openai_yaml.py",
+      "skills/.system/skill-creator/scripts/init_skill.py",
+      "skills/.system/skill-creator/scripts/quick_validate.py",
+      "skills/.system/skill-installer",
+      "skills/.system/skill-installer/LICENSE.txt",
+      "skills/.system/skill-installer/SKILL.md",
+      "skills/.system/skill-installer/agents",
+      "skills/.system/skill-installer/agents/openai.yaml",
+      "skills/.system/skill-installer/assets",
+      "skills/.system/skill-installer/assets/skill-installer-small.svg",
+      "skills/.system/skill-installer/assets/skill-installer.png",
+      "skills/.system/skill-installer/scripts",
+      "skills/.system/skill-installer/scripts/github_utils.py",
+      "skills/.system/skill-installer/scripts/install-skill-from-github.py",
+      "skills/.system/skill-installer/scripts/list-skills.py",
+      "state_5.sqlite",
+      "state_5.sqlite-shm",
+      "state_5.sqlite-wal",
+      "tmp",
+      "tmp/arg0",
+      "tmp/arg0/codex-arg0Wd5Nh1",
+      "tmp/arg0/codex-arg0Wd5Nh1/.lock",
+      "tmp/arg0/codex-arg0Wd5Nh1/apply_patch",
+      "tmp/arg0/codex-arg0Wd5Nh1/applypatch",
+      "tmp/arg0/codex-arg0Wd5Nh1/codex-execve-wrapper"
+    ],
+    "deleted_paths": [],
+    "modified_paths": []
+  },
+  "probes": [
+    {
+      "classification": "not_initialized_error",
+      "errors": [],
+      "evidence": [
+        "Sent account/read before initialize."
+      ],
+      "name": "request_before_initialize_rejection",
+      "notifications": [],
+      "requires_auth": false,
+      "requires_model_turn": false,
+      "responses": [
+        {
+          "error": {
+            "code": -32600,
+            "message": "Not initialized"
+          },
+          "id": 0
+        }
+      ],
+      "status": "passed",
+      "request_sequence": [
+        {
+          "method": "account/read",
+          "params": {
+            "refreshToken": false
+          }
+        }
+      ]
+    },
+    {
+      "classification": "ok",
+      "errors": [],
+      "evidence": [
+        "Sent initialize then initialized notification."
+      ],
+      "name": "initialize_then_initialized",
+      "notifications": [
+        {
+          "method": "remoteControl/status/changed",
+          "params": {
+            "environmentId": null,
+            "status": "disabled"
+          }
+        }
+      ],
+      "requires_auth": false,
+      "requires_model_turn": false,
+      "responses": [
+        {
+          "id": 0,
+          "result": {
+            "codexHome": "/private/tmp/codex-app-server-runtime-probes/codex-home",
+            "platformFamily": "unix",
+            "platformOs": "macos",
+            "userAgent": "Codex Desktop/0.128.0 (Mac OS 26.4.1; arm64) dumb (codex_collaboration_probe; 0.1.0)"
+          }
+        }
+      ],
+      "status": "passed",
+      "request_sequence": [
+        {
+          "method": "initialize",
+          "params": {
+            "clientInfo": {
+              "name": "codex_collaboration_probe",
+              "title": "Codex Collaboration Runtime Probe",
+              "version": "0.1.0"
+            }
+          }
+        },
+        {
+          "method": "initialized",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "classification": "ok",
+      "errors": [],
+      "evidence": [
+        "Sent account/read after initialize."
+      ],
+      "name": "account_read_after_initialize",
+      "notifications": [],
+      "requires_auth": false,
+      "requires_model_turn": false,
+      "responses": [
+        {
+          "id": 1,
+          "result": {
+            "account": null,
+            "requiresOpenaiAuth": true
+          }
+        }
+      ],
+      "status": "passed",
+      "request_sequence": [
+        {
+          "method": "account/read",
+          "params": {
+            "refreshToken": false
+          }
+        }
+      ]
+    },
+    {
+      "classification": "thread_start=ok;thread_read=jsonrpc_error",
+      "errors": [],
+      "evidence": [
+        "Started a scratch thread and read it back with includeTurns=true."
+      ],
+      "name": "thread_start_and_read_projection",
+      "notifications": [
+        {
+          "method": "thread/started",
+          "params": {
+            "thread": {
+              "agentNickname": null,
+              "agentRole": null,
+              "cliVersion": "0.128.0",
+              "createdAt": 1777652591,
+              "cwd": "/private/tmp/codex-app-server-runtime-probes/workspace",
+              "ephemeral": false,
+              "forkedFromId": null,
+              "gitInfo": null,
+              "id": "019de459-eafd-71b3-8639-46e852038ebc",
+              "modelProvider": "openai",
+              "name": null,
+              "path": "/private/tmp/codex-app-server-runtime-probes/codex-home/sessions/2026/05/01/rollout-2026-05-01T12-23-11-019de459-eafd-71b3-8639-46e852038ebc.jsonl",
+              "preview": "",
+              "source": "vscode",
+              "status": {
+                "type": "idle"
+              },
+              "turns": [],
+              "updatedAt": 1777652591
+            }
+          }
+        }
+      ],
+      "requires_auth": false,
+      "requires_model_turn": false,
+      "responses": [
+        {
+          "id": 2,
+          "result": {
+            "activePermissionProfile": {
+              "extends": null,
+              "id": ":read-only",
+              "modifications": []
+            },
+            "approvalPolicy": "never",
+            "approvalsReviewer": "user",
+            "cwd": "/private/tmp/codex-app-server-runtime-probes/workspace",
+            "instructionSources": [],
+            "model": "gpt-5.5",
+            "modelProvider": "openai",
+            "permissionProfile": {
+              "fileSystem": {
+                "entries": [
+                  {
+                    "access": "read",
+                    "path": {
+                      "type": "special",
+                      "value": {
+                        "kind": "root"
+                      }
+                    }
+                  }
+                ],
+                "type": "restricted"
+              },
+              "network": {
+                "enabled": false
+              },
+              "type": "managed"
+            },
+            "reasoningEffort": null,
+            "sandbox": {
+              "networkAccess": false,
+              "type": "readOnly"
+            },
+            "serviceTier": null,
+            "thread": {
+              "agentNickname": null,
+              "agentRole": null,
+              "cliVersion": "0.128.0",
+              "createdAt": 1777652591,
+              "cwd": "/private/tmp/codex-app-server-runtime-probes/workspace",
+              "ephemeral": false,
+              "forkedFromId": null,
+              "gitInfo": null,
+              "id": "019de459-eafd-71b3-8639-46e852038ebc",
+              "modelProvider": "openai",
+              "name": null,
+              "path": "/private/tmp/codex-app-server-runtime-probes/codex-home/sessions/2026/05/01/rollout-2026-05-01T12-23-11-019de459-eafd-71b3-8639-46e852038ebc.jsonl",
+              "preview": "",
+              "source": "vscode",
+              "status": {
+                "type": "idle"
+              },
+              "turns": [],
+              "updatedAt": 1777652591
+            }
+          }
+        },
+        {
+          "error": {
+            "code": -32600,
+            "message": "thread 019de459-eafd-71b3-8639-46e852038ebc is not materialized yet; includeTurns is unavailable before first user message"
+          },
+          "id": 3
+        }
+      ],
+      "status": "failed",
+      "request_sequence": [
+        {
+          "method": "thread/start",
+          "params": {
+            "cwd": "/private/tmp/codex-app-server-runtime-probes/workspace",
+            "approvalPolicy": "never",
+            "personality": "pragmatic",
+            "serviceName": "codex_collaboration_probe"
+          }
+        },
+        {
+          "method": "thread/read",
+          "params": {
+            "threadId": "<thread_id_from_thread_start>",
+            "includeTurns": true
+          }
+        }
+      ]
+    }
+  ],
+  "scratch_environment": {
+    "auth_values_serialized": false,
+    "codex_home": "/private/tmp/codex-app-server-runtime-probes/codex-home",
+    "env_overrides": {
+      "CODEX_APP_SERVER_DISABLE_MANAGED_CONFIG": "1",
+      "CODEX_HOME": "/private/tmp/codex-app-server-runtime-probes/codex-home"
+    },
+    "operator_codex_home_used": false,
+    "probe_workspace": "/private/tmp/codex-app-server-runtime-probes/workspace",
+    "scratch_root": "/private/tmp/codex-app-server-runtime-probes"
+  },
+  "selected_launcher": {
+    "kind": "codex app-server",
+    "path": "/opt/homebrew/bin/codex",
+    "version_output": "codex-cli 0.128.0",
+    "binary_sha256": "ff803d4b5c595af19b99c18db6def26539fdf4da23a035ab30809835631e8e4b"
+  },
+  "created_for": "codex-app-server-scratch-home-runtime-probes",
+  "repo_worktree": "/Users/jp/Projects/active/claude-code-tool-dev/.worktrees/feature/codex-app-server-client-platform-exploration",
+  "thread_read_projection_classification": {
+    "status": "partial",
+    "notes": [
+      "thread/start succeeded under scratch home.",
+      "thread/read(includeTurns=true) on a brand-new scratch thread failed because turns are unavailable before the first user message.",
+      "This reduces the blocker by proving a concrete lifecycle precondition, but it does not prove the projection shape for completed turns."
+    ],
+    "thread_start_response_keys": [
+      "activePermissionProfile",
+      "approvalPolicy",
+      "approvalsReviewer",
+      "cwd",
+      "instructionSources",
+      "model",
+      "modelProvider",
+      "permissionProfile",
+      "reasoningEffort",
+      "sandbox",
+      "serviceTier",
+      "thread"
+    ],
+    "thread_start_thread_keys": [
+      "agentNickname",
+      "agentRole",
+      "cliVersion",
+      "createdAt",
+      "cwd",
+      "ephemeral",
+      "forkedFromId",
+      "gitInfo",
+      "id",
+      "modelProvider",
+      "name",
+      "path",
+      "preview",
+      "source",
+      "status",
+      "turns",
+      "updatedAt"
+    ],
+    "thread_read_response_keys": null,
+    "thread_read_thread_keys": null,
+    "thread_read_turn_count": null,
+    "thread_read_error": {
+      "code": -32600,
+      "message": "thread 019de459-eafd-71b3-8639-46e852038ebc is not materialized yet; includeTurns is unavailable before first user message"
+    }
+  },
+  "trust_config_mutation_classification": {
+    "status": "scratch_only_mutation",
+    "config_toml_created": false,
+    "sessions_created": false,
+    "log_or_sqlite_created": true,
+    "trust_or_project_state_created": false,
+    "notes": [
+      "All observed created paths were under the scratch CODEX_HOME tree.",
+      "No evidence referenced /Users/jp/.codex."
+    ]
+  },
+  "server_request_runtime_evidence": {
+    "schema_visible_methods": [
+      "item/commandExecution/requestApproval",
+      "item/fileChange/requestApproval",
+      "item/tool/requestUserInput",
+      "mcpServer/elicitation/request",
+      "item/permissions/requestApproval",
+      "item/tool/call",
+      "account/chatgptAuthTokens/refresh",
+      "applyPatchApproval",
+      "execCommandApproval"
+    ],
+    "observed_no_auth_notifications": [],
+    "status": "blocked_no_safe_auth",
+    "notes": [
+      "No server-initiated requests were observed during the no-auth handshake/thread probes.",
+      "Model-mediated server-request probing was not run automatically because account/read under scratch home reported requiresOpenaiAuth=true."
+    ]
+  },
+  "architecture_spec_readiness_delta": {
+    "ready": false,
+    "newly_satisfied_items": [
+      "Live initialize and initialized handshake evidence for the selected launcher",
+      "Live pre-initialize rejection evidence",
+      "Scratch-home trust/config mutation evidence that stayed inside isolated CODEX_HOME"
+    ],
+    "still_missing_items": [
+      "Live thread/read projection-shape evidence for a materialized thread with turns",
+      "Live server-request taxonomy and unknown-handling capture",
+      "Any model-mediated runtime evidence remains blocked on safe auth or explicit approval"
+    ]
+  }
+}
