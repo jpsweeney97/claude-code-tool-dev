@@ -61,7 +61,7 @@ For each candidate, extract:
 | `proposed_approach` | Suggested implementation path | Always | Optional — omitted if absent |
 | `acceptance_criteria` | Observable completion conditions (list of strings) | Always | Optional — omitted if absent |
 | `priority` | `critical`, `high`, `medium`, or `low` | Always | Optional — defaults to `medium` |
-| `source_type` | One of: `pr-review`, `codex`, `handoff`, `ad-hoc` | Infer from context | Optional — defaults to `ad-hoc` |
+| `source_type` | One of: `pr-review`, `codex`, `handoff`, `summary`, `ad-hoc` | Infer from context | Optional — defaults to `ad-hoc` |
 | `source_ref` | Human-readable source (e.g., PR number, handoff filename) | If available | Optional — defaults to `""` |
 | `branch` | Current git branch | Auto-detect | Optional — omitted if absent |
 | `session_id` | Session ID from handoff frontmatter | If available | Optional — defaults to `""` |
