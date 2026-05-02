@@ -17,13 +17,13 @@ project: <project-name>             # Git root or directory name
 branch: <branch-name>               # Current git branch (optional)
 commit: <short-hash>                # Short commit hash (optional)
 title: <descriptive-title>          # Handoff title
-type: <handoff|checkpoint>          # Required: distinguishes file type
+type: <handoff|checkpoint|summary>   # Required: distinguishes file type
 files:
   - <key files touched>             # List of relevant files
 ---
 ```
 
-**Type field:** `handoff` for full handoffs, `checkpoint` for checkpoints. Files without a `type` field are treated as `handoff` for backwards compatibility.
+**Type field:** `handoff` for full handoffs, `checkpoint` for checkpoints, `summary` for summaries. Files without a `type` field are treated as `handoff` for backwards compatibility.
 
 **Precedence:** If this file conflicts with [handoff-contract.md](handoff-contract.md), the contract wins. This file is canonical for section content guidance, depth targets, and quality calibration.
 
@@ -741,3 +741,33 @@ Checkpoints are lightweight state captures for context-pressure session cycling.
 ### Filename Convention
 
 Checkpoint filenames use `checkpoint-` prefix in slug: `YYYY-MM-DD_HH-MM_checkpoint-<slug>.md`
+
+## Summary Format
+
+Summaries capture session context at moderate depth and synthesize the project arc across sessions. They use the same frontmatter schema as full handoffs (see above) with `type: summary`.
+
+### Summary Sections
+
+| Section | Required? | Depth | Purpose |
+|---------|-----------|-------|---------|
+| **Goal** | Yes | 5-10 lines | What we're working on, why, and how it connects to the project |
+| **Session Narrative** | Yes | 20-40 lines | What happened, pivots, key understanding shifts — story, not list |
+| **Decisions** | Yes | 10-15 lines per decision | Choice, driver, alternatives considered, trade-offs accepted (4 elements) |
+| **Changes** | Yes | 5-10 lines per file | Files modified/created with purpose and key details |
+| **Codebase Knowledge** | Yes | 20-40 lines | Patterns, architecture, key locations with file:line references |
+| **Learnings** | Yes | 5-10 lines per item | Insights gained — gotchas fold in here |
+| **Next Steps** | Yes | 5-10 lines per item | What to do next — dependencies, blockers, open questions fold in here |
+| **Project Arc** | Yes | 20-50 lines | Where the project stands across sessions — accomplishments, current position, what's ahead, load-bearing decisions, drift risks, downstream impacts |
+
+### Summary Quality Calibration
+
+| Metric | Target |
+|--------|--------|
+| Body lines | 120-250 |
+| Required sections | 8 (all above) |
+| Error: under | 120 lines (under-capturing) |
+| Warning: over | 250 lines (drifting toward full handoff) |
+
+### Filename Convention
+
+Summary filenames use `summary-` prefix in slug: `YYYY-MM-DD_HH-MM_summary-<slug>.md`

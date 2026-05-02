@@ -25,15 +25,15 @@ project: <project-name>             # Required: git root or directory name
 branch: <branch-name>               # Optional: current git branch
 commit: <short-hash>                # Optional: short commit hash
 title: <descriptive-title>          # Required
-type: <handoff|checkpoint>          # Required: distinguishes file type
+type: <handoff|checkpoint|summary>   # Required: distinguishes file type
 files:
   - <key files touched>             # List of relevant files
 ---
 ```
 
-**Type field:** `handoff` for full handoffs, `checkpoint` for checkpoints. Existing files without a `type` field are treated as `handoff` for backwards compatibility.
+**Type field:** `handoff` for full handoffs, `checkpoint` for checkpoints, `summary` for summaries. Existing files without a `type` field are treated as `handoff` for backwards compatibility.
 
-**Title convention:** Checkpoint titles use `"Checkpoint: <title>"` prefix. Full handoff titles have no prefix.
+**Title convention:** Checkpoint titles use `"Checkpoint: <title>"` prefix. Summary titles use `"Summary: <title>"` prefix. Full handoff titles have no prefix.
 
 ## Chain Protocol
 
@@ -58,7 +58,7 @@ The chain protocol enables `resumed_from` tracking across sessions. Three skills
 | `<project_root>/docs/handoffs/archive/` | Same | No auto-prune |
 | `<project_root>/docs/handoffs/.session-state/handoff-<UUID>` | Plain text (path) | 24 hours |
 
-**Filename slug:** Lowercase, hyphens for spaces, no special characters. Checkpoints use `checkpoint-<slug>`, full handoffs use `<slug>` directly.
+**Filename slug:** Lowercase, hyphens for spaces, no special characters. Checkpoints use `checkpoint-<slug>`, summaries use `summary-<slug>`, full handoffs use `<slug>` directly.
 
 ## Git Tracking
 
