@@ -121,7 +121,7 @@ When user runs `/load [path]`:
 
 4. **Display and summarize:**
    - Show full handoff/checkpoint content
-   - Note the type: "Resuming from **checkpoint**: ..." or "Resuming from **handoff**: ..."
+   - Note the type: "Resuming from **checkpoint**: ...", "Resuming from **summary**: ...", or "Resuming from **handoff**: ..."
    - Summarize key points: goal/current task, decisions, next steps/next action
    - Offer: "Continue with [first next step/action]?"
 
@@ -173,7 +173,7 @@ After loading, verify:
 - [ ] Handoff content displayed to user
 - [ ] Original file moved to `archive/`
 - [ ] State file exists at `<project_root>/docs/handoffs/.session-state/handoff-<session_id>`
-- [ ] Type displayed on load ("Resuming from **checkpoint**:" or "Resuming from **handoff**:")
+- [ ] Type displayed on load ("Resuming from **checkpoint**:", "Resuming from **summary**:", or "Resuming from **handoff**:")
 - [ ] User offered continuation prompt
 
 **Quick check:** `ls "$(git rev-parse --show-toplevel)/docs/handoffs/archive/"` shows the archived file.
