@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""PostToolUse hook: validates handoff/checkpoint quality after Write.
+"""PostToolUse hook: validates handoff/checkpoint/summary quality after Write.
 
-Reads PostToolUse JSON from stdin. If the written file is a handoff or
-checkpoint (path under <project_root>/docs/handoffs/), validates:
+Reads PostToolUse JSON from stdin. If the written file is a handoff,
+checkpoint, or summary (path under <project_root>/docs/handoffs/), validates:
 - Required frontmatter fields present, non-blank, and valid
-- Required sections present (13 for handoffs, 5 for checkpoints)
-- Line count within range (400+ for handoffs, 20-80 for checkpoints)
+- Required sections present (13 for handoffs, 8 for summaries, 5 for checkpoints)
+- Line count within range (400+ for handoffs, 120-250 for summaries, 20-80 for checkpoints)
 - No empty sections
 - At least 1 of {Decisions, Changes, Learnings} has substantive content
-  (hollow-handoff guardrail, handoffs only)
+  (hollow guardrail, handoffs and summaries only)
 
 Outputs additionalContext via JSON stdout when issues are found.
 Always exits 0 — PostToolUse hooks cannot block (file already written).
@@ -190,7 +190,8 @@ def validate_frontmatter(frontmatter: dict[str, str], doc_type: str) -> list[Iss
     """Validate frontmatter fields for the given document type.
 
     Checks: required fields present, checkpoint title starts with
-    "Checkpoint:". Type allowlist is checked in validate(), not here.
+    "Checkpoint:", summary title starts with "Summary:".
+    Type allowlist is checked in validate(), not here.
     """
     issues: list[Issue] = []
 
@@ -275,7 +276,7 @@ def validate_sections(
             if not has_substance:
                 issues.append(Issue(
                     "error",
-                    "Hollow handoff: at least 1 of {Decisions, Changes, Learnings} "
+                    "Hollow document: at least 1 of {Decisions, Changes, Learnings} "
                     "must have substantive content.",
                 ))
 
@@ -300,7 +301,7 @@ def validate_line_count(content: str, doc_type: str) -> list[Issue]:
     """Validate body line count is within acceptable range.
 
     Body = lines after frontmatter closing ---.
-    Handoff: minimum 400 body lines. Checkpoint: 20-80 body lines.
+    Handoff: minimum 400. Summary: 120-250. Checkpoint: 20-80.
     """
     issues: list[Issue] = []
     body_lines = count_body_lines(content)
