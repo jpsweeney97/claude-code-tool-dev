@@ -14,6 +14,9 @@ from scripts.quality_check import (
     HANDOFF_MIN_LINES,
     REQUIRED_CHECKPOINT_SECTIONS,
     REQUIRED_HANDOFF_SECTIONS,
+    REQUIRED_SUMMARY_SECTIONS,
+    SUMMARY_MAX_LINES,
+    SUMMARY_MIN_LINES,
     VALID_TYPES,
     Issue,
     count_body_lines,
@@ -218,6 +221,19 @@ class TestValidateFrontmatter:
         assert len(blank_issues) == 1
         assert "title" in blank_issues[0].message
         assert "project" in blank_issues[0].message
+
+    def test_summary_title_missing_prefix(self) -> None:
+        fm = _make_frontmatter(
+            overrides={"type": "summary", "title": "No Prefix"}
+        )
+        issues = validate_frontmatter(fm, "summary")
+        assert any("Summary:" in i.message for i in issues)
+
+    def test_summary_title_valid(self) -> None:
+        fm = _make_frontmatter(
+            overrides={"type": "summary", "title": "Summary: Valid Title"}
+        )
+        assert validate_frontmatter(fm, "summary") == []
 
 
 # --- Section parsing ---
@@ -438,6 +454,36 @@ class TestValidateSections:
         # Hollow-handoff guardrail should NOT fire (sections absent, not empty)
         assert not any("Hollow handoff" in i.message for i in issues)
 
+    def test_all_summary_sections_present(self) -> None:
+        sections = [
+            {"heading": s, "content": "text"}
+            for s in REQUIRED_SUMMARY_SECTIONS
+        ]
+        assert validate_sections(sections, "summary") == []
+
+    def test_summary_missing_section(self) -> None:
+        sections = [
+            {"heading": s, "content": "text"}
+            for s in REQUIRED_SUMMARY_SECTIONS
+            if s != "Project Arc"
+        ]
+        issues = validate_sections(sections, "summary")
+        assert any("Project Arc" in i.message for i in issues)
+
+    def test_hollow_summary_guardrail(self) -> None:
+        """All 8 sections present but Decisions/Changes/Learnings all empty."""
+        sections = []
+        for s in REQUIRED_SUMMARY_SECTIONS:
+            if s in CONTENT_REQUIRED_SECTIONS:
+                sections.append({"heading": s, "content": ""})
+            else:
+                sections.append({"heading": s, "content": "text"})
+        issues = validate_sections(sections, "summary")
+        assert any(
+            i.severity == "error" and "Hollow" in i.message
+            for i in issues
+        )
+
 
 # --- Line count validation ---
 
@@ -481,6 +527,30 @@ class TestValidateLineCount:
         at_max = "\n".join(["line"] * CHECKPOINT_MAX_LINES)
         assert validate_line_count(at_min, "checkpoint") == []
         assert validate_line_count(at_max, "checkpoint") == []
+
+    def test_summary_within_range(self) -> None:
+        content = "\n".join(["line"] * 180)
+        assert validate_line_count(content, "summary") == []
+
+    def test_summary_below_minimum(self) -> None:
+        content = "\n".join(["line"] * 80)
+        issues = validate_line_count(content, "summary")
+        assert len(issues) == 1
+        assert issues[0].severity == "error"
+        assert "80" in issues[0].message
+
+    def test_summary_above_maximum(self) -> None:
+        content = "\n".join(["line"] * 300)
+        issues = validate_line_count(content, "summary")
+        assert len(issues) == 1
+        assert issues[0].severity == "warning"
+        assert "300" in issues[0].message
+
+    def test_summary_at_exact_boundaries(self) -> None:
+        at_min = "\n".join(["line"] * SUMMARY_MIN_LINES)
+        at_max = "\n".join(["line"] * SUMMARY_MAX_LINES)
+        assert validate_line_count(at_min, "summary") == []
+        assert validate_line_count(at_max, "summary") == []
 
 
 # --- Body line counting ---
@@ -571,6 +641,52 @@ class TestValidate:
         issues = validate(content)
         # Missing field + missing sections + under line count
         assert len(issues) >= 3
+
+    def test_valid_summary(self) -> None:
+        content = _make_content(
+            frontmatter=_make_frontmatter(
+                overrides={
+                    "type": "summary",
+                    "title": "Summary: Test Session",
+                }
+            ),
+            sections=list(REQUIRED_SUMMARY_SECTIONS),
+            lines_per_section=15,
+        )
+        assert validate(content) == []
+
+    def test_invalid_type_error_lists_all_types(self) -> None:
+        """Error message for invalid type should list all valid types including summary."""
+        content = _make_content(
+            frontmatter=_make_frontmatter(overrides={"type": "bogus"}),
+        )
+        issues = validate(content)
+        assert len(issues) == 1
+        assert "summary" in issues[0].message
+        assert "handoff" in issues[0].message
+        assert "checkpoint" in issues[0].message
+
+
+class TestSummaryConstants:
+    """Tests for summary type constants and basic type acceptance."""
+
+    def test_summary_in_valid_types(self) -> None:
+        assert "summary" in VALID_TYPES
+
+    def test_summary_sections_defined(self) -> None:
+        assert len(REQUIRED_SUMMARY_SECTIONS) == 8
+        assert "Project Arc" in REQUIRED_SUMMARY_SECTIONS
+        assert "Goal" in REQUIRED_SUMMARY_SECTIONS
+        assert "Session Narrative" in REQUIRED_SUMMARY_SECTIONS
+        assert "Decisions" in REQUIRED_SUMMARY_SECTIONS
+        assert "Changes" in REQUIRED_SUMMARY_SECTIONS
+        assert "Codebase Knowledge" in REQUIRED_SUMMARY_SECTIONS
+        assert "Learnings" in REQUIRED_SUMMARY_SECTIONS
+        assert "Next Steps" in REQUIRED_SUMMARY_SECTIONS
+
+    def test_summary_line_count_constants(self) -> None:
+        assert SUMMARY_MIN_LINES == 120
+        assert SUMMARY_MAX_LINES == 250
 
 
 # --- Path filtering ---
@@ -813,6 +929,24 @@ class TestMain:
             ),
             sections=list(REQUIRED_CHECKPOINT_SECTIONS),
             lines_per_section=5,
+        )
+        result, output = _run_main(
+            _make_hook_input(HANDOFF_PATH, content)
+        )
+        assert result == 0
+        assert output == ""
+
+    def test_valid_summary_end_to_end_silent(self) -> None:
+        """Valid summary through full main() pipeline produces no output."""
+        content = _make_content(
+            frontmatter=_make_frontmatter(
+                overrides={
+                    "type": "summary",
+                    "title": "Summary: Test Session",
+                }
+            ),
+            sections=list(REQUIRED_SUMMARY_SECTIONS),
+            lines_per_section=15,
         )
         result, output = _run_main(
             _make_hook_input(HANDOFF_PATH, content)

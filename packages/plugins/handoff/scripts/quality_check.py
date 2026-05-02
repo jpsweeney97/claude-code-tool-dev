@@ -57,7 +57,18 @@ REQUIRED_CHECKPOINT_SECTIONS: tuple[str, ...] = (
     "Verification Snapshot",
 )
 
-VALID_TYPES: frozenset[str] = frozenset({"handoff", "checkpoint"})
+REQUIRED_SUMMARY_SECTIONS: tuple[str, ...] = (
+    "Goal",
+    "Session Narrative",
+    "Decisions",
+    "Changes",
+    "Codebase Knowledge",
+    "Learnings",
+    "Next Steps",
+    "Project Arc",
+)
+
+VALID_TYPES: frozenset[str] = frozenset({"handoff", "checkpoint", "summary"})
 
 # At least 1 of these must have non-empty content (hollow-handoff guardrail)
 CONTENT_REQUIRED_SECTIONS: tuple[str, ...] = (
@@ -69,6 +80,8 @@ CONTENT_REQUIRED_SECTIONS: tuple[str, ...] = (
 HANDOFF_MIN_LINES: int = 400
 CHECKPOINT_MIN_LINES: int = 20
 CHECKPOINT_MAX_LINES: int = 80
+SUMMARY_MIN_LINES: int = 120
+SUMMARY_MAX_LINES: int = 250
 
 
 # --- Data model ---
@@ -205,6 +218,15 @@ def validate_frontmatter(frontmatter: dict[str, str], doc_type: str) -> list[Iss
                 f"got: '{title[:60]}'",
             ))
 
+    if doc_type == "summary" and "title" in frontmatter:
+        title = frontmatter["title"]
+        if not title.startswith("Summary:"):
+            issues.append(Issue(
+                "warning",
+                f"Summary title should start with 'Summary:', "
+                f"got: '{title[:60]}'",
+            ))
+
     return issues
 
 
@@ -217,11 +239,12 @@ def validate_sections(
     """
     issues: list[Issue] = []
 
-    required = (
-        REQUIRED_HANDOFF_SECTIONS
-        if doc_type == "handoff"
-        else REQUIRED_CHECKPOINT_SECTIONS
-    )
+    if doc_type == "handoff":
+        required = REQUIRED_HANDOFF_SECTIONS
+    elif doc_type == "summary":
+        required = REQUIRED_SUMMARY_SECTIONS
+    else:
+        required = REQUIRED_CHECKPOINT_SECTIONS
     section_names = [s["heading"] for s in sections]
 
     missing = [name for name in required if name not in section_names]
@@ -240,7 +263,7 @@ def validate_sections(
     # must have non-empty content (handoffs only).
     # Only fires when all 3 sections are present but empty — missing sections
     # are already caught by the missing-sections check above.
-    if doc_type == "handoff":
+    if doc_type in ("handoff", "summary"):
         present_content_sections = [
             s for s in sections
             if s["heading"] in CONTENT_REQUIRED_SECTIONS
@@ -289,6 +312,21 @@ def validate_line_count(content: str, doc_type: str) -> list[Issue]:
                 f"Handoff body is {body_lines} lines "
                 f"(minimum: {HANDOFF_MIN_LINES}). "
                 "Under-capturing session content.",
+            ))
+    elif doc_type == "summary":
+        if body_lines < SUMMARY_MIN_LINES:
+            issues.append(Issue(
+                "error",
+                f"Summary body is {body_lines} lines "
+                f"(minimum: {SUMMARY_MIN_LINES}). "
+                "Under-capturing session content.",
+            ))
+        elif body_lines > SUMMARY_MAX_LINES:
+            issues.append(Issue(
+                "warning",
+                f"Summary body is {body_lines} lines "
+                f"(maximum: {SUMMARY_MAX_LINES}). "
+                "Consider a full handoff instead.",
             ))
     elif doc_type == "checkpoint":
         if body_lines < CHECKPOINT_MIN_LINES:
