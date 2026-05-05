@@ -12,16 +12,17 @@ Personal utility — not targeting store distribution.
 - Firefox on macOS
 - Manifest V3
 
-Firefox MV3 aims for Chrome compatibility but diverges in some areas. For this extension's surface (content scripts, commands, messaging), the APIs are aligned.
+Firefox MV3 aims for Chrome compatibility but diverges in the background script model. This design accounts for the divergence (see Manifest section).
 
 ## File Structure
 
 ```
 page-turner/
-├── manifest.json    # Extension manifest (V3), commands, content script
-├── background.js    # Command listener → message relay to active tab
-└── content.js       # Pattern registry + navigation handler
+├── manifest.json    # Extension manifest (V3), commands, permissions
+└── background.js    # Command listener + injected navigation logic
 ```
+
+Two files. No persistent content script.
 
 ## Manifest
 
@@ -33,67 +34,100 @@ page-turner/
   "description": "Navigate paginated sites with a keyboard shortcut",
   "commands": {
     "next-page": {
-      "suggested_key": { "mac": "MacCtrl+Right" },
+      "suggested_key": { "mac": "MacCtrl+Shift+Right" },
       "description": "Go to next page"
     },
     "prev-page": {
-      "suggested_key": { "mac": "MacCtrl+Left" },
+      "suggested_key": { "mac": "MacCtrl+Shift+Left" },
       "description": "Go to previous page"
     }
   },
   "background": {
+    "scripts": ["background.js"],
     "service_worker": "background.js"
   },
-  "content_scripts": [{
-    "matches": ["<all_urls>"],
-    "js": ["content.js"],
-    "all_frames": false
-  }]
+  "permissions": ["activeTab", "scripting"]
 }
 ```
 
+### Cross-Browser Background
+
+Chrome MV3 reads `background.service_worker` and ignores `scripts`. Firefox MV3 reads `background.scripts` and ignores `service_worker`. Including both in the same manifest is the documented cross-browser pattern. The background code must work under both execution models (service worker on Chrome, event page on Firefox). For this extension's minimal surface — a single `commands.onCommand` listener — both models behave identically.
+
 ### Shortcut Rationale
 
-`MacCtrl+Left/Right` uses the physical Ctrl key on Mac. macOS uses Cmd as its primary modifier, so the Ctrl key is largely unused in browsers and system shortcuts. Verified clear of conflicts with:
-- `Cmd+Left/Right` (line start/end, browser back/forward)
-- `Option+Left/Right` (word jump)
-- `Cmd+[/]` (browser back/forward)
+`MacCtrl+Shift+Left/Right` uses the physical Ctrl key + Shift on Mac.
+
+**Why not `MacCtrl+Left/Right` (without Shift)?** macOS reserves `Ctrl+Left/Right` for Mission Control Spaces navigation by default. The OS captures it before the browser sees it.
+
+`Ctrl+Shift+Left/Right` is free of known conflicts:
+- Not used by macOS system shortcuts (Mission Control uses Ctrl+Arrow without Shift)
+- Not used by Chrome or Firefox for built-in navigation
+- Not a standard text-editing chord on macOS (Cmd and Option handle text selection)
 
 Users can remap in `chrome://extensions/shortcuts` (Chrome) or `about:addons` (Firefox).
 
-### Permissions and Host Access
+### Permissions
 
-The `content_scripts.matches: ["<all_urls>"]` field grants broad host access — the content script injects into every page. This means:
+**`activeTab`** — grants temporary host access to the active tab when the user invokes a registered command (including keyboard shortcuts). Access is scoped to that single invocation; no persistent broad access.
 
-- Chrome and Firefox will show an "access your data on all websites" prompt at install.
-- Firefox allows users to revoke host permissions per-site.
-- Content scripts do not run on restricted pages (`chrome://`, `about:`, `addons.mozilla.org`, extension pages).
-- No explicit `"permissions"` array is needed — the extension uses no extension APIs beyond `commands` and `runtime.onMessage`.
+**`scripting`** — required to call `chrome.scripting.executeScript`, which injects the navigation function into the active tab on demand.
 
-For personal sideloaded use, this is acceptable. For store distribution, a narrower host list or `activeTab` permission would be more appropriate.
+No `<all_urls>` or host permissions. The extension only touches a tab when the user explicitly presses the shortcut. Chrome shows this as "can read and change site data when you click the extension" — much narrower than "on all websites."
+
+Content scripts do not run on restricted pages (`chrome://`, `about:`, `addons.mozilla.org`, extension pages). On these pages, `scripting.executeScript` throws; the background catches and ignores the error.
 
 ## Architecture
 
-### Commands API (Primary Shortcut Handling)
+### On-Demand Injection via Commands API
 
-The browser's Commands API provides the keyboard shortcut layer:
+1. User presses `Ctrl+Shift+Right` (physical Ctrl on Mac).
+2. Browser fires a `commands.onCommand` event in the background.
+3. Background queries the active tab and calls `scripting.executeScript` with a self-contained navigation function and the direction as an argument.
+4. The injected function runs in the page context: checks interactive element guard, matches URL patterns, navigates.
 
-1. User presses `Ctrl+Right` (physical Ctrl on Mac).
-2. Browser fires a `commands.onCommand` event in the background service worker.
-3. Background sends a `{ direction: "next" | "prev" }` message to the active tab.
-4. Content script receives the message, runs pattern matching, navigates.
+No persistent content script. No message passing. The navigation logic is injected fresh on each invocation.
 
-This architecture means shortcuts are user-configurable via browser settings and benefit from the browser's built-in conflict detection.
+### Background Script
 
-### Background Service Worker
+~30 lines. Two responsibilities:
 
-Minimal relay (~10 lines). Listens for command events, sends a message to the active tab's content script. No state, no storage, no other logic.
+1. **Command listener:** maps `"next-page"` / `"prev-page"` to a direction value (`1` or `-1`).
+2. **Injection:** calls `scripting.executeScript({ target: { tabId }, func: navigatePage, args: [direction] })`.
 
-### Content Script: Pattern Registry
+Error handling: wraps `executeScript` in try/catch. Expected errors (restricted page, no tab, host permission unavailable) are silently ignored — the shortcut simply does nothing.
 
-The content script has two parts: a pattern registry and a message handler.
+The `navigatePage` function is defined in `background.js` but runs in the tab's page context. Because `scripting.executeScript` serializes the function, it must be fully self-contained — no closures over external variables, no imports.
 
-#### Pattern Interface
+### Injected Function: `navigatePage(direction)`
+
+Self-contained function that receives `direction` (1 or -1) as its argument. Contains the pattern registry, interactive element guard, and navigation logic.
+
+#### Interactive Element Guard
+
+First check: is the focused element interactive? If so, return without navigating.
+
+Skip navigation when `document.activeElement` is any of:
+
+- `<input>` with a text-like type (`text`, `search`, `number`, `email`, `url`, `tel`, `password`)
+- `<input>` with interactive types (`range`, `date`, `time`, `datetime-local`, `month`, `week`, `color`)
+- `<textarea>`
+- `<select>`
+- `<video>` or `<audio>`
+- Any element where `element.isContentEditable === true`
+- Any element with an ARIA role that implies arrow-key interaction: `textbox`, `slider`, `listbox`, `menu`, `menubar`, `tree`, `treegrid`, `grid`, `combobox`, `spinbutton`, `tablist`
+
+This guard is a backup safety layer. The primary conflict-avoidance mechanism is the modifier chord itself.
+
+#### In-Flight Guard
+
+Before navigating, check a marker on `document` (`document.__pageTurnerNavigating`). If set, return. Otherwise set it, then navigate.
+
+Each `scripting.executeScript` call runs a fresh function invocation in the existing page context. If the user presses the shortcut twice rapidly, the second invocation sees the marker from the first and bails. The page load destroys the marker.
+
+#### Pattern Registry
+
+##### Pattern Interface
 
 Each pattern is an object:
 
@@ -110,7 +144,7 @@ Each pattern is an object:
   - `min` — the floor value (1 for all current patterns).
   - `build(n)` — returns the full URL string with `n` substituted. Uses closures to capture the original URL context, preserving all other URL components (other params, hash, path segments).
 
-#### Pattern List (checked in order, first match wins)
+##### Pattern List (checked in order, first match wins)
 
 | # | Name | Detects | Min | Examples |
 |---|------|---------|-----|----------|
@@ -118,51 +152,37 @@ Each pattern is an object:
 | 2 | `path-page-slash` | `/page/N` in path | 1 | `/results/page/3` |
 | 3 | `path-page-hyphen` | `/page-N` in path | 1 | `/results/page-3` |
 
+**`?p=N` note:** `p` is ambiguous — it can mean page, post, product, or profile. Kept because: (a) modifier chord prevents accidental triggering, (b) the worst case is navigating to a wrong page, not losing data, (c) personal use means we know which sites we visit.
+
 **Removed patterns:**
-- `?offset=N` — offset pagination increments by page size (10, 20, 50), not by 1. Without knowing the page size, incrementing by 1 is almost always wrong. Dropped rather than shipped broken.
-- `/<word>/N` catch-all — matches IDs, years, product numbers, and other non-pagination numerics. False-positive rate too high for a global default.
+- `?offset=N` — offset pagination increments by page size (10, 20, 50), not by 1. Without knowing the page size, incrementing by 1 is almost always wrong.
+- `/<word>/N` catch-all — matches IDs, years, product numbers, and other non-pagination numerics. False-positive rate too high for a default matcher.
+
+##### Pattern Details
 
 **Query param patterns:** Use `URLSearchParams` to read and write the param value. Preserve all other params, path, and hash.
 
 **Path patterns:** Use regex against `url.pathname`. Replace only the matched number segment, preserving query string and hash.
 
-### Content Script: Message Handler
+#### Navigation Flow
 
-#### Flow
-
-1. Receive message from background: `{ direction: "next" | "prev" }`.
-2. **Interactive element guard:** is the focused element interactive? If so, ignore. (Backup safety — the Commands API is the primary conflict-avoidance layer, but this catches edge cases where the chord might interfere with a focused widget.)
+1. **In-flight guard:** if `document.__pageTurnerNavigating` is truthy, return.
+2. **Interactive element guard:** if focused element is interactive (see guard definition above), return.
 3. Parse current URL: `new URL(window.location.href)`.
 4. Loop through `PATTERNS` — first match wins.
-5. Compute `newValue = value + (direction === "next" ? 1 : -1)`.
-6. If `newValue < min`, return (do nothing at lower boundary).
-7. Clear in-flight guard, navigate: `window.location.href = build(newValue)`.
-
-#### Interactive Element Guard
-
-Skip navigation when `document.activeElement` is any of:
-
-- `<input>` with a text-like type (`text`, `search`, `number`, `email`, `url`, `tel`, `password`)
-- `<input>` with interactive types (`range`, `date`, `time`, `datetime-local`, `month`, `week`, `color`)
-- `<textarea>`
-- `<select>`
-- `<video>` or `<audio>`
-- Any element where `element.isContentEditable === true` (handles nested contenteditable and shadow DOM better than checking the attribute string)
-- Any element with an ARIA role that implies arrow-key interaction: `textbox`, `slider`, `listbox`, `menu`, `menubar`, `tree`, `treegrid`, `grid`, `combobox`, `spinbutton`, `tablist`
-
-This guard is a backup. The primary protection is the modifier chord itself — these controls rarely bind to `Ctrl+Arrow` on Mac.
-
-#### In-Flight Guard
-
-A module-scoped boolean (`navigating = false`) prevents double-navigation from rapid keypresses. Set to `true` before `window.location.href` assignment. Not reset — the page load destroys the content script.
+5. No match: return (URL has no recognized pagination pattern).
+6. Compute `newValue = value + direction`.
+7. If `newValue < min`, return (do nothing at lower boundary).
+8. Set `document.__pageTurnerNavigating = true`.
+9. Navigate: `window.location.href = build(newValue)`.
 
 ## Behaviors
 
-- **Lower boundary:** Shortcut at page 1 does nothing.
-- **Upper boundary:** No upper limit enforced — the target site handles invalid page numbers.
-- **No visual feedback:** No toasts, badges, or popups.
-- **Top frame only:** `all_frames: false` in the manifest. The content script runs only in the top-level frame, avoiding confusion when pagination URLs appear in iframes.
-- **Restricted pages:** Content scripts do not run on `chrome://`, `about:`, browser extension pages, or Firefox restricted domains. The shortcut simply does nothing on these pages.
+- **Lower boundary:** shortcut at page 1 does nothing.
+- **Upper boundary:** no upper limit enforced — the target site handles invalid page numbers.
+- **No visual feedback:** no toasts, badges, or popups.
+- **Restricted pages:** `scripting.executeScript` throws on `chrome://`, `about:`, browser extension pages, and Firefox restricted domains. Background catches and ignores the error.
+- **Iframes:** not applicable. On-demand injection targets the top-level tab, not frames. The focused element check operates on the top document's `activeElement`.
 
 ## Non-Goals
 
