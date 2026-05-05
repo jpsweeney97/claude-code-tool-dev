@@ -56,7 +56,15 @@ Chrome MV3 reads `background.service_worker` and ignores `scripts`. Firefox MV3 
 
 ### Cross-Browser API Namespace
 
-Use the `chrome.*` namespace throughout. Firefox supports `chrome.*` as a compatibility shim and both browsers return promises from MV3 APIs, so `async/await` works uniformly. This avoids needing a `browser.*` polyfill or wrapper layer.
+Use a one-line namespace shim at the top of `background.js`:
+
+```javascript
+const api = globalThis.browser ?? globalThis.chrome;
+```
+
+Then use `api.commands.onCommand`, `api.tabs.query`, `api.scripting.executeScript` throughout. Firefox provides `browser.*` natively with promise returns. Chrome does not have `browser.*`, so the fallback uses `chrome.*`, which returns promises in MV3 for the APIs this extension uses (`commands`, `tabs.query`, `scripting.executeScript`).
+
+**Required smoke test:** after implementation, verify in both Chrome and Firefox that `await api.scripting.executeScript(...)` returns the expected `InjectionResult[]` shape. If Firefox's `chrome.*` shim does not return a promise for any API used here, the `browser.*` primary path catches it. If neither works for a specific call, add a per-call `Promise` wrapper.
 
 ### Shortcut Rationale
 
@@ -102,7 +110,7 @@ No persistent content script. No message passing. The navigation logic is inject
 
 #### In-Flight Guard State Machine
 
-The background maintains a `Set<number>` of tab IDs with pending navigations.
+The background maintains a `Set<number>` of tab IDs with pending navigations. This is best-effort in-memory state within a live worker instance — Chrome service workers are not persistent, and Firefox event pages may be suspended. If the worker restarts, the set is empty and all tabs are unlocked. This is acceptable: the guard's purpose is preventing rapid double-navigation within a single interaction, not durable state.
 
 **Transitions:**
 
@@ -117,7 +125,7 @@ The background maintains a `Set<number>` of tab IDs with pending navigations.
 | `tabs.onRemoved` fires for tab | Remove tab from set (tab closed) |
 | Timeout (5 seconds after `navigated: true`) | Remove tab from set (failsafe if `onUpdated` never fires) |
 
-The `navigatePage` function returns a structured result: `{ navigated: boolean }`. `scripting.executeScript` returns an array of injection results; the background reads `result[0].result.navigated` to decide cleanup.
+**Reading injection results:** `scripting.executeScript` returns an `InjectionResult[]`. Expect exactly one result (top-frame injection). If the array is empty or the first result lacks a `result` property, treat as a no-op and remove the tab from the set. Normal path: read `results[0].result.navigated` to decide cleanup.
 
 **Key invariant:** every path that adds a tab to the set also has a corresponding removal path. No-op exits (interactive element, no pattern match, lower boundary) return `{ navigated: false }` and the background clears the tab immediately.
 
@@ -187,14 +195,14 @@ Each pattern is an object:
 
 **Query param patterns:** Use `URLSearchParams` to read and write the param value. Preserve all other params, path, and hash.
 
-**Path patterns:** Use regex against `url.pathname`. Exact boundary definitions:
+**Path patterns:** Use regex against `url.pathname`. Implementation-ready JS regex literals with explicit segment boundaries:
 
-| Pattern | Regex | Matches | Does NOT match |
-|---------|-------|---------|----------------|
-| `path-page-slash` | `/page/(\d+)(?:/\|$)` | `/page/3`, `/page/3/`, `/page/3/foo` | `/xpage/3`, `/page/3a` |
-| `path-page-hyphen` | `/page-(\d+)(?:/\|$)` | `/page-3`, `/page-3/`, `/page-3/foo` | `/xpage-3`, `/page-3a` |
+| Pattern | JS Regex Literal | Matches | Does NOT match |
+|---------|-----------------|---------|----------------|
+| `path-page-slash` | `/\/page\/(\d+)(?=\/\|$)/` | `/page/3`, `/page/3/`, `/page/3/foo` | `/xpage/3`, `/page/3a` |
+| `path-page-hyphen` | `/\/page-(\d+)(?=\/\|$)/` | `/page-3`, `/page-3/`, `/page-3/foo` | `/xpage-3`, `/page-3a` |
 
-The `/page` prefix must be preceded by `/` (segment boundary). The captured group is digits only. Trailing path segments after the number are preserved. Replace only the captured digit group, preserving query string and hash.
+The leading `\/` ensures `/page` is a complete segment (cannot be preceded by word characters without a `/` separator). The `(\d+)` capture group matches one or more digits. The lookahead `(?=\/|$)` ensures the number is followed by a slash or end-of-path, preventing matches on `/page/3a`. Trailing path segments after the number are preserved. Replace only the captured digit group, preserving query string and hash.
 
 ##### Numeric Validation
 
@@ -203,7 +211,7 @@ Pattern matchers must validate that the extracted value is a non-negative base-1
 - Reject (return `null`) if `isNaN(result)` or `result.toString() !== value` (catches `01`, `1.5`, `1abc`).
 - Reject if `result < 0`.
 
-Values below the pattern's `min` are not rejected at the validation stage — the navigation flow's `newValue < min` check handles the floor. This keeps validation (is it a valid number?) separate from navigation policy (is the result in bounds?).
+Values below the pattern's `min` are not rejected at the validation stage — the navigation flow's `newValue < min` check handles the floor. This is intentional: if a user lands on `?page=0` (e.g., via a site bug or manual URL edit), pressing "next" should recover to `?page=1`. The validation layer answers "is this a valid number?" while the navigation flow answers "is the computed result in bounds?"
 
 For query params with duplicate keys (e.g., `?page=1&page=2`), use the first occurrence.
 
