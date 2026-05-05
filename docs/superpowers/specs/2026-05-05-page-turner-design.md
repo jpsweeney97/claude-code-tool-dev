@@ -54,6 +54,10 @@ Two files. No persistent content script.
 
 Chrome MV3 reads `background.service_worker` and ignores `scripts`. Firefox MV3 reads `background.scripts` and ignores `service_worker`. Including both in the same manifest is the documented cross-browser pattern. The background code must work under both execution models (service worker on Chrome, event page on Firefox). For this extension's minimal surface — a single `commands.onCommand` listener — both models behave identically.
 
+### Cross-Browser API Namespace
+
+Use the `chrome.*` namespace throughout. Firefox supports `chrome.*` as a compatibility shim and both browsers return promises from MV3 APIs, so `async/await` works uniformly. This avoids needing a `browser.*` polyfill or wrapper layer.
+
 ### Shortcut Rationale
 
 `MacCtrl+Shift+Left/Right` uses the physical Ctrl key + Shift on Mac.
@@ -90,19 +94,44 @@ No persistent content script. No message passing. The navigation logic is inject
 
 ### Background Script
 
-~40 lines. Three responsibilities:
+~50 lines. Three responsibilities:
 
 1. **Command listener:** maps `"next-page"` / `"prev-page"` to a direction value (`1` or `-1`).
-2. **In-flight guard:** maintains a `Set` of tab IDs currently navigating. Before injecting, checks if the tab is already in the set. Adds the tab ID before injection. Cleans up via `tabs.onUpdated` (when `status` changes to `"loading"`, the navigation started — remove the tab from the set) and `tabs.onRemoved` (tab closed). This prevents double-navigation from rapid shortcut presses.
+2. **In-flight guard:** prevents double-navigation from rapid shortcut presses. See state machine below.
 3. **Injection:** calls `scripting.executeScript({ target: { tabId }, func: navigatePage, args: [direction] })`.
 
-Error handling: wraps `executeScript` in try/catch. On restricted pages, missing tabs, or unavailable host permissions, `executeScript` throws. In development, log these to the service worker console to distinguish real bugs from expected no-ops. In production, silently ignore — the shortcut simply does nothing.
+#### In-Flight Guard State Machine
+
+The background maintains a `Set<number>` of tab IDs with pending navigations.
+
+**Transitions:**
+
+| Event | Action |
+|-------|--------|
+| Command received, tab NOT in set | Add tab to set, proceed to injection |
+| Command received, tab IS in set | Bail — shortcut is a no-op |
+| Injection succeeds, returns `{ navigated: true }` | Keep tab in set; wait for cleanup |
+| Injection succeeds, returns `{ navigated: false }` | Remove tab from set immediately |
+| Injection throws (restricted page, no tab, etc.) | Remove tab from set in `catch` block |
+| `tabs.onUpdated` fires with `status: "loading"` for tab | Remove tab from set (navigation started) |
+| `tabs.onRemoved` fires for tab | Remove tab from set (tab closed) |
+| Timeout (5 seconds after `navigated: true`) | Remove tab from set (failsafe if `onUpdated` never fires) |
+
+The `navigatePage` function returns a structured result: `{ navigated: boolean }`. `scripting.executeScript` returns an array of injection results; the background reads `result[0].result.navigated` to decide cleanup.
+
+**Key invariant:** every path that adds a tab to the set also has a corresponding removal path. No-op exits (interactive element, no pattern match, lower boundary) return `{ navigated: false }` and the background clears the tab immediately.
+
+#### Error Handling
+
+Wraps `executeScript` in try/catch. On restricted pages, missing tabs, or unavailable host permissions, `executeScript` throws. The `catch` block always clears the tab from the in-flight set, then: in development, logs to the service worker console to distinguish real bugs from expected no-ops; in production, silently ignores.
+
+#### Function Serialization
 
 The `navigatePage` function is defined in `background.js` but executes in the tab's isolated content-script world (the default `scripting.ExecutionWorld`). It is NOT the page's main JS world — the function cannot access page-defined globals, and custom expando properties on DOM objects may not persist predictably across injection calls. Because `scripting.executeScript` serializes the function, it must be fully self-contained — no closures over external variables, no imports.
 
 ### Injected Function: `navigatePage(direction)`
 
-Self-contained function that receives `direction` (1 or -1) as its argument. Contains the pattern registry, interactive element guard, and navigation logic.
+Self-contained function that receives `direction` (1 or -1) as its argument. Contains the pattern registry, interactive element guard, and navigation logic. Returns `{ navigated: boolean }` — the background uses this to manage in-flight guard cleanup.
 
 #### Interactive Element Guard
 
@@ -158,28 +187,38 @@ Each pattern is an object:
 
 **Query param patterns:** Use `URLSearchParams` to read and write the param value. Preserve all other params, path, and hash.
 
-**Path patterns:** Use regex against `url.pathname`. Replace only the matched number segment, preserving query string and hash.
+**Path patterns:** Use regex against `url.pathname`. Exact boundary definitions:
+
+| Pattern | Regex | Matches | Does NOT match |
+|---------|-------|---------|----------------|
+| `path-page-slash` | `/page/(\d+)(?:/\|$)` | `/page/3`, `/page/3/`, `/page/3/foo` | `/xpage/3`, `/page/3a` |
+| `path-page-hyphen` | `/page-(\d+)(?:/\|$)` | `/page-3`, `/page-3/`, `/page-3/foo` | `/xpage-3`, `/page-3a` |
+
+The `/page` prefix must be preceded by `/` (segment boundary). The captured group is digits only. Trailing path segments after the number are preserved. Replace only the captured digit group, preserving query string and hash.
 
 ##### Numeric Validation
 
-Pattern matchers must validate that the extracted value is a base-10 positive integer:
+Pattern matchers must validate that the extracted value is a non-negative base-10 integer:
 - Parse with `parseInt(value, 10)`.
 - Reject (return `null`) if `isNaN(result)` or `result.toString() !== value` (catches `01`, `1.5`, `1abc`).
 - Reject if `result < 0`.
+
+Values below the pattern's `min` are not rejected at the validation stage — the navigation flow's `newValue < min` check handles the floor. This keeps validation (is it a valid number?) separate from navigation policy (is the result in bounds?).
 
 For query params with duplicate keys (e.g., `?page=1&page=2`), use the first occurrence.
 
 #### Navigation Flow
 
-1. **Interactive element guard:** if focused element is interactive (see guard definition above), return.
+1. **Interactive element guard:** if focused element is interactive (see guard definition above), return `{ navigated: false }`.
 2. Parse current URL: `new URL(window.location.href)`.
 3. Loop through `PATTERNS` — first match wins.
-4. No match: return (URL has no recognized pagination pattern).
+4. No match: return `{ navigated: false }`.
 5. Compute `newValue = value + direction`.
-6. If `newValue < min`, return (do nothing at lower boundary).
-7. Navigate: `window.location.href = build(newValue)`.
+6. If `newValue < min`, return `{ navigated: false }`.
+7. Set `window.location.href = build(newValue)`.
+8. Return `{ navigated: true }`.
 
-The in-flight guard lives in the background script (see Background Script section), not in the injected function. This avoids depending on cross-injection state persistence in the isolated content-script world.
+Every non-navigation exit returns `{ navigated: false }` so the background clears the in-flight guard immediately. The guard state machine lives in the background script (see Background Script section), not in the injected function.
 
 ## Behaviors
 
