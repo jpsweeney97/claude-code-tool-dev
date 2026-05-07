@@ -2,13 +2,14 @@
 
 **Date:** 2026-05-06 (revised after scrutiny pass — see History)
 **Author:** JP Sweeney (with Claude collaboration)
-**Status:** Draft v2 — re-audit complete, ready for re-review
+**Status:** Draft v3 — minor revisions per scrutiny v2, ready for re-review
 **Target artifact:** `/Users/jp/Projects/active/claude-code-skills/` (new public GitHub repo)
 
 ## History
 
 - **v1 (committed `30c68a8e`):** initial design based on agent-summary audit. Status was "Approved for implementation" prematurely.
-- **v2 (this revision):** rewrites the curated skill breakdown after a direct-file-inspection re-audit. v1 reported 19 PUBLISH + 3 SANITIZE; reality is 13 PUBLISH + 9 SANITIZE. Adds copy allowlist (replaces `cp -r`), expands sanitization-residue grep token list, downgrades the `marketplace.json "./"` risk per docs verification, fixes `gh add-topic` syntax, replaces incorrect "session-scoped" framing, adds clean-machine validation step, omits `version` from `plugin.json`, defines public-repo-canonical maintenance flow, and adds README namespacing + contribution-policy notes.
+- **v2 (committed `095e2c70`):** rewrote the curated skill breakdown after a direct-file-inspection re-audit. v1 reported 19 PUBLISH + 3 SANITIZE; v2 reported 13 PUBLISH + 9 SANITIZE. Added copy allowlist (replaced `cp -r`), expanded sanitization-residue grep token list, downgraded the `marketplace.json "./"` risk per docs verification, fixed `gh add-topic` syntax, replaced incorrect "session-scoped" framing, added clean-machine validation step, omitted `version` from `plugin.json`, defined public-repo-canonical maintenance flow, added README namespacing + contribution-policy notes.
+- **v3 (this revision):** minor precision fixes after scrutiny v2. (1) Drops over-prescribed SANITIZE rows: `system-design-review:374` (already conditional, no remaining sanitization needed — moves to PUBLISH AS-IS) and the `docs/audits/` portion of `design-review-team:243` (already conditional — `design-review-team` stays SANITIZE for the `agent-teams.md:3` attribution fix only). New counts: **14 PUBLISH + 8 SANITIZE = 22**. (2) Fixes Composability section line range: spans `SKILL.md:140-end-of-file` (currently line 168), not `140-165`. (3) Bakes known false positives into Step 5 grep comment. (4) Strengthens Step 7 with tarball snapshot + concurrent-session prohibition. (5) Adds a `## CONTRIBUTING.md content` section with 3-bullet stance and generic curation-gap note (no dev-monorepo link, even though the dev monorepo is public). (6) Notes `~/.claude/teams/`, `~/.claude/tasks/`, `~/.claude/CLAUDE.md` are functional Claude Code paths, not internal-vocab. (7) Fixes `codex-delta.md` line count to 199 (was 191).
 
 ## Problem
 
@@ -34,25 +35,24 @@ The new repo at `/Users/jp/Projects/active/claude-code-skills/` will be a fresh,
 
 ## Curated skill list (22, recategorized)
 
-### PUBLISH AS-IS (13, after `.DS_Store` filtering)
+### PUBLISH AS-IS (14, after `.DS_Store` filtering)
 
-`adversarial-review`, `claude-md`, `exiting-worktrees`*, `format-export`, `implementation-review`, `llm-reference`, `merge-branch`, `prompt-generator`, `review-code`, `review-plan`, `review-strategy`, `review-writing`, `scrutinize`
+`adversarial-review`, `claude-md`, `exiting-worktrees`*, `format-export`, `implementation-review`, `llm-reference`, `merge-branch`, `prompt-generator`, `review-code`, `review-plan`, `review-strategy`, `review-writing`, `scrutinize`, `system-design-review`
 
 \* `exiting-worktrees` SKILL.md content is clean, but the directory contains 180 KB of internal eval/benchmark workspace (`evals/`, `exiting-worktrees-workspace/iteration-1/...`, 30+ files). Use copy allowlist (see Implementation workflow) to ship only `SKILL.md`.
 
-### SANITIZE — content changes required (9)
+### SANITIZE — content changes required (8)
 
 | Skill | Specific changes | Severity |
 |-------|------------------|----------|
 | `git-hygiene` | `SKILL.md:47` and `SKILL.md:330`: replace `codex/cleanup/YYYY-MM-DD-HHMMSS` branch convention with `cleanup/YYYY-MM-DD-HHMMSS` (drop the `codex/` prefix). | High |
 | `next-steps` | `SKILL.md:26`: rephrase "Output feeds into Codex dialogue or focused planning sessions" — drop the Codex reference, keep the comparison ("Output feeds into deeper planning sessions"). `SKILL.md:157`: drop the literal `/codex-collaboration:dialogue` slash command line; replace with generic "If you have a follow-up advisor skill, dispatch it here." | Medium |
-| `making-recommendations` | `SKILL.md:137-143`: remove the entire "Codex Delta" subsection. `references/codex-delta.md` (191 lines, 35+ codex hits): delete the file. Verify the surrounding I8-I9 phase text doesn't dangle a reference to the removed section. | High — structural |
-| `writing-principles` | `SKILL.md:140-165` "Composability" section: remove or rewrite. Specific lines: 148, 149, 157, 163, 165 all name `creating-skills` and/or `claude-md-improver`. Cleanest fix: remove the entire Composability section (the principles below it stand alone). | Medium |
-| `design-review-team` | `SKILL.md:243`: rewrite `docs/audits/` references as conditional ("if a `docs/audits/` directory exists in your workspace") or generic ("a reviews/audit directory you maintain"). `references/agent-teams.md:3`: remove the "Adapted from `packages/plugins/superspec/...`" attribution line. | Medium |
+| `making-recommendations` | `SKILL.md:137-143`: remove the entire "Codex Delta" subsection. `references/codex-delta.md` (199 lines, 31 case-insensitive `codex` hits): delete the file. Verify the surrounding I8-I9 phase text doesn't dangle a reference to the removed section. | High — structural |
+| `writing-principles` | `SKILL.md` "Composability" section: remove. The section starts at line 140 (`## Composability`) and runs to end of file (line 168 in current state — Composability is the last `##` section). Lines 148, 149, 157, 163, 165 reference `creating-skills` and/or `claude-md-improver`. **Removal check:** verify the deletion ends at end-of-file or before the next `##` heading; the `## Failure Mode Index` section above it ends cleanly at line 138. | Medium |
+| `design-review-team` | `references/agent-teams.md:3`: remove the "Adapted from `packages/plugins/superspec/...`" attribution line. (`SKILL.md:243` `docs/audits/` reference is already in conditional form — `If the user asks to save or docs/audits/ exists` — no change needed; v2 over-prescribed this row.) | Low |
 | `explore-repo` | `references/agent-teams.md:3`: remove the same `packages/plugins/superspec/...` attribution line. | Low |
 | `handbook` | `references/agent-teams.md:3`: remove the same `packages/plugins/superspec/...` attribution line. | Low |
 | `readme` | `references/agent-teams.md:3`: remove the same `packages/plugins/superspec/...` attribution line. | Low |
-| `system-design-review` | `SKILL.md:374`: rewrite `docs/audits/` reference as conditional or generic. | Low |
 
 ### Excluded from v1
 
@@ -86,7 +86,7 @@ The new repo at `/Users/jp/Projects/active/claude-code-skills/` will be a fresh,
 ├── README.md                 # Catalog + install + brief usage + namespacing note + contribution policy
 ├── LICENSE                   # MIT, copyright "JP Sweeney"
 ├── CHANGELOG.md              # 0.1.0 initial release entry
-├── CONTRIBUTING.md           # short stance: issues welcome, PRs case-by-case (matches "public canonical" decision)
+├── CONTRIBUTING.md           # 3-bullet stance (issues, PRs, out-of-scope) + curation-gap note + maintenance flow. See "CONTRIBUTING.md content" section.
 └── .gitignore                # Includes .DS_Store at minimum
 ```
 
@@ -165,6 +165,32 @@ Sections:
 | Workflow | `git-hygiene`, `merge-branch`, `exiting-worktrees`, `next-steps`, `making-recommendations`, `prompt-generator`, `format-export` |
 | Authoring | `writing-principles` |
 
+## CONTRIBUTING.md content
+
+Voice matches README: first-person, technical, direct. Three short sections plus a maintenance-flow paragraph.
+
+### Issues
+
+> Issues welcome — bug reports, install problems, behavior questions, and feature suggestions. Open one freely; minimal template needed (what you tried, what happened, what you expected).
+
+### Pull requests
+
+> Reviewed case-by-case. Small fixes (typos, doc clarifications, broken-link corrections, obvious bugs in skill instructions) are welcome and likely to merge fast. Larger changes — substantive skill rewrites, new skills, structural changes — please open an issue first to align on scope before opening the PR.
+
+### Out of scope
+
+> This repo is a curated subset of a larger personal collection of Claude Code skills, many of which are still in-progress experiments. Only skills polished and validated for public use are published here. Requests to publish other skills are welcome as feature requests but treated as low-priority — the curation gap is intentional, not an oversight.
+
+### Maintenance flow
+
+> This public repo is canonical for shipped fixes — bug reports get fixed here. Backports to private dev-staging are at maintainer discretion. Versioning is SHA-driven (no `version` field in `plugin.json`); every commit is a new release for plugin marketplace consumers, so install updates pull the latest published state automatically.
+
+**Decisions encoded in this content:**
+
+- **No link to the dev monorepo.** Even though `claude-code-tool-dev` is public on GitHub, linking it from CONTRIBUTING.md would expose readers to internal-vocab churn (codex, engram, superspec, cross-model, etc.) that the strict-vocab decision deliberately excludes from this repo. The "larger personal collection" wording sets expectations without exposing the monorepo's surface area.
+- **No code of conduct file.** Standard professional conduct is implicit; adding `CODE_OF_CONDUCT.md` adds maintenance overhead disproportionate to a skills-only repo. Reconsider if community grows.
+- **No security disclosure policy.** Skills are instructional documents, not executable code with attack surface. If a skill instruction has a security implication (e.g., a destructive command), it's a normal bug report.
+
 ## Implementation workflow
 
 ```bash
@@ -202,18 +228,19 @@ done
 find skills -name '.DS_Store' -delete
 find skills -type d \( -name 'evals' -o -name 'iteration-*' -o -name '*-workspace' \) -exec rm -rf {} +
 
-# 4. Sanitize the 9 SANITIZE skills (apply diffs from "Curated skill list / SANITIZE" table)
+# 4. Sanitize the 8 SANITIZE skills (apply diffs from "Curated skill list / SANITIZE" table)
 #    - git-hygiene: replace `codex/cleanup/` with `cleanup/` (2 lines)
 #    - next-steps: rephrase 2 lines (drop "Codex" + slash command)
 #    - making-recommendations: remove section + delete references/codex-delta.md
-#    - writing-principles: remove Composability section (~25 lines)
+#    - writing-principles: remove Composability section (lines 140-end-of-file in SKILL.md)
 #    - design-review-team, explore-repo, handbook, readme: remove "Adapted from packages/plugins/superspec/..." line in references/agent-teams.md
-#    - system-design-review: rewrite docs/audits/ reference
 
 # 5. Run sanitization-residue grep across all 22 skills (expanded token list)
 rg -i -n 'codex|cross-model|engram|superpowers|superspec|page[ -]?turner|claude-code-tool-dev|jpsweeney97|sweeney|handoff-archivist|claude-md-improver|creating-skills|cc-docs|openai-docs|claude-code-docs|evaluating-extension-adoption|exploring-claude-repos|delegate|delegation|dialogue|extensions/skills|scripts/promote|docs/learnings|docs/handoffs|docs/tickets|claude_ai_|/Users/jp|T-20[0-9]{6}|packages/plugins' skills/
-# Expected output: empty (or only false positives that are clearly not internal-vocab leaks).
-# If any hit is a real residue, sanitize before continuing.
+# Known false positives (common-English usage, NOT internal-vocab — leave them):
+#   - skills/writing-principles/writing-principles.md:54   ("Scoped instructions for delegated tasks")
+#   - skills/writing-principles/writing-principles.md:1025 ("Dynamic dialogue has different constraints")
+# Expected output: ONLY the two known false positives above. Any other hit is real residue — sanitize before continuing.
 
 # 6. Write plugin.json, marketplace.json, README.md, LICENSE, CHANGELOG.md, CONTRIBUTING.md, .gitignore
 #    LICENSE: MIT template, copyright "JP Sweeney", current year (2026)
@@ -222,15 +249,30 @@ rg -i -n 'codex|cross-model|engram|superpowers|superspec|page[ -]?turner|claude-
 # 7. Local validation — clean-machine version
 #    Globally-promoted skills in ~/.claude/skills/ shadow the plugin-namespaced versions
 #    (per "Trigger Eval Findings #1: globally-promoted skill collision"). To get a true clean
-#    validation, temporarily move ~/.claude/skills/ aside:
+#    validation, temporarily move ~/.claude/skills/ aside.
+#
+#    PRECONDITIONS — verify ALL of these before running:
+#    - No other claude session is active (in any terminal, tmux pane, IDE, or background process).
+#    - No scheduled claude jobs (cron, launchd, systemd timer, hooks) will fire during the validation window.
+#    - You understand: any concurrent claude invocation during validation will see an empty ~/.claude/skills/
+#      and may behave incorrectly until the trap restores state.
+#
+#    Take a tarball snapshot FIRST — recovery is one command if anything fails (kill -9, system crash,
+#    terminal closed without Ctrl-D, accidental shell exit). The trap is a happy-path mechanism only.
+BACKUP=~/claude-skills-backup-$(date +%Y%m%d-%H%M%S).tar.gz
+tar czf "$BACKUP" -C ~/.claude skills
+echo "Backup created: $BACKUP"
+echo "Manual recovery (if trap fails): tar xzf \"$BACKUP\" -C ~/.claude"
+
 TMPSKILLS=$(mktemp -d)
 mv ~/.claude/skills "$TMPSKILLS/skills.bak"
 mkdir ~/.claude/skills
 trap "rm -rf ~/.claude/skills && mv \"$TMPSKILLS/skills.bak\" ~/.claude/skills && rmdir \"$TMPSKILLS\"" EXIT
+
 # Now run validation:
 claude --plugin-dir . --debug   # verify all 22 skills register on a clean ~/.claude/skills/
 # Test a few invocations: /claude-code-skills:scrutinize, /claude-code-skills:adversarial-review
-# Restore happens via trap on shell exit
+# Restore happens via trap on shell exit; tarball is the fallback if trap doesn't fire.
 
 # 8. Initial commit
 git add .
@@ -270,16 +312,18 @@ gh repo edit --add-topic documentation
 
 2. **Drift over time** — Parallel model means skills will diverge between dev monorepo and public repo. Maintenance flow: public repo is canonical for shipped fixes (per decision). When the user wants to ship dev improvements to public, it's a deliberate copy-and-sanitize step, not automatic.
 
-3. **Globally-promoted skill collision in local validation** — Per `Trigger Eval Findings #1`, `~/.claude/skills/` already containing all 22 skills means local plugin-namespaced validation is contaminated. Step 7 of the workflow stashes `~/.claude/skills/` to a tmp dir during validation and restores via `trap`. Risk: trap doesn't fire on `kill -9` or system crash; user would need to manually restore. Acceptance: rare failure mode, user can re-run from tmp dir.
+3. **Globally-promoted skill collision in local validation** — Per `Trigger Eval Findings #1`, `~/.claude/skills/` already containing all 22 skills means local plugin-namespaced validation is contaminated. Step 7 of the workflow stashes `~/.claude/skills/` to a tmp dir during validation and restores via `trap`. Trap-failure modes (`kill -9`, crash, terminal-close) and concurrent-session exposure are addressed under Risk #5 — Step 7 takes a tarball snapshot before the move, making recovery a one-command `tar xzf` even if the trap fails. Acceptance: documented preconditions + tarball snapshot reduce residual risk to the validation window itself.
 
 4. **Plugin-private MCP tools referenced in supporting `references/*.md`** — `making-recommendations/references/codex-delta.md` references `mcp__plugin_codex-collaboration_*` tools inline. Sanitization step deletes this entire file, removing the issue. Verification: Step 5 grep includes `codex` token, will catch any straggler references.
 
-5. **Stash/restore race condition during validation** — If the user's `claude` session is already running, `mv ~/.claude/skills` could affect the running session. Mitigation: run Step 7 in a fresh terminal, not in an active Claude Code session. Document this constraint.
+5. **Stash/restore race condition during validation** — During the Step 7 validation window, ANY concurrent claude invocation (other terminal, tmux pane, IDE, scheduled cron/launchd job, hook, accidental new shell) sees an empty `~/.claude/skills/` until the trap restores it. The trap doesn't fire on `kill -9`, system crash, or "terminal closed without Ctrl-D" in some terminal emulators. Mitigation: Step 7 documents preconditions explicitly AND takes a tarball snapshot before the move, so recovery is one command (`tar xzf "$BACKUP" -C ~/.claude`) even when the trap fails to fire. Acceptance: residual exposure is the validation-window itself; if a precondition-violating session fires anyway, it gets a contaminated read for the duration.
+
+6. **Functional Claude Code path references in shipped skills (not contamination)** — Five skills (`design-review-team`, `explore-repo`, `handbook`, `readme`, `claude-md`) reference `~/.claude/teams/`, `~/.claude/tasks/`, or `~/.claude/CLAUDE.md`. These are functional Claude Code paths — where the harness expects to find teams state, tasks state, and project memory — not internal-project vocabulary. They ship as-is. The Step 5 grep token list deliberately excludes `~/.claude` because it's universal Claude Code surface area, not personal context.
 
 ## Acceptance criteria
 
 - All 22 skills present in `skills/` with sanctioned content only (no `.DS_Store`, no `evals/`, no `*-workspace/`, no `iteration-*/`).
-- 9 sanitization changes applied per the SANITIZE table; running the Step-5 grep returns no internal-vocab residue.
+- 8 sanitization changes applied per the SANITIZE table; running the Step-5 grep returns ONLY the two documented false positives (`writing-principles.md:54`, `:1025`).
 - `plugin.json` has no `version` field. `marketplace.json` uses `source: "./"`.
 - `claude --plugin-dir . --debug` (with `~/.claude/skills/` masked per Step 7) shows all 22 skills loading without errors.
 - `/plugin marketplace add` (local-path or `gh:`) succeeds; `/plugin install claude-code-skills@jpsweeney97-skills` completes; all 22 skills invokable as `/claude-code-skills:<name>` without plugin-private-MCP permission prompts.
