@@ -32,17 +32,17 @@ console = Console()
 # Type mappings
 TYPE_CONFIG = {
     "skill": {
-        "source": Path(".claude/skills"),
+        "source": Path("extensions/skills"),
         "dest": Path.home() / ".claude/skills",
         "pattern": "*/SKILL.md",  # Skills are directories with SKILL.md
     },
     "command": {
-        "source": Path(".claude/commands"),
+        "source": Path("extensions/commands"),
         "dest": Path.home() / ".claude/commands",
         "pattern": "*.md",
     },
     "agent": {
-        "source": Path(".claude/agents"),
+        "source": Path("extensions/agents"),
         "dest": Path.home() / ".claude/agents",
         "pattern": "*.md",
     },

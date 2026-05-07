@@ -6,17 +6,22 @@ Monorepo for developing Claude Code extensions: skills, commands, agents, hooks,
 
 ## How This Repo Works
 
-- Develop extensions in `.claude/` and `packages/`
+- Develop skills, commands, and agents in `extensions/` (NOT auto-loaded into Claude's context)
+- Develop hooks and packages in `.claude/hooks/` and `packages/`
 - Promote to `~/.claude/` when ready
+
+`extensions/` lives outside `.claude/` deliberately. Anything under `.claude/skills/`, `.claude/agents/`, or `.claude/commands/` would auto-load into every session in this repo, duplicating the user-level versions and crowding the skill-listing budget. Keeping dev-staged extensions at `extensions/` makes them ordinary editable files until `scripts/promote` deploys them to `~/.claude/`.
 
 ## Directory Structure
 
 ```
+extensions/       # Dev-staging for skills/commands/agents (NOT auto-loaded)
+├── skills/       # Skills under development (SKILL.md required)
+├── commands/     # Slash commands under development
+└── agents/       # Subagents under development
+
 .claude/
-├── skills/       # Skills (SKILL.md required)
-├── hooks/        # Hooks (Python scripts, synced to settings.json)
-├── commands/     # Slash commands
-├── agents/       # Subagents
+├── hooks/        # Hooks (Python scripts, synced to settings.json) — auto-loaded
 ├── rules/        # Auto-loaded session rules (keep minimal)
 ├── handoffs/     # Session handoff documents (gitignored)
 ├── sessions/     # Session notes (gitignored)
@@ -51,7 +56,7 @@ Plugins deploy via `turbo-mode` marketplace. MCP servers and extensions deploy v
 
 ## Gotchas
 
-- **Dev vs production**: Edit extensions in `.claude/` (this repo), not `~/.claude/` (production). Promote when ready.
+- **Dev vs production**: Edit skills/commands/agents in `extensions/` (this repo), not `~/.claude/` (production). Hooks live in `.claude/hooks/`. Promote when ready via `scripts/promote`.
 - **Sync after hook changes**: Run `uv run scripts/sync-settings` after modifying hooks — Claude Code reads from `settings.json`, not hook files directly.
 - **Package-local testing**: A uv workspace (`pyproject.toml` at repo root) links all packages. Run tests from anywhere: `uv run --package <name> pytest`, or from the package directory: `cd packages/<path> && uv run pytest`.
 - **Rules file size**: `.claude/rules/` files auto-load into every session. Keep them minimal — move reference material to `docs/` and link to it.
@@ -61,7 +66,7 @@ Plugins deploy via `turbo-mode` marketplace. MCP servers and extensions deploy v
 
 ## Writing Extensions
 
-Applies to instruction documents: skills (`.claude/skills/*/SKILL.md`) and subagents (`.claude/agents/*.md`).
+Applies to instruction documents: skills (`extensions/skills/*/SKILL.md`) and subagents (`extensions/agents/*.md`).
 
 Audience is Claude. Optimize for machine parsing.
 

@@ -63,8 +63,8 @@ claude-devtools-config.json
 .design-review-workspace/
 
 # Skill eval artifacts (ephemeral output)
-.claude/skills/**/evals/
-.claude/skills/**/*-workspace/
+extensions/skills/**/evals/
+extensions/skills/**/*-workspace/
 
 # Superpowers visual companion (brainstorm mockups, server state)
 .superpowers/
