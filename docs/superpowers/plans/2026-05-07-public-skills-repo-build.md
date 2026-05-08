@@ -1,6 +1,6 @@
 # Public Claude Code Skills Repo — Build Plan (ready-to-publish, halt before repo creation)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. The plan retains a small number of implementer-judgment caveats (Task 5 prose-only edits, Task 8 README/LICENSE prose specs) on the assumption that the executing Claude has full spec context — `subagent-driven-development` is **not recommended** for this plan because the per-task isolation strips that context. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Produce a verified-ready local artifact at `/Users/jp/Projects/active/claude-code-skills/` — 22 sanitized skills, plugin manifests, repo-level docs, validated against a clean `~/.claude/skills/`, committed locally — **without creating a GitHub repo, pushing, or tagging**.
 
@@ -62,6 +62,7 @@ After Task 10, this repo holds exactly one commit on `main`. Nothing has been pu
 - **Working directory** for Tasks 3-10 is the target repo (`/Users/jp/Projects/active/claude-code-skills/`), unless otherwise stated.
 - **Manual user gates** (preflight, clean-machine validation) are clearly marked `[USER GATE]`. Claude does not run these — the user runs `claude` in a separate session and reports back.
 - **Commits**: zero commits in Tasks 3-9. The target repo accumulates uncommitted state until Task 10's single "Initial release" commit, matching the spec's bash workflow. The plan file itself is committed to the dev monorepo separately (after this plan is written), not as a plan task.
+- **Shell variable scope:** Some tasks set shell variables in one step that are referenced in later steps — `SCRATCH` in Task 2 (Step 1 → Step 3), `BACKUP` in Task 9 (Step 2 → Step 5), `TMPSKILLS` in Task 9 (Step 3 → Step 4 → trap). Each Bash tool invocation is a **separate shell** — variables do not persist across calls. For each affected task, **execute all variable-dependent steps within a single Bash tool invocation** (one `<bash>` block covering Steps N..M), or save the printed path from the assigning step's output and pass it as a literal value in the dependent step. The plan flags re-derivation paths inline (`# or: trash <path-from-Step-1> if SCRATCH var was lost`) — those are fallbacks, not the primary path.
 
 ---
 
@@ -114,10 +115,10 @@ If FAIL: continue with WARNING. Task 9 spot-checks of agent-teams skills (`claud
 - [ ] **Step 5: Verify `rg` supports PCRE**
 
 ```bash
-rg --pcre2 -n 'test' /etc/hostname || true
+echo "test" | rg --pcre2 -n 'test' >/dev/null && echo "PCRE2 OK"
 ```
 
-Expected: command runs without `error: PCRE2 is not available` (it may return non-zero if no match — that's fine; we only care that PCRE compiled in).
+Expected: prints `PCRE2 OK`. Any `error: PCRE2 is not available` (or non-zero exit before the echo) means PCRE2 isn't compiled in.
 
 If FAIL: halt. Task 7's structural scan (regex (a) and (e)) requires `--pcre2`. The Homebrew `rg` ships with it; an older / minimal build may not.
 
@@ -404,7 +405,9 @@ Expected: `CLEAN`.
 File 1 (delete): `skills/making-recommendations/references/codex-delta.md`
 
 ```bash
-trash skills/making-recommendations/references/codex-delta.md
+# `|| true` so a re-run after a partial failure doesn't error if the file is already trashed.
+trash skills/making-recommendations/references/codex-delta.md 2>/dev/null || true
+[ -e skills/making-recommendations/references/codex-delta.md ] && echo "TRASH FAILED" || echo "GONE"
 ```
 
 File 2 (modify): `skills/making-recommendations/SKILL.md`
@@ -582,7 +585,11 @@ cd /Users/jp/Projects/active/claude-code-skills
 rg -nP '\b[\w-]+(?:[\s-][\w-]+)*\s+(workflow|protocol|procedure)\b' skills/
 ```
 
-Expected: each match must refer to a real entity defined in shipped content OR be reworded to a generic phrase. Specifically watch for:
+**Expected hit count:** typically 30-80 matches. The regex is intentionally over-broad — `\b[\w-]+(?:[\s-][\w-]+)*\s+(workflow|protocol|procedure)\b` captures any noun-phrase prefix before the three trigger words, so generic English ("standard build workflow", "review procedure", "internal protocol") shows up alongside the real targets. The verification is a **manual scan**, not a count threshold. Compare to Step 1 (slash commands) where ~40 hits resolve to a 4-item documented FP list.
+
+If hit count is < ~10 or > ~150, treat that as a signal something is off (regex misbehaving, sanitize phase missed, or shipped set wrong) — not a pass/fail gate, but worth pausing to investigate before scrolling through.
+
+Each match must refer to a real entity defined in shipped content OR be reworded to a generic phrase. Specifically watch for:
 - `the X workflow` where X is a name not in 22-set (e.g., `the commit-push-pr workflow` from `merge-branch`, fixed in Task 5 Step 4).
 - `X protocol from CLAUDE.md` (e.g., the phantom `Next Steps protocol` from `next-steps`, fixed in Task 5 Step 3).
 - `X procedure` referring to anything not shipped.
@@ -921,7 +928,22 @@ set -euo pipefail
 cd /Users/jp/Projects/active/claude-code-skills
 
 (
-  trap 'mv ~/.claude/skills "$TMPSKILLS/skills.test" 2>/dev/null || true; mv "$TMPSKILLS/skills.bak" ~/.claude/skills; trash "$TMPSKILLS"' EXIT
+  trap '
+    # Step 1: if live skills are still in place (outer mv never ran or was rolled back),
+    # stash them so the restoration mv has somewhere to land.
+    [ -d ~/.claude/skills ] && mv ~/.claude/skills "$TMPSKILLS/skills.test" 2>/dev/null || true
+
+    # Step 2: restore from the stash. ONLY proceed if skills.bak exists; otherwise emit
+    # an explicit recovery instruction so live skills are not silently lost.
+    if [ -d "$TMPSKILLS/skills.bak" ]; then
+      mv "$TMPSKILLS/skills.bak" ~/.claude/skills
+      trash "$TMPSKILLS"
+    else
+      echo "TRAP: skills.bak missing — outer mv likely failed before validation." >&2
+      echo "TRAP: live skills (if any) are at $TMPSKILLS/skills.test — DO NOT trash $TMPSKILLS." >&2
+      echo "TRAP: recover via: tar xzf \"$BACKUP\" -C ~/.claude" >&2
+    fi
+  ' EXIT
   mv ~/.claude/skills "$TMPSKILLS/skills.bak"
   mkdir ~/.claude/skills
 
@@ -929,7 +951,7 @@ cd /Users/jp/Projects/active/claude-code-skills
   # skills aren't shadowed by globally-promoted ones (Trigger Eval Findings #1).
   claude --plugin-dir . --debug
 )
-# Subshell exited; trap fired; ~/.claude/skills is restored.
+# Subshell exited; trap fired; ~/.claude/skills is restored (or recovery instruction printed).
 ```
 
 [USER GATE] Inside the `claude` session, verify:
@@ -1048,21 +1070,21 @@ Report state to user: "Build phase complete. Verified-ready local artifact at `/
 
 Mapped from spec lines 537-554. Items marked **deferred** belong to the follow-up plan, NOT this one.
 
-- [x] Preconditions verified (Task 1).
-- [x] Step 0 preflight passes — `marketplace.json source: "./"` accepts at runtime (Task 2).
-- [x] `set -euo pipefail` is the first directive of every multi-command bash block (Tasks 2-11).
-- [x] All 22 skills present in `skills/` with sanctioned content only — no `.DS_Store`, `evals/`, `*-workspace/`, `iteration-*/` (Task 4).
-- [x] 10 sanitization changes applied (Task 5); Step 5 lexical grep returns ONLY the two documented FPs (Task 7).
-- [x] Step 4b structural-reference scan — no dangling refs across categories (a)-(e) (Task 6).
-- [x] `plugin.json` has no `version` field; `marketplace.json` uses `source: "./"` (Task 8 Steps 1-2).
-- [x] Step 7 trap is subshell-scoped (Task 9 Step 4).
-- [x] `claude --plugin-dir . --debug` shows all 22 skills loading without errors (Task 9 Step 4).
-- [x] No `rm` or `rm -rf` in the implementation script — all deletions use `trash` or rely on the copy allowlist.
-- [x] README has all required sections (Task 8 Step 3).
-- [x] CHANGELOG.md exists at repo root with Keep-a-Changelog format and `## [0.1.0]` entry (Task 8 Step 5; date placeholder remains until publish).
-- [x] LICENSE is MIT, current year (2026), copyright "JP Sweeney" (Task 8 Step 4).
-- [x] CONTRIBUTING.md states the public-repo-canonical maintenance flow (Task 8 Step 6).
-- [x] `.gitignore` includes the seven patterns from spec line 552 (Task 8 Step 7).
+- [ ] Preconditions verified (Task 1).
+- [ ] Step 0 preflight passes — `marketplace.json source: "./"` accepts at runtime (Task 2).
+- [ ] `set -euo pipefail` is the first directive of every multi-command bash block (Tasks 2-10).
+- [ ] All 22 skills present in `skills/` with sanctioned content only — no `.DS_Store`, `evals/`, `*-workspace/`, `iteration-*/` (Task 4).
+- [ ] 10 sanitization changes applied (Task 5); Step 5 lexical grep returns ONLY the two documented FPs (Task 7).
+- [ ] Step 4b structural-reference scan — no dangling refs across categories (a)-(e) (Task 6).
+- [ ] `plugin.json` has no `version` field; `marketplace.json` uses `source: "./"` (Task 8 Steps 1-2).
+- [ ] Step 7 trap is subshell-scoped (Task 9 Step 4).
+- [ ] `claude --plugin-dir . --debug` shows all 22 skills loading without errors (Task 9 Step 4).
+- [ ] No `rm` or `rm -rf` in the implementation script — all deletions use `trash` or rely on the copy allowlist.
+- [ ] README has all required sections (Task 8 Step 3).
+- [ ] CHANGELOG.md exists at repo root with Keep-a-Changelog format and `## [0.1.0]` entry (Task 8 Step 5; date placeholder remains until publish).
+- [ ] LICENSE is MIT, current year (2026), copyright "JP Sweeney" (Task 8 Step 4).
+- [ ] CONTRIBUTING.md states the public-repo-canonical maintenance flow (Task 8 Step 6).
+- [ ] `.gitignore` includes the seven patterns from spec line 552 (Task 8 Step 7).
 - **Deferred:** `/plugin marketplace add` succeeds against the public repo, `/plugin install claude-code-skills@jpsweeney97-skills` completes, all 22 skills invokable as `/claude-code-skills:<name>` without permission prompts.
 - **Deferred:** GitHub repo public, tagged `v0.1.0`, with five discoverability topics applied.
 - **Deferred:** Post-publish success-criteria tracking for first month after release.
@@ -1092,7 +1114,7 @@ Spec coverage check (per spec section):
 - **README structure** → Task 8 Step 3.
 - **CONTRIBUTING.md content** → Task 8 Step 6.
 - **CHANGELOG.md content** → Task 8 Step 5.
-- **Implementation workflow** → Tasks 1 (preconditions) + 2 (Step 0) + 3 (Step 1) + 4 (Steps 2-3) + 5 (Step 4) + 6 (Step 4b) + 7 (Step 5) + 9 (Step 6) + 10 (Step 7) + 11 (Step 8).
+- **Implementation workflow** → Tasks 1 (preconditions) + 2 (Step 0) + 3 (Step 1) + 4 (Steps 2-3) + 5 (Step 4) + 6 (Step 4b) + 7 (Step 5) + 8 (Step 6) + 9 (Step 7) + 10 (Step 8).
 - **Out of scope** → already excluded from this plan.
 - **Risks & open questions** → mitigations baked into the relevant tasks (Risk #1 → Tasks 6+7; Risk #3 → Task 9's tarball; Risk #5 → Task 9's subshell trap; Risks #6-8 → README Requirements section in Task 8 Step 3).
 - **Acceptance criteria** → mirrored above as in-scope subset.
