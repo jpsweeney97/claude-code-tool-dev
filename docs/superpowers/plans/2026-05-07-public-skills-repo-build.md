@@ -4,7 +4,7 @@
 
 **Goal:** Produce a verified-ready local artifact at `/Users/jp/Projects/active/claude-code-skills/` — 22 sanitized skills, plugin manifests, repo-level docs, validated against a clean `~/.claude/skills/`, committed locally — **without creating a GitHub repo, pushing, or tagging**.
 
-**Architecture:** Sequential workflow against the spec at `docs/superpowers/specs/2026-05-06-public-skills-repo-design.md` (v5, commit `9ab5a4ad`). Source = dev-monorepo `extensions/skills/`. Target = new standalone git repo at `/Users/jp/Projects/active/claude-code-skills/`. The work is mechanical (file copies + well-specified diffs + automated scans) with explicit user gates at preflight, post-sanitize scans, and clean-machine validation.
+**Architecture:** Sequential workflow against the spec at `docs/superpowers/specs/2026-05-06-public-skills-repo-design.md` (v6, commit `1b9ed8c9`). Source = dev-monorepo `extensions/skills/`. Target = new standalone git repo at `/Users/jp/Projects/active/claude-code-skills/`. The work is mechanical (file copies + well-specified diffs + automated scans) with explicit user gates at preflight, post-sanitize scans, and clean-machine validation.
 
 **Tech Stack:** `bash` (with `set -euo pipefail`), `git`, `gh` (only for `gh auth status` precondition in this phase), `trash-cli`, `ripgrep` (PCRE mode), `tar`, `claude` CLI (manual user invocations at preflight + validation gates).
 
@@ -343,9 +343,11 @@ rg -n 'revise-claude-md|Changelog skill|and changelog' skills/claude-md/SKILL.md
 
 Expected: `CLEAN` (or no output — `rg` exits non-zero on no match, hence `|| echo`).
 
-- [ ] **Step 2: `git-hygiene` SKILL.md (2 lines)**
+- [ ] **Step 2: `git-hygiene` SKILL.md (codex/cleanup branch convention + 7 `trash` portability edits)**
 
 File: `skills/git-hygiene/SKILL.md`.
+
+**Part A — codex/cleanup convention (2 lines, spec v5 carryover):**
 
 Replace `codex/cleanup/YYYY-MM-DD-HHMMSS` with `cleanup/YYYY-MM-DD-HHMMSS` (drops the `codex/` prefix). Two occurrences: spec calls out lines 47 and 330 in the source file. Use `rg` to find current locations in the just-copied file:
 
@@ -360,6 +362,54 @@ rg -n 'codex/cleanup' skills/git-hygiene/SKILL.md || echo "CLEAN"
 ```
 
 Expected: `CLEAN`.
+
+**Part B — `trash` portability (7 lines, added v6 per spec category (f)):**
+
+The skill currently prescribes `trash` as the deletion tool throughout. `trash` is a user-machine convention (`brew install trash` on macOS; not native; Linux uses `trash-cli`'s `trash-put`; GNOME has `gio trash`). For OS-portability, replace each prescription with a portable phrase and add a one-paragraph Requirements explanation immediately after the first occurrence (line 21).
+
+Use `rg` to find current `trash` line numbers in the just-copied file (line numbers may shift slightly from spec's source line numbers):
+
+```bash
+rg -nw 'trash' skills/git-hygiene/SKILL.md
+```
+
+Apply these 7 specific replacements (locate each by surrounding context, not line number, since edits to earlier lines shift later line numbers):
+
+1. **Line 21 (top-level rule):** replace
+   `Use `trash` for approved file deletions. Never use `rm` or `git clean -fd`.`
+   →
+   `Use a reversible deletion mechanism (move-to-trash semantics) for approved file deletions. Never use `rm` or `git clean -fd` — they are irreversible.`
+
+2. **Immediately after the line-21 replacement, INSERT this Requirements paragraph** (new line, blank-line-separated from surrounding bullet):
+
+   ```
+   This skill assumes a reversible deletion tool is available. On macOS, install `trash` via `brew install trash`. On Linux, install `trash-cli` (provides `trash-put`). On GNOME, `gio trash` is built in. If no reversible tool is available, inspect each file before `rm` — but a reversible tool is strongly preferred for the recovery property the rest of the skill assumes.
+   ```
+
+3. **Line 33 (action-table cell):** replace `file deletion with `trash`` → `file deletion via reversible mechanism`
+
+4. **Line 151 (output template):** replace `Files to delete with trash:` → `Files to delete (reversible):`
+
+5. **Line 241 (procedure step):** replace `Delete approved files with `trash`.` → `Delete approved files using a reversible mechanism (e.g., `trash` on macOS, `trash-put` on Linux, `gio trash` on GNOME).`
+
+6. **Line 291 (mandate):** replace `Never use `rm` or `git clean -fd`; use `trash` for filesystem deletion.` → `Never use `rm` or `git clean -fd`; use a reversible deletion mechanism (e.g., `trash`, `trash-put`, `gio trash`) for filesystem deletion.`
+
+7. **Line 335 (output template):** replace `files deleted with trash: 0` → `files deleted (reversible): 0`
+
+8. **Line 379 (anti-pattern table cell):** replace `Preview first and use `trash` only for explicitly approved files.` → `Preview first and use a reversible deletion mechanism only for explicitly approved files.`
+
+(Edits 1+2 are paired: edit 1 replaces line 21, edit 2 inserts the new Requirements paragraph immediately after. Edits 3-8 are independent line-level replacements.)
+
+Verify (after both Parts A and B applied):
+
+```bash
+rg -n 'codex/cleanup' skills/git-hygiene/SKILL.md || echo "CLEAN-A"
+rg -nw 'trash' skills/git-hygiene/SKILL.md
+```
+
+Expected:
+- First command: `CLEAN-A`.
+- Second command: hits ONLY in the new Requirements paragraph (mentions `trash`, `trash-put`, `trash-cli` as install names) and inside line-241/line-291 parenthetical examples (`e.g., \`trash\`...`). No bare `Use \`trash\` for...` directives anywhere. Roughly 4-6 expected hits, all in install-instruction or example-list contexts.
 
 - [ ] **Step 3: `next-steps` SKILL.md (4 changes)**
 
@@ -428,7 +478,9 @@ rg -i -n 'codex' skills/making-recommendations/ || echo "CLEAN"
 
 Expected: `CLEAN`.
 
-- [ ] **Step 6: `writing-principles` SKILL.md (remove Composability section)**
+- [ ] **Step 6: `writing-principles` (remove Composability section + meta-example swap)**
+
+**Part A — SKILL.md Composability removal (spec v5 carryover):**
 
 File: `skills/writing-principles/SKILL.md`.
 
@@ -445,7 +497,36 @@ rg -n 'creating-skills|claude-md-improver|Composability' skills/writing-principl
 
 Expected: the first command lists section headings, with `## Failure Mode Index` as the last entry. The second command outputs `CLEAN`.
 
-Note: do NOT touch `skills/writing-principles/writing-principles.md` (the 71 KB supplementary file). Lines 54 and 1025 are documented false positives for the Step 5 grep (Task 8) — they are common-English usage of "delegated" and "dialogue", not internal vocab. Leave them.
+**Part B — `writing-principles.md:753` meta-example swap (added v6 per spec category (f)):**
+
+File: `skills/writing-principles/writing-principles.md` (the 71 KB supplementary file — note: this WAS off-limits in spec v5 except for the two documented false positives, but v6 adds one targeted edit to remove a `trash` reference in a meta example).
+
+The file contains a prohibition-phrasing example table at line 753 that uses `trash` as a meta-example, leaking the local-tool convention into a public skill. Swap the example pair to a universally-relevant security example.
+
+Replace this line:
+```
+| "NEVER run `rm -rf`"    | "Always use `trash` or targeted deletion" |
+```
+
+With this line:
+```
+| "NEVER commit secrets"  | "Always exclude .env from commits"        |
+```
+
+(Note: align spacing with the surrounding table for visual consistency. The `\|` column separators must remain intact.)
+
+Verify:
+
+```bash
+rg -nw 'trash' skills/writing-principles/writing-principles.md || echo "CLEAN-B"
+rg -n 'NEVER commit secrets' skills/writing-principles/writing-principles.md
+```
+
+Expected:
+- First command: `CLEAN-B` (no remaining `trash` references in writing-principles.md).
+- Second command: shows the new line at the swap location (line ~753, may shift by ±1 if any whitespace changed).
+
+**Note about the supplementary file's other contents:** lines 54 and 1025 reference common-English uses of "delegated" and "dialogue" — those are documented false positives for the Step 5 lexical grep (Task 7) and are NOT touched here. Only the line-753 meta-example pair is sanitized.
 
 - [ ] **Step 7: `handbook` (3 changes across 2 files)**
 
@@ -524,9 +605,9 @@ Expected: each skill prints `0 hits` (or no count line, since `rg -c` skips file
 
 ---
 
-## Task 6: Step 4b — structural-reference scan (5 categories)
+## Task 6: Step 4b — structural-reference scan (6 categories)
 
-**Goal:** Confirm no dangling structural references survive Task 5. Lexical residue grep (Task 7) catches different things — it can't see plugin-relative slash commands or named-protocol references that use generic English words.
+**Goal:** Confirm no dangling structural references survive Task 5. Lexical residue grep (Task 7) catches different things — it can't see plugin-relative slash commands, named-protocol references that use generic English words, or personal-tool prescriptions.
 
 **Files:** read-only.
 
@@ -596,9 +677,26 @@ Each match must refer to a real entity defined in shipped content OR be reworded
 
 If any real defect appears, return to Task 5 and add a sanitization edit.
 
-- [ ] **Step 6: [USER GATE] Confirm zero dangling refs**
+- [ ] **Step 6: Category (f) — personal-tool prescriptions (added v6)**
 
-Report each category's findings. User confirms all hits are documented FPs or already-fixed. Proceed to Task 7.
+```bash
+cd /Users/jp/Projects/active/claude-code-skills
+rg -nw 'trash|trash-cli|brew|mise|stow|uv|ruff' skills/
+```
+
+**Expected hit count:** typically 4-12 matches (most in `git-hygiene` Requirements paragraph and inline examples after v6 sanitize, possibly a few elsewhere). Each match must be one of these acceptable forms:
+
+- **Install instruction:** `brew install <tool>`, `pip install trash-cli`, etc. — adopter-facing setup guidance.
+- **Tool example in portable phrasing:** `e.g., \`trash\` on macOS, \`trash-put\` on Linux, \`gio trash\` on GNOME` — naming concrete tools as alternatives, not mandating one.
+- **Inside the documented Requirements paragraph** added to `git-hygiene/SKILL.md` after Task 5 Step 2 Part B.
+
+A real defect looks like a **bare imperative directive**: `Use \`trash\` to delete...` / `Run \`brew install...\`` / `Always use \`mise\`...` without portable-tool framing. If found, return to Task 5 and add a sanitization edit (or extend the v6 git-hygiene/writing-principles fix to cover the new instance).
+
+The v6 spec also flags that `mise`, `stow`, `uv`, `ruff` are user-machine tools (mise for runtime versions; stow for dotfiles; uv for Python; ruff for Python lint). If any shipped skill prescribes them as universal, that's a defect. Spot-check the hits against the surrounding sentence — directive prose vs. install instruction vs. portable-example.
+
+- [ ] **Step 7: [USER GATE] Confirm zero dangling refs**
+
+Report each category's findings (a)-(f). User confirms all hits are documented FPs, install/example contexts, or already-fixed. Proceed to Task 7.
 
 If unresolved dangling refs remain: do NOT proceed. Add the fix as a new Task 5 substep, re-run Task 5 verify roll-up, then re-run Task 6.
 
@@ -1074,8 +1172,8 @@ Mapped from spec lines 537-554. Items marked **deferred** belong to the follow-u
 - [ ] Step 0 preflight passes — `marketplace.json source: "./"` accepts at runtime (Task 2).
 - [ ] `set -euo pipefail` is the first directive of every multi-command bash block (Tasks 2-10).
 - [ ] All 22 skills present in `skills/` with sanctioned content only — no `.DS_Store`, `evals/`, `*-workspace/`, `iteration-*/` (Task 4).
-- [ ] 10 sanitization changes applied (Task 5); Step 5 lexical grep returns ONLY the two documented FPs (Task 7).
-- [ ] Step 4b structural-reference scan — no dangling refs across categories (a)-(e) (Task 6).
+- [ ] 10 sanitization changes applied (Task 5) — including v6 additions (`git-hygiene` 7-line `trash` portability sweep + Requirements paragraph in Step 2 Part B; `writing-principles/writing-principles.md:753` meta-example swap in Step 6 Part B); Step 5 lexical grep returns ONLY the two documented FPs (Task 7).
+- [ ] Step 4b structural-reference scan — no dangling refs across categories (a)-(f) (Task 6); category (f) personal-tool prescriptions returns only acceptable install/example contexts.
 - [ ] `plugin.json` has no `version` field; `marketplace.json` uses `source: "./"` (Task 8 Steps 1-2).
 - [ ] Step 7 trap is subshell-scoped (Task 9 Step 4).
 - [ ] `claude --plugin-dir . --debug` shows all 22 skills loading without errors (Task 9 Step 4).
