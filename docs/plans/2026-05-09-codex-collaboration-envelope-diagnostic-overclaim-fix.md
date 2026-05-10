@@ -221,6 +221,7 @@ Expected scope of files this plan touches (any of these may legitimately appear 
 Branch on the snapshot:
 
 - **Working tree clean** → record "Pre-edit status: clean." Proceed to Task 1.
+- **Pre-existing changes in target files** (any of the three files above appear in `git diff --name-only` or `git diff --cached --name-only`) → STOP and surface to user before proceeding. Pre-existing edits in files this plan will mutate are ambiguous: they may be from a prior partial run of this plan, a concurrent manual edit, or an unrelated change. The user must either (a) stash/commit them separately, (b) revert them if they are from a prior partial run, or (c) explicitly confirm they should be treated as the baseline for this plan's edits. Do NOT proceed until the target files match `HEAD`.
 - **Pre-existing unrelated unstaged changes exist** (files outside the three above) → record their paths. They are NOT in scope for this plan; do not stage, modify, or revert them during this plan's execution. Task 6's verification will tolerate their continued presence in the working tree as long as they are unchanged from this snapshot.
 - **Pre-existing staged changes exist from a different in-flight task** (any staged file outside the three above) → STOP and surface to user before proceeding. Combining unrelated staged work with this plan's commit would muddle the audit trail. The user must either unstage or commit the unrelated staged work separately before this plan continues.
 
@@ -356,6 +357,8 @@ If the live JSON has a path that LOOKS LIKE a classification field but is actual
 - `/private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.full.json` — full pre-edit copy of the entire JSON file (immutable reference; source for all projection extractions including re-derivations after Step 3.3 begins).
 - `/private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.json` — pre-edit projection snapshot (extracted from the full pre-edit copy, not the worktree).
 - `/private/tmp/codex-collab-overclaim-fix-raw-evidence-post.json` — post-edit projection snapshot (extracted from the worktree in Step 3.6).
+- `/private/tmp/codex-collab-overclaim-fix-legacy-blocks-pre.json` — pre-edit interpretive-block snapshot: the three classification blocks (`compatibility_classification`, `observed_server_requests[0].local_compatibility` + sibling notes, `architecture_spec_readiness_delta`) captured before renaming. Used by Step 3.6b to verify the `_legacy_*` blocks are verbatim copies.
+- `/private/tmp/codex-collab-overclaim-fix-legacy-blocks-post.json` — post-edit legacy-block snapshot: the renamed `_legacy_*` blocks with `_vocabulary_note` stripped. Used by Step 3.6b's diff.
 
 Step 3.6's diff command compares the pre-edit projection against the post-edit projection. All temp files persist across Steps 3.2-3.5 (do NOT delete them before Step 3.6 runs); Step 3.6 uses `trash` to delete them on successful diff or preserves them for inspection on failed diff.
 
@@ -601,6 +604,8 @@ test ! -e /private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.full.json \
   || { echo "STOP: pre-edit snapshot already exists — prior partial run?" >&2; exit 1; }
 test ! -e /private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.json \
   || { echo "STOP: projection snapshot already exists — prior partial run?" >&2; exit 1; }
+test ! -e /private/tmp/codex-collab-overclaim-fix-legacy-blocks-pre.json \
+  || { echo "STOP: legacy-block snapshot already exists — prior partial run?" >&2; exit 1; }
 
 # 1. Full pre-edit copy (immutable reference for the remainder of Task 3)
 cp docs/diagnostics/codex-app-server-server-request-envelope-probes.json \
@@ -610,15 +615,32 @@ cp docs/diagnostics/codex-app-server-server-request-envelope-probes.json \
 jq '<projection from Task 1.4>' \
    /private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.full.json \
    > /private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.json
+
+# 3. Legacy-block snapshot (the three interpretive blocks that Step 3.3 will rename)
+jq '{
+  compatibility_classification: .compatibility_classification,
+  local_compatibility: .observed_server_requests[0].local_compatibility,
+  local_compatibility_notes: .observed_server_requests[0].local_compatibility_notes,
+  architecture_spec_readiness_delta: .architecture_spec_readiness_delta
+}' /private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.full.json \
+   > /private/tmp/codex-collab-overclaim-fix-legacy-blocks-pre.json
 ```
 
-If the guard fires, this means a previous partial execution of Task 3 left temp files behind. Possible states: (a) Step 3.3 never ran (worktree is clean) — safe to `trash` the temp files and re-run Step 3.2; (b) Step 3.3 partially ran (worktree is mutated) — the full pre-edit copy is the authoritative pre-mutation reference; do NOT delete it; restore the worktree JSON from it (`cp /private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.full.json docs/diagnostics/codex-app-server-server-request-envelope-probes.json`), then delete both temp files and re-run Step 3.2. In either case, verify worktree cleanliness via `git diff docs/diagnostics/codex-app-server-server-request-envelope-probes.json` before re-running.
+If the guard fires, this means a previous partial execution of Task 3 left temp files behind. Determine the worktree state before choosing a recovery path:
+
+```bash
+git diff --stat docs/diagnostics/codex-app-server-server-request-envelope-probes.json
+```
+
+- **(a) `git diff` is empty (worktree matches `HEAD`)** — Step 3.3 never ran or was fully reverted. Safe to `trash` the temp files and re-run Step 3.2.
+- **(b) `git diff` shows changes AND they are solely Step 3.3 mutations** (added `_legacy_*` keys, `classification_vocabulary`, `classification_supersedes`; renamed classification blocks; no raw-observation changes) — restore the worktree JSON from the full pre-edit copy (`cp /private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.full.json docs/diagnostics/codex-app-server-server-request-envelope-probes.json`), then `trash` all temp files and re-run Step 3.2. Do NOT restore without first confirming the diff contains only Step 3.3-shaped mutations — if it contains unexpected changes (manual edits, raw-observation mutations, changes outside the three disposition sites), STOP and surface to the user.
+- **(c) `git diff` shows changes that are NOT recognizably Step 3.3 mutations** — STOP. The worktree JSON has changes whose provenance is unknown. Surface to the user; do not restore from the temp copy until the changes are accounted for.
 
 (Replace `<projection from Task 1.4>` with the actual `jq` filter recorded in Task 1.4. Do NOT use the schematic illustration from Task 1.4 verbatim — it must be confirmed against the live JSON's actual paths.)
 
-Expected: both commands exit `0`; both temp files exist and contain valid JSON. Verify with `jq '.' /private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.json >/dev/null` (exits `0`). If the projection check fails, the projection is malformed; re-derive in Task 1.4 and re-extract from the full pre-edit copy (step 2 above) — never from the worktree.
+Expected: all three extraction commands exit `0`; all three temp files exist and contain valid JSON. Verify with `jq '.' /private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.json >/dev/null && jq '.' /private/tmp/codex-collab-overclaim-fix-legacy-blocks-pre.json >/dev/null` (both exit `0`). If the raw-evidence projection check fails, the projection is malformed; re-derive in Task 1.4 and re-extract from the full pre-edit copy (step 2 above) — never from the worktree. If the legacy-block extraction fails, confirm the `jq` paths match the live JSON's key names (check the third extraction command's field paths against the actual JSON structure).
 
-Both temp files persist across Steps 3.3, 3.4, and 3.5 — do NOT delete them before Step 3.6 runs. Step 3.6 deletes them on successful diff or preserves them for inspection on failed diff. The full pre-edit copy is the authoritative pre-mutation reference; if the projection must be re-derived at any point after Step 3.3 begins, re-extract from `/private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.full.json`, never from the worktree file (which may already be mutated).
+All temp files persist across Steps 3.3, 3.4, 3.5, 3.6, and 3.6b — do NOT delete them before Step 3.6b completes. Steps 3.6 and 3.6b delete them on successful diffs or preserve them for inspection on failed diffs. The full pre-edit copy is the authoritative pre-mutation reference; if the projection must be re-derived at any point after Step 3.3 begins, re-extract from `/private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.full.json`, never from the worktree file (which may already be mutated).
 
 - [ ] **Step 3.3: Apply preserve-and-add disposition (only if Step 3.2 ran).**
 
@@ -790,12 +812,39 @@ diff -u /private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.json \
 
 Expected: `diff` exits `0` with empty output. The projection covers raw-observation fields only; if Step 3.3 mutated only classification/interpretive fields (as the plan requires), the projection's output should be byte-identical pre- and post-edit. If the edit mechanism preserved JSON key ordering (e.g., Edit tool), the diff should be byte-identical. If a `jq` transform was used for any Step 3.3 edit, pipe both projections through `python3 -m json.tool --sort-keys` before diffing to normalize key ordering.
 
-- **Diff is empty (exit `0`)** → raw evidence is preserved. Delete all temp files (`trash /private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.full.json /private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.json /private/tmp/codex-collab-overclaim-fix-raw-evidence-post.json`). If `trash` is unavailable, leave the temp files in place and report their paths — do NOT use `rm`. Proceed to Step 3.7.
+- **Diff is empty (exit `0`)** → raw evidence is preserved. Do NOT delete temp files yet — Step 3.6b still needs them. Proceed to Step 3.6b.
 - **Diff is non-empty** → fire the JSON-disposition-unsafe stop condition. Either Step 3.3 mutated a raw-observation field (regression — surface the specific path, the pre-value, and the post-value to the user; revert the JSON edit and re-attempt Step 3.3 with that path treated as immutable) OR the projection in Task 1.4 included a path that should be excluded (false positive — re-derive the projection from the full pre-edit copy at `/private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.full.json`, replace it in Steps 3.2 / 3.6, and re-run the projection extraction from the full pre-edit copy; do NOT re-run Step 3.2's full-copy capture or re-read the worktree file). Preserve all temp files for inspection; do NOT delete them. Do NOT stage the JSON until the diff is empty.
 
 If the projection's correctness is itself in question (e.g., Task 1.4 was deferred or rushed), prefer the failing-diff-as-stop interpretation over the false-positive interpretation; Task 1.4 is the load-bearing step and is not bypassed by Step 3.6 finding a diff.
 
-- [ ] **Step 3.7: Stage the JSON change (only if Step 3.3 ran AND Step 3.6 diff was empty).**
+- [ ] **Step 3.6b: Legacy-block preservation diff (scrutiny follow-up; only if Step 3.6 passed).**
+
+Step 3.6 verifies raw-observation preservation. This step verifies the other half of the preserve-and-add promise: that the `_legacy_*` blocks are verbatim copies of the original interpretive blocks. The raw-evidence projection explicitly EXCLUDES classification fields, so a worker who accidentally modifies `_legacy_compatibility_classification.notes` or `_legacy_architecture_spec_readiness_delta.newly_satisfied_items` would pass Step 3.6 cleanly.
+
+Extract the renamed `_legacy_*` blocks from the post-edit worktree JSON, stripping the added `_vocabulary_note` fields (which are new and should NOT be compared), then diff against the pre-edit legacy-block snapshot from Step 3.2:
+
+```bash
+# Extract _legacy_* blocks from post-edit JSON, stripping _vocabulary_note
+jq '{
+  compatibility_classification: ._legacy_compatibility_classification | del(._vocabulary_note),
+  local_compatibility: .observed_server_requests[0]._legacy_local_compatibility,
+  local_compatibility_notes: .observed_server_requests[0]._legacy_local_compatibility_notes,
+  architecture_spec_readiness_delta: ._legacy_architecture_spec_readiness_delta | del(._vocabulary_note)
+}' docs/diagnostics/codex-app-server-server-request-envelope-probes.json \
+   > /private/tmp/codex-collab-overclaim-fix-legacy-blocks-post.json
+
+diff -u /private/tmp/codex-collab-overclaim-fix-legacy-blocks-pre.json \
+        /private/tmp/codex-collab-overclaim-fix-legacy-blocks-post.json
+```
+
+(The `jq` paths above use the pre-edit field names as output keys and the post-edit `_legacy_*` paths as input, so the diff compares the same logical content under normalized key names. The `del(._vocabulary_note)` exclusion strips the one field that Step 3.3 legitimately adds inside the renamed block. Confirm that the `jq` path names match the actual live JSON at execution time — the paths shown here match the plan-write-time structure but the JSON may have drifted.)
+
+Expected: `diff` exits `0` with empty output.
+
+- **Diff is empty (exit `0`)** → legacy blocks are preserved verbatim. Delete all temp files (`trash /private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.full.json /private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.json /private/tmp/codex-collab-overclaim-fix-raw-evidence-post.json /private/tmp/codex-collab-overclaim-fix-legacy-blocks-pre.json /private/tmp/codex-collab-overclaim-fix-legacy-blocks-post.json`). If `trash` is unavailable, leave the temp files in place and report their paths — do NOT use `rm`. Proceed to Step 3.7.
+- **Diff is non-empty** → a `_legacy_*` block was modified during the rename. This is a data integrity failure: the plan promises verbatim preservation and the diff proves otherwise. Surface the specific differing paths and values. The recovery is to re-read the original block from `/private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.full.json` and copy the exact content into the `_legacy_*` block, then re-run Step 3.6b. Do NOT stage the JSON until both Step 3.6 and Step 3.6b pass.
+
+- [ ] **Step 3.7: Stage the JSON change (only if Step 3.3 ran AND Steps 3.6 + 3.6b diffs were empty).**
 
 ```bash
 git add docs/diagnostics/codex-app-server-server-request-envelope-probes.json
@@ -1066,7 +1115,7 @@ Run this before requesting plan approval. If any box is unchecked, fix in place.
 - [x] **Consumer discovery is hidden-aware.** Step 1.4's consumer-discovery `rg` includes `--hidden --glob '!.git/**'` so paths under `.claude/hooks/` and other dot-directories surface from repo root. A defensive named-roots cross-check is also documented against existing roots (`packages/ scripts/ extensions/ .claude/hooks/`), with explicit instruction to verify directory existence before adding any other roots to avoid noise. Plain `rg --type-not md` from repo root would silently skip hidden paths the plan explicitly enumerates as valid consumer locations.
 - [x] **Consumer discovery is primarily informational with one dispositional exception.** Discovery records the contract for future schema changes (which consumers exist, which fields they read). Single dispositional consequence: surfacing a production consumer that reads a canonical field whose shape changes under preserve-and-add (e.g., reads `compatibility_classification.supported_methods` directly without falling back to `fully_supported_methods` / `parser_kind_compatible_methods`) fires the JSON-disposition-unsafe stop condition. Otherwise the preserve-and-add disposition applies uniformly: the legacy block preserves old-vocabulary truth verbatim under `_legacy_*` prefix, and the new block lands at the canonical key name with rebaseline vocabulary.
 - [x] **JSON validation split from JSON search.** Step 1.4 runs `jq '.' <file> >/dev/null` as a separate validation command before the rg search. A failed `jq` pipe used to silently produce empty stdout, indistinguishable from a no-matches result; the split surfaces invalid-JSON as a non-zero exit before any pattern matching runs.
-- [x] **Pre-edit status snapshot (Task 0).** Task 0 captures `git status` + `git diff --cached --name-only` + `git diff --name-only` before any edits begin, recording pre-existing unrelated changes that were already in the working tree. Step 6.1 / Step 6.3 verification language tolerates the continued presence of those pre-existing unstaged changes (rather than requiring "working tree otherwise clean", which would have either blocked unnecessarily or tempted out-of-scope cleanup). Pre-existing unrelated STAGED changes are surfaced before proceeding so the plan's commit cannot accidentally bundle unrelated staged work.
+- [x] **Pre-edit status snapshot (Task 0; tightened by scrutiny follow-up 2).** Task 0 captures `git status` + `git diff --cached --name-only` + `git diff --name-only` before any edits begin. Pre-existing changes in target files (the diagnostic `.md`, sibling JSON, or register) are now a stop condition — the executor must resolve them before proceeding, since this plan's edits assume target files match `HEAD`. Pre-existing unrelated unstaged changes (outside the three targets) are recorded and tolerated. Pre-existing unrelated STAGED changes are surfaced before proceeding so the plan's commit cannot accidentally bundle unrelated staged work.
 - [x] **Sweep additional-paths default is STOP, not in-scope.** Task 1.4 narrows the line-253 carve-out: additional JSON overclaim paths beyond the three enumerated default to firing the "Pre-edit sweep finds an overclaim site this plan does not enumerate" stop condition. The narrow mechanical-mirror exception applies ONLY when the additional path is unambiguously the same kind of claim AND its parent object's structure cleanly accepts the same legacy-rename + rebaseline-block-add treatment. Novel shapes stop; they do not silently extend Task 3's edits.
 - [x] **Register-annotation `main`-truth has its own stop condition.** Step 1.5b's git-evidence checks (`git diff main..HEAD -- runtime.py` empty AND `git show main:.../runtime.py | sed -n '107,118p'` showing carve-outs) are mapped to a dedicated "Register-annotation `main`-truth check failed" stop condition rather than the "Live envelope evidence has changed" condition. The two failure modes are distinct: `main`/runtime divergence affects only the register annotation premise, not the envelope-probe diagnostic correction. Surface message reflects the actual failure.
 - [x] **Register annotation matches ticket reality.** Task 4 wording names AC #1, #2, AND #3 explicitly as the unchecked closure criteria; "only smoke and probe remain" was rejected because AC #3 (regression-assertion update + suite pass) is also unchecked.
@@ -1097,3 +1146,6 @@ Run this before requesting plan approval. If any box is unchecked, fix in place.
 - [x] **Consumer discovery covers all three preserve-and-add fields (scrutiny follow-up).** The `rg` pattern in Task 1.4 searched `compatibility_classification|supported_methods|local_compatibility` but omitted `architecture_spec_readiness_delta` and its child fields (`newly_satisfied_items`, `still_missing_items`) — one of the three canonical fields undergoing preserve-and-add. A consumer reading `.architecture_spec_readiness_delta.ready` under old vocabulary would misinterpret `ready: false`. Scrutiny follow-up expands the pattern to include all three canonical fields plus their child field names, and adds a vocabulary-shift warning to the classification guidance.
 - [x] **Temp snapshot non-overwriting guard (scrutiny follow-up).** Step 3.2 used deterministic temp paths without checking for existing files. A re-run after a partial Task 3 execution would overwrite the pre-mutation snapshot with post-mutation state, making Step 3.6's diff compare post-edit to post-edit (false pass). Scrutiny follow-up adds `test ! -e` guards before both `cp` and `jq` commands, with a recovery guide for both clean-worktree and mutated-worktree cases.
 - [x] **Commit-message jq-verification claim conditionalized (scrutiny follow-up).** The always-retained opening paragraph of the commit message claimed "with programmatic pre/post jq-projection verification" — but jq verification only runs when Task 3 runs (JSON disposition applied). When Task 3 is skipped (no JSON overclaim found), the claim is false. Scrutiny follow-up moves the jq-verification sentence into the Task 3 CONDITIONAL block and shortens the always-retained sentence to "raw envelope observations are preserved unchanged."
+- [x] **Legacy-block preservation diff gate (scrutiny follow-up 2).** The raw-evidence projection (Step 3.6) explicitly excludes classification/interpretive fields — it cannot detect accidental modification of `_legacy_*` block contents. Step 3.2 now captures a pre-edit snapshot of the three interpretive blocks (`compatibility_classification`, `observed_server_requests[0].local_compatibility` + notes, `architecture_spec_readiness_delta`). New Step 3.6b extracts the renamed `_legacy_*` blocks post-edit (stripping the added `_vocabulary_note` fields), then diffs against the pre-edit snapshot. Non-empty diff is a data integrity failure with a defined recovery path (re-copy from full pre-edit reference). Step 3.7 staging now requires both Step 3.6 AND Step 3.6b to pass.
+- [x] **Target-file ownership in Task 0 (scrutiny follow-up 2).** Task 0 previously only guarded against unrelated dirty files outside the target set. Pre-existing changes in the three target files were unclassified — a prior partial run or concurrent edit could be silently committed as this plan's work. Task 0 now classifies target-file changes as a separate stop condition requiring user resolution before proceeding.
+- [x] **Recovery-path provenance guard (scrutiny follow-up 2).** Step 3.2's recovery instruction for case (b) (worktree mutated by partial Step 3.3) now requires verifying the worktree diff contains ONLY Step 3.3-shaped mutations before restoring from the full pre-edit copy. Unknown changes → STOP instead of overwrite.
