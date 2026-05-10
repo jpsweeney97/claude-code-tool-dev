@@ -219,11 +219,12 @@ Expected scope of files this plan touches (any of these may legitimately appear 
 - `docs/diagnostics/2026-05-01-codex-app-server-server-request-envelope-probes.md` (Task 2, always)
 - `docs/diagnostics/codex-app-server-server-request-envelope-probes.json` (Task 3, conditional)
 - `docs/status/codex-collaboration-reconciliation-register.md` (Task 4, conditional)
+- `docs/plans/2026-05-01-codex-app-server-client-platform-rebaseline-implementation-plan.md` (Step 5.5, conditional — same condition as Task 3)
 
 Branch on the snapshot:
 
 - **Working tree clean** → record "Pre-edit status: clean." Proceed to Task 1.
-- **Pre-existing changes in target files** (any of the three files above appear in `git diff --name-only` or `git diff --cached --name-only`) → STOP and surface to user before proceeding. Pre-existing edits in files this plan will mutate are ambiguous: they may be from a prior partial run of this plan, a concurrent manual edit, or an unrelated change. The user must either (a) stash/commit them separately, (b) revert them if they are from a prior partial run, or (c) explicitly confirm they should be treated as the baseline for this plan's edits. Do NOT proceed until the target files match `HEAD`.
+- **Pre-existing changes in target files** (any of the four files above appear in `git diff --name-only` or `git diff --cached --name-only`) → STOP and surface to user before proceeding. Pre-existing edits in files this plan will mutate are ambiguous: they may be from a prior partial run of this plan, a concurrent manual edit, or an unrelated change. The user must either (a) stash/commit them separately, (b) revert them if they are from a prior partial run, or (c) explicitly confirm they should be treated as the baseline for this plan's edits. Do NOT proceed until the target files match `HEAD`.
 - **Pre-existing unrelated unstaged changes exist** (files outside the three above) → record their paths. They are NOT in scope for this plan; do not stage, modify, or revert them during this plan's execution. Task 6's verification will tolerate their continued presence in the working tree as long as they are unchanged from this snapshot.
 - **Pre-existing staged changes exist from a different in-flight task** (any staged file outside the three above) → STOP and surface to user before proceeding. Combining unrelated staged work with this plan's commit would muddle the audit trail. The user must either unstage or commit the unrelated staged work separately before this plan continues.
 
@@ -642,7 +643,7 @@ git diff --stat docs/diagnostics/codex-app-server-server-request-envelope-probes
 
 Expected: all three extraction commands exit `0`; all three temp files exist and contain valid JSON. Verify with `jq '.' /private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.json >/dev/null && jq '.' /private/tmp/codex-collab-overclaim-fix-legacy-blocks-pre.json >/dev/null` (both exit `0`). If the raw-evidence projection check fails, the projection is malformed; re-derive in Task 1.4 and re-extract from the full pre-edit copy (step 2 above) — never from the worktree. If the legacy-block extraction fails, confirm the `jq` paths match the live JSON's key names (check the third extraction command's field paths against the actual JSON structure).
 
-All temp files persist across Steps 3.3, 3.4, 3.5, 3.6, and 3.6b — do NOT delete them before Step 3.6b completes. Steps 3.6 and 3.6b delete them on successful diffs or preserve them for inspection on failed diffs. The full pre-edit copy is the authoritative pre-mutation reference; if the projection must be re-derived at any point after Step 3.3 begins, re-extract from `/private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.full.json`, never from the worktree file (which may already be mutated).
+All temp files persist across Steps 3.3, 3.4, 3.5, 3.6, 3.6b, and 3.6c — do NOT delete them before Step 3.6c completes. Steps 3.6b and 3.6c delete them on successful completion or preserve them for inspection on failure. The full pre-edit copy is the authoritative pre-mutation reference; if the projection must be re-derived at any point after Step 3.3 begins, re-extract from `/private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.full.json`, never from the worktree file (which may already be mutated).
 
 - [ ] **Step 3.3: Apply preserve-and-add disposition (only if Step 3.2 ran).**
 
@@ -843,10 +844,32 @@ diff -u /private/tmp/codex-collab-overclaim-fix-legacy-blocks-pre.json \
 
 Expected: `diff` exits `0` with empty output.
 
-- **Diff is empty (exit `0`)** → legacy blocks are preserved verbatim. Delete all temp files (`trash /private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.full.json /private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.json /private/tmp/codex-collab-overclaim-fix-raw-evidence-post.json /private/tmp/codex-collab-overclaim-fix-legacy-blocks-pre.json /private/tmp/codex-collab-overclaim-fix-legacy-blocks-post.json`). If `trash` is unavailable, leave the temp files in place and report their paths — do NOT use `rm`. Proceed to Step 3.7.
-- **Diff is non-empty** → a `_legacy_*` block was modified during the rename. This is a data integrity failure: the plan promises verbatim preservation and the diff proves otherwise. Surface the specific differing paths and values. The recovery is to re-read the original block from `/private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.full.json` and copy the exact content into the `_legacy_*` block, then re-run Step 3.6b. Do NOT stage the JSON until both Step 3.6 and Step 3.6b pass.
+- **Diff is empty (exit `0`)** → legacy blocks are preserved verbatim. Do NOT delete temp files yet — Step 3.6c still needs them. Proceed to Step 3.6c.
+- **Diff is non-empty** → a `_legacy_*` block was modified during the rename. This is a data integrity failure: the plan promises verbatim preservation and the diff proves otherwise. Surface the specific differing paths and values. The recovery is to re-read the original block from `/private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.full.json` and copy the exact content into the `_legacy_*` block, then re-run Step 3.6b. Do NOT stage the JSON until all of Steps 3.6, 3.6b, AND 3.6c pass.
 
-- [ ] **Step 3.7: Stage the JSON change (only if Step 3.3 ran AND Steps 3.6 + 3.6b diffs were empty).**
+- [ ] **Step 3.6c: Canonical-value assertions (only if Steps 3.6 + 3.6b passed).**
+
+Steps 3.6 and 3.6b verify that raw evidence is unchanged and legacy blocks are verbatim. This step verifies the positive claim: that the NEW canonical blocks carry the intended rebaseline vocabulary values. The `rg` sweep can match key names but cannot reliably assert nested JSON boolean state; `jq -e` is the correct tool for that invariant.
+
+```bash
+jq -e '.architecture_spec_readiness_delta.ready == false' docs/diagnostics/codex-app-server-server-request-envelope-probes.json
+jq -e '._legacy_architecture_spec_readiness_delta.ready == true' docs/diagnostics/codex-app-server-server-request-envelope-probes.json
+jq -e '.observed_server_requests[0].local_compatibility == "parser_kind_compatible_decision_shape_lossy"' docs/diagnostics/codex-app-server-server-request-envelope-probes.json
+jq -e '.observed_server_requests[0]._legacy_local_compatibility == "supported"' docs/diagnostics/codex-app-server-server-request-envelope-probes.json
+jq -e '.compatibility_classification.status == "parser_kind_compatible_decision_shape_lossy"' docs/diagnostics/codex-app-server-server-request-envelope-probes.json
+jq -e '._legacy_compatibility_classification.status == "passed"' docs/diagnostics/codex-app-server-server-request-envelope-probes.json
+```
+
+Expected: all six assertions exit `0`. If any fails:
+
+- A canonical assertion fails → the preserve-and-add edit in Step 3.3 is incomplete or used wrong vocabulary. Fix the specific field and re-run from Step 3.6 (the full pre-edit copy is the recovery reference if needed).
+- A legacy assertion fails → the legacy block was mutated during renaming. This should already have been caught by Step 3.6b, but serves as a defense-in-depth check. Recovery is the same as Step 3.6b's failure path.
+
+All six pass → delete temp files (`trash /private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.full.json /private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.json /private/tmp/codex-collab-overclaim-fix-raw-evidence-post.json /private/tmp/codex-collab-overclaim-fix-legacy-blocks-pre.json /private/tmp/codex-collab-overclaim-fix-legacy-blocks-post.json`). If `trash` is unavailable, leave the temp files in place and report their paths — do NOT use `rm`.
+
+Do NOT stage the JSON until all of Steps 3.6, 3.6b, AND 3.6c pass.
+
+- [ ] **Step 3.7: Stage the JSON change (only if Step 3.3 ran AND Steps 3.6 + 3.6b + 3.6c passed).**
 
 ```bash
 git add docs/diagnostics/codex-app-server-server-request-envelope-probes.json
@@ -1028,6 +1051,19 @@ rg -n "local_compatibility|architecture_spec_readiness_delta" \
 
 Expected: every match either (a) appears in a `jq` command that will extract the new canonical value, (b) appears in an expected-value bullet that names the new vocabulary, or (c) appears in the "Command Approval Decision-Shape Boundary" section (lines 905-921) which is an authority source, not a consumer of the JSON. No match should assert `local_compatibility` is `"supported"` or `architecture_spec_readiness_delta.ready` is `true` without a `_legacy_` qualifier.
 
+- [ ] **Step 5.7: Post-write terminal sweep.**
+
+Step 5.1's broad sweep ran before Step 5.5 wrote to the rebaseline plan. This step confirms the new wording introduced in Step 5.5 does not itself introduce an overclaim. Run the full pattern against the rebaseline plan only (the other files are unchanged since Step 5.1):
+
+```bash
+rg -n -i "supported|preserved|lossy|ready_to_close_ticket|proves compatibility|compatibility for the observed|local_compatibility|supported_methods|architecture_spec_readiness_delta|architecture spec readiness delta|architecture spec can proceed|parseable against|newly_satisfied_items" \
+   docs/plans/2026-05-01-codex-app-server-client-platform-rebaseline-implementation-plan.md
+```
+
+Classify each match per the Sweep Classification Rules. Matches from the Step 5.5 edit should classify as `corrected-language` (they describe the post-patch vocabulary). Matches from lines 905-921 ("Command Approval Decision-Shape Boundary" section) are `legacy-parser-route-vocabulary` — that section is an authority source, not a consumer. Any `interpretive-overclaim` classification means Step 5.5's replacement text is wrong — return to Step 5.5, fix, re-stage, and re-run this step.
+
+Skip this step if Step 5.5 was skipped.
+
 (No commit at end of Task 5 — verification and rebaseline-plan reconciliation only. The staging in Step 5.5 is included in Task 6's commit.)
 
 ---
@@ -1202,3 +1238,6 @@ Run this before requesting plan approval. If any box is unchecked, fix in place.
 - [x] **Task 5 read-only contradiction resolved (scrutiny follow-up 3).** Task 5 was declared read-only but Step 5.3 instructed workers to "fix the loser before committing" — creating an execution paradox. Now Task 5 header explicitly scopes read-only to Steps 5.1-5.4, Step 5.5 owns the rebaseline-plan write, and the contradiction-patch path is a defined stop-return-rerun loop rather than an in-task fix.
 - [x] **Line-drift handling covers all Task 4 references (scrutiny follow-up 3).** Step 1.5b's drift-adaptation instruction previously named only Task 4.2's annotation. The same `runtime.py:107-118` reference appears in Step 4.3's priority-line replacement text and Step 4.4's exit-condition replacement text. Drift instruction now enumerates all three sites explicitly.
 - [x] **Markdown consumers of canonical JSON keys checked (scrutiny follow-up 3).** Step 5.6 adds an explicit `rg` verification that the rebaseline plan's mentions of `local_compatibility` and `architecture_spec_readiness_delta` all agree with the post-patch canonical vocabulary. This closes the gap where code-only consumer discovery missed control documents that embed `jq` evidence-check contracts.
+- [x] **Canonical-value `jq` assertions for JSON readiness boolean (scrutiny follow-up 4).** The `rg` sweep pattern matches the key name `architecture_spec_readiness_delta` but cannot match the nested `"ready": true` boolean value at the JSON line where it lives — the sweep returns lines 45580, 45582, and 45585 but not 45581. Step 3.6c adds six explicit `jq -e` assertions: three for canonical values (`architecture_spec_readiness_delta.ready == false`, `local_compatibility == "parser_kind_compatible_decision_shape_lossy"`, `compatibility_classification.status == "parser_kind_compatible_decision_shape_lossy"`) and three mirror assertions for legacy preservation (`_legacy_architecture_spec_readiness_delta.ready == true`, `_legacy_local_compatibility == "supported"`, `_legacy_compatibility_classification.status == "passed"`). This is the correct tool for asserting nested JSON boolean state; `rg` is structurally unable to do so.
+- [x] **Rebaseline plan in Task 0 target-file ownership (scrutiny follow-up 4).** Step 5.5 writes and stages `docs/plans/2026-05-01-codex-app-server-client-platform-rebaseline-implementation-plan.md`, but Task 0's target-file list previously listed only three files. If the rebaseline plan were already dirty before execution, Task 0 would classify it as "unrelated unstaged work" and allow proceeding, then Step 5.5 would absorb the pre-existing dirt into the commit. Task 0 now lists four target files; a dirty rebaseline plan fires the same stop-and-surface condition as the other three targets.
+- [x] **Post-write terminal sweep (scrutiny follow-up 4).** Step 5.1's broad sweep ran before Step 5.5 wrote new text into the rebaseline plan. Step 5.6 only checked `local_compatibility|architecture_spec_readiness_delta` — a narrow pattern that cannot catch wording-level overclaims in the new replacement text. Step 5.7 reruns the full sweep pattern against the rebaseline plan after Step 5.5's write, classifying each match per the Sweep Classification Rules. An `interpretive-overclaim` classification means Step 5.5's replacement text is wrong and triggers a fix-restage-rerun loop.
