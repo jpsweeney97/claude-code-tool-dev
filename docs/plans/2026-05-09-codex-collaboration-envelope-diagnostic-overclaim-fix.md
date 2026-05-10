@@ -4,7 +4,7 @@
 
 **Goal:** Reconcile the committed May-1 server-request envelope-probe diagnostic with the repaired rebaseline implementation plan and `approval_router.py` reality, eliminating the docs-only contradiction without altering raw observation evidence.
 
-**Architecture:** Surgical doc edits. Preserve the diagnostic's raw observation layer (envelope contents, params keys, redacted summary, trigger command) untouched. Patch only the interpretive layer that conflicts with code reality. Mirror the correction in the diagnostic's sibling JSON via either patch-in-place or supersession note, with an explicit stop-condition deciding which. Optionally annotate the reconciliation register so its priority order reflects landed implementation.
+**Architecture:** Surgical doc edits. Preserve the diagnostic's raw observation layer (envelope contents, params keys, redacted summary, trigger command) untouched. Patch only the interpretive layer that conflicts with code reality. Mirror the correction in the diagnostic's sibling JSON via a preserve-and-add disposition: rename the original `compatibility_classification` and `local_compatibility` fields with a `_legacy_` prefix (preserving their May-1 parser-route vocabulary verbatim), add new fields under the same canonical keys carrying rebaseline-vocabulary classification, and add explicit `classification_vocabulary` + `classification_supersedes` markers documenting the boundary. Optionally annotate the reconciliation register so its priority order reflects landed implementation.
 
 **Tech Stack:** Markdown, JSON, ripgrep, jq, git.
 
@@ -15,7 +15,7 @@
 This plan implements:
 
 - Wording corrections to the envelope-probe diagnostic `.md` interpretive claims (four specific sites: classification line, "Local compatibility judgment" bullet block, "Compatibility result" bullet block, and "Important limit" first sentence).
-- A sibling-JSON disposition (patch in place or supersession note), decided by an explicit stop condition.
+- A sibling-JSON disposition (preserve-and-add: rename existing `compatibility_classification` / `local_compatibility` to `_legacy_*` keys; add new rebaseline-vocabulary blocks under canonical keys; add `classification_vocabulary` + `classification_supersedes` markers).
 - Optional reconciliation-register annotation recording that `T-20260429-01` Phase 1 implementation has landed on `main`, with closure evidence still missing.
 - A verification sweep across May-1 diagnostics, the rebaseline plan, the friction-reduction ticket, and the register for residual overclaims.
 - One commit covering all of the above.
@@ -131,9 +131,10 @@ The pre-edit `rg` sweep below treats every file under `docs/diagnostics/2026-05-
 
 Stop and surface the situation to the user — do not adapt, expand, or work around — when any of these fire:
 
-- **JSON disposition is unsafe to decide locally.** Task 1 finds the sibling JSON exists, contains a parallel overclaim, AND the JSON's structure makes either patch-in-place or supersession-note destructive (e.g., schema constraints, dependent fields, machine-consumer contracts). Surface and ask before proceeding.
-- **Pre-edit sweep finds an overclaim site this plan does not enumerate.** "Overclaim" here is bounded by the Sweep Classification Rules below. Examples that trigger this stop: a file under the swept paths claiming command-approval is fully supported in the response-shape sense; a `ready_to_close_ticket: true` for command approval; a register or diagnostic cell asserting `availableDecisions` is preserved without naming the all-strings fallback. Examples that do NOT trigger this stop (classifiable as `legacy-parser-route-vocabulary`): the T-20260429-02 ticket's `Supported as <kind>` / `Supported (parked)` table entries, the May-1 probe-plan's definition of `supported`, or any other legacy May-1-vocabulary use that is not a fresh response-shape / lossless-preservation / closability claim. Surface the finding; do not silently extend Task 2's edits.
+- **JSON disposition is unsafe to decide locally.** Task 1 finds the sibling JSON exists, contains a parallel overclaim, AND the JSON's structure makes the preserve-and-add disposition destructive (e.g., a `_legacy_compatibility_classification` key already exists with different content; the parent object's schema rejects renamed keys; a mechanical-mirror path's structural shape does not cleanly map to legacy-rename + new-block-add). Surface and ask before proceeding.
+- **Pre-edit sweep finds an overclaim site this plan does not enumerate.** "Overclaim" here is bounded by the Sweep Classification Rules below. Examples that trigger this stop: a file under the swept paths claiming command-approval is fully supported in the response-shape sense; a `ready_to_close_ticket: true` for command approval; a register or diagnostic cell asserting `availableDecisions` is preserved without naming the all-strings fallback; an additional JSON overclaim path beyond the two enumerated paths that does NOT mechanically mirror the same kind of claim per Task 1.4's narrow exception. Examples that do NOT trigger this stop (classifiable as `legacy-parser-route-vocabulary`): the T-20260429-02 ticket's `Supported as <kind>` / `Supported (parked)` table entries, the May-1 probe-plan's definition of `supported`, or any other legacy May-1-vocabulary use that is not a fresh response-shape / lossless-preservation / closability claim. Surface the finding; do not silently extend Task 2's edits.
 - **Register row already reflects landed-implementation language for T-20260429-01.** Skip Task 4 entirely; do not make a no-op edit.
+- **Register-annotation `main`-truth check failed.** Step 1.5b's git evidence does not support the "Phase 1 has landed on `main`" assertion: either `git diff main..HEAD -- packages/plugins/codex-collaboration/server/runtime.py` is non-empty (this branch carries `runtime.py` modifications, so the current-branch reads do not stand in for `main`), or `git show main:packages/plugins/codex-collaboration/server/runtime.py | sed -n '107,118p'` does not show the carve-outs at the expected lines (line numbers may have drifted on `main`, or implementation may not have landed). Skip Task 4 entirely; surface the finding so the register-annotation premise can be reconciled before any annotation is written. This is distinct from "Live envelope evidence has changed" — the envelope is unchanged; the failure is about `main`'s `runtime.py` state diverging from what Task 4's annotation claims.
 - **Verification sweep at Task 5 surfaces a surviving overclaim.** Do not commit. Surface the finding.
 - **Live envelope evidence has changed since the diagnostic was captured.** If Task 1's reads reveal a newer probe artifact contradicting the May-1 envelope (different `availableDecisions` shape, etc.), stop. The fix's premise depends on the May-1 capture being current.
 
@@ -195,6 +196,36 @@ No surviving site may claim command-approval is "supported" in the rebaseline re
 
 ## Tasks
 
+### Task 0: Pre-edit status snapshot
+
+**Files:** read-only — no writes in this task.
+
+- [ ] **Step 0.1: Capture pre-edit status snapshot.**
+
+```bash
+git status
+git diff --cached --name-only
+git diff --name-only
+```
+
+Record the output. The intent is to identify any pre-existing unrelated changes in the working tree BEFORE this plan's edits begin, so Task 6's commit-staging logic can distinguish "files I added during this plan" from "files that were already modified in this workspace."
+
+Expected scope of files this plan touches (any of these may legitimately appear in Task 6's staged set):
+
+- `docs/diagnostics/2026-05-01-codex-app-server-server-request-envelope-probes.md` (Task 2, always)
+- `docs/diagnostics/codex-app-server-server-request-envelope-probes.json` (Task 3, conditional)
+- `docs/status/codex-collaboration-reconciliation-register.md` (Task 4, conditional)
+
+Branch on the snapshot:
+
+- **Working tree clean** → record "Pre-edit status: clean." Proceed to Task 1.
+- **Pre-existing unrelated unstaged changes exist** (files outside the three above) → record their paths. They are NOT in scope for this plan; do not stage, modify, or revert them during this plan's execution. Task 6's verification will tolerate their continued presence in the working tree as long as they are unchanged from this snapshot.
+- **Pre-existing staged changes exist from a different in-flight task** (any staged file outside the three above) → STOP and surface to user before proceeding. Combining unrelated staged work with this plan's commit would muddle the audit trail. The user must either unstage or commit the unrelated staged work separately before this plan continues.
+
+(No commit at end of Task 0 — discovery only. Task 0 outputs feed Task 6's staged-set verification.)
+
+---
+
 ### Task 1: Inventory and discovery
 
 **Files:** read-only — no writes in this task.
@@ -233,16 +264,21 @@ Read `packages/plugins/codex-collaboration/server/approval_router.py:90-115`. Ve
 
 Read `docs/plans/2026-05-01-codex-app-server-client-platform-rebaseline-implementation-plan.md:895-925`. Note the exact phrasing: "decision-shape lossy", "structured `acceptWithExecpolicyAmendment`", "the live request offered `cancel` but not `decline`", "lossless parser/response branch". The diagnostic's corrected wording in Task 2 mirrors this language to keep the doc set internally consistent.
 
-- [ ] **Step 1.4: Determine sibling-JSON disposition.**
+- [ ] **Step 1.4: Determine sibling-JSON disposition (preserve-and-add).**
 
 Check whether `docs/diagnostics/codex-app-server-server-request-envelope-probes.json` exists.
 
 If it does not exist → Task 3 is a no-op; record this for Task 6's commit message.
 
-If it exists:
+If it exists, run validation and search as separate commands so an invalid-JSON failure cannot collapse into a no-matches result:
 
 ```bash
-jq '.' docs/diagnostics/codex-app-server-server-request-envelope-probes.json | rg -n -i "supported|preserved|ready_to_close_ticket|local_compatibility|supported_methods|proves compatibility|compatibility for the observed"
+# Validate first; abort and surface if non-zero exit.
+jq '.' docs/diagnostics/codex-app-server-server-request-envelope-probes.json >/dev/null
+
+# Then search the validated file for overclaim paths.
+rg -n -i "supported|preserved|ready_to_close_ticket|local_compatibility|supported_methods|proves compatibility|compatibility for the observed" \
+   docs/diagnostics/codex-app-server-server-request-envelope-probes.json
 ```
 
 Two known overclaim paths in the JSON (verified at orientation; reconfirm exact paths here):
@@ -250,44 +286,38 @@ Two known overclaim paths in the JSON (verified at orientation; reconfirm exact 
 - `observed_server_requests[0].local_compatibility: "supported"` (≈line 904)
 - `compatibility_classification.supported_methods: ["item/commandExecution/requestApproval"]` (≈line 913)
 
-Both must be addressed by Task 3. If the sweep surfaces other overclaim paths this plan does not enumerate, treat them as in-scope (mirror what the `.md` sites express) and record the additional paths for Task 3.
+Both are in scope for Task 3 under the preserve-and-add disposition (described below). If the sweep surfaces additional overclaim paths within this same JSON file, the default is to STOP and surface (fire the "Pre-edit sweep finds an overclaim site this plan does not enumerate" stop condition). The narrow mechanical-mirror exception applies ONLY when the additional path is unambiguously the same kind of claim as one of the two enumerated paths — i.e., a binary `supported_methods`-style listing of `item/commandExecution/requestApproval` under the May-1 vocabulary, a sibling field claiming `availableDecisions` is `preserved: true`, or `ready_to_close_ticket: true` for command-approval — AND the path's parent object structure cleanly accepts the same legacy-rename + rebaseline-block-add treatment described in Step 3.2. Record each mechanical-mirror path for Task 3. Any additional path that does NOT meet both conditions → fire the stop condition; do not silently extend Task 3's edits to novel shapes.
 
-**Vocabulary caveat.** The JSON's `compatibility_classification` block uses a binary vocabulary: `supported_methods` / `unsupported_methods` / `unknown_or_unparseable_methods` / `missing_required_fields`. The corrected classification we are introducing — *parser-kind compatible but decision-shape lossy* — has no slot in this vocabulary. Patch-in-place therefore either requires adding a new sibling key (vocabulary expansion) or zeroing `supported_methods` and adding the lossy methods elsewhere (semantic shift on existing array). Both are tractable; supersession-note avoids the vocabulary work but only reconciles the human-readable layer.
+**Vocabulary caveat (resolved by preserve-and-add).** The JSON's `compatibility_classification` block uses a binary vocabulary: `supported_methods` / `unsupported_methods` / `unknown_or_unparseable_methods` / `missing_required_fields`. The corrected classification we are introducing — *parser-kind compatible but decision-shape lossy* — has no slot in this vocabulary. Mutating `supported_methods` to `[]` while adding new sibling fields would silently shift an existing key's meaning without a vocabulary boundary marker, leaving programmatic readers to interpret `supported_methods: []` under the old binary semantics (which would be a new false historical claim). The preserve-and-add disposition resolves this: the original block is preserved unchanged under a renamed key (`_legacy_compatibility_classification`), so its old-vocabulary truth (`supported_methods: ["item/commandExecution/requestApproval"]` under May-1 parser-route vocabulary, which IS historically true) remains accessible to any reader who looks; a new `compatibility_classification` block under the rebaseline vocabulary is added alongside; an explicit `classification_vocabulary` marker names the active vocabulary; an optional `classification_supersedes` pointer records the legacy block's location. The same preserve-and-add pattern applies to `observed_server_requests[0].local_compatibility` (preserved as `_legacy_local_compatibility`; new `local_compatibility` under rebaseline vocabulary).
 
-**Consumer discovery (run before choosing disposition).**
+**Consumer discovery (informational; documents contract for future schema changes).**
 
-A `_superseded_by` field is consumer-honored only if downstream code explicitly checks for it. If consumer code reads the classification fields without checking the supersession marker, it sees stale data. Therefore the disposition default must be calibrated to actual consumer behavior, not assumed convention.
-
-Run:
+The preserve-and-add disposition does not depend on consumer-marker honoring — the legacy block is preserved verbatim regardless of consumer behavior, and the new block lands under the canonical `compatibility_classification` key so existing readers find rebaseline-current data at the same path. The discovery is still load-bearing: it documents which production paths read this JSON and which fields they consume, so future schema changes can target the actual contract rather than assumed convention. Run, hidden-aware so paths under `.claude/` surface from repo root:
 
 ```bash
-rg -n -i "compatibility_classification|supported_methods|local_compatibility|codex-app-server-server-request-envelope-probes\\.json" \
+rg -n -i --hidden --glob '!.git/**' \
+   "compatibility_classification|supported_methods|local_compatibility|codex-app-server-server-request-envelope-probes\\.json" \
    --type-not md
 ```
 
-(`--type-not md` excludes documentation references so production consumers surface clearly.)
+(`--type-not md` excludes documentation references so production consumers surface clearly. `--hidden --glob '!.git/**'` ensures hidden repo paths like `.claude/hooks/` are searched without sweeping `.git/` internals. As a defensive cross-check, run the same query with named roots if the result above is suspicious: `rg -n -i "<pattern>" packages/ scripts/ extensions/ .claude/hooks/ .claude/scripts/`.)
 
 Classify each match:
 
-- **Production consumer** — code under `packages/`, `scripts/`, `.claude/hooks/`, `extensions/`, or any executable path that reads the JSON file path or one of the classification field names. Read the consumer code to determine whether it honors `_superseded_by` (i.e., reads the marker and degrades or warns).
+- **Production consumer** — code under `packages/`, `scripts/`, `.claude/hooks/`, `extensions/`, or any executable path that reads the JSON file path or one of the classification field names. Read the consumer code; record (a) which field names it reads and (b) whether it honors any vocabulary-marker convention.
 - **Test fixture / synthetic data** — code that uses these field names for unrelated fixtures. Does not count as a consumer.
 - **Self-reference inside the JSON itself** — not a consumer.
 
-Outcomes:
+Record the consumer-discovery findings explicitly for Task 6's commit message:
 
-- No production consumer found → JSON has no documented machine consumer; disposition is **patch-in-place** (default).
-- Production consumer found, code honors `_superseded_by` → disposition may be **supersession-note** (acceptable; document the consumer in Task 6's commit message so future readers understand the contract).
-- Production consumer found, code does NOT honor `_superseded_by` → disposition is **patch-in-place** (supersession would be silently ignored; stale machine data is worse than schema expansion).
-- Consumer status remains unclear after discovery → disposition is **patch-in-place** (default; stale machine data is dangerous when consumers are unknown).
+- No production consumer found → record "no documented machine consumer at this revision."
+- Production consumer found → record file path(s), the field names each consumer reads, and whether each honors any vocabulary-marker convention. This list is the contract Task 3's preserve-and-add disposition must respect (the new `compatibility_classification` block keeps the canonical key name so existing readers find rebaseline-current data; the renamed `_legacy_compatibility_classification` block is for reference and historical-vocabulary readers).
 
-Disposition options:
+Stop conditions specific to this step:
 
-1. **Patch-in-place** (default — chosen when consumer-discovery surfaces no production consumer, when consumers do not honor `_superseded_by`, or when consumer status is unclear). `observed_server_requests[0].local_compatibility` becomes a value naming the lossy class, `compatibility_classification.supported_methods` becomes `[]`, and new sibling fields name the lossy methods (`parser_kind_compatible_methods` / `decision_shape_lossy_methods`). Vocabulary is expanded; existing schema is changed.
-2. **Supersession-note** (reserved for documented production consumers that honor `_superseded_by`). Add a top-level `"_superseded_by"` field pointing at the corrected `.md` and the rebaseline plan section. Leave existing fields untouched. Use only when consumer-discovery has positively identified consumer code that reads the marker.
+- JSON structure does not allow preserve-and-add (e.g., `_legacy_compatibility_classification` already exists with different content, or the parent object's schema rejects renamed keys) → fire the "JSON disposition unsafe" stop condition. Surface and ask before proceeding.
 
-If a third option seems necessary (e.g., partial patch + partial supersession) → trigger the "JSON disposition unsafe" stop condition rather than improvising.
-
-Record the disposition explicitly along with the consumer-discovery findings. Task 2 wording cross-references the JSON form chosen here.
+Task 3 implements the preserve-and-add structure described above using the consumer-discovery findings recorded here.
 
 - [ ] **Step 1.5: Determine register-annotation need AND prove "landed on `main`" with git evidence.**
 
@@ -325,7 +355,7 @@ Expected: output shows the `build_workspace_write_sandbox_policy` carve-outs (`~
 
 Record both checks' outcomes (the diff is empty, or it is not; the lines on `main` are X-Y showing the carve-outs). Task 4.2's wording depends on this proof — without it, "landed on `main`" is an unverified claim.
 
-If either check fails → fire the "Live envelope evidence has changed" stop condition (the failure mode is analogous: the plan's premise about `main` state is no longer accurate; surface and reconcile before annotating).
+If either check fails → fire the "Register-annotation `main`-truth check failed" stop condition. Skip Task 4 entirely; surface so the register-annotation premise can be reconciled before any annotation is written. (Distinct from "Live envelope evidence has changed" — the envelope is unchanged; the failure is about `main`'s `runtime.py` state diverging from what Task 4's annotation would claim.)
 
 - [ ] **Step 1.6: Confirm closure evidence is genuinely missing.**
 
@@ -464,51 +494,84 @@ git add docs/diagnostics/2026-05-01-codex-app-server-server-request-envelope-pro
 |---|---|
 | JSON does not exist | Skip to Task 4. |
 | JSON exists, no parallel overclaim | Skip to Task 4. |
-| JSON exists, patch-in-place chosen (default — no production consumer found, consumer does not honor `_superseded_by`, or consumer status unclear) | Step 3.2. |
-| JSON exists, supersession-note chosen (only when consumer-discovery positively identified consumer code that honors `_superseded_by`) | Step 3.3. |
-| JSON disposition unsafe | Stop condition fired in Task 1.4; surface to user. |
+| JSON exists, has parallel overclaim (preserve-and-add applies) | Step 3.2. |
+| JSON disposition unsafe (structure does not allow preserve-and-add, or `_legacy_*` key already exists with different content) | Stop condition fired in Task 1.4; surface to user. |
 
-- [ ] **Step 3.2: Patch JSON in place (only if patch-in-place was chosen).**
+- [ ] **Step 3.2: Apply preserve-and-add disposition.**
 
-Mirror the `.md` correction. Address each known overclaim path explicitly — both must be patched, plus any additional paths surfaced in Task 1.4:
+The JSON is mutated structurally (new keys + renamed keys), but no existing field's value or meaning is altered in place. The original `compatibility_classification` block is preserved verbatim under a renamed key with its old May-1 parser-route vocabulary semantics intact; a new `compatibility_classification` block under the rebaseline vocabulary is added alongside; explicit vocabulary marker and supersedes-pointer fields document the boundary. The same pattern applies to the per-request `local_compatibility` field.
 
-1. **`observed_server_requests[0].local_compatibility`** (currently `"supported"`):
-   - Replace value with `"parser_kind_compatible_decision_shape_lossy"`.
-   - Append to `local_compatibility_notes` array: `"Decision-shape lossy under the observed mixed availableDecisions: the structured acceptWithExecpolicyAmendment entry triggers all-strings fallback in _resolve_available_decisions (approval_router.py:103-111). The fallback tuple _AVAILABLE_DECISIONS[command_approval] = ('accept', 'acceptForSession', 'acceptWithExecpolicyAmendment', 'applyNetworkPolicyAmendment', 'decline', 'cancel') preserves the wire's accept and cancel, collapses the structured acceptWithExecpolicyAmendment into a bare string (payload dropped), and adds three decisions never offered by the wire (acceptForSession, applyNetworkPolicyAmendment, decline)."`
+After all edits, the JSON's existing raw-observation fields (params keys, redacted envelope summary, observed `availableDecisions` array, schema-visible methods listing, per-probe pass/fail rows, etc.) must remain unchanged.
 
-2. **`compatibility_classification.supported_methods`** (currently `["item/commandExecution/requestApproval"]`):
-   - Set value to `[]` (no methods are fully supported by this packet).
-   - Add sibling field `parser_kind_compatible_methods: ["item/commandExecution/requestApproval"]`.
-   - Add sibling field `decision_shape_lossy_methods: ["item/commandExecution/requestApproval"]`.
-   - Append to `compatibility_classification.notes` array: `"item/commandExecution/requestApproval is parser-kind compatible but decision-shape lossy under the observed availableDecisions; see local_compatibility_notes for the observed envelope."`
+1. **Add a top-level `classification_vocabulary` marker** (next to `artifact_version`):
 
-3. **Any field claiming `availableDecisions` is `preserved: true`** (if surfaced):
-   - Set `preserved: false` and add a sibling field `preservation_note` (or the JSON's existing convention) with the same all-strings-fallback explanation as in (1).
+   ```json
+   "classification_vocabulary": "rebaseline_parser_kind_and_response_shape_v1"
+   ```
 
-4. **Any field flagged `ready_to_close_ticket: true` for command-approval** (if surfaced):
-   - Set `false` and add a sibling field naming the missing closure work (smoke + credential-boundary probe + lossless parser/response branch).
+   This names the vocabulary used by all non-`_legacy_*` classification fields below. The `_v1` suffix allows future vocabulary revisions to bump this marker without breaking the preserve-and-add convention.
+
+2. **Add a top-level `classification_supersedes` pointer** (next to `classification_vocabulary`):
+
+   ```json
+   "classification_supersedes": {
+     "legacy_blocks": ["_legacy_compatibility_classification", "_legacy_local_compatibility"],
+     "legacy_vocabulary": "may_1_parser_route_v1",
+     "fix_doc": "docs/diagnostics/2026-05-01-codex-app-server-server-request-envelope-probes.md",
+     "authority": "docs/plans/2026-05-01-codex-app-server-client-platform-rebaseline-implementation-plan.md#L905-L921",
+     "summary": "May-1 parser-route classification preserved under _legacy_* keys; rebaseline-vocabulary classification under canonical keys names parser-kind compatibility and decision-shape lossiness."
+   }
+   ```
+
+3. **Rename `compatibility_classification` → `_legacy_compatibility_classification`** (≈line 911). Preserve all contents verbatim. Add a single sibling field inside the renamed block to remind readers of its vocabulary:
+
+   ```json
+   "_legacy_compatibility_classification": {
+     "_vocabulary_note": "May-1 parser-route vocabulary (see top-level classification_supersedes). 'supported' here means: local code has a concrete route for the method and required correlation fields are present.",
+     "supported_methods": ["item/commandExecution/requestApproval"],
+     "unsupported_methods": [],
+     "unknown_or_unparseable_methods": [],
+     "missing_required_fields": [],
+     "notes": [...existing notes preserved verbatim...]
+   }
+   ```
+
+4. **Add a new `compatibility_classification` block** alongside the renamed one, under rebaseline vocabulary:
+
+   ```json
+   "compatibility_classification": {
+     "fully_supported_methods": [],
+     "parser_kind_compatible_methods": ["item/commandExecution/requestApproval"],
+     "decision_shape_lossy_methods": ["item/commandExecution/requestApproval"],
+     "unsupported_methods": [],
+     "unknown_or_unparseable_methods": [],
+     "missing_required_fields": [],
+     "notes": [
+       "item/commandExecution/requestApproval is parser-kind compatible (route exists, required correlation fields itemId/threadId/turnId present) but decision-shape lossy under the observed mixed availableDecisions: the structured acceptWithExecpolicyAmendment entry triggers the all-strings fallback in _resolve_available_decisions (approval_router.py:103-111). The fallback tuple _AVAILABLE_DECISIONS[command_approval] = ('accept', 'acceptForSession', 'acceptWithExecpolicyAmendment', 'applyNetworkPolicyAmendment', 'decline', 'cancel') preserves the wire's accept and cancel, collapses the structured acceptWithExecpolicyAmendment entry into a bare string (payload dropped), and adds three decisions never offered by the wire (acceptForSession, applyNetworkPolicyAmendment, decline)."
+     ]
+   }
+   ```
+
+5. **Rename `observed_server_requests[0].local_compatibility` → `observed_server_requests[0]._legacy_local_compatibility`** (≈line 904). Preserve the value (`"supported"`) verbatim. If a `local_compatibility_notes` sibling field exists at this path under the legacy form, also rename it to `_legacy_local_compatibility_notes` (preserve the array contents verbatim).
+
+6. **Add a new `local_compatibility` field** alongside `_legacy_local_compatibility` on the same request object, under rebaseline vocabulary:
+
+   ```json
+   "local_compatibility": "parser_kind_compatible_decision_shape_lossy",
+   "local_compatibility_notes": [
+     "Decision-shape lossy under the observed mixed availableDecisions: the structured acceptWithExecpolicyAmendment entry triggers all-strings fallback in _resolve_available_decisions (approval_router.py:103-111). The fallback tuple _AVAILABLE_DECISIONS[command_approval] = ('accept', 'acceptForSession', 'acceptWithExecpolicyAmendment', 'applyNetworkPolicyAmendment', 'decline', 'cancel') preserves the wire's accept and cancel, collapses the structured acceptWithExecpolicyAmendment into a bare string (payload dropped), and adds three decisions never offered by the wire (acceptForSession, applyNetworkPolicyAmendment, decline)."
+   ]
+   ```
+
+7. **Apply the same preserve-and-add to any additional mechanical-mirror paths** identified in Task 1.4 (per the narrow exception). For each: rename existing key with `_legacy_` prefix; add new key under the rebaseline vocabulary referencing the same fallback explanation. Do not improvise on novel shapes — those should have stopped Task 1.4.
+
+8. **Any field claiming `availableDecisions` is `preserved: true`** (if surfaced as a mechanical-mirror path): rename to `_legacy_availability_preservation` (or analogous `_legacy_*` key matching the original key name) and add a new sibling field under the rebaseline vocabulary naming the all-strings fallback. Use the same fallback-tuple wording.
+
+9. **Any field flagged `ready_to_close_ticket: true` for command-approval** (if surfaced as a mechanical-mirror path): rename to `_legacy_ready_to_close_ticket` and add a new sibling field set to `false` with a note naming the missing closure work (smoke + credential-boundary probe + lossless parser/response branch).
 
 Do not delete or rewrite raw observation fields (params keys, redacted envelope summary, observed `availableDecisions` array, etc.).
 
-If Task 1.4 documented additional overclaim paths beyond items 1 and 2 above, address them here using the same mutate-value-plus-add-sibling-note pattern. Do not silently leave them in place.
-
-- [ ] **Step 3.3: Add supersession note to JSON (only if supersession-note was chosen).**
-
-Add a top-level field — choose name to match local JSON conventions; suggested default: `"_superseded_by"` — with value:
-
-```json
-{
-  "_superseded_by": {
-    "fix_doc": "docs/diagnostics/2026-05-01-codex-app-server-server-request-envelope-probes.md",
-    "authority": "docs/plans/2026-05-01-codex-app-server-client-platform-rebaseline-implementation-plan.md#L905-L921",
-    "summary": "Local compatibility classification revised to parser-kind compatible but decision-shape lossy. Raw observation fields below are preserved; their classification labels are no longer authoritative."
-  }
-}
-```
-
-Do not delete or modify the existing fields.
-
-- [ ] **Step 3.4: Validate JSON (only if Step 3.2 or 3.3 ran).**
+- [ ] **Step 3.3: Validate JSON (only if Step 3.2 ran).**
 
 ```bash
 jq '.' docs/diagnostics/codex-app-server-server-request-envelope-probes.json >/dev/null
@@ -516,18 +579,23 @@ jq '.' docs/diagnostics/codex-app-server-server-request-envelope-probes.json >/d
 
 Expected: exit `0`. If non-zero, fix the JSON before staging.
 
-- [ ] **Step 3.5: Local rg verification (only if Step 3.2 or 3.3 ran).**
+- [ ] **Step 3.4: Local rg verification (only if Step 3.2 ran).**
 
 ```bash
 rg -n -i "supported|preserved|ready_to_close_ticket" \
    docs/diagnostics/codex-app-server-server-request-envelope-probes.json
 ```
 
-Expected under patch-in-place (default path): no bare `"supported"` classification of command-approval — `local_compatibility` now names the lossy class, `supported_methods` is `[]`, `parser_kind_compatible_methods` and `decision_shape_lossy_methods` enumerate the method, and any `preserved: true` for `availableDecisions` is now `false` with the qualifying sibling field. Any surviving bare `"supported"` for command-approval at this point is a missed patch path; return to Step 3.2.
+Expected:
 
-Expected under supersession-note (exception path — only chosen when consumer-discovery positively identified a consumer that honors `_superseded_by`): the original `local_compatibility` and `supported_methods` fields still match the search terms because they are intentionally untouched. Their survival is acceptable ONLY because the documented consumer reads `_superseded_by` and degrades. Record the consumer code path in Task 6's commit message so the supersession contract is auditable. If the consumer was not positively identified, the disposition should have been patch-in-place; return to Task 1.4.
+- The `_legacy_compatibility_classification` block still matches `supported_methods` because its contents are intentionally preserved verbatim under May-1 parser-route vocabulary. This is acceptable: the `_legacy_` prefix combined with the top-level `classification_vocabulary` marker scopes the legacy block's "supported" semantics explicitly to May-1 vocabulary; future readers see clean reclassification rather than mutated history.
+- The new `compatibility_classification` block must NOT contain `supported_methods` as a non-empty array under the rebaseline vocabulary — it should have `fully_supported_methods: []`, with `parser_kind_compatible_methods` and `decision_shape_lossy_methods` carrying the actual method.
+- The new `local_compatibility` field (alongside `_legacy_local_compatibility`) must NOT contain bare `"supported"` — it should name the lossy class (e.g., `"parser_kind_compatible_decision_shape_lossy"`).
+- No surviving `preserved: true` or `ready_to_close_ticket: true` for command-approval outside of `_legacy_*` blocks.
 
-- [ ] **Step 3.6: Stage the JSON change (only if Step 3.2 or 3.3 ran).**
+Cross-check: every line returned by the sweep should be classifiable as either (a) inside a `_legacy_*` block (acceptable — preserved-vocabulary semantics), (b) inside the new rebaseline block (acceptable — names parser-kind compatibility / decision-shape lossiness explicitly), or (c) raw observation outside any classification block (acceptable — evidence layer). Any line that does NOT classify as one of these → return to Step 3.2; the preserve-and-add was incomplete or a mechanical-mirror path was missed in Task 1.4.
+
+- [ ] **Step 3.5: Stage the JSON change (only if Step 3.2 ran).**
 
 ```bash
 git add docs/diagnostics/codex-app-server-server-request-envelope-probes.json
@@ -671,7 +739,7 @@ Expected: only files under `docs/diagnostics/`, optionally `docs/status/codex-co
 
 ### Task 6: Commit
 
-**Files:** previously staged via Steps 2.7, 3.6 (conditional), 4.6 (conditional).
+**Files:** previously staged via Steps 2.7, 3.5 (conditional), 4.6 (conditional).
 
 - [ ] **Step 6.1: Confirm staged set.**
 
@@ -679,7 +747,7 @@ Expected: only files under `docs/diagnostics/`, optionally `docs/status/codex-co
 git status
 ```
 
-Expected: only the docs files. Working tree otherwise clean.
+Expected: only the planned docs files appear in `git status` as staged. Pre-existing unrelated unstaged changes recorded in Task 0 may still be present in the working tree; that is acceptable. Confirm only the planned docs are staged for commit.
 
 - [ ] **Step 6.2: Commit.**
 
@@ -703,16 +771,25 @@ wire). Lossiness is bidirectional: payload loss + spurious additions.
 
 This commit corrects the diagnostic's interpretive layer; raw
 envelope observations are preserved unchanged. The sibling JSON is
-reconciled (patch-in-place by default; supersession-note only if
-consumer-discovery surfaced a documented consumer that honors the
-supersession marker). Optional register annotation records that
-T-20260429-01 Phase 1 implementation has landed on main; the
-T-20260429-01 row Exit condition cell is replaced so it names AC
-#1-#3 closure work only (comparable `/delegate` smoke with avoidable
-sandbox-friction escalations <=2; credential-boundary probe;
-`test_runtime.py` regression assertion update + full
-codex-collaboration suite pass). AC #4 (Option F upstream
-limitation) is already checked.
+reconciled via preserve-and-add: the original
+`compatibility_classification` and `local_compatibility` fields are
+renamed with a `_legacy_` prefix (preserving their May-1 parser-route
+vocabulary verbatim — the original `supported_methods:
+["item/commandExecution/requestApproval"]` remains historically true
+under that vocabulary), and new fields under the canonical key names
+carry rebaseline-vocabulary classification (`fully_supported_methods:
+[]`; `parser_kind_compatible_methods` and
+`decision_shape_lossy_methods` enumerate the method explicitly). A
+top-level `classification_vocabulary:
+"rebaseline_parser_kind_and_response_shape_v1"` marker names the
+active vocabulary; `classification_supersedes` documents the legacy
+blocks. Optional register annotation records that T-20260429-01
+Phase 1 implementation has landed on main; the T-20260429-01 row
+Exit condition cell is replaced so it names AC #1-#3 closure work
+only (comparable `/delegate` smoke with avoidable sandbox-friction
+escalations <=2; credential-boundary probe; `test_runtime.py`
+regression assertion update + full codex-collaboration suite pass).
+AC #4 (Option F upstream limitation) is already checked.
 
 T-20260429-02 method-by-method classification scope is unchanged
 and not addressed here. The T-20260429-02 ticket's parser-route
@@ -731,7 +808,7 @@ git status
 git log -1 --stat
 ```
 
-Expected: clean working tree; the commit lists only `docs/diagnostics/2026-05-01-codex-app-server-server-request-envelope-probes.md` and any conditional files staged in Steps 3.6 / 4.6. No code files.
+Expected: the commit lists only `docs/diagnostics/2026-05-01-codex-app-server-server-request-envelope-probes.md` and any conditional files staged in Steps 3.5 / 4.6. No code files. Pre-existing unrelated unstaged changes from Task 0's snapshot may still be present in `git status`; verify those are unchanged from the snapshot (this plan's edits should not have modified them).
 
 ---
 
@@ -744,16 +821,22 @@ Run this before requesting plan approval. If any box is unchecked, fix in place.
   2. Interpretive overclaims to patch → "Interpretive Overclaims To Patch" section (four sites).
   3. Authority basis: `approval_router.py` + repaired rebaseline plan → "Authority Basis" section + Vocabulary Succession sub-section.
   4. Files to inspect before edit, including JSON → "Files To Inspect Before Edit" table.
-  5. Stop condition for JSON disposition → "Stop Conditions" section + Task 1.4 (consumer discovery + flipped default) + Task 3 branching.
+  5. Stop condition for JSON disposition → "Stop Conditions" section + Task 1.4 (preserve-and-add disposition + consumer discovery as informational contract record) + Task 3 (preserve-and-add structural edits).
   6. Verification rg pattern covers bare-word terms (`supported`/`preserved`/`lossy`/`ready_to_close_ticket`) plus phrase patterns (`proves compatibility`/`compatibility for the observed`) plus JSON-key patterns (`local_compatibility`/`supported_methods`); case-insensitive (`-i`) so capital-S "Supported" wording surfaces alongside lowercase → "Verification" section + Task 1.1 + Task 5.
 - [x] **Overclaim inventory.** Four `.md` sites enumerated (≈lines 112, 169-174, 176-181, 185); two known JSON paths enumerated (`observed_server_requests[0].local_compatibility`, `compatibility_classification.supported_methods`) with placeholder for additional paths surfaced in Task 1.4.
 - [x] **Scope guardrails.** "This plan does not" enumerates: no code edits, no T-20260429-02 method matrix, no live probes, no version-pin changes.
 - [x] **Vocabulary succession explicit.** Authority Basis section names the May-1 probe-plan's narrower `supported` definition (route + correlation fields) and frames the rebaseline as a stricter classification splitting parser-kind from response-shape. The diagnostic is reclassified, not retroactively wrong against its own May-1 vocabulary.
 - [x] **T-20260429-02 sweep collision resolved.** "Sweep Classification Rules" section adds `legacy-parser-route-vocabulary` classification with explicit bounding rules. Task 1.1 verification anchors enumerate the T-20260429-02 ticket parser-route table rows and the May-1 probe-plan vocabulary definitions as expected `legacy-parser-route-vocabulary` matches. Stop condition example clarified to distinguish overclaim from legacy vocabulary.
-- [x] **Sweep case-insensitivity.** All overclaim-detection sweeps use `-i`: Verification section, Step 1.1, Step 1.4 jq pipe, Step 2.6, Step 3.5, Step 4.5, Step 5.1.
+- [x] **Sweep case-insensitivity.** All overclaim-detection sweeps use `-i`: Verification section, Step 1.1, Step 1.4 rg search (post jq-validate split), Step 2.6, Step 3.4, Step 4.5, Step 5.1.
 - [x] **Git proof for "landed on `main`."** Step 1.5b requires `git diff main..HEAD -- packages/plugins/codex-collaboration/server/runtime.py` (empty) AND `git show main:.../runtime.py | sed -n '107,118p'` (carve-outs visible) before Task 4 writes the assertion.
 - [x] **Fallback tuple wording precise.** Step 2.2 bullet 4 enumerates `_AVAILABLE_DECISIONS[command_approval]` verbatim and frames lossiness as bidirectional — payload loss for `acceptWithExecpolicyAmendment` plus spurious additions (`acceptForSession`, `applyNetworkPolicyAmendment`, `decline`). Does NOT phrase it as "decline replaces cancel" — `cancel` is preserved by the fallback. JSON Step 3.2 mirrors this precision.
-- [x] **JSON disposition default is patch-in-place.** Step 1.4 includes a consumer-discovery sub-step using `rg --type-not md`. Patch-in-place is the default when consumer-discovery surfaces no production consumer, when consumers do not honor `_superseded_by`, or when consumer status is unclear. Supersession-note is reserved for documented production consumers that honor `_superseded_by` (with consumer code path recorded in the commit message).
+- [x] **JSON disposition is preserve-and-add (single approach; no in-place mutation of existing fields).** Step 1.4 + Step 3.2 specify the preserve-and-add structure: rename `compatibility_classification` → `_legacy_compatibility_classification` (vocabulary preserved verbatim with a `_vocabulary_note` reminder); add new `compatibility_classification` block under rebaseline vocabulary; add top-level `classification_vocabulary: "rebaseline_parser_kind_and_response_shape_v1"` marker; add `classification_supersedes` pointer to legacy blocks; mirror pattern for `observed_server_requests[0].local_compatibility` → `_legacy_local_compatibility`. Resolves the patch-in-place vocabulary-shift defect by preserving old-vocabulary truth verbatim and adding new-vocabulary truth alongside under the same canonical keys, eliminating the silent semantic shift that mutating `supported_methods: []` would have caused.
+- [x] **Consumer discovery is hidden-aware.** Step 1.4's consumer-discovery `rg` includes `--hidden --glob '!.git/**'` so paths under `.claude/hooks/` and other dot-directories surface from repo root. A defensive named-roots cross-check is also documented (`packages/ scripts/ extensions/ .claude/hooks/ .claude/scripts/`). Plain `rg --type-not md` from repo root would silently skip hidden paths the plan explicitly enumerates as valid consumer locations.
+- [x] **Consumer discovery is informational, not dispositional.** Discovery records the contract for future schema changes (which consumers exist, which fields they read) but does not branch on the result. The preserve-and-add disposition applies uniformly because the new block lands at the canonical key name (existing readers find rebaseline-current data) and the legacy block is preserved verbatim under a `_legacy_` prefix (vocabulary-aware readers find historical truth).
+- [x] **JSON validation split from JSON search.** Step 1.4 runs `jq '.' <file> >/dev/null` as a separate validation command before the rg search. A failed `jq` pipe used to silently produce empty stdout, indistinguishable from a no-matches result; the split surfaces invalid-JSON as a non-zero exit before any pattern matching runs.
+- [x] **Pre-edit status snapshot (Task 0).** Task 0 captures `git status` + `git diff --cached --name-only` + `git diff --name-only` before any edits begin, recording pre-existing unrelated changes that were already in the working tree. Step 6.1 / Step 6.3 verification language tolerates the continued presence of those pre-existing unstaged changes (rather than requiring "working tree otherwise clean", which would have either blocked unnecessarily or tempted out-of-scope cleanup). Pre-existing unrelated STAGED changes are surfaced before proceeding so the plan's commit cannot accidentally bundle unrelated staged work.
+- [x] **Sweep additional-paths default is STOP, not in-scope.** Task 1.4 narrows the line-253 carve-out: additional JSON overclaim paths beyond the two enumerated default to firing the "Pre-edit sweep finds an overclaim site this plan does not enumerate" stop condition. The narrow mechanical-mirror exception applies ONLY when the additional path is unambiguously the same kind of claim AND its parent object's structure cleanly accepts the same legacy-rename + rebaseline-block-add treatment. Novel shapes stop; they do not silently extend Task 3's edits.
+- [x] **Register-annotation `main`-truth has its own stop condition.** Step 1.5b's git-evidence checks (`git diff main..HEAD -- runtime.py` empty AND `git show main:.../runtime.py | sed -n '107,118p'` showing carve-outs) are mapped to a dedicated "Register-annotation `main`-truth check failed" stop condition rather than the "Live envelope evidence has changed" condition. The two failure modes are distinct: `main`/runtime divergence affects only the register annotation premise, not the envelope-probe diagnostic correction. Surface message reflects the actual failure.
 - [x] **Register annotation matches ticket reality.** Task 4 wording names AC #1, #2, AND #3 explicitly as the unchecked closure criteria; "only smoke and probe remain" was rejected because AC #3 (regression-assertion update + suite pass) is also unchecked.
 - [x] **Exit-condition cell replacement.** Task 4.4 replaces the T-20260429-01 row's Exit condition cell so it names AC #1-#3 closure work only. Task 4.2 (Current truth append) on its own would leave the row simultaneously asserting Phase 1 has landed AND that Phase 1 still needs to be landed — exactly the contradiction this plan exists to remove. Task 4.5 verification searches for surviving "Land the Phase 1" framing.
 - [x] **Register reconciliation scope is narrow.** No global "Last reconciled" bump. Only the T-20260429-01 row (Current truth + Exit condition cells) and priority `#1` line are touched; row-local recency is captured by the in-cell "As of 2026-05-09" stamp.
