@@ -152,6 +152,7 @@ Every match returned by the rg sweeps in Task 1.1, Task 2.6, Task 3.5, Task 4.5,
 | `interpretive-overclaim` | The match makes a claim against the rebaseline vocabulary that conflicts with `approval_router.py:103-111`. Bounded by the rules below. | Patch under the relevant Task 2 / Task 3 step, OR fire the "pre-edit sweep finds an overclaim site this plan does not enumerate" stop condition if the site is not enumerated. |
 | `corrected-language` | The match is post-patch wording that already names parser-kind compatibility, decision-shape lossiness, the all-strings fallback, or related rebaseline framing. | Preserve unchanged. |
 | `legacy-parser-route-vocabulary` | The match uses the May-1 probe-plan's narrower `supported` vocabulary in a way that does NOT make a response-shape / lossless-preservation / closability claim. See bounding rules below. | Preserve unchanged. Do not patch; do not fire the stop condition. |
+| `authority-source` | The match is in a section that this plan cites as a truth authority (Authority Basis items 1-2) and uses rebaseline-era framing (e.g., "decision-shape lossy", "response compatibility is not established", "lossless parser/response branch"). Distinct from `legacy-parser-route-vocabulary` — authority sections describe current decision-shape-lossy reality, not the May-1 narrower vocabulary. Primary instance: rebaseline plan lines 905-921 ("Command Approval Decision-Shape Boundary"). | Preserve unchanged. |
 | `unrelated` | The match's word appears in a context that has nothing to do with command-approval classification (e.g., "supported sandbox carve-outs", "supported plugin" in a different domain). | Preserve unchanged. |
 
 ### Bounding `legacy-parser-route-vocabulary` vs `interpretive-overclaim`
@@ -192,7 +193,7 @@ rg -n -i "supported|preserved|lossy|ready_to_close_ticket|proves compatibility|c
    docs/status/codex-collaboration-reconciliation-register.md
 ```
 
-Classify every match per the Sweep Classification Rules above. Acceptable terminal classifications: `raw-observation`, `corrected-language`, `legacy-parser-route-vocabulary`, `unrelated`. Unacceptable: `interpretive-overclaim` (any surviving site triggers the Task 5 stop condition).
+Classify every match per the Sweep Classification Rules above. Acceptable terminal classifications: `raw-observation`, `corrected-language`, `legacy-parser-route-vocabulary`, `authority-source`, `unrelated`. Unacceptable: `interpretive-overclaim` (any surviving site triggers the Task 5 stop condition).
 
 No surviving site may claim command-approval is "supported" in the rebaseline response-shape sense without the parser-kind / decision-shape-lossy qualification, or claim `availableDecisions` is "preserved" without naming the all-strings fallback condition, or list `item/commandExecution/requestApproval` under `supported_methods` / "observed supported methods" without that qualification, or assert "proves compatibility" for command-approval response semantics, or assert `ready_to_close_ticket: true` for `item/commandExecution/requestApproval`, or assert `architecture_spec_readiness_delta.ready: true` / "architecture spec can proceed" / "parseable against the current local compatibility boundary" without naming the decision-shape lossiness as a remaining response-semantics blocker. Legacy parser-route vocabulary in the T-20260429-02 ticket and the May-1 probe-plan vocabulary definitions is explicitly out of scope for this plan and remains untouched. The new patterns will also match `_legacy_architecture_spec_readiness_delta` block contents and the `_legacy_compatibility_classification` `notes` array (which preserves "parseable against the current local parser/runtime boundary" verbatim under May-1 vocabulary); those classify as `legacy-parser-route-vocabulary` per the bounding rules and are acceptable.
 
@@ -316,6 +317,7 @@ Classify each match using the same taxonomy below, noting that `architecture_spe
 Classify each match:
 
 - **Production consumer** — code under `packages/`, `scripts/`, `.claude/hooks/`, `extensions/`, or any executable path that reads the JSON file path or one of the classification field names. Read the consumer code; record (a) which field names it reads and (b) whether it honors any vocabulary-marker convention.
+- **Peer diagnostic data artifact** — a sibling or related diagnostic JSON file (e.g., `codex-app-server-scratch-home-runtime-probes.json`, `codex-app-server-materialized-thread-and-server-request-probes.json`) that contains the same field names as data, not as code that reads or interprets the target JSON. These are independent diagnostic captures with their own classification fields; they are NOT consumers of the target JSON's schema. Their own classification vocabulary is governed by whatever plan or diagnostic session produced them — not by this plan.
 - **Test fixture / synthetic data** — code that uses these field names for unrelated fixtures. Does not count as a consumer.
 - **Self-reference inside the JSON itself** — not a consumer.
 
@@ -566,6 +568,32 @@ rg -n -i "supported|preserved|proves compatibility|compatibility for the observe
 ```
 
 Expected: every match falls into raw-observation, the new qualified wording, or unrelated. No bare "supported" classification of command-approval. No bare "preserved" claim about `availableDecisions`. No "proves compatibility" assertion for command-approval response semantics. No bare "parseable against the current local compatibility boundary" without the decision-shape-lossy qualification. No "architecture spec can proceed only if it scopes server-request support to the observed methods" without the lossy-fallback risk reframing. If a surviving overclaim appears, return to Step 2.6.
+
+- [ ] **Step 2.7b: Markdown raw-facts preservation check (scrutiny follow-up 5).**
+
+Step 2.7's `rg` sweep verifies no surviving overclaim wording, but cannot detect accidental mutation of the raw-evidence layer in the `.md` file. This step spot-checks the six most distinctive raw-observation anchors to confirm they survived the interpretive-layer patches unchanged.
+
+```bash
+# Each grep must exit 0 (pattern found). Run all six; any non-zero exit means a raw fact was mutated.
+grep -qF 'item/commandExecution/requestApproval' docs/diagnostics/2026-05-01-codex-app-server-server-request-envelope-probes.md
+grep -qF '"acceptWithExecpolicyAmendment"' docs/diagnostics/2026-05-01-codex-app-server-server-request-envelope-probes.md
+grep -qF 'availableDecisions' docs/diagnostics/2026-05-01-codex-app-server-server-request-envelope-probes.md
+grep -qF '/bin/zsh -lc' docs/diagnostics/2026-05-01-codex-app-server-server-request-envelope-probes.md
+grep -qF 'No approval response was sent' docs/diagnostics/2026-05-01-codex-app-server-server-request-envelope-probes.md
+grep -qF 'itemId' docs/diagnostics/2026-05-01-codex-app-server-server-request-envelope-probes.md
+```
+
+Expected: all six exit `0`. These anchors correspond to:
+- The observed method string (`item/commandExecution/requestApproval`)
+- The structured decision entry (`"acceptWithExecpolicyAmendment"`)
+- The wire field name (`availableDecisions`)
+- The trigger command (`/bin/zsh -lc`)
+- The response-absence record (`No approval response was sent`)
+- A required correlation field (`itemId`)
+
+If any anchor is missing, a Task 2 edit accidentally removed or altered a raw-observation line. Revert the offending edit (check `git diff` for the specific change), re-apply the interpretive-layer patch only, and re-run Steps 2.7 and 2.7b.
+
+Note: this is a spot-check, not a byte-identical diff of the full raw-evidence layer (the `.md` mixes raw observations and interpretive text in the same document, unlike the JSON where `jq` projection cleanly separates them). The six anchors cover the most distinctive raw facts from the "Raw Envelope Facts To Preserve" enumeration; the full `rg` sweep in Step 2.7 provides additional coverage by surfacing any line that mentions these terms in unexpected context.
 
 - [ ] **Step 2.8: Stage the `.md` change.**
 
@@ -852,20 +880,36 @@ Expected: `diff` exits `0` with empty output.
 Steps 3.6 and 3.6b verify that raw evidence is unchanged and legacy blocks are verbatim. This step verifies the positive claim: that the NEW canonical blocks carry the intended rebaseline vocabulary values. The `rg` sweep can match key names but cannot reliably assert nested JSON boolean state; `jq -e` is the correct tool for that invariant.
 
 ```bash
+# Canonical value assertions (rebaseline vocabulary)
 jq -e '.architecture_spec_readiness_delta.ready == false' docs/diagnostics/codex-app-server-server-request-envelope-probes.json
-jq -e '._legacy_architecture_spec_readiness_delta.ready == true' docs/diagnostics/codex-app-server-server-request-envelope-probes.json
 jq -e '.observed_server_requests[0].local_compatibility == "parser_kind_compatible_decision_shape_lossy"' docs/diagnostics/codex-app-server-server-request-envelope-probes.json
-jq -e '.observed_server_requests[0]._legacy_local_compatibility == "supported"' docs/diagnostics/codex-app-server-server-request-envelope-probes.json
 jq -e '.compatibility_classification.status == "parser_kind_compatible_decision_shape_lossy"' docs/diagnostics/codex-app-server-server-request-envelope-probes.json
-jq -e '._legacy_compatibility_classification.status == "passed"' docs/diagnostics/codex-app-server-server-request-envelope-probes.json
+
+# Legacy preservation assertions (compare against pre-edit snapshot, not hard-coded values)
+# These assertions use the pre-edit legacy-block snapshot from Step 3.2 as the expected-value
+# source, so they remain correct even if the live JSON has drifted from plan-write-time values.
+PRE_LEGACY=/private/tmp/codex-collab-overclaim-fix-legacy-blocks-pre.json
+jq -e --argjson expected "$(jq '.architecture_spec_readiness_delta.ready' "$PRE_LEGACY")" \
+  '._legacy_architecture_spec_readiness_delta.ready == $expected' docs/diagnostics/codex-app-server-server-request-envelope-probes.json
+jq -e --arg expected "$(jq -r '.local_compatibility' "$PRE_LEGACY")" \
+  '.observed_server_requests[0]._legacy_local_compatibility == $expected' docs/diagnostics/codex-app-server-server-request-envelope-probes.json
+jq -e --arg expected "$(jq -r '.compatibility_classification.status' "$PRE_LEGACY")" \
+  '._legacy_compatibility_classification.status == $expected' docs/diagnostics/codex-app-server-server-request-envelope-probes.json
+
+# Vocabulary marker assertions (schema-boundary proof)
+jq -e '.classification_vocabulary == "rebaseline_parser_kind_and_response_shape_v1"' docs/diagnostics/codex-app-server-server-request-envelope-probes.json
+jq -e '.classification_supersedes.legacy_blocks | length == 3' docs/diagnostics/codex-app-server-server-request-envelope-probes.json
+jq -e '.classification_supersedes.legacy_vocabulary == "may_1_parser_route_v1"' docs/diagnostics/codex-app-server-server-request-envelope-probes.json
+jq -e '.classification_supersedes.fix_doc != null' docs/diagnostics/codex-app-server-server-request-envelope-probes.json
 ```
 
-Expected: all six assertions exit `0`. If any fails:
+Expected: all ten assertions exit `0`. If any fails:
 
 - A canonical assertion fails → the preserve-and-add edit in Step 3.3 is incomplete or used wrong vocabulary. Fix the specific field and re-run from Step 3.6 (the full pre-edit copy is the recovery reference if needed).
 - A legacy assertion fails → the legacy block was mutated during renaming. This should already have been caught by Step 3.6b, but serves as a defense-in-depth check. Recovery is the same as Step 3.6b's failure path.
+- A vocabulary marker assertion fails → Step 3.3 items 1-2 (add `classification_vocabulary` and `classification_supersedes`) are incomplete or malformed. Fix the specific marker and re-run from Step 3.6c (raw-evidence and legacy-block diffs do not need re-running — marker fields are additive and do not affect either projection).
 
-All six pass → delete temp files (`trash /private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.full.json /private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.json /private/tmp/codex-collab-overclaim-fix-raw-evidence-post.json /private/tmp/codex-collab-overclaim-fix-legacy-blocks-pre.json /private/tmp/codex-collab-overclaim-fix-legacy-blocks-post.json`). If `trash` is unavailable, leave the temp files in place and report their paths — do NOT use `rm`.
+All ten pass → delete temp files (`trash /private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.full.json /private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.json /private/tmp/codex-collab-overclaim-fix-raw-evidence-post.json /private/tmp/codex-collab-overclaim-fix-legacy-blocks-pre.json /private/tmp/codex-collab-overclaim-fix-legacy-blocks-post.json`). If `trash` is unavailable, leave the temp files in place and report their paths — do NOT use `rm`.
 
 Do NOT stage the JSON until all of Steps 3.6, 3.6b, AND 3.6c pass.
 
@@ -983,6 +1027,7 @@ Apply the Sweep Classification Rules from the top of this plan. Acceptable termi
 - `raw-observation` (preserved evidence) → OK.
 - `corrected-language` (post-patch wording — should now describe lossy fallback or parser-kind compatibility) → OK.
 - `legacy-parser-route-vocabulary` (T-20260429-02 ticket parser-route table, May-1 probe-plan vocabulary definitions) → OK.
+- `authority-source` (rebaseline plan "Command Approval Decision-Shape Boundary" section at lines 905-921; uses rebaseline-era framing, not May-1 vocabulary) → OK.
 - `unrelated` (different context, e.g., "supported sandbox carve-outs") → OK.
 
 Unacceptable: `interpretive-overclaim` → STOP. Do not commit. Surface to the user with file path, line number, current text, and proposed correction.
@@ -1060,7 +1105,7 @@ rg -n -i "supported|preserved|lossy|ready_to_close_ticket|proves compatibility|c
    docs/plans/2026-05-01-codex-app-server-client-platform-rebaseline-implementation-plan.md
 ```
 
-Classify each match per the Sweep Classification Rules. Matches from the Step 5.5 edit should classify as `corrected-language` (they describe the post-patch vocabulary). Matches from lines 905-921 ("Command Approval Decision-Shape Boundary" section) are `legacy-parser-route-vocabulary` — that section is an authority source, not a consumer. Any `interpretive-overclaim` classification means Step 5.5's replacement text is wrong — return to Step 5.5, fix, re-stage, and re-run this step.
+Classify each match per the Sweep Classification Rules. Matches from the Step 5.5 edit should classify as `corrected-language` (they describe the post-patch vocabulary). Matches from lines 905-921 ("Command Approval Decision-Shape Boundary" section) classify as `authority-source` — that section names the current decision-shape-lossy reality that this plan's corrections are grounded in; it is NOT legacy parser-route vocabulary (which would imply it uses the May-1 narrower `supported` sense). The section uses rebaseline-era framing ("decision-shape lossy", "response compatibility is not established", "lossless parser/response branch") and is one of this plan's two truth authorities (Authority Basis item 2). Matches from the "Parser-Context Mismatch Rows" section (lines 895-904) that mention parser rejection semantics for other methods are `unrelated` (different methods, different parser paths). Any `interpretive-overclaim` classification means Step 5.5's replacement text is wrong — return to Step 5.5, fix, re-stage, and re-run this step.
 
 Skip this step if Step 5.5 was skipped.
 
@@ -1241,3 +1286,8 @@ Run this before requesting plan approval. If any box is unchecked, fix in place.
 - [x] **Canonical-value `jq` assertions for JSON readiness boolean (scrutiny follow-up 4).** The `rg` sweep pattern matches the key name `architecture_spec_readiness_delta` but cannot match the nested `"ready": true` boolean value at the JSON line where it lives — the sweep returns lines 45580, 45582, and 45585 but not 45581. Step 3.6c adds six explicit `jq -e` assertions: three for canonical values (`architecture_spec_readiness_delta.ready == false`, `local_compatibility == "parser_kind_compatible_decision_shape_lossy"`, `compatibility_classification.status == "parser_kind_compatible_decision_shape_lossy"`) and three mirror assertions for legacy preservation (`_legacy_architecture_spec_readiness_delta.ready == true`, `_legacy_local_compatibility == "supported"`, `_legacy_compatibility_classification.status == "passed"`). This is the correct tool for asserting nested JSON boolean state; `rg` is structurally unable to do so.
 - [x] **Rebaseline plan in Task 0 target-file ownership (scrutiny follow-up 4).** Step 5.5 writes and stages `docs/plans/2026-05-01-codex-app-server-client-platform-rebaseline-implementation-plan.md`, but Task 0's target-file list previously listed only three files. If the rebaseline plan were already dirty before execution, Task 0 would classify it as "unrelated unstaged work" and allow proceeding, then Step 5.5 would absorb the pre-existing dirt into the commit. Task 0 now lists four target files; a dirty rebaseline plan fires the same stop-and-surface condition as the other three targets.
 - [x] **Post-write terminal sweep (scrutiny follow-up 4).** Step 5.1's broad sweep ran before Step 5.5 wrote new text into the rebaseline plan. Step 5.6 only checked `local_compatibility|architecture_spec_readiness_delta` — a narrow pattern that cannot catch wording-level overclaims in the new replacement text. Step 5.7 reruns the full sweep pattern against the rebaseline plan after Step 5.5's write, classifying each match per the Sweep Classification Rules. An `interpretive-overclaim` classification means Step 5.5's replacement text is wrong and triggers a fix-restage-rerun loop.
+- [x] **Vocabulary marker `jq` assertions (scrutiny follow-up 5).** Step 3.6c previously verified six value assertions (three canonical, three legacy) but never positively asserted that `classification_vocabulary` and `classification_supersedes` — the fields that make the preserve-and-add schema transition intelligible — actually exist. A worker could omit items 1-2 of Step 3.3 and still pass all six value checks. Step 3.6c now includes four vocabulary marker assertions: `classification_vocabulary` matches the expected string, `classification_supersedes.legacy_blocks` has exactly 3 entries, `classification_supersedes.legacy_vocabulary` matches, and `classification_supersedes.fix_doc` is non-null. Total assertions: ten (three canonical + three legacy + four markers).
+- [x] **Consumer discovery taxonomy includes peer diagnostic data artifacts (scrutiny follow-up 5).** Task 1.4's consumer-discovery classification had three buckets (production consumer, test fixture, self-reference). The broad `rg` pattern also surfaces sibling diagnostic JSON files (e.g., `codex-app-server-scratch-home-runtime-probes.json`) that contain the same field names as data, not as consumers. A worker encountering these hits had no classification bucket and would either misclassify them as production consumers (triggering a false stop condition) or leave them unclassified (violating the exhaustive-classification requirement). New `peer-diagnostic-data-artifact` classification added with explicit scoping: these are independent diagnostic captures, NOT consumers of the target JSON's schema.
+- [x] **Legacy assertions compare against pre-edit snapshot, not hard-coded literals (scrutiny follow-up 5).** Step 3.6c's legacy value assertions previously hard-coded `"supported"`, `"passed"`, and `true` — the values observed at plan-write time. Steps 3.3 items 3, 5, and 7 tell workers to copy live values (not plan-write-time values) if the JSON has drifted. A worker who correctly copies drifted legacy values would then fail the hard-coded assertions at Step 3.6c. Legacy assertions now read expected values from the pre-edit legacy-block snapshot (`/private/tmp/codex-collab-overclaim-fix-legacy-blocks-pre.json`) via `jq --argjson`/`--arg`, resolving the drift-tolerance contradiction.
+- [x] **Markdown raw-facts preservation check (scrutiny follow-up 5).** Step 2.7's `rg` sweep can detect surviving overclaim wording but cannot detect accidental removal of raw-evidence lines. The JSON has full programmatic enforcement (Steps 3.6/3.6b), but the `.md` had no analogous check — a Task 2 edit that accidentally deleted a raw-observation line would pass Step 2.7. New Step 2.7b spot-checks six distinctive raw-observation anchors (`item/commandExecution/requestApproval`, `"acceptWithExecpolicyAmendment"`, `availableDecisions`, `/bin/zsh -lc`, `No approval response was sent`, `itemId`) via `grep -qF`. This is a spot-check rather than a byte-identical diff because the `.md` mixes raw observations and interpretive text in the same document, unlike the JSON where `jq` projection cleanly separates them.
+- [x] **Rebaseline "Command Approval Decision-Shape Boundary" classified as `authority-source` (scrutiny follow-up 5).** Step 5.7 previously classified matches from the rebaseline plan's lines 905-921 as `legacy-parser-route-vocabulary`. That section uses rebaseline-era framing ("decision-shape lossy", "response compatibility is not established", "lossless parser/response branch") and is one of this plan's two truth authorities (Authority Basis item 2) — it describes current reality, not the May-1 narrower vocabulary. New `authority-source` classification added to the Sweep Classification Rules table. Verification section, Task 5.2, and Step 5.7 all updated to include `authority-source` as an acceptable terminal classification.
