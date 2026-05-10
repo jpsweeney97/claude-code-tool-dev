@@ -19,6 +19,7 @@ This plan implements:
 - Programmatic raw-evidence preservation: pre-edit jq-projection of immutable JSON paths captured to a deterministic temp file, post-edit re-projection, and `diff` exit-empty before staging.
 - Optional reconciliation-register annotation recording that `T-20260429-01` Phase 1 implementation has landed on `main`, with closure evidence still missing.
 - A verification sweep across May-1 diagnostics, the rebaseline plan, the friction-reduction ticket, and the register for residual overclaims.
+- Reconciliation of the rebaseline implementation plan's evidence-check section (lines 204-220) so its `jq` commands and expected-value bullets reflect the new canonical JSON vocabulary introduced by Task 3's preserve-and-add disposition. Without this update, a future worker following the rebaseline plan would hit an evidence mismatch when reading the post-patch JSON.
 - One commit covering all of the above, with a conditional commit-message template (sections marked CONDITIONAL must be edited to match the actually-staged file set before committing).
 
 This plan does not:
@@ -120,6 +121,7 @@ Read every item below before any write. Each read has a specific load-bearing pu
 | `packages/plugins/codex-collaboration/server/approval_router.py:90-115` | Confirm `_resolve_available_decisions` semantics; capture `_AVAILABLE_DECISIONS[command_approval]` tuple contents verbatim — used in Task 2 and Task 3 replacement wording. |
 | `packages/plugins/codex-collaboration/server/runtime.py` (line range 107-118 on `main`) | Confirm Phase 1 sandbox carve-outs are present; via `git show main:.../runtime.py | sed -n '107,118p'`. Drives Task 4 register annotation. Read on `main`, not the current branch. |
 | `docs/plans/2026-05-01-codex-app-server-client-platform-rebaseline-implementation-plan.md:895-925` | Anchor corrected wording to the repaired plan's framing ("decision-shape lossy", structured `acceptWithExecpolicyAmendment`, "lossless parser/response branch"). |
+| `docs/plans/2026-05-01-codex-app-server-client-platform-rebaseline-implementation-plan.md:204-220` | Evidence-check `jq` commands and expected-value bullets that read `local_compatibility` and `architecture_spec_readiness_delta` from the sibling JSON. These are Markdown-embedded consumers of the canonical JSON fields that Task 3 renames. Drives Task 5.5 reconciliation. |
 | `docs/diagnostics/2026-05-01-codex-app-server-server-request-envelope-probes.md` (full, with extra attention to lines ≈100-200) | Confirm the five enumerated overclaim sites; surface any other interpretive overclaims. |
 | `docs/diagnostics/codex-app-server-server-request-envelope-probes.json` (sibling JSON, may or may not exist) | Discover existence; if present, identify any parallel overclaim fields. Drives Task 3 disposition. |
 | `docs/status/codex-collaboration-reconciliation-register.md:9-70` | "Last reconciled" timestamp + priority order + `T-20260429-01` row "Current truth"/"Exit condition" cells. Drives Task 4 disposition. |
@@ -399,7 +401,7 @@ git show main:packages/plugins/codex-collaboration/server/runtime.py | sed -n '1
 Expected: output shows the `build_workspace_write_sandbox_policy` carve-outs (`~/.codex/memories`, `~/.codex/plugins/cache`, `~/.agents/skills`, `~/.agents/plugins`, plus dynamic gitdir resolution). Three outcomes:
 
 - **Carve-outs visible at lines 107-118** → record "lines 107-118 confirmed." Proceed.
-- **Carve-outs visible but at different line numbers** (line drift) → record the actual line range, update Task 4.2's annotation to reference the correct lines, and proceed. This is NOT a stop-condition failure; the implementation landed, only the line reference drifted.
+- **Carve-outs visible but at different line numbers** (line drift) → record the actual line range, update ALL `runtime.py:107-118` references in Task 4 (Step 4.2's annotation, Step 4.3's priority-line replacement text, AND Step 4.4's exit-condition replacement text) to reference the correct lines, and proceed. This is NOT a stop-condition failure; the implementation landed, only the line reference drifted.
 - **Carve-outs not found anywhere on `main`** (implementation not landed, or `git diff main..HEAD` is non-empty for `runtime.py`) → fire the "Register-annotation `main`-truth check failed" stop condition. Skip Task 4 entirely; surface so the register-annotation premise can be reconciled before any annotation is written. (Distinct from "Live envelope evidence has changed" — the envelope is unchanged; the failure is about `main`'s `runtime.py` state diverging from what Task 4's annotation would claim.)
 
 Record both checks' outcomes (the diff is empty, or it is not; the lines on `main` are X-Y showing the carve-outs). Task 4.2's wording depends on this proof — without it, "landed on `main`" is an unverified claim.
@@ -936,9 +938,9 @@ git add docs/status/codex-collaboration-reconciliation-register.md
 
 ---
 
-### Task 5: Final verification sweep
+### Task 5: Final verification sweep and rebaseline-plan reconciliation
 
-**Files:** read-only — no writes in this task.
+**Files:** read-only for Steps 5.1-5.4. Step 5.5 writes to the rebaseline implementation plan (conditional). If Step 5.3 surfaces a contradiction requiring a patch to a Task 2/3/4 target file, STOP — return to the owning task, patch, re-run that task's local verification step, re-stage, then restart Task 5 from Step 5.1. Do not patch within Task 5 itself.
 
 - [ ] **Step 5.1: Run the full sweep.**
 
@@ -972,7 +974,7 @@ Compare line-by-line:
 - Diagnostic `.md` corrected wording vs. JSON disposition (Task 3). Do they agree, or does the JSON path leave the diagnostic standing alone?
 - Register annotation (Task 4) vs. ticket acceptance criteria. Does the register's AC #1-#3 framing (smoke, credential-boundary probe, `test_runtime.py` regression assertion update + full-suite pass) match the ticket's checklist? AC #4 is already checked.
 
-If any pair contradicts, fix the loser before committing.
+If any pair contradicts: STOP. Identify the owning task (Task 2 for `.md` wording, Task 3 for JSON disposition, Task 4 for register). Return to that task, patch the contradiction, re-run the task's local verification step, re-stage, then restart Task 5 from Step 5.1. Do not patch within this task.
 
 - [ ] **Step 5.4: Confirm no code files are staged.**
 
@@ -980,15 +982,59 @@ If any pair contradicts, fix the loser before committing.
 git diff --cached --name-only
 ```
 
-Expected: only files under `docs/diagnostics/`, optionally `docs/status/codex-collaboration-reconciliation-register.md`. No `packages/`, no `.claude/hooks/`, no scripts. If a code file is staged, unstage and surface.
+Expected: only files under `docs/diagnostics/`, optionally `docs/status/codex-collaboration-reconciliation-register.md`, optionally `docs/plans/2026-05-01-codex-app-server-client-platform-rebaseline-implementation-plan.md` (staged later in Step 5.5). No `packages/`, no `.claude/hooks/`, no scripts. If a code file is staged, unstage and surface.
 
-(No commit at end of Task 5 — verification only.)
+- [ ] **Step 5.5: Reconcile the rebaseline implementation plan's evidence-check section.**
+
+The rebaseline plan at `docs/plans/2026-05-01-codex-app-server-client-platform-rebaseline-implementation-plan.md:204-220` contains `jq` commands and expected-value bullets that read canonical JSON fields whose vocabulary this plan changes. After Task 3's preserve-and-add disposition:
+
+- `jq '.observed_server_requests[0] | {..., local_compatibility}'` (line 209) still extracts the field, but its value is now `"parser_kind_compatible_decision_shape_lossy"` instead of `"supported"`.
+- `jq '.architecture_spec_readiness_delta'` (line 210) now returns the rebaseline-vocabulary block with `"ready": false`.
+
+Update lines 216-219 of the rebaseline plan to reflect the new canonical values:
+
+Old (lines 216-219):
+```
+- Observed method is `item/commandExecution/requestApproval`.
+- `has_id`, `threadId_present`, `turnId_present`, `itemId_present`, and `schema_visible` are true.
+- `local_compatibility` is `supported` in the probe summary, but this plan must refine that label to decision-shape-lossy because the raw envelope has structured `availableDecisions`.
+- Server-request architecture readiness is true only with observed-method scoping.
+```
+
+New:
+```
+- Observed method is `item/commandExecution/requestApproval`.
+- `has_id`, `threadId_present`, `turnId_present`, `itemId_present`, and `schema_visible` are true.
+- `local_compatibility` is `parser_kind_compatible_decision_shape_lossy` (post-overclaim-fix canonical vocabulary; legacy value `"supported"` preserved at `_legacy_local_compatibility`). The label already reflects the decision-shape-lossy classification introduced by the envelope-diagnostic overclaim fix.
+- `architecture_spec_readiness_delta.ready` is `false` (post-overclaim-fix canonical vocabulary; legacy value `true` preserved at `_legacy_architecture_spec_readiness_delta.ready`). Readiness is false because lossless `availableDecisions` preservation is not established for the observed command-approval envelope.
+```
+
+Stage the rebaseline plan change:
+
+```bash
+git add docs/plans/2026-05-01-codex-app-server-client-platform-rebaseline-implementation-plan.md
+```
+
+Skip this step if Task 3 was skipped (no JSON disposition applied — the canonical JSON fields are unchanged and the rebaseline plan's evidence-check expectations remain valid under the legacy vocabulary).
+
+- [ ] **Step 5.6: Confirm Markdown consumers of changed canonical keys are reconciled.**
+
+Run:
+
+```bash
+rg -n "local_compatibility|architecture_spec_readiness_delta" \
+   docs/plans/2026-05-01-codex-app-server-client-platform-rebaseline-implementation-plan.md
+```
+
+Expected: every match either (a) appears in a `jq` command that will extract the new canonical value, (b) appears in an expected-value bullet that names the new vocabulary, or (c) appears in the "Command Approval Decision-Shape Boundary" section (lines 905-921) which is an authority source, not a consumer of the JSON. No match should assert `local_compatibility` is `"supported"` or `architecture_spec_readiness_delta.ready` is `true` without a `_legacy_` qualifier.
+
+(No commit at end of Task 5 — verification and rebaseline-plan reconciliation only. The staging in Step 5.5 is included in Task 6's commit.)
 
 ---
 
 ### Task 6: Commit
 
-**Files:** previously staged via Steps 2.8, 3.7 (conditional), 4.6 (conditional).
+**Files:** previously staged via Steps 2.8, 3.7 (conditional), 4.6 (conditional), 5.5 (conditional — only when Task 3 ran).
 
 - [ ] **Step 6.1: Confirm staged set.**
 
@@ -996,7 +1042,7 @@ Expected: only files under `docs/diagnostics/`, optionally `docs/status/codex-co
 git status
 ```
 
-Expected: only the planned docs files appear in `git status` as staged. Pre-existing unrelated unstaged changes recorded in Task 0 may still be present in the working tree; that is acceptable. Confirm only the planned docs are staged for commit.
+Expected: only the planned docs files appear in `git status` as staged — `docs/diagnostics/` targets, optionally `docs/diagnostics/codex-app-server-server-request-envelope-probes.json` (Task 3), optionally `docs/status/codex-collaboration-reconciliation-register.md` (Task 4), and optionally `docs/plans/2026-05-01-codex-app-server-client-platform-rebaseline-implementation-plan.md` (Step 5.5, conditional on Task 3). Pre-existing unrelated unstaged changes recorded in Task 0 may still be present in the working tree; that is acceptable. Confirm only the planned docs are staged for commit.
 
 - [ ] **Step 6.2: Commit.**
 
@@ -1005,7 +1051,7 @@ Expected: only the planned docs files appear in `git status` as staged. Pre-exis
 - For each CONDITIONAL block whose corresponding task RAN (Task 3 staged the JSON via Step 3.7; Task 4 staged the register via Step 4.6), DELETE the `<!-- CONDITIONAL: ... -->` and `<!-- END CONDITIONAL -->` marker lines and KEEP the paragraph text between them.
 - For each CONDITIONAL block whose corresponding task was SKIPPED, DELETE both marker lines AND the paragraph text between them entirely.
 
-After editing, the body should contain only the sections that match the actually-staged file set from Steps 2.8, 3.7 (conditional), and 4.6 (conditional). The opening parser-correction paragraph and closing scope-unchanged paragraph are always retained.
+After editing, the body should contain only the sections that match the actually-staged file set from Steps 2.8, 3.7 (conditional), 4.6 (conditional), and 5.5 (conditional — same condition as Task 3). The opening parser-correction paragraph and closing scope-unchanged paragraph are always retained.
 
 After running the commit, Step 6.3's `git log -1 --format=%B HEAD` self-check confirms no `<!-- CONDITIONAL: ... -->` markers leaked into the actual commit message; if any remain, amend the commit message before pushing.
 
@@ -1052,7 +1098,10 @@ response-semantics blocker). A top-level
 marker names the active vocabulary; `classification_supersedes`
 documents the legacy blocks. Pre/post jq-projection of raw-observation
 paths confirmed byte-identical preservation of envelope captures,
-params keys, and probe rows.
+params keys, and probe rows. The rebaseline implementation plan's
+evidence-check section (lines 204-220) is updated so its `jq`
+expected-value bullets reflect the new canonical vocabulary — without
+this, a future worker would hit a false evidence mismatch.
 <!-- END CONDITIONAL -->
 
 <!-- CONDITIONAL: include only if Task 4 ran (register annotation applied; Step 4.6 staged the register). -->
@@ -1087,7 +1136,7 @@ git log -1 --format=%B HEAD | grep -F "<executing model email" || echo "OK: no c
 
 Expected:
 
-- The commit lists only `docs/diagnostics/2026-05-01-codex-app-server-server-request-envelope-probes.md` and any conditional files staged in Steps 3.7 / 4.6. No code files. Pre-existing unrelated unstaged changes from Task 0's snapshot may still be present in `git status`; verify those are unchanged from the snapshot (this plan's edits should not have modified them).
+- The commit lists only `docs/diagnostics/2026-05-01-codex-app-server-server-request-envelope-probes.md` and any conditional files staged in Steps 3.7 / 4.6 / 5.5. No code files. Pre-existing unrelated unstaged changes from Task 0's snapshot may still be present in `git status`; verify those are unchanged from the snapshot (this plan's edits should not have modified them).
 - The conditional-marker grep prints "OK: no conditional markers leaked" (cycle-4 self-check). If it prints any line containing `<!-- CONDITIONAL`, the commit message contains unedited template markers — the heredoc-edit instruction in Step 6.2 was not followed correctly. Amend the commit message before pushing: `git commit --amend` is acceptable here because the commit has not been pushed yet (this commit is local-only at this point in the plan).
 - Both co-author-placeholder greps print "OK" (scrutiny follow-up self-check). If either prints a match, the placeholder text was not replaced. Amend the commit message before pushing.
 
@@ -1149,3 +1198,7 @@ Run this before requesting plan approval. If any box is unchecked, fix in place.
 - [x] **Legacy-block preservation diff gate (scrutiny follow-up 2).** The raw-evidence projection (Step 3.6) explicitly excludes classification/interpretive fields — it cannot detect accidental modification of `_legacy_*` block contents. Step 3.2 now captures a pre-edit snapshot of the three interpretive blocks (`compatibility_classification`, `observed_server_requests[0].local_compatibility` + notes, `architecture_spec_readiness_delta`). New Step 3.6b extracts the renamed `_legacy_*` blocks post-edit (stripping the added `_vocabulary_note` fields), then diffs against the pre-edit snapshot. Non-empty diff is a data integrity failure with a defined recovery path (re-copy from full pre-edit reference). Step 3.7 staging now requires both Step 3.6 AND Step 3.6b to pass.
 - [x] **Target-file ownership in Task 0 (scrutiny follow-up 2).** Task 0 previously only guarded against unrelated dirty files outside the target set. Pre-existing changes in the three target files were unclassified — a prior partial run or concurrent edit could be silently committed as this plan's work. Task 0 now classifies target-file changes as a separate stop condition requiring user resolution before proceeding.
 - [x] **Recovery-path provenance guard (scrutiny follow-up 2).** Step 3.2's recovery instruction for case (b) (worktree mutated by partial Step 3.3) now requires verifying the worktree diff contains ONLY Step 3.3-shaped mutations before restoring from the full pre-edit copy. Unknown changes → STOP instead of overwrite.
+- [x] **Rebaseline plan is a canonical-JSON consumer (scrutiny follow-up 3).** Consumer discovery (Task 1.4) searched repo-local CODE only, but the rebaseline implementation plan at lines 204-220 contains `jq` commands that read `local_compatibility` and `architecture_spec_readiness_delta` — making it a Markdown-embedded executable consumer of the canonical JSON fields. After Task 3's preserve-and-add disposition, the expected-value bullets at lines 216-219 become stale (expect `"supported"` and `ready: true` where the canonical fields now carry rebaseline vocabulary). Step 5.5 reconciles these lines; Step 5.6 verifies no other rebaseline-plan references remain stale.
+- [x] **Task 5 read-only contradiction resolved (scrutiny follow-up 3).** Task 5 was declared read-only but Step 5.3 instructed workers to "fix the loser before committing" — creating an execution paradox. Now Task 5 header explicitly scopes read-only to Steps 5.1-5.4, Step 5.5 owns the rebaseline-plan write, and the contradiction-patch path is a defined stop-return-rerun loop rather than an in-task fix.
+- [x] **Line-drift handling covers all Task 4 references (scrutiny follow-up 3).** Step 1.5b's drift-adaptation instruction previously named only Task 4.2's annotation. The same `runtime.py:107-118` reference appears in Step 4.3's priority-line replacement text and Step 4.4's exit-condition replacement text. Drift instruction now enumerates all three sites explicitly.
+- [x] **Markdown consumers of canonical JSON keys checked (scrutiny follow-up 3).** Step 5.6 adds an explicit `rg` verification that the rebaseline plan's mentions of `local_compatibility` and `architecture_spec_readiness_delta` all agree with the post-patch canonical vocabulary. This closes the gap where code-only consumer discovery missed control documents that embed `jq` evidence-check contracts.
