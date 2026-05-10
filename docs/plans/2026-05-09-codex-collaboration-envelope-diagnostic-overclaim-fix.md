@@ -4,7 +4,7 @@
 
 **Goal:** Reconcile the committed May-1 server-request envelope-probe diagnostic with the repaired rebaseline implementation plan and `approval_router.py` reality, eliminating the docs-only contradiction without altering raw observation evidence.
 
-**Architecture:** Surgical doc edits. Preserve the diagnostic's raw observation layer (envelope contents, params keys, redacted summary, trigger command) untouched. Patch only the interpretive layer that conflicts with code reality. Mirror the correction in the diagnostic's sibling JSON via a preserve-and-add disposition: rename the original `compatibility_classification` and `local_compatibility` fields with a `_legacy_` prefix (preserving their May-1 parser-route vocabulary verbatim), add new fields under the same canonical keys carrying rebaseline-vocabulary classification, and add explicit `classification_vocabulary` + `classification_supersedes` markers documenting the boundary. Optionally annotate the reconciliation register so its priority order reflects landed implementation.
+**Architecture:** Surgical doc edits. Preserve the diagnostic's raw observation layer (envelope contents, params keys, redacted summary, trigger command) untouched, with programmatic enforcement via pre/post jq-projection diff. Patch only the interpretive layer that conflicts with code reality. Mirror the correction in the diagnostic's sibling JSON via a preserve-and-add disposition: rename the original `compatibility_classification`, `local_compatibility`, and `architecture_spec_readiness_delta` fields with a `_legacy_` prefix (preserving their May-1 parser-route vocabulary verbatim), add new fields under the same canonical keys carrying rebaseline-vocabulary classification, and add explicit `classification_vocabulary` + `classification_supersedes` markers documenting the boundary. Optionally annotate the reconciliation register so its priority order reflects landed implementation.
 
 **Tech Stack:** Markdown, JSON, ripgrep, jq, git.
 
@@ -14,11 +14,12 @@
 
 This plan implements:
 
-- Wording corrections to the envelope-probe diagnostic `.md` interpretive claims (four specific sites: classification line, "Local compatibility judgment" bullet block, "Compatibility result" bullet block, and "Important limit" first sentence).
-- A sibling-JSON disposition (preserve-and-add: rename existing `compatibility_classification` / `local_compatibility` to `_legacy_*` keys; add new rebaseline-vocabulary blocks under canonical keys; add `classification_vocabulary` + `classification_supersedes` markers).
+- Wording corrections to the envelope-probe diagnostic `.md` interpretive claims (five specific sites: classification line, "Local compatibility judgment" bullet block, "Compatibility result" bullet block, "Important limit" first sentence, and "Architecture Spec Readiness Delta" section).
+- A sibling-JSON disposition (preserve-and-add: rename existing `compatibility_classification` / `local_compatibility` / `architecture_spec_readiness_delta` to `_legacy_*` keys; add new rebaseline-vocabulary blocks under canonical keys; add `classification_vocabulary` + `classification_supersedes` markers).
+- Programmatic raw-evidence preservation: pre-edit jq-projection of immutable JSON paths captured to a deterministic temp file, post-edit re-projection, and `diff` exit-empty before staging.
 - Optional reconciliation-register annotation recording that `T-20260429-01` Phase 1 implementation has landed on `main`, with closure evidence still missing.
 - A verification sweep across May-1 diagnostics, the rebaseline plan, the friction-reduction ticket, and the register for residual overclaims.
-- One commit covering all of the above.
+- One commit covering all of the above, with a conditional commit-message template (sections marked CONDITIONAL must be edited to match the actually-staged file set before committing).
 
 This plan does not:
 
@@ -177,10 +178,10 @@ When a match is borderline, prefer `interpretive-overclaim` and surface for expl
 
 ## Verification
 
-Final pre-commit sweep, run from repo root. The pattern intentionally combines bare-word terms (`supported`, `preserved`, `lossy`, `ready_to_close_ticket`) with phrase patterns (`proves compatibility`, `compatibility for the observed`) and JSON-key patterns (`local_compatibility`, `supported_methods`) so neither a bare-word-only site nor a phrase/key-only site can slip past. The sweep is case-insensitive (`-i`) so capital-S "Supported" classifications surface alongside lowercase ones; classification (Sweep Classification Rules above) decides which matches are overclaims and which are legacy parser-route vocabulary:
+Final pre-commit sweep, run from repo root. The pattern intentionally combines bare-word terms (`supported`, `preserved`, `lossy`, `ready_to_close_ticket`) with phrase patterns (`proves compatibility`, `compatibility for the observed`, `architecture spec can proceed`, `parseable against`, `architecture spec readiness delta`) and JSON-key patterns (`local_compatibility`, `supported_methods`, `architecture_spec_readiness_delta`, `newly_satisfied_items`) so neither a bare-word-only site nor a phrase/key-only site can slip past. The architecture-readiness patterns (added in review-cycle 4) catch the parallel overclaim site at the diagnostic's "Architecture Spec Readiness Delta" section / `architecture_spec_readiness_delta` JSON block, where `ready: true` and `parseable against the current local compatibility boundary` previously slipped past the cycle-1 pattern. The sweep is case-insensitive (`-i`) so capital-S "Supported" classifications surface alongside lowercase ones; classification (Sweep Classification Rules above) decides which matches are overclaims and which are legacy parser-route vocabulary:
 
 ```bash
-rg -n -i "supported|preserved|lossy|ready_to_close_ticket|proves compatibility|compatibility for the observed|local_compatibility|supported_methods" \
+rg -n -i "supported|preserved|lossy|ready_to_close_ticket|proves compatibility|compatibility for the observed|local_compatibility|supported_methods|architecture_spec_readiness_delta|architecture spec readiness delta|architecture spec can proceed|parseable against|newly_satisfied_items" \
    docs/diagnostics/2026-05-01-codex-app-server-*.md \
    docs/diagnostics/codex-app-server-*.json \
    docs/plans/2026-05-01-codex-app-server-*.md \
@@ -190,7 +191,7 @@ rg -n -i "supported|preserved|lossy|ready_to_close_ticket|proves compatibility|c
 
 Classify every match per the Sweep Classification Rules above. Acceptable terminal classifications: `raw-observation`, `corrected-language`, `legacy-parser-route-vocabulary`, `unrelated`. Unacceptable: `interpretive-overclaim` (any surviving site triggers the Task 5 stop condition).
 
-No surviving site may claim command-approval is "supported" in the rebaseline response-shape sense without the parser-kind / decision-shape-lossy qualification, or claim `availableDecisions` is "preserved" without naming the all-strings fallback condition, or list `item/commandExecution/requestApproval` under `supported_methods` / "observed supported methods" without that qualification, or assert "proves compatibility" for command-approval response semantics, or assert `ready_to_close_ticket: true` for `item/commandExecution/requestApproval`. Legacy parser-route vocabulary in the T-20260429-02 ticket and the May-1 probe-plan vocabulary definitions is explicitly out of scope for this plan and remains untouched.
+No surviving site may claim command-approval is "supported" in the rebaseline response-shape sense without the parser-kind / decision-shape-lossy qualification, or claim `availableDecisions` is "preserved" without naming the all-strings fallback condition, or list `item/commandExecution/requestApproval` under `supported_methods` / "observed supported methods" without that qualification, or assert "proves compatibility" for command-approval response semantics, or assert `ready_to_close_ticket: true` for `item/commandExecution/requestApproval`, or assert `architecture_spec_readiness_delta.ready: true` / "architecture spec can proceed" / "parseable against the current local compatibility boundary" without naming the decision-shape lossiness as a remaining response-semantics blocker. Legacy parser-route vocabulary in the T-20260429-02 ticket and the May-1 probe-plan vocabulary definitions is explicitly out of scope for this plan and remains untouched. The new patterns will also match `_legacy_architecture_spec_readiness_delta` block contents and the `_legacy_compatibility_classification` `notes` array (which preserves "parseable against the current local parser/runtime boundary" verbatim under May-1 vocabulary); those classify as `legacy-parser-route-vocabulary` per the bounding rules and are acceptable.
 
 ---
 
@@ -233,7 +234,7 @@ Branch on the snapshot:
 - [ ] **Step 1.1: Pre-edit ripgrep sweep.**
 
 ```bash
-rg -n -i "supported|preserved|lossy|ready_to_close_ticket|proves compatibility|compatibility for the observed|local_compatibility|supported_methods" \
+rg -n -i "supported|preserved|lossy|ready_to_close_ticket|proves compatibility|compatibility for the observed|local_compatibility|supported_methods|architecture_spec_readiness_delta|architecture spec readiness delta|architecture spec can proceed|parseable against|newly_satisfied_items" \
    docs/diagnostics/2026-05-01-codex-app-server-*.md \
    docs/diagnostics/codex-app-server-*.json \
    docs/plans/2026-05-01-codex-app-server-*.md \
@@ -247,9 +248,11 @@ Expected: enumerate every match. For each match, annotate one of `raw-observatio
 
 Verification anchors:
 
-- The four enumerated overclaim sites in the diagnostic `.md` (≈lines 112, 169-174, 176-181, 185) MUST appear in the output and MUST be tagged `interpretive-overclaim`.
+- The five enumerated overclaim sites in the diagnostic `.md` (≈lines 112, 169-174, 176-181, 185, and the "Architecture Spec Readiness Delta" section at ≈lines 189-202 — specifically lines 195 and 202) MUST appear in the output and MUST be tagged `interpretive-overclaim`.
+- The JSON `architecture_spec_readiness_delta` block (≈lines 45580-45591 in `docs/diagnostics/codex-app-server-server-request-envelope-probes.json`) MUST surface — at minimum the `ready: true` line and the `newly_satisfied_items[2]` "parseable against the current local compatibility boundary" line — and MUST be tagged `interpretive-overclaim`.
 - The T-20260429-02 ticket's parser-route classification table rows (`Supported as <kind>` / `Supported (parked)` for `command_approval`, `file_change`, `request_user_input`) MUST be tagged `legacy-parser-route-vocabulary`. The T-20260429-02 ticket's acceptance-criterion language about "supported handling" / "Supported methods retain regression coverage" is also `legacy-parser-route-vocabulary`.
 - The May-1 probe-plan vocabulary definitions of `supported` / `unsupported` / `unknown` / `unparseable` (≈lines 666-672 of `2026-05-01-codex-app-server-server-request-envelope-probe-plan.md`) MUST be tagged `legacy-parser-route-vocabulary`.
+- The May-1 probe-plan's `architecture_spec_readiness_delta` template wording at lines ≈112, 135, 141 of `2026-05-01-codex-app-server-server-request-envelope-probe-plan.md` (and the analogous template lines in the materialized-thread and scratch-home probe plans) define the readiness-delta vocabulary itself. They are `legacy-parser-route-vocabulary` (vocabulary definition, not a fresh response-shape claim) and remain untouched.
 
 Stop conditions:
 
@@ -277,18 +280,19 @@ If it exists, run validation and search as separate commands so an invalid-JSON 
 jq '.' docs/diagnostics/codex-app-server-server-request-envelope-probes.json >/dev/null
 
 # Then search the validated file for overclaim paths.
-rg -n -i "supported|preserved|ready_to_close_ticket|local_compatibility|supported_methods|proves compatibility|compatibility for the observed" \
+rg -n -i "supported|preserved|ready_to_close_ticket|local_compatibility|supported_methods|proves compatibility|compatibility for the observed|architecture_spec_readiness_delta|newly_satisfied_items|parseable against" \
    docs/diagnostics/codex-app-server-server-request-envelope-probes.json
 ```
 
-Two known overclaim paths in the JSON (verified at orientation; reconfirm exact paths here):
+Three known overclaim paths in the JSON (verified at orientation; reconfirm exact paths here):
 
 - `observed_server_requests[0].local_compatibility: "supported"` (≈line 904)
 - `compatibility_classification.supported_methods: ["item/commandExecution/requestApproval"]` (≈line 913)
+- `architecture_spec_readiness_delta` block (≈lines 45580-45591), specifically `architecture_spec_readiness_delta.ready: true` (≈line 45581) and `architecture_spec_readiness_delta.newly_satisfied_items[2]` ("The observed item/commandExecution/requestApproval envelope is parseable against the current local compatibility boundary." — ≈line 45585). Note: this third site is the JSON parallel of the diagnostic `.md` "Architecture Spec Readiness Delta" section at lines 189-202; the parallel was missed in the cycle 1-3 plan and added in cycle 4. The `.ready: true` boolean is the strongest remaining JSON overclaim under rebaseline vocabulary — a worker patching only the first two enumerated paths leaves the readiness assertion standing.
 
-Both are in scope for Task 3 under the preserve-and-add disposition (described below). If the sweep surfaces additional overclaim paths within this same JSON file, the default is to STOP and surface (fire the "Pre-edit sweep finds an overclaim site this plan does not enumerate" stop condition). The narrow mechanical-mirror exception applies ONLY when the additional path is unambiguously the same kind of claim as one of the two enumerated paths — i.e., a binary `supported_methods`-style listing of `item/commandExecution/requestApproval` under the May-1 vocabulary, a sibling field claiming `availableDecisions` is `preserved: true`, or `ready_to_close_ticket: true` for command-approval — AND the path's parent object structure cleanly accepts the same legacy-rename + rebaseline-block-add treatment described in Step 3.2. Record each mechanical-mirror path for Task 3. Any additional path that does NOT meet both conditions → fire the stop condition; do not silently extend Task 3's edits to novel shapes.
+All three are in scope for Task 3 under the preserve-and-add disposition (described below). If the sweep surfaces additional overclaim paths within this same JSON file beyond these three, the default is to STOP and surface (fire the "Pre-edit sweep finds an overclaim site this plan does not enumerate" stop condition). The narrow mechanical-mirror exception applies ONLY when the additional path is unambiguously the same kind of claim as one of the three enumerated paths — i.e., a binary `supported_methods`-style listing of `item/commandExecution/requestApproval` under the May-1 vocabulary, a sibling field claiming `availableDecisions` is `preserved: true`, `ready_to_close_ticket: true` for command-approval, or a readiness-delta-style block claiming `ready: true` / "parseable against the current local compatibility boundary" for command-approval response semantics — AND the path's parent object structure cleanly accepts the same legacy-rename + rebaseline-block-add treatment described in Step 3.3. Record each mechanical-mirror path for Task 3. Any additional path that does NOT meet both conditions → fire the stop condition; do not silently extend Task 3's edits to novel shapes.
 
-**Vocabulary caveat (resolved by preserve-and-add).** The JSON's `compatibility_classification` block uses a binary vocabulary: `supported_methods` / `unsupported_methods` / `unknown_or_unparseable_methods` / `missing_required_fields`. The corrected classification we are introducing — *parser-kind compatible but decision-shape lossy* — has no slot in this vocabulary. Mutating `supported_methods` to `[]` while adding new sibling fields would silently shift an existing key's meaning without a vocabulary boundary marker, leaving programmatic readers to interpret `supported_methods: []` under the old binary semantics (which would be a new false historical claim). The preserve-and-add disposition resolves this: the original block is preserved unchanged under a renamed key (`_legacy_compatibility_classification`), so its old-vocabulary truth (`supported_methods: ["item/commandExecution/requestApproval"]` under May-1 parser-route vocabulary, which IS historically true) remains accessible to any reader who looks; a new `compatibility_classification` block under the rebaseline vocabulary is added alongside; an explicit `classification_vocabulary` marker names the active vocabulary; an optional `classification_supersedes` pointer records the legacy block's location. The same preserve-and-add pattern applies to `observed_server_requests[0].local_compatibility` (preserved as `_legacy_local_compatibility`; new `local_compatibility` under rebaseline vocabulary).
+**Vocabulary caveat (resolved by preserve-and-add).** The JSON's `compatibility_classification` block uses a binary vocabulary: `supported_methods` / `unsupported_methods` / `unknown_or_unparseable_methods` / `missing_required_fields`. The corrected classification we are introducing — *parser-kind compatible but decision-shape lossy* — has no slot in this vocabulary. Mutating `supported_methods` to `[]` while adding new sibling fields would silently shift an existing key's meaning without a vocabulary boundary marker, leaving programmatic readers to interpret `supported_methods: []` under the old binary semantics (which would be a new false historical claim). The same problem applies to `architecture_spec_readiness_delta.ready` — the boolean's meaning under May-1 vocabulary ("parser route exists for the observed method, required correlation fields present") differs from rebaseline ("response semantics proven for the observed method"); flipping `ready: true` → `ready: false` in place would mutate a field's meaning without a vocabulary marker. The preserve-and-add disposition resolves all three sites: the original block is preserved unchanged under a renamed key (`_legacy_compatibility_classification`, `_legacy_architecture_spec_readiness_delta`, etc.), so its old-vocabulary truth remains accessible to any reader who looks; a new block under the canonical key under rebaseline vocabulary is added alongside; an explicit `classification_vocabulary` marker names the active vocabulary; a `classification_supersedes` pointer records the legacy blocks' locations. The pattern applies uniformly: `compatibility_classification` → `_legacy_compatibility_classification` + new canonical block; `observed_server_requests[0].local_compatibility` → `_legacy_local_compatibility` + new canonical field; `architecture_spec_readiness_delta` → `_legacy_architecture_spec_readiness_delta` + new canonical block.
 
 **Consumer discovery (primarily informational, with one stop-condition exception).**
 
@@ -318,7 +322,34 @@ Stop conditions specific to this step:
 - JSON structure does not allow preserve-and-add (e.g., `_legacy_compatibility_classification` already exists with different content, or the parent object's schema rejects renamed keys) → fire the "JSON disposition unsafe" stop condition. Surface and ask before proceeding.
 - Consumer discovery surfaces a production consumer that reads any canonical field whose shape changes under preserve-and-add AND the consumer code does not tolerate the new shape (e.g., reads `compatibility_classification.supported_methods` directly without falling back to or checking for `fully_supported_methods` / `parser_kind_compatible_methods`) → fire the "JSON disposition unsafe" stop condition. The legacy block alone is not enough — the consumer reads the canonical key and would silently see undefined or malformed data after the new block lands. Surface; the user must decide whether to (a) keep the canonical key under May-1 vocabulary and put the rebaseline block at a non-canonical key (e.g., `compatibility_classification_rebaseline`), (b) update the consumer code to honor the new shape before this plan executes, or (c) defer the JSON reconciliation to a separate plan that can sequence consumer + JSON changes together.
 
-Task 3 implements the preserve-and-add structure described above using the consumer-discovery findings recorded here.
+**Derive raw-evidence projection paths (review-cycle 4).**
+
+The plan asserts that the JSON's existing raw-observation fields must remain unchanged under preserve-and-add. To enforce this programmatically, Step 3.2 captures a pre-edit projection of those paths to a temp file, and Step 3.6 re-extracts the same projection post-edit and `diff`s the two — empty diff confirms raw evidence is preserved, non-empty diff fails verification and fires the JSON-disposition-unsafe stop condition.
+
+The exact `jq` projection MUST be derived against the live JSON during this step, not lifted from the schematic example below. Re-read the JSON's structure (top-level keys, nested key names, array shapes) and confirm that each path you include in the projection (a) actually exists in the file at this revision and (b) corresponds to a raw-observation field, NOT a classification/interpretive field that this plan intends to mutate. Record the final projection verbatim for use in Steps 3.2 and 3.6.
+
+Schematic illustration (DO NOT use as-is — confirm paths against the live JSON):
+
+```bash
+jq '{
+  artifact_version: .artifact_version,
+  params_keys: .params_keys,
+  schema_visible_methods: .schema_visible_methods,
+  observed_envelopes: [.observed_server_requests[] | {
+    method, params_keys, redacted_envelope_summary, available_decisions
+  }],
+  trigger_command: .trigger_command,
+  scratch_environment: .scratch_environment
+}' docs/diagnostics/codex-app-server-server-request-envelope-probes.json
+```
+
+The illustrative paths above are likely close based on the cycle-2 enumerated raw-observation fields, but their exact JSON-shape (top-level vs nested, scalar vs array, key spellings) MUST be confirmed by reading the live JSON before this projection lands in Steps 3.2 / 3.6. Paths to INCLUDE: top-level identification metadata (e.g., `artifact_version`, `created_at` if present), envelope captures inside `observed_server_requests[*]` (`method`, `params_keys`, `redacted_envelope_summary`, `available_decisions`), schema-visible method listings, scratch environment metadata, trigger command, modified-paths arrays. Paths to EXCLUDE (all classification/interpretive fields are EXPECTED to mutate, including under `_legacy_*` renamed forms — the rename itself is a structural mutation): `compatibility_classification`, `_legacy_compatibility_classification`, `local_compatibility`, `_legacy_local_compatibility`, `architecture_spec_readiness_delta`, `_legacy_architecture_spec_readiness_delta`, `classification_vocabulary`, `classification_supersedes`.
+
+If the live JSON has a path that LOOKS LIKE a classification field but is actually raw observation (e.g., a `notes` array immediately under `observed_server_requests[*]` that is captured-as-observed rather than authored-as-interpretation), include it in the projection AND record the rationale. Workers should err toward over-projection; a false positive (pre/post diff fires on a legitimate edit) is recoverable in Step 3.6 (re-derive the projection minus the false-positive path and re-run), while a false negative (raw evidence mutated silently because it wasn't projected) is the failure mode this enforcement exists to prevent.
+
+**Temp-file path convention.** Steps 3.2 and 3.6 use a deterministic path under `/private/tmp` rather than bare `/tmp` (avoids macOS `/tmp` symlink ambiguity and shell-rewriting surprises) and includes the plan's slug for collision avoidance: `/private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.json` for the pre-edit snapshot. Step 3.6's diff command compares this file against a freshly-extracted post-edit projection. The pre-edit temp file persists across Steps 3.2-3.5 (do NOT delete it before Step 3.6 runs); Step 3.6 deletes it on successful diff or preserves it for inspection on failed diff.
+
+Task 3 implements the preserve-and-add structure described above using the consumer-discovery findings recorded here. Task 3's verification (Step 3.6 raw-evidence diff) uses the projection derived in this sub-section.
 
 - [ ] **Step 1.5: Determine register-annotation need AND prove "landed on `main`" with git evidence.**
 
@@ -377,7 +408,7 @@ If any of #1-#3 is now checked → recheck the register and adjust Task 4's word
 
 **Files:**
 
-- Modify: `docs/diagnostics/2026-05-01-codex-app-server-server-request-envelope-probes.md` (overclaim sites at ≈line 112 and ≈lines 169-174; reconfirmed in Task 1.1).
+- Modify: `docs/diagnostics/2026-05-01-codex-app-server-server-request-envelope-probes.md` (overclaim sites at ≈line 112; ≈lines 169-174; ≈lines 176-181; ≈line 185; and the "Architecture Spec Readiness Delta" section at ≈lines 189-202 — the fifth site is the cycle-4 addition that mirrors the JSON `architecture_spec_readiness_delta` block patched in Task 3; all reconfirmed in Task 1.1).
 
 - [ ] **Step 2.1: Replace the classification line.**
 
@@ -460,20 +491,65 @@ This packet proves parser-kind compatibility (envelope parsing succeeds and maps
 
 Preserve the paragraph immediately after this sentence ("It also does not collapse fail-closed behavior into 'clean lifecycle semantics'…") unchanged unless it now contradicts the corrected first sentence — in which case patch only the contradicting clause.
 
-- [ ] **Step 2.5: Re-read the surrounding "Compatibility Classification" and "Important limit" sections post-edit.**
+- [ ] **Step 2.5: Replace the "Architecture Spec Readiness Delta" section (≈lines 189-202; cycle-4 addition).**
 
-Look for downstream sentences that paraphrase the now-corrected bullets or sentences. If a summary sentence still says "supported" or "preserved" or "proves compatibility" without qualification, patch it to match. If a section ends with a "ticket effect" / "next step" line that follows from the old wording, ensure it now follows from the new wording.
+This section was missed by the cycle 1-3 plan and added in cycle 4. It mirrors the canonical-key parallel overclaim that the JSON `architecture_spec_readiness_delta` block (Task 3 Step 3.3 items 7-8) carries: both assert architecture-spec readiness without naming the decision-shape lossiness as a remaining response-semantics blocker.
 
-- [ ] **Step 2.6: Local rg verification of the modified file.**
+Old (verified excerpt — match against Task 1.1's enumerated text; preserve the section header and the first two "Newly satisfied items" bullets verbatim):
+
+```
+## Architecture Spec Readiness Delta
+
+Newly satisfied items:
+
+- scratch auth was established under isolated `CODEX_HOME` without credential copying
+- a live schema-visible server-request envelope was captured and redacted safely
+- the observed `item/commandExecution/requestApproval` envelope is parseable against the current local compatibility boundary
+
+Still missing:
+
+- coverage for other schema-visible server-request methods
+- runtime evidence for unknown / unsupported envelope handling under live conditions
+
+The architecture spec can proceed only if it scopes server-request support to the observed methods and keeps unobserved methods as explicit risks.
+```
+
+New:
+
+```
+## Architecture Spec Readiness Delta
+
+Newly satisfied items:
+
+- scratch auth was established under isolated `CODEX_HOME` without credential copying
+- a live schema-visible server-request envelope was captured and redacted safely
+- the observed `item/commandExecution/requestApproval` envelope is parseable via the parser's decision-shape-lossy fallback path; lossless preservation of `availableDecisions` is NOT established (see "Local compatibility judgment" above)
+
+Still missing:
+
+- coverage for other schema-visible server-request methods
+- runtime evidence for unknown / unsupported envelope handling under live conditions
+- a lossless parser/response branch for command-approval that preserves `availableDecisions` shape without falling back to `_AVAILABLE_DECISIONS[command_approval]` (see `docs/plans/2026-05-01-codex-app-server-client-platform-rebaseline-implementation-plan.md` "Command Approval Decision-Shape Boundary")
+
+The architecture spec can proceed only if it explicitly carries the decision-shape-lossy fallback as an unresolved response-semantics risk for command-approval (alongside the unobserved-method risks named above) — not as proven support. Scoping "support" to the observed method without that qualification would smuggle response-shape compatibility into the architecture's foundational assumptions; the parser's actual behavior at `approval_router.py:103-111` does not justify it.
+```
+
+Rationale: bullet 3 of "Newly satisfied items" previously asserted parseability without qualification — under May-1 vocabulary, "parseable" meant the parser produced a representation; under rebaseline vocabulary, it implies response-shape compatibility, which is exactly what the parser fallback breaks. The patched bullet retains the historical "parseable" finding but qualifies it as decision-shape lossy. The "Still missing" list grows to name the lossless parser/response branch as a remaining requirement (third bullet). The closing sentence's "scope server-request support to the observed methods" framing was the strongest remaining `.md` overclaim in the diagnostic — under rebaseline truth, the only observed method is decision-shape lossy, so "scoping support to it" smuggles the response-shape claim. The replacement reframes the proceed-conditional around explicit lossy-fallback risk rather than scoping support.
+
+- [ ] **Step 2.6: Re-read the surrounding "Compatibility Classification", "Important limit", "Architecture Spec Readiness Delta", and "Remaining Blockers" sections post-edit.**
+
+Look for downstream sentences that paraphrase the now-corrected bullets or sentences. If a summary sentence still says "supported" or "preserved" or "proves compatibility" or "parseable against" or "architecture spec can proceed" without qualification, patch it to match. If a section ends with a "ticket effect" / "next step" line that follows from the old wording, ensure it now follows from the new wording. Pay particular attention to the "Remaining Blockers" section that follows the Architecture Spec Readiness Delta (≈lines 204-208 pre-edit): blocker #1 ("Only `item/commandExecution/requestApproval` has live envelope evidence") may now read as if response-shape compatibility for that method is established; consider adding a parenthetical qualifier or a new blocker line naming the decision-shape lossiness as a remaining response-semantics blocker — but only if the existing wording would otherwise paraphrase a now-corrected upstream claim.
+
+- [ ] **Step 2.7: Local rg verification of the modified file.**
 
 ```bash
-rg -n -i "supported|preserved|proves compatibility|compatibility for the observed" \
+rg -n -i "supported|preserved|proves compatibility|compatibility for the observed|architecture spec can proceed|parseable against|architecture_spec_readiness_delta|architecture spec readiness delta|newly_satisfied_items" \
    docs/diagnostics/2026-05-01-codex-app-server-server-request-envelope-probes.md
 ```
 
-Expected: every match falls into raw-observation, the new qualified wording, or unrelated. No bare "supported" classification of command-approval. No bare "preserved" claim about `availableDecisions`. No "proves compatibility" assertion for command-approval response semantics. If a surviving overclaim appears, return to Step 2.5.
+Expected: every match falls into raw-observation, the new qualified wording, or unrelated. No bare "supported" classification of command-approval. No bare "preserved" claim about `availableDecisions`. No "proves compatibility" assertion for command-approval response semantics. No bare "parseable against the current local compatibility boundary" without the decision-shape-lossy qualification. No "architecture spec can proceed only if it scopes server-request support to the observed methods" without the lossy-fallback risk reframing. If a surviving overclaim appears, return to Step 2.6.
 
-- [ ] **Step 2.7: Stage the `.md` change.**
+- [ ] **Step 2.8: Stage the `.md` change.**
 
 ```bash
 git add docs/diagnostics/2026-05-01-codex-app-server-server-request-envelope-probes.md
@@ -495,14 +571,30 @@ git add docs/diagnostics/2026-05-01-codex-app-server-server-request-envelope-pro
 |---|---|
 | JSON does not exist | Skip to Task 4. |
 | JSON exists, no parallel overclaim | Skip to Task 4. |
-| JSON exists, has parallel overclaim (preserve-and-add applies) | Step 3.2. |
+| JSON exists, has parallel overclaim (preserve-and-add applies) | Step 3.2 (pre-edit raw-evidence snapshot) → Step 3.3 (apply preserve-and-add) → Steps 3.4-3.7. |
 | JSON disposition unsafe (structure does not allow preserve-and-add, or `_legacy_*` key already exists with different content) | Stop condition fired in Task 1.4; surface to user. |
 
-- [ ] **Step 3.2: Apply preserve-and-add disposition.**
+- [ ] **Step 3.2: Capture pre-edit raw-evidence snapshot (cycle-4 addition; only if Step 3.3 will run).**
 
-The JSON is mutated structurally (new keys + renamed keys), but no existing field's value or meaning is altered in place. The original `compatibility_classification` block is preserved verbatim under a renamed key with its old May-1 parser-route vocabulary semantics intact; a new `compatibility_classification` block under the rebaseline vocabulary is added alongside; explicit vocabulary marker and supersedes-pointer fields document the boundary. The same pattern applies to the per-request `local_compatibility` field.
+Run before any JSON edits. Uses the `jq` projection derived in Task 1.4's "Derive raw-evidence projection paths" sub-section. The projection captures every raw-observation path that this plan does NOT intend to mutate; Step 3.6 re-extracts the same projection post-edit and `diff`s the two to confirm raw evidence was preserved.
 
-After all edits, the JSON's existing raw-observation fields (params keys, redacted envelope summary, observed `availableDecisions` array, schema-visible methods listing, per-probe pass/fail rows, etc.) must remain unchanged.
+```bash
+jq '<projection from Task 1.4>' \
+   docs/diagnostics/codex-app-server-server-request-envelope-probes.json \
+   > /private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.json
+```
+
+(Replace `<projection from Task 1.4>` with the actual `jq` filter recorded in Task 1.4. Do NOT use the schematic illustration from Task 1.4 verbatim — it must be confirmed against the live JSON's actual paths.)
+
+Expected: exit `0`; the temp file exists and contains valid JSON. Verify with `jq '.' /private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.json >/dev/null` (also exits `0`). If either check fails, the projection is malformed; re-derive in Task 1.4 and re-run Step 3.2 before proceeding.
+
+The temp file persists across Steps 3.3, 3.4, and 3.5 — do NOT delete it before Step 3.6 runs. Step 3.6 deletes it on successful diff or preserves it for inspection on failed diff.
+
+- [ ] **Step 3.3: Apply preserve-and-add disposition (only if Step 3.2 ran).**
+
+The JSON is mutated structurally (new keys + renamed keys), but no existing field's value or meaning is altered in place. The original `compatibility_classification`, `local_compatibility`, and `architecture_spec_readiness_delta` blocks are preserved verbatim under renamed keys with their old May-1 parser-route vocabulary semantics intact; new blocks under the same canonical key names under the rebaseline vocabulary are added alongside; explicit vocabulary marker and supersedes-pointer fields document the boundary.
+
+After all edits, the JSON's existing raw-observation fields (params keys, redacted envelope summary, observed `availableDecisions` array, schema-visible methods listing, per-probe pass/fail rows, etc.) must remain unchanged. Step 3.6 enforces this programmatically by `diff`ing the post-edit projection against the Step 3.2 pre-edit snapshot.
 
 1. **Add a top-level `classification_vocabulary` marker** (next to `artifact_version`):
 
@@ -518,12 +610,13 @@ After all edits, the JSON's existing raw-observation fields (params keys, redact
    "classification_supersedes": {
      "legacy_blocks": [
        "$._legacy_compatibility_classification",
-       "$.observed_server_requests[0]._legacy_local_compatibility"
+       "$.observed_server_requests[0]._legacy_local_compatibility",
+       "$._legacy_architecture_spec_readiness_delta"
      ],
      "legacy_vocabulary": "may_1_parser_route_v1",
      "fix_doc": "docs/diagnostics/2026-05-01-codex-app-server-server-request-envelope-probes.md",
      "authority": "docs/plans/2026-05-01-codex-app-server-client-platform-rebaseline-implementation-plan.md#L905-L921",
-     "summary": "May-1 parser-route classification preserved under _legacy_* keys (paths in JSONPath notation); rebaseline-vocabulary classification under canonical keys names parser-kind compatibility and decision-shape lossiness."
+     "summary": "May-1 parser-route classification preserved under _legacy_* keys (paths in JSONPath notation); rebaseline-vocabulary classification under canonical keys names parser-kind compatibility and decision-shape lossiness. Architecture-readiness assertion (legacy: ready=true with parseable-against-boundary newly-satisfied item) preserved verbatim under _legacy_architecture_spec_readiness_delta; new canonical block carries ready=false with decision-shape lossy fallback named as a remaining response-semantics blocker."
    }
    ```
 
@@ -573,15 +666,56 @@ After all edits, the JSON's existing raw-observation fields (params keys, redact
    ]
    ```
 
-7. **Apply the same preserve-and-add to any additional mechanical-mirror paths** identified in Task 1.4 (per the narrow exception). For each: rename existing key with `_legacy_` prefix; add new key under the rebaseline vocabulary referencing the same fallback explanation. Do not improvise on novel shapes — those should have stopped Task 1.4.
+7. **Rename `architecture_spec_readiness_delta` → `_legacy_architecture_spec_readiness_delta`** (≈line 45580; cycle-4 addition). Preserve all contents verbatim. Add a single sibling field inside the renamed block to remind readers of its vocabulary:
 
-8. **Any field claiming `availableDecisions` is `preserved: true`** (if surfaced as a mechanical-mirror path): rename to `_legacy_availability_preservation` (or analogous `_legacy_*` key matching the original key name) and add a new sibling field under the rebaseline vocabulary naming the all-strings fallback. Use the same fallback-tuple wording.
+   ```json
+   "_legacy_architecture_spec_readiness_delta": {
+     "_vocabulary_note": "May-1 parser-route vocabulary (see top-level classification_supersedes). 'ready' here means: parser route exists for the observed method and required correlation fields are present; 'parseable against the current local compatibility boundary' refers to parser-kind compatibility, not response-shape compatibility.",
+     "ready": true,
+     "newly_satisfied_items": [
+       "Scratch auth was established under isolated CODEX_HOME without credential copying.",
+       "A live schema-visible server-request envelope was captured and redacted safely.",
+       "The observed item/commandExecution/requestApproval envelope is parseable against the current local compatibility boundary."
+     ],
+     "still_missing_items": [
+       "Envelope coverage for other schema-visible server-request methods remains unobserved and should be carried as explicit risk if relied upon.",
+       "Fail-closed lifecycle cleanliness for unsupported or unknown methods remains a separate runtime-quality concern."
+     ]
+   }
+   ```
 
-9. **Any field flagged `ready_to_close_ticket: true` for command-approval** (if surfaced as a mechanical-mirror path): rename to `_legacy_ready_to_close_ticket` and add a new sibling field set to `false` with a note naming the missing closure work (smoke + credential-boundary probe + lossless parser/response branch).
+   (Snippet is **schematic**: the `_vocabulary_note` field is new and added by this step; `ready`, `newly_satisfied_items`, and `still_missing_items` are preserved VERBATIM from the existing `architecture_spec_readiness_delta` block — the values shown above were captured at plan-write time. Re-read the live JSON during Task 1.4 and copy the actual current values rather than the values shown here, in case the JSON has drifted since plan-write time.)
+
+8. **Add a new `architecture_spec_readiness_delta` block** alongside the renamed one, under rebaseline vocabulary:
+
+   ```json
+   "architecture_spec_readiness_delta": {
+     "ready": false,
+     "newly_satisfied_items": [
+       "Scratch auth was established under isolated CODEX_HOME without credential copying.",
+       "A live schema-visible server-request envelope was captured and redacted safely.",
+       "The observed item/commandExecution/requestApproval envelope is parseable via the parser's decision-shape-lossy fallback path; lossless preservation of availableDecisions is NOT established."
+     ],
+     "still_missing_items": [
+       "Envelope coverage for other schema-visible server-request methods remains unobserved and should be carried as explicit risk if relied upon.",
+       "Fail-closed lifecycle cleanliness for unsupported or unknown methods remains a separate runtime-quality concern.",
+       "A lossless parser/response branch for command-approval that preserves availableDecisions shape without falling back to _AVAILABLE_DECISIONS[command_approval] (see docs/plans/2026-05-01-codex-app-server-client-platform-rebaseline-implementation-plan.md 'Command Approval Decision-Shape Boundary')."
+     ],
+     "notes": [
+       "ready=false because command-approval response semantics are not proven: _resolve_available_decisions (approval_router.py:103-111) falls back to _AVAILABLE_DECISIONS[command_approval] = ('accept', 'acceptForSession', 'acceptWithExecpolicyAmendment', 'applyNetworkPolicyAmendment', 'decline', 'cancel') under the observed mixed availableDecisions, collapsing the structured acceptWithExecpolicyAmendment payload and adding three decisions never offered by the wire. The architecture spec can proceed only if it explicitly carries this lossy fallback as an unresolved response-semantics risk for command-approval."
+     ]
+   }
+   ```
+
+9. **Apply the same preserve-and-add to any additional mechanical-mirror paths** identified in Task 1.4 (per the narrow exception). For each: rename existing key with `_legacy_` prefix; add new key under the rebaseline vocabulary referencing the same fallback explanation. Do not improvise on novel shapes — those should have stopped Task 1.4.
+
+10. **Any field claiming `availableDecisions` is `preserved: true`** (if surfaced as a mechanical-mirror path): rename to `_legacy_availability_preservation` (or analogous `_legacy_*` key matching the original key name) and add a new sibling field under the rebaseline vocabulary naming the all-strings fallback. Use the same fallback-tuple wording.
+
+11. **Any field flagged `ready_to_close_ticket: true` for command-approval** (if surfaced as a mechanical-mirror path): rename to `_legacy_ready_to_close_ticket` and add a new sibling field set to `false` with a note naming the missing closure work (smoke + credential-boundary probe + lossless parser/response branch).
 
 Do not delete or rewrite raw observation fields (params keys, redacted envelope summary, observed `availableDecisions` array, etc.).
 
-- [ ] **Step 3.3: Validate JSON (only if Step 3.2 ran).**
+- [ ] **Step 3.4: Validate JSON (only if Step 3.3 ran).**
 
 ```bash
 jq '.' docs/diagnostics/codex-app-server-server-request-envelope-probes.json >/dev/null
@@ -589,10 +723,10 @@ jq '.' docs/diagnostics/codex-app-server-server-request-envelope-probes.json >/d
 
 Expected: exit `0`. If non-zero, fix the JSON before staging.
 
-- [ ] **Step 3.4: Local rg verification (only if Step 3.2 ran).**
+- [ ] **Step 3.5: Local rg verification (only if Step 3.3 ran).**
 
 ```bash
-rg -n -i "supported|preserved|ready_to_close_ticket" \
+rg -n -i "supported|preserved|ready_to_close_ticket|architecture_spec_readiness_delta|newly_satisfied_items|parseable against" \
    docs/diagnostics/codex-app-server-server-request-envelope-probes.json
 ```
 
@@ -601,11 +735,33 @@ Expected:
 - The `_legacy_compatibility_classification` block still matches `supported_methods` because its contents are intentionally preserved verbatim under May-1 parser-route vocabulary. This is acceptable: the `_legacy_` prefix combined with the top-level `classification_vocabulary` marker scopes the legacy block's "supported" semantics explicitly to May-1 vocabulary; future readers see clean reclassification rather than mutated history.
 - The new `compatibility_classification` block must NOT contain `supported_methods` as a non-empty array under the rebaseline vocabulary — it should have `fully_supported_methods: []`, with `parser_kind_compatible_methods` and `decision_shape_lossy_methods` carrying the actual method.
 - The new `local_compatibility` field (alongside `_legacy_local_compatibility`) must NOT contain bare `"supported"` — it should name the lossy class (e.g., `"parser_kind_compatible_decision_shape_lossy"`).
-- No surviving `preserved: true` or `ready_to_close_ticket: true` for command-approval outside of `_legacy_*` blocks.
+- The `_legacy_architecture_spec_readiness_delta` block matches `architecture_spec_readiness_delta`, `newly_satisfied_items`, and `parseable against` because its contents are intentionally preserved verbatim under May-1 parser-route vocabulary (cycle-4 addition). This is acceptable for the same reason as `_legacy_compatibility_classification`.
+- The new `architecture_spec_readiness_delta` block (alongside `_legacy_architecture_spec_readiness_delta`) must contain `ready: false` (NOT `true`); its `newly_satisfied_items` third bullet must qualify "parseable" as decision-shape-lossy fallback (NOT bare "parseable against"); its `still_missing_items` must include the lossless parser/response branch as a remaining requirement.
+- No surviving `preserved: true` or `ready_to_close_ticket: true` for command-approval outside of `_legacy_*` blocks. No surviving `architecture_spec_readiness_delta.ready: true` outside `_legacy_*` blocks.
 
-Cross-check: every line returned by the sweep should be classifiable as either (a) inside a `_legacy_*` block (acceptable — preserved-vocabulary semantics), (b) inside the new rebaseline block (acceptable — names parser-kind compatibility / decision-shape lossiness explicitly), or (c) raw observation outside any classification block (acceptable — evidence layer). Any line that does NOT classify as one of these → return to Step 3.2; the preserve-and-add was incomplete or a mechanical-mirror path was missed in Task 1.4.
+Cross-check: every line returned by the sweep should be classifiable as either (a) inside a `_legacy_*` block (acceptable — preserved-vocabulary semantics), (b) inside the new rebaseline block (acceptable — names parser-kind compatibility / decision-shape lossiness / response-semantics-risk explicitly), or (c) raw observation outside any classification block (acceptable — evidence layer). Any line that does NOT classify as one of these → return to Step 3.3; the preserve-and-add was incomplete or a mechanical-mirror path was missed in Task 1.4.
 
-- [ ] **Step 3.5: Stage the JSON change (only if Step 3.2 ran).**
+- [ ] **Step 3.6: Post-edit raw-evidence diff (cycle-4 addition; only if Step 3.3 ran).**
+
+Re-extract the same `jq` projection as Step 3.2 (the projection derived in Task 1.4) from the post-edit JSON, then `diff` against the pre-edit snapshot at `/private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.json`:
+
+```bash
+jq '<projection from Task 1.4>' \
+   docs/diagnostics/codex-app-server-server-request-envelope-probes.json \
+   > /private/tmp/codex-collab-overclaim-fix-raw-evidence-post.json
+
+diff -u /private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.json \
+        /private/tmp/codex-collab-overclaim-fix-raw-evidence-post.json
+```
+
+Expected: `diff` exits `0` with empty output. The projection covers raw-observation fields only; if Step 3.3 mutated only classification/interpretive fields (as the plan requires), the projection's output should be byte-identical pre- and post-edit.
+
+- **Diff is empty (exit `0`)** → raw evidence is preserved. Delete both temp files (`trash /private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.json /private/tmp/codex-collab-overclaim-fix-raw-evidence-post.json` or `rm` if `trash` is unavailable; the per-project safety policy permits removing these scratch artifacts since they were created in this step) and proceed to Step 3.7.
+- **Diff is non-empty** → fire the JSON-disposition-unsafe stop condition. Either Step 3.3 mutated a raw-observation field (regression — surface the specific path, the pre-value, and the post-value to the user; revert the JSON edit and re-attempt Step 3.3 with that path treated as immutable) OR the projection in Task 1.4 included a path that should be excluded (false positive — re-derive the projection in Task 1.4, replace it in Steps 3.2 / 3.6, and re-run from Step 3.2). Preserve both temp files for inspection; do NOT delete them. Do NOT stage the JSON until the diff is empty.
+
+If the projection's correctness is itself in question (e.g., Task 1.4 was deferred or rushed), prefer the failing-diff-as-stop interpretation over the false-positive interpretation; Task 1.4 is the load-bearing step and is not bypassed by Step 3.6 finding a diff.
+
+- [ ] **Step 3.7: Stage the JSON change (only if Step 3.3 ran AND Step 3.6 diff was empty).**
 
 ```bash
 git add docs/diagnostics/codex-app-server-server-request-envelope-probes.json
@@ -704,7 +860,7 @@ git add docs/status/codex-collaboration-reconciliation-register.md
 - [ ] **Step 5.1: Run the full sweep.**
 
 ```bash
-rg -n -i "supported|preserved|lossy|ready_to_close_ticket|proves compatibility|compatibility for the observed|local_compatibility|supported_methods" \
+rg -n -i "supported|preserved|lossy|ready_to_close_ticket|proves compatibility|compatibility for the observed|local_compatibility|supported_methods|architecture_spec_readiness_delta|architecture spec readiness delta|architecture spec can proceed|parseable against|newly_satisfied_items" \
    docs/diagnostics/2026-05-01-codex-app-server-*.md \
    docs/diagnostics/codex-app-server-*.json \
    docs/plans/2026-05-01-codex-app-server-*.md \
@@ -749,7 +905,7 @@ Expected: only files under `docs/diagnostics/`, optionally `docs/status/codex-co
 
 ### Task 6: Commit
 
-**Files:** previously staged via Steps 2.7, 3.5 (conditional), 4.6 (conditional).
+**Files:** previously staged via Steps 2.8, 3.7 (conditional), 4.6 (conditional).
 
 - [ ] **Step 6.1: Confirm staged set.**
 
@@ -760,6 +916,17 @@ git status
 Expected: only the planned docs files appear in `git status` as staged. Pre-existing unrelated unstaged changes recorded in Task 0 may still be present in the working tree; that is acceptable. Confirm only the planned docs are staged for commit.
 
 - [ ] **Step 6.2: Commit.**
+
+**Edit the heredoc body before running the commit command (cycle-4 template).** The body below contains two CONDITIONAL paragraphs marked with `<!-- CONDITIONAL: ... -->` and `<!-- END CONDITIONAL -->` HTML-style markers. Edit the heredoc body so that:
+
+- For each CONDITIONAL block whose corresponding task RAN (Task 3 staged the JSON via Step 3.7; Task 4 staged the register via Step 4.6), DELETE the `<!-- CONDITIONAL: ... -->` and `<!-- END CONDITIONAL -->` marker lines and KEEP the paragraph text between them.
+- For each CONDITIONAL block whose corresponding task was SKIPPED, DELETE both marker lines AND the paragraph text between them entirely.
+
+After editing, the body should contain only the sections that match the actually-staged file set from Steps 2.8, 3.7 (conditional), and 4.6 (conditional). The opening parser-correction paragraph and closing scope-unchanged paragraph are always retained.
+
+After running the commit, Step 6.3's `git log -1 --format=%B HEAD` self-check confirms no `<!-- CONDITIONAL: ... -->` markers leaked into the actual commit message; if any remain, amend the commit message before pushing.
+
+**Co-author trailer.** The trailer line shown below names `Claude Opus 4.7 (1M context)` because that is the model identity at plan-write time. Replace it with the model identity reported by the executing session (e.g., `Claude Opus 4.7 (1M context)`, `Claude Sonnet 4.6`, `gpt-5-codex`, etc.), or omit the trailer line entirely if the executing context does not have a stable identity claim. Do not commit the placeholder `<executing model identity>` text.
 
 ```bash
 git commit -m "$(cat <<'EOF'
@@ -778,35 +945,48 @@ collapses the structured `acceptWithExecpolicyAmendment` into a bare
 string (payload dropped), and adds `acceptForSession`,
 `applyNetworkPolicyAmendment`, and `decline` (none offered by the
 wire). Lossiness is bidirectional: payload loss + spurious additions.
-
 This commit corrects the diagnostic's interpretive layer; raw
-envelope observations are preserved unchanged. The sibling JSON is
-reconciled via preserve-and-add: the original
-`compatibility_classification` and `local_compatibility` fields are
-renamed with a `_legacy_` prefix (preserving their May-1 parser-route
-vocabulary verbatim — the original `supported_methods:
+envelope observations are preserved unchanged, with programmatic
+pre/post jq-projection verification.
+
+<!-- CONDITIONAL: include only if Task 3 ran (JSON disposition applied; Step 3.7 staged the JSON). -->
+The sibling JSON is reconciled via preserve-and-add: the original
+`compatibility_classification`, `local_compatibility`, and
+`architecture_spec_readiness_delta` blocks are renamed with a
+`_legacy_` prefix (preserving their May-1 parser-route vocabulary
+verbatim — the original `supported_methods:
 ["item/commandExecution/requestApproval"]` remains historically true
-under that vocabulary), and new fields under the canonical key names
-carry rebaseline-vocabulary classification (`fully_supported_methods:
-[]`; `parser_kind_compatible_methods` and
-`decision_shape_lossy_methods` enumerate the method explicitly). A
-top-level `classification_vocabulary:
-"rebaseline_parser_kind_and_response_shape_v1"` marker names the
-active vocabulary; `classification_supersedes` documents the legacy
-blocks. Optional register annotation records that T-20260429-01
+under that vocabulary, as does `architecture_spec_readiness_delta.ready:
+true` under May-1 parser-kind-only readiness vocabulary), and new
+blocks under the canonical key names carry rebaseline-vocabulary
+classification (`fully_supported_methods: []`; `parser_kind_compatible_methods`
+and `decision_shape_lossy_methods` enumerate the method explicitly;
+`architecture_spec_readiness_delta.ready: false` with the lossy
+fallback named in `still_missing_items` as a remaining
+response-semantics blocker). A top-level
+`classification_vocabulary: "rebaseline_parser_kind_and_response_shape_v1"`
+marker names the active vocabulary; `classification_supersedes`
+documents the legacy blocks. Pre/post jq-projection of raw-observation
+paths confirmed byte-identical preservation of envelope captures,
+params keys, and probe rows.
+<!-- END CONDITIONAL -->
+
+<!-- CONDITIONAL: include only if Task 4 ran (register annotation applied; Step 4.6 staged the register). -->
+Optional register annotation records that T-20260429-01
 Phase 1 implementation has landed on main; the T-20260429-01 row
 Exit condition cell is replaced so it names AC #1-#3 closure work
 only (comparable `/delegate` smoke with avoidable sandbox-friction
 escalations <=2; credential-boundary probe; `test_runtime.py`
 regression assertion update + full codex-collaboration suite pass).
 AC #4 (Option F upstream limitation) is already checked.
+<!-- END CONDITIONAL -->
 
 T-20260429-02 method-by-method classification scope is unchanged
 and not addressed here. The T-20260429-02 ticket's parser-route
 "Supported as <kind>" / "Supported (parked)" wording is May-1
 legacy parser-route vocabulary and remains untouched.
 
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+Co-Authored-By: <executing model identity, e.g., Claude Opus 4.7 (1M context)> <noreply@anthropic.com>
 EOF
 )"
 ```
@@ -816,9 +996,15 @@ EOF
 ```bash
 git status
 git log -1 --stat
+git log -1 --format=%B HEAD | grep -F "<!-- CONDITIONAL" || echo "OK: no conditional markers leaked"
+git log -1 --format=%B HEAD | grep -F "<executing model identity" || echo "OK: no co-author placeholder leaked"
 ```
 
-Expected: the commit lists only `docs/diagnostics/2026-05-01-codex-app-server-server-request-envelope-probes.md` and any conditional files staged in Steps 3.5 / 4.6. No code files. Pre-existing unrelated unstaged changes from Task 0's snapshot may still be present in `git status`; verify those are unchanged from the snapshot (this plan's edits should not have modified them).
+Expected:
+
+- The commit lists only `docs/diagnostics/2026-05-01-codex-app-server-server-request-envelope-probes.md` and any conditional files staged in Steps 3.7 / 4.6. No code files. Pre-existing unrelated unstaged changes from Task 0's snapshot may still be present in `git status`; verify those are unchanged from the snapshot (this plan's edits should not have modified them).
+- The conditional-marker grep prints "OK: no conditional markers leaked" (cycle-4 self-check). If it prints any line containing `<!-- CONDITIONAL`, the commit message contains unedited template markers — the heredoc-edit instruction in Step 6.2 was not followed correctly. Amend the commit message before pushing: `git commit --amend` is acceptable here because the commit has not been pushed yet (this commit is local-only at this point in the plan).
+- The co-author-placeholder grep prints "OK: no co-author placeholder leaked" (cycle-4 self-check). If it prints any line containing `<executing model identity`, the placeholder text was not replaced. Amend the commit message before pushing.
 
 ---
 
@@ -828,19 +1014,19 @@ Run this before requesting plan approval. If any box is unchecked, fix in place.
 
 - [x] **Spec coverage.** Each of the user's six requested sections is present and explicit:
   1. Raw envelope facts to preserve → "Raw Envelope Facts To Preserve" section.
-  2. Interpretive overclaims to patch → "Interpretive Overclaims To Patch" section (four sites).
+  2. Interpretive overclaims to patch → "Interpretive Overclaims To Patch" section (five sites — four original plus the cycle-4-added "Architecture Spec Readiness Delta" section).
   3. Authority basis: `approval_router.py` + repaired rebaseline plan → "Authority Basis" section + Vocabulary Succession sub-section.
   4. Files to inspect before edit, including JSON → "Files To Inspect Before Edit" table.
   5. Stop condition for JSON disposition → "Stop Conditions" section + Task 1.4 (preserve-and-add disposition + consumer discovery as informational contract record) + Task 3 (preserve-and-add structural edits).
   6. Verification rg pattern covers bare-word terms (`supported`/`preserved`/`lossy`/`ready_to_close_ticket`) plus phrase patterns (`proves compatibility`/`compatibility for the observed`) plus JSON-key patterns (`local_compatibility`/`supported_methods`); case-insensitive (`-i`) so capital-S "Supported" wording surfaces alongside lowercase → "Verification" section + Task 1.1 + Task 5.
-- [x] **Overclaim inventory.** Four `.md` sites enumerated (≈lines 112, 169-174, 176-181, 185); two known JSON paths enumerated (`observed_server_requests[0].local_compatibility`, `compatibility_classification.supported_methods`) with placeholder for additional paths surfaced in Task 1.4.
+- [x] **Overclaim inventory.** Five `.md` sites enumerated (≈lines 112, 169-174, 176-181, 185, and the "Architecture Spec Readiness Delta" section at ≈lines 189-202 — the fifth site is the cycle-4 addition); three known JSON paths enumerated (`observed_server_requests[0].local_compatibility`, `compatibility_classification.supported_methods`, and `architecture_spec_readiness_delta` block — the third is the cycle-4 addition) with placeholder for additional paths surfaced in Task 1.4.
 - [x] **Scope guardrails.** "This plan does not" enumerates: no code edits, no T-20260429-02 method matrix, no live probes, no version-pin changes.
 - [x] **Vocabulary succession explicit.** Authority Basis section names the May-1 probe-plan's narrower `supported` definition (route + correlation fields) and frames the rebaseline as a stricter classification splitting parser-kind from response-shape. The diagnostic is reclassified, not retroactively wrong against its own May-1 vocabulary.
 - [x] **T-20260429-02 sweep collision resolved.** "Sweep Classification Rules" section adds `legacy-parser-route-vocabulary` classification with explicit bounding rules. Task 1.1 verification anchors enumerate the T-20260429-02 ticket parser-route table rows and the May-1 probe-plan vocabulary definitions as expected `legacy-parser-route-vocabulary` matches. Stop condition example clarified to distinguish overclaim from legacy vocabulary.
-- [x] **Sweep case-insensitivity.** All overclaim-detection sweeps use `-i`: Verification section, Step 1.1, Step 1.4 rg search (post jq-validate split), Step 2.6, Step 3.4, Step 4.5, Step 5.1.
+- [x] **Sweep case-insensitivity.** All overclaim-detection sweeps use `-i`: Verification section, Step 1.1, Step 1.4 rg search (post jq-validate split), Step 2.7, Step 3.5, Step 4.5, Step 5.1.
 - [x] **Git proof for "landed on `main`."** Step 1.5b requires `git diff main..HEAD -- packages/plugins/codex-collaboration/server/runtime.py` (empty) AND `git show main:.../runtime.py | sed -n '107,118p'` (carve-outs visible) before Task 4 writes the assertion.
-- [x] **Fallback tuple wording precise.** Step 2.2 bullet 4 enumerates `_AVAILABLE_DECISIONS[command_approval]` verbatim and frames lossiness as bidirectional — payload loss for `acceptWithExecpolicyAmendment` plus spurious additions (`acceptForSession`, `applyNetworkPolicyAmendment`, `decline`). Does NOT phrase it as "decline replaces cancel" — `cancel` is preserved by the fallback. JSON Step 3.2 mirrors this precision.
-- [x] **JSON disposition is preserve-and-add (single approach; no in-place mutation of existing fields).** Step 1.4 + Step 3.2 specify the preserve-and-add structure: rename `compatibility_classification` → `_legacy_compatibility_classification` (vocabulary preserved verbatim with a `_vocabulary_note` reminder); add new `compatibility_classification` block under rebaseline vocabulary; add top-level `classification_vocabulary: "rebaseline_parser_kind_and_response_shape_v1"` marker; add `classification_supersedes` pointer to legacy blocks; mirror pattern for `observed_server_requests[0].local_compatibility` → `_legacy_local_compatibility`. Resolves the patch-in-place vocabulary-shift defect by preserving old-vocabulary truth verbatim and adding new-vocabulary truth alongside under the same canonical keys, eliminating the silent semantic shift that mutating `supported_methods: []` would have caused.
+- [x] **Fallback tuple wording precise.** Step 2.2 bullet 4 enumerates `_AVAILABLE_DECISIONS[command_approval]` verbatim and frames lossiness as bidirectional — payload loss for `acceptWithExecpolicyAmendment` plus spurious additions (`acceptForSession`, `applyNetworkPolicyAmendment`, `decline`). Does NOT phrase it as "decline replaces cancel" — `cancel` is preserved by the fallback. JSON Step 3.3 mirrors this precision.
+- [x] **JSON disposition is preserve-and-add (single approach; no in-place mutation of existing fields).** Step 1.4 + Step 3.3 specify the preserve-and-add structure: rename `compatibility_classification` → `_legacy_compatibility_classification` (vocabulary preserved verbatim with a `_vocabulary_note` reminder); add new `compatibility_classification` block under rebaseline vocabulary; add top-level `classification_vocabulary: "rebaseline_parser_kind_and_response_shape_v1"` marker; add `classification_supersedes` pointer to legacy blocks; mirror pattern for `observed_server_requests[0].local_compatibility` → `_legacy_local_compatibility` and for `architecture_spec_readiness_delta` → `_legacy_architecture_spec_readiness_delta` (cycle-4 addition). Resolves the patch-in-place vocabulary-shift defect by preserving old-vocabulary truth verbatim and adding new-vocabulary truth alongside under the same canonical keys, eliminating the silent semantic shift that mutating `supported_methods: []` or `architecture_spec_readiness_delta.ready: false` would have caused.
 - [x] **Consumer discovery is hidden-aware.** Step 1.4's consumer-discovery `rg` includes `--hidden --glob '!.git/**'` so paths under `.claude/hooks/` and other dot-directories surface from repo root. A defensive named-roots cross-check is also documented against existing roots (`packages/ scripts/ extensions/ .claude/hooks/`), with explicit instruction to verify directory existence before adding any other roots to avoid noise. Plain `rg --type-not md` from repo root would silently skip hidden paths the plan explicitly enumerates as valid consumer locations.
 - [x] **Consumer discovery is primarily informational with one dispositional exception.** Discovery records the contract for future schema changes (which consumers exist, which fields they read). Single dispositional consequence: surfacing a production consumer that reads a canonical field whose shape changes under preserve-and-add (e.g., reads `compatibility_classification.supported_methods` directly without falling back to `fully_supported_methods` / `parser_kind_compatible_methods`) fires the JSON-disposition-unsafe stop condition. Otherwise the preserve-and-add disposition applies uniformly: the legacy block preserves old-vocabulary truth verbatim under `_legacy_*` prefix, and the new block lands at the canonical key name with rebaseline vocabulary.
 - [x] **JSON validation split from JSON search.** Step 1.4 runs `jq '.' <file> >/dev/null` as a separate validation command before the rg search. A failed `jq` pipe used to silently produce empty stdout, indistinguishable from a no-matches result; the split surfaces invalid-JSON as a non-zero exit before any pattern matching runs.
@@ -855,6 +1041,10 @@ Run this before requesting plan approval. If any box is unchecked, fix in place.
 - [x] **Wording consistency.** "Decision-shape lossy" used consistently in `.md`, JSON, and register paths. "Parser-kind compatible" used consistently when distinguishing from "fully supported." `_resolve_available_decisions`, `_AVAILABLE_DECISIONS[command_approval]`, and `approval_router.py:103-111` named identically across tasks.
 - [x] **Bite-sized steps.** Each step is a single action: one rg, one read, one edit, one git command. No multi-action steps.
 - [x] **Consumer-shape-incompatibility stop condition (review-cycle 3).** Stop Conditions section + Step 1.4 sub-section both extend the JSON-disposition-unsafe stop condition to fire when a production consumer reads a canonical field whose shape changes under preserve-and-add AND the consumer code does not tolerate the new shape. Three remediation paths surfaced for the user: (a) keep canonical key under May-1 vocabulary and place rebaseline block at a non-canonical key (e.g., `compatibility_classification_rebaseline`), (b) update the consumer code to honor the new shape before this plan executes, (c) defer JSON reconciliation to a separate plan that can sequence consumer + JSON changes together.
-- [x] **Legacy-block paths in JSONPath notation (review-cycle 3).** `classification_supersedes.legacy_blocks` uses JSONPath syntax (`$._legacy_compatibility_classification` for the top-level block; `$.observed_server_requests[0]._legacy_local_compatibility` for the nested per-request field) so the nested-vs-top-level structure is unambiguous. Bare key names alone would have implied both blocks were top-level — the per-request block is actually nested under `observed_server_requests[0]`.
+- [x] **Legacy-block paths in JSONPath notation (review-cycle 3).** `classification_supersedes.legacy_blocks` uses JSONPath syntax (`$._legacy_compatibility_classification` for the top-level compatibility block; `$.observed_server_requests[0]._legacy_local_compatibility` for the nested per-request field; `$._legacy_architecture_spec_readiness_delta` for the top-level readiness block — the third path is the cycle-4 addition) so the nested-vs-top-level structure is unambiguous. Bare key names alone would have implied all blocks were at the same nesting depth — the per-request block is actually nested under `observed_server_requests[0]` while the others are top-level.
 - [x] **Named-roots cross-check excludes non-existent paths (review-cycle 3).** Step 1.4 named-roots cross-check lists only existing repo roots (`packages/ scripts/ extensions/ .claude/hooks/`); `.claude/scripts/` is excluded (does not exist in this repo at plan-write time). Workers are instructed to verify directory existence before adding any other roots so the cross-check does not produce noise from non-existent paths.
-- [x] **JSON snippet schematic disclaimer (review-cycle 3).** Step 3.2's `_legacy_compatibility_classification` snippet now inlines the actual current values for `supported_methods` / `unsupported_methods` / `unknown_or_unparseable_methods` / `missing_required_fields` / `notes` (captured at plan-write time) AND labels the snippet **schematic** with explicit instruction to re-read the live JSON during Task 1.4 and copy the actual current values rather than the snippet's values, in case the JSON has drifted since plan-write time. Prevents both placeholder ambiguity and drift-induced staleness.
+- [x] **JSON snippet schematic disclaimer (review-cycle 3).** Step 3.3's `_legacy_compatibility_classification` snippet now inlines the actual current values for `supported_methods` / `unsupported_methods` / `unknown_or_unparseable_methods` / `missing_required_fields` / `notes` (captured at plan-write time) AND labels the snippet **schematic** with explicit instruction to re-read the live JSON during Task 1.4 and copy the actual current values rather than the snippet's values, in case the JSON has drifted since plan-write time. Prevents both placeholder ambiguity and drift-induced staleness. Step 3.3's `_legacy_architecture_spec_readiness_delta` snippet (cycle-4 addition) inherits the same convention.
+- [x] **Architecture-readiness as fifth/third disposition site (review-cycle 4).** Cycle 1-3 enumerated four `.md` overclaim sites (≈lines 112, 169-174, 176-181, 185) and two JSON overclaim paths (`compatibility_classification`, `local_compatibility`). The cycle-4 review surfaced that the diagnostic's "Architecture Spec Readiness Delta" `.md` section (≈lines 189-202) and the JSON's parallel `architecture_spec_readiness_delta` block (≈lines 45580-45591) form a fifth / third disposition site that the cycle 1-3 plan missed entirely — a worker following the earlier plan would have left `architecture_spec_readiness_delta.ready: true` and "architecture spec can proceed only if it scopes server-request support to the observed methods" standing, which is the strongest remaining overclaim under rebaseline vocabulary. Step 1.1 verification anchors, Step 1.4 enumerated paths (third bullet), Step 2.5 (`.md` patch), Step 3.3 items 7-8 (JSON preserve-and-add), and the sweep patterns at the Verification section / Step 1.1 / Step 1.4 / Step 2.7 / Step 3.5 / Step 5.1 all enumerate this site explicitly. The sweep pattern adds `architecture_spec_readiness_delta`, `architecture spec readiness delta`, `architecture spec can proceed`, `parseable against`, and `newly_satisfied_items` so the missed-site failure mode cannot recur.
+- [x] **Programmatic raw-evidence preservation (review-cycle 4).** Cycle 1-3 asserted that the JSON's existing raw-observation fields must remain unchanged (Step 3.3 closing paragraph; Architecture summary; Step 1.4 vocabulary caveat) but enforced this only via syntax check (`jq '.' >/dev/null`) and a narrow rg sweep — a worker could mutate `params_keys`, captured `availableDecisions` arrays, probe rows, or other raw-observation fields and pass both checks. Cycle 4 adds Task 1.4's "Derive raw-evidence projection paths" sub-section (worker derives the `jq` projection against the live JSON, NOT the schematic illustration), Step 3.2 (pre-edit snapshot to `/private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.json` — deterministic path under `/private/tmp` not bare `/tmp`), and Step 3.6 (post-edit re-extraction + `diff` against the pre-edit snapshot; non-empty diff fires the JSON-disposition-unsafe stop condition). The schematic projection in Task 1.4 explicitly carries a "DO NOT use as-is" warning + INCLUDE/EXCLUDE path lists; workers err toward over-projection (false positives are recoverable; false negatives are the failure mode this enforcement exists to prevent).
+- [x] **Conditional commit-message template + executor-aware co-author (review-cycle 4).** Cycle 1-3 hard-coded the commit body's JSON disposition and register annotation paragraphs unconditionally even though Tasks 3 and 4 are conditional (a worker hitting the no-JSON-disposition or no-register-annotation path would commit a body that lies about what the commit contains). Cycle 1-3 also hard-coded `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>` — fine when this model authored the commit, false provenance when a different model executed Task 6. Cycle 4 restructures the Step 6.2 heredoc body with `<!-- CONDITIONAL: ... -->` / `<!-- END CONDITIONAL -->` markers around the JSON-disposition paragraph (Task 3) and register-annotation paragraph (Task 4); worker-instruction text above the heredoc names the editing protocol (delete markers + keep paragraph if task ran; delete both if skipped). Co-author trailer becomes a placeholder (`<executing model identity, e.g., Claude Opus 4.7 (1M context)>`) with replacement instruction. Step 6.3 grows two self-checks: `git log -1 --format=%B HEAD | grep -F "<!-- CONDITIONAL"` and the same for `<executing model identity` placeholder text — non-empty grep output indicates a leak; commit body must be amended before pushing.
+- [x] **External-consumer scope explicit (review-cycle 4).** Cycle 1-3 consumer discovery is repo-local via `rg --hidden --glob '!.git/**'` — it cannot find consumers outside the repo (other projects reading these diagnostic JSONs, Codex sessions, hand-written analyses). Cycle 3 added a stop condition for canonical-key consumer-shape-incompatibility against repo-local consumers, addressing the immediate breakage path. The cycle-4 review questioned whether canonical-key preserve-and-add is appropriate at all given the canonical-key shape change, suggesting `compatibility_classification_rebaseline` (non-canonical) as a safer alternative. Decision: keep cycle 2's canonical-key preserve-and-add choice (canonical key carries current truth; legacy block under `_legacy_*` prefix preserves historical truth verbatim). Document the assumption explicitly: the diagnostic JSON is treated as repo-internal artifact, NOT a public contract; external consumers — other projects, Codex sessions, hand-written analyses, downstream tooling not in this repo — are explicitly out of scope for this plan's preserve-and-add disposition. If an external consumer is later identified that reads the canonical key path and breaks under the new shape, the appropriate response is to (a) update that consumer to honor the new shape, (b) request a separate plan that reverses to non-canonical-key preserve-and-add (`compatibility_classification_rebaseline` etc.) and sequences the consumer + JSON changes together, or (c) treat the breakage as discovered-late-but-not-pre-blocking. NOT to retroactively reverse this plan's disposition.
