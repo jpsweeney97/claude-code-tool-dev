@@ -109,7 +109,7 @@ One live server-request envelope was observed:
 - method: `item/commandExecution/requestApproval`
 - JSON-RPC `id`: present
 - schema-visible: yes
-- local compatibility classification: `supported`
+- local compatibility classification: parser-kind compatible but decision-shape lossy under the observed `availableDecisions`. The mixed-list entry `acceptWithExecpolicyAmendment` triggers the all-strings fallback in `_resolve_available_decisions` (`packages/plugins/codex-collaboration/server/approval_router.py:103-111`); see `docs/plans/2026-05-01-codex-app-server-client-platform-rebaseline-implementation-plan.md` "Command Approval Decision-Shape Boundary" for the lossless-branch forward path.
 
 Observed top-level `params` keys:
 
@@ -171,18 +171,19 @@ Local compatibility judgment for the observed envelope:
 - `approval_router.py` maps `item/commandExecution/requestApproval` to `kind="command_approval"`
 - the parser requires `id`, `method`, `params`, `itemId`, `threadId`, and `turnId`
 - the live envelope includes all of those fields
-- `availableDecisions` is also present and preserved
+- `availableDecisions` is present on the wire (see "Observed Server Requests" above), but `_resolve_available_decisions` (`approval_router.py:103-111`) preserves the wire list only when every entry is a `str`. The observed mixed list contains a structured `acceptWithExecpolicyAmendment` entry, so the parser falls back to `_AVAILABLE_DECISIONS[command_approval]` = `("accept", "acceptForSession", "acceptWithExecpolicyAmendment", "applyNetworkPolicyAmendment", "decline", "cancel")`. The fallback preserves `accept` and `cancel` (the string entries on the wire), collapses the wire's structured `acceptWithExecpolicyAmendment` object into a bare string of the same name (the payload — execpolicy amendment details — is dropped), and adds three decisions never offered by the wire (`acceptForSession`, `applyNetworkPolicyAmendment`, `decline`). Decision-shape preservation is therefore lossy in two directions — payload loss for the structured entry, plus spurious-decision addition — and command-approval response compatibility is not established. See `docs/plans/2026-05-01-codex-app-server-client-platform-rebaseline-implementation-plan.md` "Command Approval Decision-Shape Boundary" for the lossless-branch forward path.
 
 Compatibility result:
 
-- observed supported methods: `item/commandExecution/requestApproval`
+- observed parser-kind compatible methods: `item/commandExecution/requestApproval` (decision-shape lossy under the observed `availableDecisions`; see "Local compatibility judgment" above)
+- observed methods proven fully supported (parser-kind AND response-shape): none
 - observed unsupported methods: none
 - observed unknown or unparseable methods: none
 - missing required fields: none
 
 Important limit:
 
-This packet proves compatibility for the observed command-approval envelope only. It does not prove live reachability or parser cleanliness for file-change, permission, tool-input, MCP elicitation, auth-refresh, or other schema-visible server-request methods.
+This packet supports a parser-kind compatibility inference for the observed command-approval envelope — the required correlation fields (`itemId`, `threadId`, `turnId`) and JSON-RPC `id` are present, and `approval_router.py` maps `item/commandExecution/requestApproval` to `kind=command_approval`. It does not establish response-shape compatibility — the observed mixed `availableDecisions` triggers parser fallback per `_resolve_available_decisions` (see "Local compatibility judgment" above). It does not prove live reachability or parser cleanliness for file-change, permission, tool-input, MCP elicitation, auth-refresh, or other schema-visible server-request methods.
 
 It also does not collapse fail-closed behavior into “clean lifecycle semantics.” Unsupported or unknown-method handling remains a separate runtime-quality question.
 
@@ -192,18 +193,19 @@ Newly satisfied items:
 
 - scratch auth was established under isolated `CODEX_HOME` without credential copying
 - a live schema-visible server-request envelope was captured and redacted safely
-- the observed `item/commandExecution/requestApproval` envelope is parseable against the current local compatibility boundary
+- the observed `item/commandExecution/requestApproval` envelope is inferred to be parseable via the parser's decision-shape-lossy fallback path; lossless preservation of `availableDecisions` is NOT established (see "Local compatibility judgment" above)
 
 Still missing:
 
 - coverage for other schema-visible server-request methods
 - runtime evidence for unknown / unsupported envelope handling under live conditions
+- a lossless parser/response branch for command-approval that preserves `availableDecisions` shape without falling back to `_AVAILABLE_DECISIONS[command_approval]` (see `docs/plans/2026-05-01-codex-app-server-client-platform-rebaseline-implementation-plan.md` "Command Approval Decision-Shape Boundary")
 
-The architecture spec can proceed only if it scopes server-request support to the observed methods and keeps unobserved methods as explicit risks.
+The architecture spec can proceed only if it explicitly carries the decision-shape-lossy fallback as an unresolved response-semantics risk for command-approval (alongside the unobserved-method risks named above) — not as proven support. Scoping "support" to the observed method without that qualification would smuggle response-shape compatibility into the architecture's foundational assumptions; the parser's actual behavior at `approval_router.py:103-111` does not justify it.
 
 ## Remaining Blockers
 
-1. Only `item/commandExecution/requestApproval` has live envelope evidence.
+1. Only `item/commandExecution/requestApproval` has live envelope evidence — and even for that method, response-shape compatibility is not established (decision-shape lossy; see "Local compatibility judgment" above).
 2. The packet does not yet prove live reachability for file-change, permission, tool-input, MCP elicitation, auth-refresh, or other schema-visible methods.
 3. Fail-closed behavior for unsupported or unknown methods is still not the same thing as semantically clean lifecycle handling.
 

@@ -215,8 +215,8 @@ Expected:
 
 - Observed method is `item/commandExecution/requestApproval`.
 - `has_id`, `threadId_present`, `turnId_present`, `itemId_present`, and `schema_visible` are true.
-- `local_compatibility` is `supported` in the probe summary, but this plan must refine that label to decision-shape-lossy because the raw envelope has structured `availableDecisions`.
-- Server-request architecture readiness is true only with observed-method scoping.
+- `local_compatibility` is `parser_kind_compatible_decision_shape_lossy` (corrected from `"supported"` by the envelope-diagnostic overclaim fix; prior vocabulary preserved in git history). The label reflects that the parser has a route but response-shape compatibility is not established.
+- `architecture_spec_readiness_delta.ready` is `false` (corrected from `true` by the envelope-diagnostic overclaim fix). Readiness is false because lossless `availableDecisions` preservation is not established for the observed command-approval envelope.
 - Materialized-thread `message_shape` has no recoverable agent output shape.
 
 - [ ] Stop if the expected evidence does not match.

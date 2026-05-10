@@ -901,7 +901,7 @@
       "turnId_present": true,
       "itemId_present": true,
       "schema_visible": true,
-      "local_compatibility": "supported",
+      "local_compatibility": "parser_kind_compatible_decision_shape_lossy",
       "local_compatibility_notes": [
         "approval_router.py maps item/commandExecution/requestApproval to kind=command_approval.",
         "The envelope includes threadId, turnId, itemId, availableDecisions, and raw JSON-RPC id, satisfying the local parser boundary."
@@ -909,17 +909,17 @@
     }
   ],
   "compatibility_classification": {
-    "status": "passed",
-    "supported_methods": [
-      "item/commandExecution/requestApproval"
-    ],
+    "status": "parser_kind_compatible_decision_shape_lossy",
+    "fully_supported_methods": [],
+    "parser_kind_compatible_methods": ["item/commandExecution/requestApproval"],
+    "decision_shape_lossy_methods": ["item/commandExecution/requestApproval"],
     "unsupported_methods": [],
     "unknown_or_unparseable_methods": [],
     "missing_required_fields": [],
     "notes": [
-      "A live schema-visible command approval envelope was observed and is parseable against the current local parser/runtime boundary.",
-      "Current local support remains narrower than the full schema-visible method set; unobserved methods remain explicit risks.",
-      "Fail-closed handling for unobserved methods is not treated as semantically clean lifecycle proof."
+      "item/commandExecution/requestApproval is parser-kind compatible (route exists, required correlation fields itemId/threadId/turnId present) but decision-shape lossy under the observed mixed availableDecisions: the structured acceptWithExecpolicyAmendment entry triggers the all-strings fallback in _resolve_available_decisions (approval_router.py:103-111). The fallback tuple _AVAILABLE_DECISIONS[command_approval] = ('accept', 'acceptForSession', 'acceptWithExecpolicyAmendment', 'applyNetworkPolicyAmendment', 'decline', 'cancel') preserves the wire's accept and cancel, collapses the structured acceptWithExecpolicyAmendment entry into a bare string (payload dropped), and adds three decisions never offered by the wire (acceptForSession, applyNetworkPolicyAmendment, decline).",
+      "Prior classification under May-1 parser-route vocabulary was 'supported' (meaning: local code has a concrete route for the method and required correlation fields are present). That classification was internally consistent under its narrower vocabulary but overclaimed under rebaseline vocabulary which requires response-shape compatibility.",
+      "The status field previously carried probe-pass/fail semantics ('passed' meaning the compatibility probe completed without error). Under rebaseline vocabulary it carries a classification label describing the parser's actual compatibility characteristics. Readers querying .compatibility_classification.status should expect a classification string, not a binary pass/fail value."
     ]
   },
   "codex_home_mutations": {
@@ -45578,15 +45578,20 @@
     ]
   },
   "architecture_spec_readiness_delta": {
-    "ready": true,
+    "ready": false,
     "newly_satisfied_items": [
       "Scratch auth was established under isolated CODEX_HOME without credential copying.",
       "A live schema-visible server-request envelope was captured and redacted safely.",
-      "The observed item/commandExecution/requestApproval envelope is parseable against the current local compatibility boundary."
+      "The observed item/commandExecution/requestApproval envelope is inferred to be parseable via the parser's decision-shape-lossy fallback path; lossless preservation of availableDecisions is NOT established."
     ],
     "still_missing_items": [
       "Envelope coverage for other schema-visible server-request methods remains unobserved and should be carried as explicit risk if relied upon.",
-      "Fail-closed lifecycle cleanliness for unsupported or unknown methods remains a separate runtime-quality concern."
+      "Fail-closed lifecycle cleanliness for unsupported or unknown methods remains a separate runtime-quality concern.",
+      "A lossless parser/response branch for command-approval that preserves availableDecisions shape without falling back to _AVAILABLE_DECISIONS[command_approval] (see docs/plans/2026-05-01-codex-app-server-client-platform-rebaseline-implementation-plan.md 'Command Approval Decision-Shape Boundary')."
+    ],
+    "notes": [
+      "ready=false because command-approval response semantics are not proven: _resolve_available_decisions (approval_router.py:103-111) falls back to _AVAILABLE_DECISIONS[command_approval] under the observed mixed availableDecisions. Prior classification under May-1 parser-route vocabulary was ready=true (meaning: parser route exists and required correlation fields present). That was internally consistent under its narrower vocabulary but overclaimed under rebaseline vocabulary which requires response-shape compatibility.",
+      "The architecture spec can proceed only if it explicitly carries the decision-shape-lossy fallback as an unresolved response-semantics risk for command-approval."
     ]
   }
 }
