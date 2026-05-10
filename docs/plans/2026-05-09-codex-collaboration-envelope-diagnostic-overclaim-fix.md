@@ -1,6 +1,6 @@
 # Codex App Server Server-Request Envelope-Diagnostic Overclaim Fix
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. This is a docs-only plan with hard scope guardrails; do not convert it into a parser/response correctness change or into a T-20260429-02 method-by-method coverage push.
+> **For agentic workers:** Execute sequentially in one workspace; do not parallelize across Task 3 commit state or temp-file dependencies. Steps use checkbox (`- [ ]`) syntax for tracking. This is a docs-only plan with hard scope guardrails; do not convert it into a parser/response correctness change or into a T-20260429-02 method-by-method coverage push.
 
 **Goal:** Reconcile the committed May-1 server-request envelope-probe diagnostic with the repaired rebaseline implementation plan and `approval_router.py` reality, eliminating the docs-only contradiction without altering raw observation evidence.
 
@@ -119,7 +119,7 @@ Read every item below before any write. Each read has a specific load-bearing pu
 | File | Purpose |
 |---|---|
 | `packages/plugins/codex-collaboration/server/approval_router.py:90-115` | Confirm `_resolve_available_decisions` semantics; capture `_AVAILABLE_DECISIONS[command_approval]` tuple contents verbatim — used in Task 2 and Task 3 replacement wording. |
-| `packages/plugins/codex-collaboration/server/runtime.py` (line range 107-118 on `main`) | Confirm Phase 1 sandbox carve-outs are present; via `git show main:.../runtime.py | sed -n '107,118p'`. Drives Task 4 register annotation. Read on `main`, not the current branch. |
+| `packages/plugins/codex-collaboration/server/runtime.py` (readable-roots at ~107-118, gitdir resolver at ~28-60 on `main`) | Confirm Phase 1 sandbox carve-outs are present; use `git show main:.../runtime.py | rg -n "codex\|agents\|worktrees\|build_workspace_write_sandbox_policy\|resolve_git_dir"` to capture both the append site AND the structural validation. Drives Task 4 register annotation. Read on `main`, not the current branch. |
 | `docs/plans/2026-05-01-codex-app-server-client-platform-rebaseline-implementation-plan.md:895-925` | Anchor corrected wording to the repaired plan's framing ("decision-shape lossy", structured `acceptWithExecpolicyAmendment`, "lossless parser/response branch"). |
 | `docs/plans/2026-05-01-codex-app-server-client-platform-rebaseline-implementation-plan.md:204-220` | Evidence-check `jq` commands and expected-value bullets that read `local_compatibility` and `architecture_spec_readiness_delta` from the sibling JSON. These are Markdown-embedded consumers of the canonical JSON fields that Task 3 renames. Drives Task 5.5 reconciliation. |
 | `docs/diagnostics/2026-05-01-codex-app-server-server-request-envelope-probes.md` (full, with extra attention to lines ≈100-200) | Confirm the five enumerated overclaim sites; surface any other interpretive overclaims. |
@@ -128,8 +128,13 @@ Read every item below before any write. Each read has a specific load-bearing pu
 | `docs/tickets/2026-04-29-codex-collaboration-delegation-friction-reduction.md:212-230` (T-20260429-01 ticket) | Confirm acceptance criteria and that AC #1 smoke / AC #2 credential-boundary probe / AC #3 regression assertion + suite pass evidence is genuinely missing. |
 | `docs/tickets/2026-04-29-codex-collaboration-unsupported-server-request-reachability.md` (T-20260429-02 ticket — context only, no edits) | Context for the Sweep Classification Rules: the parser-route classification table at lines 67-77 ("Supported as `<kind>`" / "Supported (parked)") is `legacy-parser-route-vocabulary`, not an overclaim. The T-20260429-02 method-by-method classification work is OUT of this plan's scope. Read so the worker can confidently classify sweep matches against this file. |
 | `docs/plans/2026-05-01-codex-app-server-server-request-envelope-probe-plan.md:666-672` (May-1 probe-plan vocabulary) | Context for the Sweep Classification Rules: the May-1 four-state vocabulary (`supported` / `unsupported` / `unknown` / `unparseable`) is `legacy-parser-route-vocabulary`. Read to ground the Vocabulary Succession framing in the Authority Basis section. |
+| `docs/architecture/2026-05-01-codex-app-server-current-client-platform-rebaseline.md:145-180` | Confirm architecture entry point wording for "supported" classification and "proven reachability" claims. Drives sweep classification — matches at lines 148, 159 are `legacy-parser-route-vocabulary` if the architecture doc's usage tracks the probe plan's narrower vocabulary, or `interpretive-overclaim` if it makes response-shape claims. |
 
-The pre-edit `rg` sweep below treats every file under `docs/diagnostics/2026-05-01-codex-app-server-*.md`, `docs/diagnostics/codex-app-server-*.json`, `docs/plans/2026-05-01-codex-app-server-*.md`, `docs/tickets/2026-04-29-codex-collaboration-*.md`, and `docs/status/codex-collaboration-reconciliation-register.md` as a candidate. If the sweep surfaces hits this plan does not enumerate, Task 1 stops and surfaces the finding rather than expanding scope silently.
+The pre-edit `rg` sweep below treats every file under `docs/diagnostics/2026-05-01-codex-app-server-*.md`, `docs/diagnostics/codex-app-server-*.json`, `docs/plans/2026-05-01-codex-app-server-*.md`, `docs/tickets/2026-04-29-codex-collaboration-*.md`, `docs/status/codex-collaboration-reconciliation-register.md`, `docs/architecture/2026-05-01-codex-app-server-current-client-platform-rebaseline.md`, and non-archived handoffs under `docs/handoffs/` as candidates. If the sweep surfaces hits this plan does not enumerate, Task 1 stops and surfaces the finding rather than expanding scope silently.
+
+**Architecture doc inclusion rationale:** `docs/architecture/2026-05-01-codex-app-server-current-client-platform-rebaseline.md:148-160` contains the same "local classification was `supported`" and "proven reachability for one supported method" wording as the target diagnostic. It is a current-facing architecture entry point — excluding it would leave a stale compatibility label in a document that references the same probe evidence.
+
+**Handoff note:** Matches from `docs/handoffs/` classify as `legacy-parser-route-vocabulary` (they capture session state at a point in time). They are NOT patched, but if an active (non-archived) handoff contains wording that could be loaded as current truth in a future session, annotate it with a `<!-- superseded by envelope-diagnostic overclaim fix commit; classification vocabulary changed from May-1 parser-route to rebaseline parser-kind/response-shape -->` comment at the point of the stale claim.
 
 ## Stop Conditions
 
@@ -138,9 +143,14 @@ Stop and surface the situation to the user — do not adapt, expand, or work aro
 - **JSON disposition is unsafe to decide locally.** Task 1 finds the sibling JSON exists, contains a parallel overclaim, AND any of the following hold: (a) the JSON's structure makes the preserve-and-add disposition destructive (e.g., a `_legacy_compatibility_classification` key already exists with different content; the parent object's schema rejects renamed keys; a mechanical-mirror path's structural shape does not cleanly map to legacy-rename + new-block-add); (b) consumer discovery surfaces a production consumer that reads any canonical field whose shape changes under preserve-and-add — e.g., reads `compatibility_classification.supported_methods` directly — AND the consumer code does not tolerate the new shape (under preserve-and-add, the canonical-key block carries `fully_supported_methods` / `parser_kind_compatible_methods` / `decision_shape_lossy_methods` instead of `supported_methods`; a consumer that reads `supported_methods` directly without checking for the new sibling fields would read undefined or malformed data). Surface and ask before proceeding.
 - **Pre-edit sweep finds an overclaim site this plan does not enumerate.** "Overclaim" here is bounded by the Sweep Classification Rules below. Examples that trigger this stop: a file under the swept paths claiming command-approval is fully supported in the response-shape sense; a `ready_to_close_ticket: true` for command approval; a register or diagnostic cell asserting `availableDecisions` is preserved without naming the all-strings fallback; an additional JSON overclaim path beyond the three enumerated paths that does NOT mechanically mirror the same kind of claim per Task 1.4's narrow exception. Examples that do NOT trigger this stop (classifiable as `legacy-parser-route-vocabulary`): the T-20260429-02 ticket's `Supported as <kind>` / `Supported (parked)` table entries, the May-1 probe-plan's definition of `supported`, or any other legacy May-1-vocabulary use that is not a fresh response-shape / lossless-preservation / closability claim. Surface the finding; do not silently extend Task 2's edits.
 - **Register row already reflects landed-implementation language for T-20260429-01.** Skip Task 4 entirely; do not make a no-op edit.
-- **Register-annotation `main`-truth check failed.** Step 1.5b's git evidence does not support the "Phase 1 has landed on `main`" assertion. This fires when EITHER: (a) `git diff main..HEAD -- packages/plugins/codex-collaboration/server/runtime.py` is non-empty (this branch carries `runtime.py` modifications, so the current-branch reads do not stand in for `main`), OR (b) carve-outs are absent from `main`'s `runtime.py` entirely — verified via `git show main:packages/plugins/codex-collaboration/server/runtime.py | rg -n "codex|agents|worktrees|build_workspace_write_sandbox_policy"` returning zero matches (implementation not landed). **Line drift is NOT this stop condition** — if carve-outs appear on `main` at different line numbers than 107-118, that is normal drift handled in Step 1.5b (record actual lines, update all Task 4 references, proceed). Skip Task 4 entirely only when (a) or (b) fires; surface the finding so the register-annotation premise can be reconciled before any annotation is written. This is distinct from "Live envelope evidence has changed" — the envelope is unchanged; the failure is about `main`'s `runtime.py` state diverging from what Task 4's annotation claims.
+- **Register-annotation `main`-truth check failed.** Step 1.5b's git evidence does not support the "Phase 1 has landed on `main`" assertion. This fires when EITHER: (a) `git diff main..HEAD -- packages/plugins/codex-collaboration/server/runtime.py` is non-empty (this branch carries `runtime.py` modifications, so the current-branch reads do not stand in for `main`), OR (b) carve-outs are absent from `main`'s `runtime.py` entirely — verified via `git show main:packages/plugins/codex-collaboration/server/runtime.py | rg -n "codex|agents|worktrees|build_workspace_write_sandbox_policy"` returning zero matches (implementation not landed). **Line drift is NOT this stop condition** — if carve-outs appear on `main` at different line numbers than 107-118, that is normal drift handled in Step 1.5b (record actual lines, update all Task 4 references, proceed). **Scope:** Skip Task 4 only; do NOT block Tasks 2, 3, 5, or 6. Task 4 is an optional register annotation — its failure does not invalidate the core diagnostic/JSON correction. Surface the finding so the register-annotation premise can be reconciled in a separate follow-up if needed. This is distinct from "Live envelope evidence has changed" — the envelope is unchanged; the failure is about `main`'s `runtime.py` state diverging from what Task 4's annotation would claim.
 - **Verification sweep at Task 5 surfaces a surviving overclaim.** Do not commit. Surface the finding.
-- **Live envelope evidence has changed since the diagnostic was captured.** This stop condition fires if Task 1's reads reveal a newer probe artifact contradicting the May-1 envelope (different `availableDecisions` shape, different method string, etc.). The fix's premise depends on the May-1 capture being current. **Discovery path:** during Task 1.1's `rg` sweep, check whether the swept `docs/diagnostics/` path contains any envelope-probe diagnostic dated after `2026-05-01` for the same `item/commandExecution/requestApproval` method. Run: `rg --files docs/diagnostics/ | rg '2026-05-(0[2-9]|[12][0-9]|3[01])-.*envelope|2026-06-.*envelope'` (zsh-safe — avoids unmatched-glob errors from brace expansion). If a newer artifact exists, read its `availableDecisions` shape and compare against the May-1 capture's three-element array (`["accept", {"acceptWithExecpolicyAmendment": {...}}, "cancel"]`). If the shapes differ, this stop condition fires. If no newer artifact exists (expected — the `rg` pipeline prints nothing), record "no post-May-1 envelope capture found" and proceed.
+- **Live envelope evidence has changed since the diagnostic was captured.** This stop condition fires if Task 1's reads reveal newer evidence contradicting the May-1 envelope (different `availableDecisions` shape, different method string, etc.). The fix's premise depends on the May-1 capture being current. **Discovery path:** two-pronged search during Task 1.1:
+
+  1. **Filename-based:** check for newer envelope-probe diagnostics: `rg --files docs/diagnostics/ | rg '2026-05-(0[2-9]|[12][0-9]|3[01])-.*envelope|2026-06-.*envelope'` (zsh-safe).
+  2. **Content-based:** search for newer evidence regardless of naming convention: `rg -l 'item/commandExecution/requestApproval' docs/diagnostics/ docs/architecture/ docs/handoffs/ --glob '!*2026-05-01*' 2>/dev/null`. This catches evidence in artifacts with non-standard names, handoff summaries, or architecture updates that the filename pattern would miss.
+
+  If either search finds a post-May-1 artifact containing `item/commandExecution/requestApproval`, read its `availableDecisions` shape and compare against the May-1 capture's three-element array (`["accept", {"acceptWithExecpolicyAmendment": {...}}, "cancel"]`). If the shapes differ, this stop condition fires. If no newer artifact exists (expected — both searches return nothing relevant), record "no post-May-1 envelope capture found" and proceed.
 
 ## Sweep Classification Rules
 
@@ -191,7 +201,8 @@ rg -n -i "supported|preserved|lossy|ready_to_close_ticket|proves compatibility|c
    docs/diagnostics/codex-app-server-*.json \
    docs/plans/2026-05-01-codex-app-server-*.md \
    docs/tickets/2026-04-29-codex-collaboration-*.md \
-   docs/status/codex-collaboration-reconciliation-register.md
+   docs/status/codex-collaboration-reconciliation-register.md \
+   docs/architecture/2026-05-01-codex-app-server-current-client-platform-rebaseline.md
 ```
 
 Classify every match per the Sweep Classification Rules above. Acceptable terminal classifications: `raw-observation`, `corrected-language`, `legacy-parser-route-vocabulary`, `authority-source`, `peer-diagnostic-data-artifact`, `unrelated`. Unacceptable: `interpretive-overclaim` (any surviving site triggers the Task 5 stop condition).
@@ -206,7 +217,26 @@ No surviving site may claim command-approval is "supported" in the rebaseline re
 
 **Files:** read-only — no writes in this task.
 
-- [ ] **Step 0.1: Capture pre-edit status snapshot.**
+- [ ] **Step 0.1: Branch and remote freshness gate.**
+
+Before any edits or "landed on `main`" claims, verify the local state is trustworthy:
+
+```bash
+git branch --show-current
+git fetch --dry-run 2>&1
+git rev-parse main
+git rev-parse origin/main
+```
+
+Three checks must all pass:
+
+1. **Current branch is the expected working branch** (not `main`). Record the branch name.
+2. **Local `main` matches `origin/main`** — both `rev-parse` commands return the same SHA. If they diverge, run `git fetch origin main` and recheck; if still divergent, STOP and surface to the user (local `main` may have unpushed or stale state; any "landed on `main`" annotation would be unreliable).
+3. **No unfetched remote changes** — `git fetch --dry-run` reports no new objects. If it does report new objects, run `git fetch` to update tracking refs before proceeding (so `main` ancestry checks in Step 1.5b use current remote state).
+
+Record: branch name, `main` SHA, whether `main == origin/main`, fetch status. If check 2 fails and cannot be resolved, annotate all Task 4 "landed on `main`" wording as "local-only claim, remote not verified" rather than asserting unqualified `main` truth.
+
+- [ ] **Step 0.2: Capture pre-edit status snapshot.**
 
 ```bash
 git status
@@ -246,12 +276,37 @@ rg -n -i "supported|preserved|lossy|ready_to_close_ticket|proves compatibility|c
    docs/diagnostics/codex-app-server-*.json \
    docs/plans/2026-05-01-codex-app-server-*.md \
    docs/tickets/2026-04-29-codex-collaboration-*.md \
-   docs/status/codex-collaboration-reconciliation-register.md
+   docs/status/codex-collaboration-reconciliation-register.md \
+   docs/architecture/2026-05-01-codex-app-server-current-client-platform-rebaseline.md
+```
+
+Additionally, sweep active (non-archived) handoffs for the same patterns:
+
+```bash
+rg -n -i "supported|preserved|lossy|ready_to_close_ticket|proves compatibility|compatibility for the observed|local_compatibility|supported_methods|architecture_spec_readiness_delta" \
+   docs/handoffs/ --glob '!*archived*' 2>/dev/null || true
 ```
 
 The `-i` flag is intentional: capital-S "Supported" wording in the T-20260429-02 ticket's parser-route classification table and lowercase "supported" wording in the diagnostic must both surface so the Sweep Classification Rules above can decide which matches are overclaims and which are legacy parser-route vocabulary.
 
 Expected: enumerate every match. For each match, annotate one of `raw-observation`, `interpretive-overclaim`, `corrected-language`, `legacy-parser-route-vocabulary`, `authority-source`, `peer-diagnostic-data-artifact`, or `unrelated` per the Sweep Classification Rules. The annotated list is reused in Task 5 as the baseline for diff verification.
+
+**Classification baseline artifact (scrutiny follow-up 9).** The annotated classification list MUST be written to a temporary file for Task 5 diffing:
+
+```bash
+# After classifying all matches, write the baseline table
+cat > /private/tmp/codex-collab-overclaim-fix-sweep-baseline.md <<'BASELINE'
+# Sweep Classification Baseline — Task 1.1
+# Generated: <timestamp>
+# Format: path:line | matched text (truncated) | classification | disposition
+
+<one line per match, e.g.:>
+docs/diagnostics/...probes.md:112 | local compatibility classification: `supported` | interpretive-overclaim | patch in Step 2.1
+...
+BASELINE
+```
+
+This file persists across Tasks 2-5 and is the authoritative reference for Task 5's diff verification. Task 5 compares its post-edit sweep against this baseline to confirm all `interpretive-overclaim` matches were patched and all other classifications are unchanged. Without a durable artifact, the classification baseline is ephemeral and Task 5 cannot reliably diff against it.
 
 Verification anchors:
 
@@ -404,11 +459,11 @@ git show main:packages/plugins/codex-collaboration/server/runtime.py | rg -n "co
 
 Expected: output shows the `build_workspace_write_sandbox_policy` carve-outs (`~/.codex/memories`, `~/.codex/plugins/cache`, `~/.agents/skills`, `~/.agents/plugins`, plus dynamic gitdir resolution) with their line numbers. Three outcomes:
 
-- **Carve-outs visible at lines 107-118** → record "lines 107-118 confirmed." Proceed.
-- **Carve-outs visible but at different line numbers** (line drift) → record the actual line range, update ALL `runtime.py:107-118` references in Task 4 (Step 4.2's annotation, Step 4.3's priority-line replacement text, AND Step 4.4's exit-condition replacement text) to reference the correct lines, and proceed. This is NOT a stop-condition failure; the implementation landed, only the line reference drifted.
-- **Zero matches** (implementation not landed, or `git diff main..HEAD` is non-empty for `runtime.py`) → fire the "Register-annotation `main`-truth check failed" stop condition. Skip Task 4 entirely; surface so the register-annotation premise can be reconciled before any annotation is written. (Distinct from "Live envelope evidence has changed" — the envelope is unchanged; the failure is about `main`'s `runtime.py` state diverging from what Task 4's annotation would claim.)
+- **Carve-outs visible at lines 107-118** → record "readable-roots append at lines 107-118." Also record the dynamic gitdir resolver line range (search for `resolve_git_dir` or the gitdir-resolution logic, typically earlier in the file around lines 28-60). Proceed.
+- **Carve-outs visible but at different line numbers** (line drift) → record the actual readable-roots line range AND the actual gitdir resolver line range, update ALL `runtime.py:107-118` references in Task 4 (Step 4.2's annotation, Step 4.3's priority-line replacement text, AND Step 4.4's exit-condition replacement text) to reference the correct lines, and proceed. This is NOT a stop-condition failure; the implementation landed, only the line reference drifted.
+- **Zero matches** (implementation not landed, or `git diff main..HEAD` is non-empty for `runtime.py`) → fire the "Register-annotation `main`-truth check failed" stop condition. Skip Task 4 only (do NOT block Tasks 2, 3, 5, or 6); surface so the register-annotation premise can be reconciled in a separate follow-up. (Distinct from "Live envelope evidence has changed" — the envelope is unchanged; the failure is about `main`'s `runtime.py` state diverging from what Task 4's annotation would claim.)
 
-Record both checks' outcomes (the diff is empty, or it is not; the lines on `main` are X-Y showing the carve-outs). Task 4.2's wording depends on this proof — without it, "landed on `main`" is an unverified claim.
+Record all three values: (a) diff empty or not, (b) readable-roots append line range on `main`, (c) gitdir resolver line range on `main`. Task 4.2's wording depends on (a) and (b) — without them, "landed on `main`" is an unverified claim. The gitdir range (c) ensures the annotation cites both the structural validation and the append site.
 
 - [ ] **Step 1.6: Confirm closure evidence is genuinely missing.**
 
@@ -507,8 +562,10 @@ This packet proves compatibility for the observed command-approval envelope only
 New:
 
 ```
-This packet proves parser-kind compatibility (envelope parsing succeeds and maps to `kind=command_approval`) for the observed command-approval envelope only. It does not establish response-shape compatibility — the observed mixed `availableDecisions` triggers parser fallback per `_resolve_available_decisions` (see "Local compatibility judgment" above). It does not prove live reachability or parser cleanliness for file-change, permission, tool-input, MCP elicitation, auth-refresh, or other schema-visible server-request methods.
+This packet supports a parser-kind compatibility inference for the observed command-approval envelope — the required correlation fields (`itemId`, `threadId`, `turnId`) and JSON-RPC `id` are present, and `approval_router.py` maps `item/commandExecution/requestApproval` to `kind=command_approval`. It does not establish response-shape compatibility — the observed mixed `availableDecisions` triggers parser fallback per `_resolve_available_decisions` (see "Local compatibility judgment" above). It does not prove live reachability or parser cleanliness for file-change, permission, tool-input, MCP elicitation, auth-refresh, or other schema-visible server-request methods.
 ```
+
+Rationale for "supports a parser-kind compatibility inference" over "proves parser-kind compatibility (envelope parsing succeeds...)": the diagnostic evidence records static field presence in the captured envelope, not an actual replay through `parse_pending_server_request`. Field presence supports the inference that parsing would succeed; it does not constitute execution evidence. The distinction matters because a future parser change (new required field, type validation, etc.) could invalidate the inference while the captured evidence remains unchanged.
 
 Preserve the paragraph immediately after this sentence ("It also does not collapse fail-closed behavior into 'clean lifecycle semantics'…") unchanged unless it now contradicts the corrected first sentence — in which case patch only the contradicting clause.
 
@@ -574,10 +631,12 @@ Expected: every match falls into raw-observation, the new qualified wording, or 
 
 Step 2.7's `rg` sweep verifies no surviving overclaim wording, but cannot detect accidental mutation of the raw-evidence layer in the `.md` file. This step spot-checks the six most distinctive raw-observation anchors to confirm they survived the interpretive-layer patches unchanged.
 
+**Anchor derivation rule:** All anchors must be strings that exist in the PRE-EDIT `.md` file (i.e., at `HEAD` before any Task 2 edits). An anchor that only exists because Task 2's interpretive patches introduce it is a false positive — it tests new prose survival, not raw-evidence preservation. Verify each anchor against the pre-edit file before relying on it.
+
 ```bash
 # Each grep must exit 0 (pattern found). Run all six; any non-zero exit means a raw fact was mutated.
 grep -qF 'item/commandExecution/requestApproval' docs/diagnostics/2026-05-01-codex-app-server-server-request-envelope-probes.md
-grep -qF '"acceptWithExecpolicyAmendment"' docs/diagnostics/2026-05-01-codex-app-server-server-request-envelope-probes.md
+grep -qF 'proposedExecpolicyAmendment' docs/diagnostics/2026-05-01-codex-app-server-server-request-envelope-probes.md
 grep -qF 'availableDecisions' docs/diagnostics/2026-05-01-codex-app-server-server-request-envelope-probes.md
 grep -qF '/bin/zsh -lc' docs/diagnostics/2026-05-01-codex-app-server-server-request-envelope-probes.md
 grep -qF 'No approval response was sent' docs/diagnostics/2026-05-01-codex-app-server-server-request-envelope-probes.md
@@ -586,11 +645,13 @@ grep -qF 'itemId' docs/diagnostics/2026-05-01-codex-app-server-server-request-en
 
 Expected: all six exit `0`. These anchors correspond to:
 - The observed method string (`item/commandExecution/requestApproval`)
-- The structured decision entry (`"acceptWithExecpolicyAmendment"`)
+- A raw params key from the envelope (`proposedExecpolicyAmendment` — appears at `.md` lines 121 and 138 as a raw observation; NOT introduced by Task 2's interpretive patches)
 - The wire field name (`availableDecisions`)
 - The trigger command (`/bin/zsh -lc`)
 - The response-absence record (`No approval response was sent`)
 - A required correlation field (`itemId`)
+
+Why `proposedExecpolicyAmendment` replaces the prior `"acceptWithExecpolicyAmendment"` anchor: `acceptWithExecpolicyAmendment` does NOT appear anywhere in the pre-edit `.md` file — it exists only in the sibling JSON (as raw evidence) and in the delegate-execution diagnostic. The old anchor would have passed only because Task 2's new interpretive prose introduces the string, not because raw observation text was preserved. `proposedExecpolicyAmendment` is a raw params key observed at `.md` lines 121 and 138, present in the pre-edit file.
 
 If any anchor is missing, a Task 2 edit accidentally removed or altered a raw-observation line. Revert the offending edit (check `git diff` for the specific change), re-apply the interpretive-layer patch only, and re-run Steps 2.7 and 2.7b.
 
@@ -689,6 +750,13 @@ The JSON is mutated structurally (new keys + renamed keys), but no existing fiel
 After all edits, the JSON's existing raw-observation fields (params keys, redacted envelope summary, observed `availableDecisions` array, schema-visible methods listing, per-probe pass/fail rows, etc.) must remain unchanged. Step 3.6 enforces this programmatically by `diff`ing the post-edit projection against the Step 3.2 pre-edit snapshot.
 
 Editing method: use the Edit tool with enough surrounding context for unique matches (minimum 3-5 lines of unchanged JSON above and below each edit site). Avoid `jq` transforms for structural edits — key reordering would invalidate Step 3.6's byte-identical diff assumption.
+
+**JSON editing risk mitigation (scrutiny follow-up 9).** This file is ~45,600 lines. Manual multi-site editing via the Edit tool is high-risk for syntax errors (trailing commas, duplicate keys, unclosed braces). After EACH individual Edit-tool application in Steps 3.3.1 through 3.3.8:
+
+1. Run `jq '.' docs/diagnostics/codex-app-server-server-request-envelope-probes.json > /dev/null` to confirm valid JSON syntax. If it fails, revert the last edit immediately (check `git diff` for the broken change) rather than accumulating errors.
+2. If more than two consecutive edits are needed at the same site (e.g., rename + insert), consider composing them into a single Edit-tool call with enough context to make the match unique, rather than applying small sequential patches that may drift.
+
+The full pre-edit copy at `/private/tmp/codex-collab-overclaim-fix-raw-evidence-pre.full.json` is the recovery baseline. If JSON becomes unrecoverably malformed, restore from the copy and restart Step 3.3 from scratch. Step 3.6's programmatic diff catches semantic errors; this per-edit syntax check catches structural errors early before they cascade.
 
 1. **Add a top-level `classification_vocabulary` marker** (next to `artifact_version`):
 
@@ -957,7 +1025,7 @@ Sub-step 4.1a — confirm git proof. Verify Task 1.5b's git checks were performe
 Append to the existing "Current truth" cell — do not replace the existing text:
 
 ```
-As of 2026-05-09, Phase 1 sandbox carve-outs (Options B + E + ~/.agents/ + dynamic gitdir) have landed on `main` (`packages/plugins/codex-collaboration/server/runtime.py:107-118`). Closure evidence remains missing for ticket acceptance criteria #1 (comparable `/delegate` smoke with avoidable sandbox-friction escalations ≤2), #2 (credential-boundary probe), and #3 (`test_runtime.py` regression assertion updated and full codex-collaboration test suite passing). Acceptance criterion #4 (Option F upstream limitation) is already checked. The ticket therefore remains open; the work shape changes from "implement" to "record closure evidence and close."
+As of 2026-05-09, Phase 1 sandbox carve-outs (Options B + E + ~/.agents/ + dynamic gitdir) have landed on `main` (`packages/plugins/codex-collaboration/server/runtime.py` — readable-roots append at lines <Step-1.5b-actual-lines>, dynamic gitdir resolver at lines <Step-1.5b-gitdir-lines>; replace both placeholders with the actual line ranges recorded in Step 1.5b). Closure evidence remains missing for ticket acceptance criteria #1 (comparable `/delegate` smoke with avoidable sandbox-friction escalations ≤2), #2 (credential-boundary probe), and #3 (`test_runtime.py` regression assertion updated and full codex-collaboration test suite passing). Acceptance criterion #4 (Option F upstream limitation) is already checked. The ticket therefore remains open; the work shape changes from "implement" to "record closure evidence and close."
 ```
 
 - [ ] **Step 4.3: Replace the priority `#1` line (≈line 52).**
@@ -1033,7 +1101,8 @@ rg -n -i "supported|preserved|lossy|ready_to_close_ticket|proves compatibility|c
    docs/diagnostics/codex-app-server-*.json \
    docs/plans/2026-05-01-codex-app-server-*.md \
    docs/tickets/2026-04-29-codex-collaboration-*.md \
-   docs/status/codex-collaboration-reconciliation-register.md
+   docs/status/codex-collaboration-reconciliation-register.md \
+   docs/architecture/2026-05-01-codex-app-server-current-client-platform-rebaseline.md
 ```
 
 - [ ] **Step 5.2: Classify every match.**
@@ -1049,7 +1118,7 @@ Apply the Sweep Classification Rules from the top of this plan. Acceptable termi
 
 Unacceptable: `interpretive-overclaim` → STOP. Do not commit. Surface to the user with file path, line number, current text, and proposed correction.
 
-Cross-check against the Task 1.1 baseline classification: any match that was tagged `interpretive-overclaim` in Task 1.1 must now classify as `corrected-language` or its enumerated patch site must be reflected in the staged diff. Any new `interpretive-overclaim` match (not in the Task 1.1 baseline) is a surviving overclaim regardless of cause.
+Cross-check against the Task 1.1 baseline classification artifact at `/private/tmp/codex-collab-overclaim-fix-sweep-baseline.md`: any match that was tagged `interpretive-overclaim` in Task 1.1 must now classify as `corrected-language` or its enumerated patch site must be reflected in the staged diff. Any new `interpretive-overclaim` match (not in the Task 1.1 baseline) is a surviving overclaim regardless of cause.
 
 - [ ] **Step 5.3: Cross-doc consistency spot-check.**
 
@@ -1315,7 +1384,8 @@ Run this before requesting plan approval. If any box is unchecked, fix in place.
 - [x] **Vocabulary marker `jq` assertions (scrutiny follow-up 5).** Step 3.6c previously verified six value assertions (three canonical, three legacy) but never positively asserted that `classification_vocabulary` and `classification_supersedes` — the fields that make the preserve-and-add schema transition intelligible — actually exist. A worker could omit items 1-2 of Step 3.3 and still pass all six value checks. Step 3.6c now includes four vocabulary marker assertions: `classification_vocabulary` matches the expected string, `classification_supersedes.legacy_blocks` matches the exact JSONPath array (upgraded from `length == 3` in scrutiny follow-up 6), `classification_supersedes.legacy_vocabulary` matches, and `classification_supersedes.fix_doc` is non-null. Total assertions: fifteen (three canonical scalar + five canonical array + three legacy + four markers).
 - [x] **Consumer discovery taxonomy includes peer diagnostic data artifacts (scrutiny follow-up 5).** Task 1.4's consumer-discovery classification had three buckets (production consumer, test fixture, self-reference). The broad `rg` pattern also surfaces sibling diagnostic JSON files (e.g., `codex-app-server-scratch-home-runtime-probes.json`) that contain the same field names as data, not as consumers. A worker encountering these hits had no classification bucket and would either misclassify them as production consumers (triggering a false stop condition) or leave them unclassified (violating the exhaustive-classification requirement). New `peer-diagnostic-data-artifact` classification added with explicit scoping: these are independent diagnostic captures, NOT consumers of the target JSON's schema.
 - [x] **Legacy assertions compare against pre-edit snapshot, not hard-coded literals (scrutiny follow-up 5).** Step 3.6c's legacy value assertions previously hard-coded `"supported"`, `"passed"`, and `true` — the values observed at plan-write time. Steps 3.3 items 3, 5, and 7 tell workers to copy live values (not plan-write-time values) if the JSON has drifted. A worker who correctly copies drifted legacy values would then fail the hard-coded assertions at Step 3.6c. Legacy assertions now read expected values from the pre-edit legacy-block snapshot (`/private/tmp/codex-collab-overclaim-fix-legacy-blocks-pre.json`) via `jq --argjson`/`--arg`, resolving the drift-tolerance contradiction.
-- [x] **Markdown raw-facts preservation check (scrutiny follow-up 5).** Step 2.7's `rg` sweep can detect surviving overclaim wording but cannot detect accidental removal of raw-evidence lines. The JSON has full programmatic enforcement (Steps 3.6/3.6b), but the `.md` had no analogous check — a Task 2 edit that accidentally deleted a raw-observation line would pass Step 2.7. New Step 2.7b spot-checks six distinctive raw-observation anchors (`item/commandExecution/requestApproval`, `"acceptWithExecpolicyAmendment"`, `availableDecisions`, `/bin/zsh -lc`, `No approval response was sent`, `itemId`) via `grep -qF`. This is a spot-check rather than a byte-identical diff because the `.md` mixes raw observations and interpretive text in the same document, unlike the JSON where `jq` projection cleanly separates them.
+- [x] **Markdown raw-facts preservation check (scrutiny follow-up 5; anchor corrected scrutiny follow-up 9).** Step 2.7's `rg` sweep can detect surviving overclaim wording but cannot detect accidental removal of raw-evidence lines. The JSON has full programmatic enforcement (Steps 3.6/3.6b), but the `.md` had no analogous check — a Task 2 edit that accidentally deleted a raw-observation line would pass Step 2.7. New Step 2.7b spot-checks six distinctive raw-observation anchors (`item/commandExecution/requestApproval`, `proposedExecpolicyAmendment`, `availableDecisions`, `/bin/zsh -lc`, `No approval response was sent`, `itemId`) via `grep -qF`. Scrutiny follow-up 9 corrected the second anchor from `"acceptWithExecpolicyAmendment"` to `proposedExecpolicyAmendment` — the former does not exist in the pre-edit `.md` file (it appears only in the sibling JSON and the delegate-execution diagnostic), so the old anchor tested new-prose survival rather than raw-evidence preservation. All six anchors are now verified to exist in the pre-edit `.md`.
 - [x] **Rebaseline "Command Approval Decision-Shape Boundary" classified as `authority-source` (scrutiny follow-up 5).** Step 5.7 previously classified matches from the rebaseline plan's lines 905-921 as `legacy-parser-route-vocabulary`. That section uses rebaseline-era framing ("decision-shape lossy", "response compatibility is not established", "lossless parser/response branch") and is one of this plan's two truth authorities (Authority Basis item 2) — it describes current reality, not the May-1 narrower vocabulary. New `authority-source` classification added to the Sweep Classification Rules table. Verification section, Task 5.2, and Step 5.7 all updated to include `authority-source` as an acceptable terminal classification.
 - [x] **Taxonomy, raw-preservation, target-count, and assertion gaps (scrutiny follow-up 6).** Five defects patched: (1) `authority-source` added to Step 1.1's allowed classification list — the global Sweep Classification Rules defined six classifications but Step 1.1 listed only five, causing a worker encountering rebaseline-plan authority-section matches to have no valid label. (2) `peer-diagnostic-data-artifact` added to the Sweep Classification Rules table, the Verification section's acceptable terminal classifications, and Task 5.2's acceptable classifications — the sweep glob `docs/diagnostics/codex-app-server-*.json` matches sibling diagnostic JSONs whose own `architecture_spec_readiness_delta` fields are independent data, not overclaims about the target method; workers had no classification bucket and would either misclassify or leave unclassified. (3) Step 2.7b strengthened with `git diff` hunk-review verification — the six `grep -qF` anchors pass even when raw lines are deleted because three of the six anchor strings (`item/commandExecution/requestApproval`, `availableDecisions`, `itemId`) also appear in the replacement interpretive prose from Steps 2.1-2.5; the hunk review catches edits outside the five enumerated sites. (4) Stale "three above" references at Task 0 lines 229/230 fixed to "four above" and self-review line 1248 updated to name all four target files (diagnostic `.md`, sibling JSON, register, rebaseline plan) — the rebaseline plan was added as a fourth target file in scrutiny follow-up 4 but the count references were not propagated. (5) Step 3.6c expanded from ten to fifteen `jq -e` assertions: five canonical array assertions added (`fully_supported_methods == []`, `parser_kind_compatible_methods == ["item/commandExecution/requestApproval"]`, `decision_shape_lossy_methods == ["item/commandExecution/requestApproval"]`, `still_missing_items | length >= 3`, `still_missing_items | any(test("lossless parser/response branch"))`) and the `classification_supersedes.legacy_blocks | length == 3` marker assertion upgraded to exact-content matching against the three JSONPath entries; a worker could previously create the `compatibility_classification` block with correct `status` but wrong array values (e.g., `fully_supported_methods: ["item/commandExecution/requestApproval"]` — a remaining overclaim) and pass all ten assertions.
 - [x] **Execution-control path contradictions resolved (scrutiny follow-up 7).** Five defects from external scrutiny patched: (1) Step 1.1 verification anchor no longer claims the `rg` sweep must surface `"ready: true"` (impossible — the sweep matches key names, not bare boolean values); replaced with guidance to verify the boolean via `jq -e` during Task 1.4 and rely on Step 3.6c's assertions post-edit. (2) Global stop condition for register-annotation `main`-truth check reconciled with Step 1.5b's line-drift handling — the stop condition now explicitly states line drift is NOT a stop condition and fires only when (a) this branch modified `runtime.py` or (b) carve-outs are absent from `main` entirely; Step 1.5b uses `rg -n` content-aware search instead of fixed-range `sed -n '107,118p'`. (3) `peer-diagnostic-data-artifact` added to Step 1.1's operative allowed-labels list (was defined in Sweep Classification Rules table and self-review but missing from the actual step instruction). (4) "Live envelope evidence changed" stop condition now has an explicit discovery path — artifact inventory via `ls docs/diagnostics/2026-05-{02..31}-*envelope*` during Task 1.1, with comparison against the May-1 capture's `availableDecisions` shape if a newer artifact exists. (5) Step 5.5 skip condition changed from execution-based ("if Task 3 ran") to state-based (`jq -e` checks against the live canonical JSON values); handles the case where a prior commit already reconciled the JSON but the rebaseline plan remains stale.
+- [x] **Scrutiny follow-up 9: seven structural defects from user scrutiny review.** (1) **False `.md` raw-preservation anchor corrected** — Step 2.7b's second anchor changed from `"acceptWithExecpolicyAmendment"` (absent from pre-edit `.md`; only in sibling JSON and delegate diagnostic) to `proposedExecpolicyAmendment` (raw params key at `.md` lines 121, 138). Added anchor derivation rule: all anchors must exist in the pre-edit file. (2) **"Parsing succeeds" overclaim weakened** — Step 2.4 replacement wording changed from "proves parser-kind compatibility (envelope parsing succeeds...)" to "supports a parser-kind compatibility inference" with explicit rationale distinguishing static field presence from parser execution evidence. (3) **Architecture doc added to sweep scope** — `docs/architecture/2026-05-01-codex-app-server-current-client-platform-rebaseline.md` added to Required Reads, Task 1.1 sweep paths, and sweep boundary description; contains same "local classification was `supported`" wording at lines 148-160. Active handoffs also added to sweep with supersession-note strategy. (4) **Branch/remote freshness gate added** — New Step 0.1 verifies current branch, `main == origin/main`, and `git fetch --dry-run` before any edits or "landed on `main`" claims. (5) **JSON editing risk mitigation** — Per-edit `jq` syntax check added after each Step 3.3 edit; full pre-edit copy named as recovery baseline for catastrophic malformation. (6) **Classification baseline artifact required** — Task 1.1 must write annotated classification table to `/private/tmp/codex-collab-overclaim-fix-sweep-baseline.md` for Task 5 diffing; resolves ephemeral classification problem. (7) **Task 4 decoupled from core fix** — Register-annotation `main`-truth stop condition now scoped to "skip Task 4 only; do NOT block Tasks 2, 3, 5, or 6." Step 1.5b's stop-condition outcome also updated. (8) **`runtime.py` line citation broadened** — Step 1.5b now captures both readable-roots append range (~107-118) and gitdir resolver range (~28-60); Task 4.2 annotation template uses both placeholders. (9) **Newer-evidence stop condition uses content search** — Two-pronged discovery (filename + content) via `rg -l 'item/commandExecution/requestApproval'` across diagnostics, architecture, and handoffs; catches evidence in non-standard-named artifacts. (10) **REQUIRED SUB-SKILL removed** — Worker directive changed from skill dependency to "execute sequentially in one workspace; do not parallelize across Task 3 commit state."
