@@ -3362,6 +3362,27 @@ def test_discard_accepts_unknown_null_promotion(tmp_path: Path) -> None:
     assert result.job.promotion_state == "discarded"
 
 
+def test_discard_accepts_needs_escalation_null_promotion(tmp_path: Path) -> None:
+    """Discard accepts a needs_escalation job with null promotion_state.
+
+    T-20260511-01: recovers the anomalous-pending fall-through outcome.
+    When _finalize_turn's Step 5b produces (needs_escalation, None) for
+    cancel-capable kinds after the anomalous-pending warning fires, the
+    widened discard gate admits the job so operators can clear stuck
+    state without manual pending_request_store surgery.
+    """
+    controller, job_store, _journal, _repo, job_id, _hash, _cb = (
+        _build_promote_scenario(tmp_path)
+    )
+    job_store.update_status_and_promotion(
+        job_id, status="needs_escalation", promotion_state=None
+    )
+
+    result = controller.discard(job_id=job_id)
+    assert isinstance(result, DiscardResult)
+    assert result.job.promotion_state == "discarded"
+
+
 def test_discard_rejects_failed_with_applied_promotion(tmp_path: Path) -> None:
     """Discard rejects a failed job with applied promotion_state (post-mutation)."""
     controller, job_store, _journal, _repo, job_id, _hash, _cb = (

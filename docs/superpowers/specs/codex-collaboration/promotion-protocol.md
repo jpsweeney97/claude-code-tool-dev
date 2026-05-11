@@ -137,9 +137,9 @@ If post-application verification fails:
 
 `codex.delegate.discard` is a separate low-risk operation from promotion.
 
-- **Allowed states:** `promotion_state in {pending, prechecks_failed}`, or `status in {failed, unknown}` with `promotion_state is None` (pre-mutation)
+- **Allowed states:** `promotion_state in {pending, prechecks_failed}`, or `status in {failed, unknown, canceled, needs_escalation}` with `promotion_state is None` (pre-mutation)
 - **Rejected states:** `prechecks_passed`, `applied`, `verified`, `rollback_needed`, `rolled_back`, and `discarded`
-- **Rationale:** discard is only valid before any primary-workspace mutation has occurred. Failed/unknown jobs with null promotion state are pre-mutation by definition and must be discardable to prevent permanently blocking new delegations via the widened busy gate.
+- **Rationale:** discard is only valid before any primary-workspace mutation has occurred. Failed, unknown, and canceled jobs with null promotion state are pre-mutation by definition and must be discardable to prevent permanently blocking new delegations via the widened busy gate. The `needs_escalation` admission additionally provides operational recovery from the anomalous-pending fall-through in `_finalize_turn`: when a cancel-capable kind's captured request still reports `pending` at finalization time, Step 5b's kind-based fall-through produces `(needs_escalation, promotion_state=None)` with no operator decide flow possible. Discard clears the stuck state without manual `pending_request_store` mutation.
 
 Discard emits an [audit event](contracts.md#auditevent) with `action: discard`, transitions the job to `promotion_state="discarded"`, and schedules the execution worktree for normal discard-time cleanup.
 

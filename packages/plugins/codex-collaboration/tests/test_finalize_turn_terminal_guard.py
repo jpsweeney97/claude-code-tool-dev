@@ -27,6 +27,7 @@ from server.models import (
     CollaborationHandle,
     DelegationEscalation,
     DelegationJob,
+    DiscardResult,
     PendingServerRequest,
     TurnExecutionResult,
 )
@@ -697,3 +698,62 @@ def test_l9_parse_failed_pending_silence(
     # Result should be unknown via L11 carve-out
     assert isinstance(result, DelegationJob)
     assert result.status == "unknown"
+
+
+def test_t20260511_01_anomalous_pending_discard_recovery(tmp_path: Path) -> None:
+    """T-20260511-01: discard() recovers the anomalous-pending fall-through outcome.
+
+    Drives _finalize_turn through the anomalous-pending path for a cancel-capable
+    kind (command_approval), producing (status=needs_escalation, promotion_state=None)
+    via Step 5b. Then calls discard() and asserts the widened gate admits the job
+    and completes the standard discard transition.
+
+    End-to-end recovery contract for the gap identified in PR #125 disposition.
+    """
+    controller, job_store, _lineage, registry, prs, _session, _journal = (
+        _setup_running_job(tmp_path)
+    )
+
+    # Seed the pending-request store with a 'pending' record. The captured
+    # request handed to _finalize_turn also reports 'pending' — Step 3 will
+    # log the anomalous-pending warning, defensively write store to 'resolved',
+    # but the local snapshot variable retains 'pending', so Step 4 doesn't
+    # match resolved/canceled and Step 5b's kind-based fall-through fires.
+    prs.create(_make_pending_server_request(status="pending"))
+    captured = _make_pending_server_request(status="pending")  # command_approval
+
+    entry = registry.lookup("rt-h-1")
+    assert entry is not None
+
+    turn_result = TurnExecutionResult(
+        turn_id="turn-1",
+        status="completed",
+        agent_message="Done.",
+        notifications=(
+            {"method": "serverRequest/resolved", "params": {"requestId": "42"}},
+            {"method": "item/completed", "params": {"item": {"id": "item-1"}}},
+        ),
+    )
+
+    finalize_result = controller._finalize_turn(
+        job_id="job-h-1",
+        runtime_id="rt-h-1",
+        collaboration_id="collab-h-1",
+        entry=entry,
+        turn_result=turn_result,
+        captured_request=captured,
+        interrupted_by_unknown=False,
+        captured_request_parse_failed=False,
+    )
+
+    # Step 5b fall-through for cancel-capable kinds produces needs_escalation.
+    assert isinstance(finalize_result, DelegationEscalation)
+    persisted = job_store.get("job-h-1")
+    assert persisted is not None
+    assert persisted.status == "needs_escalation"
+    assert persisted.promotion_state is None
+
+    # The widened discard gate recovers the stuck (needs_escalation, None) state.
+    discard_result = controller.discard(job_id="job-h-1")
+    assert isinstance(discard_result, DiscardResult)
+    assert discard_result.job.promotion_state == "discarded"
