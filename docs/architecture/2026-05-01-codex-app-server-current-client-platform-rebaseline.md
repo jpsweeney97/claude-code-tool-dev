@@ -53,7 +53,7 @@ The evidence ladder is:
 | `2026-05-01-codex-app-server-client-platform-exploration.md` | source, release, schema, launcher, and surface map for the selected local target | live runtime behavior |
 | `2026-05-01-codex-app-server-scratch-home-runtime-probes.md` | selected launcher handshake, pre-initialize rejection, scratch `thread/start`, scratch-home isolation, and unmaterialized `thread/read` lifecycle precondition | materialized turn projection or server-request reachability |
 | `2026-05-01-codex-app-server-materialized-thread-and-server-request-probes.md` | materialized `thread/read(includeTurns=true)` exists after one user-message turn | recoverable agent output shape, reliable historical status/error fields, or server-request reachability |
-| `2026-05-01-codex-app-server-server-request-envelope-probes.md` | scratch `chatgptDeviceCode` auth and one live `item/commandExecution/requestApproval` envelope with local `supported` classification | other server-request methods, response semantics, unsupported-method lifecycle cleanliness, or standalone launcher equivalence |
+| `2026-05-01-codex-app-server-server-request-envelope-probes.md` | scratch `chatgptDeviceCode` auth and one live `item/commandExecution/requestApproval` envelope classified as parser-kind compatible (decision-shape lossy under structured `availableDecisions`) | other server-request methods, response semantics, unsupported-method lifecycle cleanliness, or standalone launcher equivalence |
 
 ## Current Runtime Target
 
@@ -90,9 +90,9 @@ against the selected launcher.
 | `turn/start` | required | live-proven for constrained model-mediated probes |
 | `turn/interrupt` | required for cleanup and unknown-request handling | used by local code; not separately live-proven in this packet set |
 | `thread/resume` / `thread/fork` | required by current recovery and dialogue behavior | source/code-visible; not separately live-proven in this packet set |
-| `item/commandExecution/requestApproval` | supported server-request method | live-proven and locally classified as `supported` |
-| `item/fileChange/requestApproval` | supported by parser shape, still needs live coverage | local parser maps it, but no live envelope observed here |
-| `item/tool/requestUserInput` | supported by parser shape, still needs live coverage | local parser maps it, but no live envelope observed here |
+| `item/commandExecution/requestApproval` | parser-kind compatible server-request method | live envelope proven; locally classified as parser-kind compatible, decision-shape lossy under structured `availableDecisions` |
+| `item/fileChange/requestApproval` | parser-kind compatible by parser shape, still needs live coverage | local parser maps it, but no live envelope observed here |
+| `item/tool/requestUserInput` | parser-kind compatible by parser shape, still needs live coverage | local parser maps it, but no live envelope observed here |
 | `item/permissions/requestApproval` | unobserved risk | schema-visible; currently expected to parse as `unknown` if required correlation fields are present |
 | `mcpServer/elicitation/request` | unobserved risk | schema-visible; current parser may fail if correlation fields are absent or nullable |
 | `item/tool/call` | unobserved risk | schema-visible; current parser may fail because the parser requires `itemId` |
@@ -145,7 +145,8 @@ Implementation rule:
 ### 3. Scope server-request support to observed and parser-owned methods
 
 The live envelope packet upgrades the server-request posture from
-"unproven reachability" to "proven reachability for one supported method."
+"unproven reachability" to "proven reachability for one parser-kind compatible
+method (decision-shape lossy under structured `availableDecisions`)."
 
 Observed live method:
 
@@ -156,7 +157,7 @@ Observed compatibility facts:
 - JSON-RPC `id` was present;
 - `itemId`, `threadId`, and `turnId` were present;
 - `availableDecisions` was present in the params keys;
-- local classification was `supported`;
+- local classification was parser-kind compatible, decision-shape lossy under structured `availableDecisions`;
 - no approval response was sent during the probe.
 
 Local parser facts:
