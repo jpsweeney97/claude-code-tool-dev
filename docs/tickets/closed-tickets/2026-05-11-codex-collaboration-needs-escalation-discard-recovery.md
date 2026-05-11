@@ -3,7 +3,28 @@
 ```yaml
 id: T-20260511-01
 date: 2026-05-11
-status: open
+status: closed
+closed_date: 2026-05-11
+resolution: completed
+resolution_ref: >
+  Implementation merged to main at 4ec2c2ea (fast-forward, single
+  commit). AC1-AC4 satisfied: (1) discard gate widened in
+  delegation_controller.py:discard() to admit (needs_escalation, None)
+  under the promotion_state-is-None clause; (2) unit test
+  test_discard_accepts_needs_escalation_null_promotion in
+  test_delegation_controller.py mirrors the existing
+  test_discard_accepts_failed_null_promotion pattern; (3) end-to-end
+  integration test test_t20260511_01_anomalous_pending_discard_recovery
+  in test_finalize_turn_terminal_guard.py drives _finalize_turn through
+  the anomalous-pending fall-through and asserts discard() admits the
+  resulting (needs_escalation, None) state; (4) promotion-protocol.md
+  Discard Semantics updated with full admission set + recovery rationale
+  (also fixed pre-existing canceled drift). Verification: 12/12
+  discard-gate tests + full codex-collaboration suite 1099/1099.
+  Note: AC1's "full discard cleanup chain" language was interpreted
+  against discard()'s actual contract (promotion_state -> discarded +
+  audit event); no status mutation or runtime/lineage callbacks fire
+  from discard, matching the existing test_discard_accepts_* pattern.
 priority: low
 tags: [codex-collaboration, delegation, discard, defense-in-depth, operational-recovery]
 blocked_by: []
