@@ -39,4 +39,5 @@
 1. `./consultation-profiles.yaml`
    - Named profiles (`quick-check`, `deep-review`, `adversarial-challenge`,
      `exploratory`, `code-review`) mapping to resolved execution controls.
-     Canonical source in `packages/plugins/codex-collaboration/references/`.
+     Canonical source: `/Users/jp/Projects/active/codex-collaboration/references/`
+     (extracted from this monorepo on 2026-05-11).

@@ -9,5 +9,6 @@ members = [
     "packages/plugins/handoff",
     "packages/plugins/ticket",
     "packages/plugins/superspec",
-    "packages/plugins/codex-collaboration",
 ]
+# codex-collaboration extracted to /Users/jp/Projects/active/codex-collaboration on 2026-05-11.
+# See packages/plugins/codex-collaboration/MIGRATED.md.

@@ -2,7 +2,6 @@
   "name": "turbo-mode",
   "owner": { "name": "JP" },
   "plugins": [
-    { "name": "codex-collaboration", "source": "./packages/plugins/codex-collaboration" },
     { "name": "handoff", "source": "./packages/plugins/handoff" },
     { "name": "context-metrics", "source": "./packages/plugins/context-metrics" },
     { "name": "ticket", "source": "./packages/plugins/ticket" },
