@@ -390,6 +390,14 @@ cd /Users/jp/Projects/active/claude-code-tool-dev
 git rm -rq packages/plugins/handoff/.codex-plugin
 ```
 
+- [ ] **Step 2b: Retarget the 7 `.codex-plugin` STRING references → `.claude-plugin` (AC2-critical — execution-surfaced).** Deleting the directory does NOT remove the literal `.codex-plugin` path strings in code/tests/docs; those are what AC2's `rg '\.codex'` still matches. Retarget each to `.claude-plugin` (the handoff plugin and its siblings are now Claude-plugin-shaped, so manifest-discovery must look at `.claude-plugin/plugin.json`):
+  - `handoff_runtime/plugin_siblings.py` — `(path / ".codex-plugin" / "plugin.json").exists()` → `.claude-plugin`
+  - `handoff_runtime/installed_host_harness.py` — the 2 sites `source_manifest = ... ".codex-plugin" ...` / `installed_manifest = ... ".codex-plugin" ...` → `.claude-plugin`
+  - `CONTRIBUTING.md` — the line listing `\`.codex-plugin/plugin.json\`` (release-metadata file list) → `.claude-plugin`
+  - `tests/test_plugin_siblings.py` — the 2 fixture sites `(root / ".codex-plugin")...` → `.claude-plugin`
+  - `tests/test_release_metadata.py` — `(PLUGIN_ROOT / ".codex-plugin" / "plugin.json").read_text(...)` → `.claude-plugin`
+  After this step, `rg '\.codex-plugin' packages/plugins/handoff` → **zero**. (The only `\.codex` matches remaining are then the Task-8-owned set: `installed_host_harness.py` Codex-home + the AC5 negative-control literal.)
+
 - [ ] **Step 3: pyproject description + version → Claude**
 
 In `packages/plugins/handoff/pyproject.toml`:
