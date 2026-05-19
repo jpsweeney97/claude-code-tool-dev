@@ -151,7 +151,11 @@ def validate_frontmatter(frontmatter: dict[str, str], doc_type: str) -> list[Iss
     missing = [f for f in REQUIRED_FRONTMATTER_FIELDS if f not in frontmatter]
     if missing:
         issues.append(
-            Issue("error", f"Missing required frontmatter: {', '.join(missing)}", tier="integrity")
+            Issue(
+                "error",
+                f"Missing required frontmatter: {', '.join(missing)}",
+                tier="integrity",
+            )
         )
 
     blank = [
@@ -159,7 +163,11 @@ def validate_frontmatter(frontmatter: dict[str, str], doc_type: str) -> list[Iss
     ]
     if blank:
         issues.append(
-            Issue("error", f"Blank required frontmatter: {', '.join(blank)}", tier="integrity")
+            Issue(
+                "error",
+                f"Blank required frontmatter: {', '.join(blank)}",
+                tier="integrity",
+            )
         )
 
     if doc_type == "checkpoint" and "title" in frontmatter:
@@ -205,13 +213,19 @@ def validate_sections(sections: list[dict[str, str]], doc_type: str) -> list[Iss
     missing = [name for name in required if name not in section_names]
     if missing:
         issues.append(
-            Issue("error", f"Missing required sections: {', '.join(missing)}", tier="integrity")
+            Issue(
+                "error",
+                f"Missing required sections: {', '.join(missing)}",
+                tier="integrity",
+            )
         )
 
     for section in sections:
         if not section["content"].strip():
             issues.append(
-                Issue("warning", f"Empty section: '{section['heading']}'", tier="advisory")
+                Issue(
+                    "warning", f"Empty section: '{section['heading']}'", tier="advisory"
+                )
             )
 
     # Hollow-handoff guardrail: at least 1 of {Decisions, Changes, Learnings}
