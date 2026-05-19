@@ -4,7 +4,7 @@ Deferred detail for Handoff skill controllers. Load the relevant section only wh
 
 ## Save
 
-Use `/save` for session boundaries where future Codex needs full reasoning, decisions, file context, and resumption state. The output should include the required handoff sections from `format-reference.md`, decision reasoning, codebase knowledge with references, risks, gotchas, open questions, and next steps.
+Use `/save` for session boundaries where the next agent needs full reasoning, decisions, file context, and resumption state. The output should include the required handoff sections from `format-reference.md`, decision reasoning, codebase knowledge with references, risks, gotchas, open questions, and next steps.
 
 Avoid trivial handoffs, single-sentence decisions, bare file lists, paraphrased user preferences when verbatim wording matters, and chat reproduction of the saved artifact. If the body looks thin, re-check implicit decisions, explored files, rejected approaches, and the conversation arc before writing. If the saved content is materially incomplete, create a replacement handoff rather than editing committed active-writer output in place.
 
@@ -71,7 +71,7 @@ If replacing a promoted entry, warn that replacement invalidates the promotion u
 
 Report open tickets grouped by priority and age. Report orphaned handoff items requiring manual review before matched informational items. Include match coverage counts for `uid_match`, `id_ref`, `manual_review`, and `skipped_prose`.
 
-Match strategies: `uid_match` joins handoff `session_id` to Ticket provenance, `id_ref` detects explicit ticket IDs in handoff text, and `manual_review` means no deterministic match. UID match only works for tickets created from handoff-derived contexts; PR review, Codex, and ad-hoc tickets route to manual review by design.
+Match strategies: `uid_match` joins handoff `session_id` to Ticket provenance, `id_ref` detects explicit ticket IDs in handoff text, and `manual_review` means no deterministic match. UID match only works for tickets created from handoff-derived contexts; PR review, Claude, and ad-hoc tickets route to manual review by design.
 
 Offer orphan actions: create selected tickets through `/defer`, mark already tracked, mark not actionable, or skip all. Triage itself is read-only.
 

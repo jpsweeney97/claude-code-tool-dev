@@ -11,7 +11,7 @@ Shared schema and conventions for handoff documents.
 date: 2026-01-08                    # Date (YYYY-MM-DD)
 time: "14:30"                       # Time (HH:MM, quoted for YAML)
 created_at: "2026-01-08T14:30:00Z"  # ISO 8601 UTC timestamp
-session_id: <UUID>                  # Codex session ID
+session_id: <UUID>                  # Required: from ${CLAUDE_SESSION_ID}
 resumed_from: <path>                # Archive path if resumed (optional)
 project: <project-name>             # Git root or directory name
 branch: <branch-name>               # Current git branch (optional)
@@ -36,11 +36,11 @@ files:
 | Goal | Session had a clear objective | 10-20 lines: trigger, stakes, broader context, success criteria, connection to project arc |
 | Session Narrative | Always — every session has a story | 60-100 lines: chronological story, exploration path, pivots with triggers, hypotheses tested, key understanding shifts |
 | Decisions | Choices made with tradeoffs/reasoning | 20-30 lines per decision: choice, driver, alternatives, rejection reasons, trade-offs, confidence, reversibility, change triggers |
-| Changes | Files created/modified with purpose | 8-15 lines per file: purpose, approach, key implementation details, patterns followed, design choices, what future Codex needs to modify it |
+| Changes | Files created/modified with purpose | 8-15 lines per file: purpose, approach, key implementation details, patterns followed, design choices, what the next agent needs to modify it |
 | In Progress | Work was ongoing when session ended | As needed: approach, state, what's working/broken, open questions, immediate next action |
 | Codebase Knowledge | Always — even known codebases yield new understanding | 60-100 lines: files read and why, patterns with file:line, architecture mapped, conventions observed, key locations, dependency graphs |
-| Conversation Highlights | Any session with user-Codex dialogue | 30-60 lines: key exchanges with verbatim quotes, alignment moments, disagreements and resolutions, working style observations |
-| Context | Background info future Codex needs | 60-120 lines: mental model, architecture, environment state, project history, component relationships |
+| Conversation Highlights | Any session with user-assistant dialogue | 30-60 lines: key exchanges with verbatim quotes, alignment moments, disagreements and resolutions, working style observations |
+| Context | Background info the next agent needs | 60-120 lines: mental model, architecture, environment state, project history, component relationships |
 | Gotchas | Something unexpected or tricky discovered | As needed |
 | Next Steps | Work is incomplete, clear follow-ups exist | 10-15 lines per item: dependencies, what to read first, approach suggestion, acceptance criteria, potential obstacles |
 | Blockers | Stuck on something, waiting for resolution | As needed |

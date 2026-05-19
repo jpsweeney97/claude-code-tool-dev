@@ -8,13 +8,13 @@ You are not filling out a form. You are answering one question:
 
 > "What would future-me need to continue this work without re-exploration?"
 
-Every piece of information you capture must pass this test. If future Codex wouldn't need it to continue, don't include it. If future Codex would be stuck without it, it's mandatory.
+Every piece of information you capture must pass this test. If the next agent wouldn't need it to continue, don't include it. If the next agent would be stuck without it, it's mandatory.
 
 **Form-filling produces:** "Used JWT for authentication"
 
 **Future-me thinking produces:** "Chose JWT over sessions because user stated multi-region requirement (quote: 'needs to work across US and EU without shared state'). Sessions would require Redis replication — rejected as too complex for v1. Implication: refresh tokens need their own revocation strategy since we can't invalidate server-side."
 
-The difference is not length. It's whether future Codex can continue the work or has to rediscover everything.
+The difference is not length. It's whether the next agent can continue the work or has to rediscover everything.
 
 **Default to inclusion.** When unsure whether something belongs, include it. The cost of a slightly longer handoff is zero. The cost of a missing piece of context is an entire re-exploration cycle.
 
@@ -62,7 +62,7 @@ The difference is not length. It's whether future Codex can continue the work or
 
 ### Session Narrative
 
-**Always include.** Even "pure execution" sessions have a story — what was the plan, what went smoothly, what required adaptation. The narrative is the single most valuable section for future Codex to understand the session arc.
+**Always include.** Even "pure execution" sessions have a story — what was the plan, what went smoothly, what required adaptation. The narrative is the single most valuable section for the next agent to understand the session arc.
 
 1. **What was the starting state?**
    What knowledge, assumptions, and goals did the session begin with?
@@ -215,7 +215,7 @@ For anything learned about how this codebase works that's relevant to continuing
 
 ### Codebase Knowledge
 
-**Always include.** Every session reads files and builds understanding. This section is a knowledge dump — everything the session learned about the codebase that would save future Codex from re-reading files.
+**Always include.** Every session reads files and builds understanding. This section is a knowledge dump — everything the session learned about the codebase that would save the next agent from re-reading files.
 
 1. **What files were read during this session? Why each one? What was found?**
    Not just a list — what prompted reading each file and what understanding it provided.
@@ -230,9 +230,9 @@ For anything learned about how this codebase works that's relevant to continuing
    Naming, structure, error handling, testing patterns — with examples from the code.
 
 5. **What was surprising or counter-intuitive? Why?**
-   What violated expectations? What would mislead future Codex if not documented?
+   What violated expectations? What would mislead the next agent if not documented?
 
-6. **What key locations should future Codex know about?**
+6. **What key locations should the next agent know about?**
    Entry points, configuration, hot paths, test fixtures, shared utilities.
 
 7. **What does the dependency graph look like for the area of code touched?**
@@ -241,7 +241,7 @@ For anything learned about how this codebase works that's relevant to continuing
 8. **What related files exist that weren't modified but are relevant?**
    Files that inform how the modified files should behave.
 
-**Depth target:** 60-100 lines in the final handoff. Use tables for architecture and relationships. Include file:line references for every pattern claim. A codebase knowledge section that merely lists files without patterns, architecture, and key locations is incomplete. The test: would future Codex need to re-read any file that was read this session? If yes, that file's content and patterns should be captured here.
+**Depth target:** 60-100 lines in the final handoff. Use tables for architecture and relationships. Include file:line references for every pattern claim. A codebase knowledge section that merely lists files without patterns, architecture, and key locations is incomplete. The test: would the next agent need to re-read any file that was read this session? If yes, that file's content and patterns should be captured here.
 
 Maps to: **Codebase Knowledge** section in handoff.
 
@@ -272,7 +272,7 @@ How are you thinking about this problem? This is not what you did — it's the f
 > - **Core insight:** The slowness comes from stale data causing extra queries, not from query efficiency
 > - **Mental model:** Thinking of the system as having "data freshness tiers" — some data can be stale, some must be real-time
 
-**Depth target:** 10-20 lines in the final handoff. A mental model entry without the core insight or a framing analogy that future Codex can use to orient is incomplete. The framing should be transferable — future Codex should be able to adopt the same lens.
+**Depth target:** 10-20 lines in the final handoff. A mental model entry without the core insight or a framing analogy that the next agent can use to orient is incomplete. The framing should be transferable — the next agent should be able to adopt the same lens.
 
 **If no particular framing emerged, state:** "No specific mental model — straightforward implementation of [what]."
 
@@ -285,7 +285,7 @@ Why are we doing this task? Not what we're building — why it matters.
 1. **What's the bigger picture?**
    What goal does this task serve? What happens if this isn't done?
 
-2. **What's the context that future Codex won't see?**
+2. **What's the context that the next agent won't see?**
    Deadlines, stakeholders, dependencies, business reasons — anything not in the code.
 
 3. **Why now?**
@@ -311,7 +311,7 @@ Why are we doing this task? Not what we're building — why it matters.
 
 ### Failed Attempts
 
-What was tried that didn't work? This prevents future Codex from repeating dead ends.
+What was tried that didn't work? This prevents the next agent from repeating dead ends.
 
 For each failed attempt:
 
@@ -336,7 +336,7 @@ For each failed attempt:
 > - **Failed because:** Doesn't work across multiple server instances — each instance has its own counter, so limits aren't enforced globally
 > - **Learned:** Any rate limiting solution needs shared state; must use Redis or similar
 
-**Depth target:** 10-20 lines per failed attempt in the final handoff. A failed attempt entry without the specific failure reason (with evidence) and what it taught about the problem is incomplete. Include why the approach seemed promising initially — this helps future Codex understand the reasoning that led to the dead end and why it won't work.
+**Depth target:** 10-20 lines per failed attempt in the final handoff. A failed attempt entry without the specific failure reason (with evidence) and what it taught about the problem is incomplete. Include why the approach seemed promising initially — this helps the next agent understand the reasoning that led to the dead end and why it won't work.
 
 **If nothing was tried and failed, state:** "No failed attempts — [first approach worked / session was exploration only]."
 
@@ -445,7 +445,7 @@ What does the user care about that isn't visible in the code?
 1. **What key questions did the user ask?**
    What did their questions reveal about priorities?
 
-2. **What key questions did Codex ask?**
+2. **What key questions did the assistant ask?**
    What did the answers clarify?
 
 3. **What preferences did the user express — verbatim?**
@@ -457,7 +457,7 @@ What does the user care about that isn't visible in the code?
 5. **What alignment was reached that isn't captured in decisions?**
    Methodology, pace, scope, working style.
 
-6. **What would you tell future Codex about working with this user based on this session?**
+6. **What would you tell the next agent about working with this user based on this session?**
    Communication patterns, decision-making style, what they value and deprioritize.
 
 7. **What communication patterns emerged?**
@@ -508,7 +508,7 @@ Before writing the final handoff, verify against these checks. Every "no" indica
 
 3. **Evidence density:** Does every factual claim link to file:line, quote, or output? Claims without evidence are assertions, not knowledge.
 
-4. **Resumption test:** Could future Codex start working without asking "why did we..." or "what about..."? If any likely question isn't answered, add the answer.
+4. **Resumption test:** Could the next agent start working without asking "why did we..." or "what about..."? If any likely question isn't answered, add the answer.
 
 5. **Codebase preservation:** Is the architecture understanding rendered in full (tables, relationships, key locations), not just referenced? The next agent should not need to re-read files explored this session.
 
@@ -516,4 +516,4 @@ Before writing the final handoff, verify against these checks. Every "no" indica
 
 7. **Session narrative:** Is the exploration arc told as a story with pivots and triggers? A flat list of actions is not a narrative.
 
-8. **Knowledge preservation:** Would future Codex need to re-read any file that was read this session? If yes, capture that file's content, patterns, and purpose in the Codebase Knowledge section.
+8. **Knowledge preservation:** Would the next agent need to re-read any file that was read this session? If yes, capture that file's content, patterns, and purpose in the Codebase Knowledge section.
