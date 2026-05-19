@@ -1,6 +1,6 @@
 # Handoff
 
-Session continuity plugin for Codex. Saves session state as structured markdown documents, resumes work across sessions, tracks deferred work as tickets, and extracts durable knowledge from past sessions.
+Session continuity plugin for Claude Code. Saves session state as structured markdown documents, resumes work across sessions, tracks deferred work as tickets, and extracts durable knowledge from past sessions.
 
 ## Installation
 
@@ -46,7 +46,7 @@ codex plugin install ./plugins/turbo-mode/handoff
 
 ### Hooks
 
-Handoff does not ship plugin-bundled command hooks. The dormant hook-compatible scripts are retained in source, but the installed plugin manifest exposes no bundled hook command contract. Plugin-bundled command hooks remain deferred until Codex provides a documented portable launcher contract or a separate generated-config architecture is approved.
+Handoff does not ship plugin-bundled command hooks. The dormant hook-compatible scripts are retained in source, but the installed plugin manifest exposes no bundled hook command contract. Plugin-bundled command hooks remain deferred until Claude Code provides a documented portable launcher contract or a separate generated-config architecture is approved.
 
 ### Runtime Package and CLI Facades
 
@@ -243,7 +243,7 @@ See `skills/save/SKILL.md` for a comprehensive example.
 
 ### Hook Scope
 
-Handoff plugin-bundled command hooks are deferred from 1.7.0 until Codex exposes a documented plugin-root launcher contract or a generated-config architecture is designed and proven.
+Handoff plugin-bundled command hooks are deferred from 1.7.0 until Claude Code exposes a documented plugin-root launcher contract or a generated-config architecture is designed and proven.
 
 ### Adding Runtime Code
 

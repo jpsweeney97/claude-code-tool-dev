@@ -104,6 +104,19 @@ def test_load_skill_documents_fail_closed_operator_recovery_boundaries() -> None
     assert "Re-run `/load`; pending transactions are recovered before new selection" not in text
 
 
+def test_session_id_sourced_from_claude_session_id_not_write_time_uuid() -> None:
+    for name in ("save", "summary", "quicksave", "load"):
+        text = (PLUGIN_ROOT / "skills" / name / "SKILL.md").read_text(encoding="utf-8")
+        assert "${CLAUDE_SESSION_ID}" in text, name
+        assert "Generate a fresh UUID for `session_id`" not in text, name
+        assert "Generate a fresh UUID for this checkpoint" not in text, name
+
+
+def test_resume_token_spine_unchanged() -> None:
+    contract = (PLUGIN_ROOT / "references" / "handoff-contract.md").read_text("utf-8")
+    assert "handoff-<project>-<resume_token>.json" in contract  # Codex spine kept verbatim
+
+
 def test_defer_skill_uses_plugin_siblings_plain_field() -> None:
     text = (PLUGIN_ROOT / "skills" / "defer" / "SKILL.md").read_text(encoding="utf-8")
     assert (

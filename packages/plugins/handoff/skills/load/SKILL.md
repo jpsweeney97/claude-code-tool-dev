@@ -7,6 +7,8 @@ description: Use when continuing from a previous session, when user runs `/load`
 
 Resume work from an existing Handoff artifact. Loading may archive or copy the selected handoff and writes resume state under `<project_root>/.claude/handoffs/.session-state/handoff-<project>-<resume_token>.json`.
 
+**Session ID:** ${CLAUDE_SESSION_ID}
+
 The plugin writes filesystem artifacts only. It does not add gitignore rules, stage files, or auto-commit files. Whether `.claude/handoffs/` is tracked or ignored is host-repository policy, not a plugin invariant.
 
 Handoff does not ship plugin-bundled command hooks. Run the load helper directly with the resolved plugin root.

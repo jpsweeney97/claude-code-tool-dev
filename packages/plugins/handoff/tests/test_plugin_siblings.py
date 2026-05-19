@@ -9,8 +9,8 @@ from handoff_runtime.plugin_siblings import find_sibling_plugin_root
 
 
 def _make_plugin(root: Path, name: str) -> None:
-    (root / ".codex-plugin").mkdir(parents=True)
-    (root / ".codex-plugin" / "plugin.json").write_text(
+    (root / ".claude-plugin").mkdir(parents=True)
+    (root / ".claude-plugin" / "plugin.json").write_text(
         f'{{"name":"{name}","version":"0.1.0"}}',
         encoding="utf-8",
     )

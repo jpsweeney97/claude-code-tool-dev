@@ -5,7 +5,9 @@ description: Use when user says "wrap this up", "new session", "almost out of co
 
 # Save
 
-Create a comprehensive handoff at `<project_root>/.claude/handoffs/`. Use this for real session boundaries where future Codex needs decisions, file context, risks, and next steps without re-exploration.
+Create a comprehensive handoff at `<project_root>/.claude/handoffs/`. Use this for real session boundaries where future Claude sessions need decisions, file context, risks, and next steps without re-exploration.
+
+**Session ID:** ${CLAUDE_SESSION_ID}
 
 Read these only when needed:
 - [handoff-contract.md](../../references/handoff-contract.md) for frontmatter, chain protocol, storage conventions.
@@ -24,7 +26,7 @@ The plugin writes filesystem artifacts only. It does not add gitignore rules, st
 
 ## Procedure
 
-1. Generate a fresh UUID for `session_id`.
+1. Use the session ID injected at skill load time (see handoff-contract.md) for the `session_id` frontmatter field.
 2. Read `synthesis-guide.md` completely. Answer every applicable synthesis prompt internally; do not show those answers in chat.
 3. Gather session context, current git branch/commit when available, and the files that should appear in frontmatter `files:`.
 4. Select sections from [format-reference.md](../../references/format-reference.md). Include all required handoff sections; use brief placeholders only when a section genuinely does not apply.

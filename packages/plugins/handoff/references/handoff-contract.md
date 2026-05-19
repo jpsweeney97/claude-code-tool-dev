@@ -2,14 +2,13 @@
 
 Shared contract for all handoff plugin skills. Loaded by save, quicksave, and load.
 
-## Session IDs
+## Session ID
 
-Codex does not inject a stable skill-level session UUID. Instead:
+The session ID is injected by Claude Code at skill load time via `${CLAUDE_SESSION_ID}`. Each skill includes this line near the top:
 
-- `save`, `quicksave`, and `summary` generate a fresh UUID when they write a handoff, checkpoint, or summary
-- `load` uses a per-project resume state file rather than a per-session one
+**Session ID:** ${CLAUDE_SESSION_ID}
 
-The `session_id` frontmatter field remains required and should always be a UUID generated at write time.
+This substitution happens once when the skill loads. The resulting UUID is used for the `session_id` frontmatter field.
 
 ## Frontmatter Schema
 
@@ -20,7 +19,7 @@ All handoff files (checkpoints and full handoffs) use this frontmatter:
 date: YYYY-MM-DD                    # Required
 time: "HH:MM"                       # Required (quoted for YAML)
 created_at: "YYYY-MM-DDTHH:MM:SSZ"  # Required: ISO 8601 UTC
-session_id: <UUID>                   # Required: generated at write time
+session_id: <UUID>                   # Required: from ${CLAUDE_SESSION_ID}
 resumed_from: <path>                 # Optional: archive path if resumed
 project: <project-name>             # Required: git root or directory name
 branch: <branch-name>               # Optional: current git branch

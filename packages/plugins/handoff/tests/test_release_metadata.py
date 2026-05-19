@@ -33,12 +33,12 @@ POLICY_CODE_COMMENTS = [
     PLUGIN_ROOT / "handoff_runtime" / "cleanup.py",
     PLUGIN_ROOT / "handoff_runtime" / "project_paths.py",
 ]
-EXPECTED_VERSION = "1.7.0"
+EXPECTED_VERSION = "2.0.0"
 
 
 def test_versions_are_aligned() -> None:
     plugin_json = json.loads(
-        (PLUGIN_ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
+        (PLUGIN_ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")
     )
     pyproject = tomllib.loads((PLUGIN_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     assert plugin_json["version"] == EXPECTED_VERSION

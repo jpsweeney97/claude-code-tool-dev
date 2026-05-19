@@ -364,7 +364,7 @@ def is_handoff_path(file_path: str) -> bool:
 
 
 def format_output(issues: list[Issue]) -> str:
-    """Format issues as additionalContext message for Codex."""
+    """Format issues as additionalContext message for Claude Code."""
     errors = [i for i in issues if i.severity == "error"]
     warnings = [i for i in issues if i.severity == "warning"]
 

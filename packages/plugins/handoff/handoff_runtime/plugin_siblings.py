@@ -32,7 +32,7 @@ def find_sibling_plugin_root(current_plugin_root: Path, sibling_name: str) -> Pa
 def _is_plugin_root(path: Path) -> bool:
     return (
         path.is_dir()
-        and (path / ".codex-plugin" / "plugin.json").exists()
+        and (path / ".claude-plugin" / "plugin.json").exists()
     )
 
 

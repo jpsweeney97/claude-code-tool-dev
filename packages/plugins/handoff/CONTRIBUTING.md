@@ -4,7 +4,7 @@ Handoff source lives under `plugins/turbo-mode/handoff/`.
 
 ## Source Authority
 
-This checkout is source authority for Handoff source files. It is not proof that the installed Codex runtime or local plugin cache has been refreshed.
+This checkout is source authority for Handoff source files. It is not proof that the installed Claude Code runtime or local plugin cache has been refreshed.
 
 ## Setup
 
@@ -70,7 +70,7 @@ that future contributors would otherwise have to reconstruct from commit history
 ## Versioning and Source Path
 
 The source root is stable: `plugins/turbo-mode/handoff/`. Release versions live
-in `.codex-plugin/plugin.json`, `pyproject.toml`, `uv.lock`, `CHANGELOG.md`, and
+in `.claude-plugin/plugin.json`, `pyproject.toml`, `uv.lock`, `CHANGELOG.md`, and
 git tags or releases. Do not encode release versions in source directory names,
 repository URLs, or routine test commands. A version bump updates metadata and
 history, not the source root path.

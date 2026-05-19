@@ -7,6 +7,8 @@ description: Used when user runs /quicksave to save session state quickly under 
 
 Create a fast checkpoint at `<project_root>/.claude/handoffs/` so the next session can resume without re-exploration.
 
+**Session ID:** ${CLAUDE_SESSION_ID}
+
 Read these only when needed:
 - [handoff-contract.md](../../references/handoff-contract.md) for frontmatter, chain protocol, storage conventions.
 - [skill-details.md](../../references/skill-details.md) for section targets, anti-patterns, and troubleshooting.
@@ -22,7 +24,7 @@ The plugin writes filesystem artifacts only. It does not add gitignore rules, st
 
 ## Procedure
 
-1. Generate a fresh UUID for this checkpoint.
+1. Use the session ID injected at skill load time (see handoff-contract.md) for the checkpoint's `session_id` frontmatter field.
 2. Internally answer: current task, in-progress state, next action, verification snapshot, surprises, and decisions. Do not output synthesis answers.
 3. Resolve plugin root before running state helpers. Set `PLUGIN_ROOT` to the plugin root, three levels above this `SKILL.md`, not the `skills/` directory. Use a literal absolute value such as `PLUGIN_ROOT="/absolute/path/to/handoff"`. The literal `python` command must resolve to Python >=3.11.
 4. Reserve the final path before writing content:

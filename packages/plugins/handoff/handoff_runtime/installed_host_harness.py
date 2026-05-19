@@ -52,8 +52,8 @@ def run_source_harness_isolation_proof(
     )
     host_root.resolve().mkdir(parents=True, exist_ok=True)
 
-    source_manifest = source_plugin / ".codex-plugin" / "plugin.json"
-    installed_manifest = installed_plugin / ".codex-plugin" / "plugin.json"
+    source_manifest = source_plugin / ".claude-plugin" / "plugin.json"
+    installed_manifest = installed_plugin / ".claude-plugin" / "plugin.json"
     source_manifest_payload = json.loads(source_manifest.read_text(encoding="utf-8"))
     installed_manifest_payload = json.loads(installed_manifest.read_text(encoding="utf-8"))
     manifest_identity = {

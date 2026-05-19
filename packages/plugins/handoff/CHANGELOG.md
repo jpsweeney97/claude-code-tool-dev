@@ -4,6 +4,18 @@ All notable changes to the handoff plugin are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.0.0] - 2026-05-19
+
+### Changed
+- **BREAKING:** One-time port from the Codex `handoff` plugin (Codex v1.7.0). Runtime namespace `turbo_mode_handoff_runtime` → `handoff_runtime`.
+- **BREAKING:** Storage primary moved to `<project_root>/.claude/handoffs/`. Legacy `docs/handoffs/` retained as a read-only straggler classifier (not an active migration bridge). The full prior corpus was hard-migrated under a manifest.
+- Adopted the Codex rearchitecture: storage-authority layer, transactional active-writes, O_EXCL lock model, chain-state recovery.
+
+### Added
+- `${CLAUDE_SESSION_ID}` sourcing restored for the `session_id` frontmatter field (the Codex write-time-UUID host-compensation is rejected; the `resume_token` resume spine is kept verbatim).
+- Re-wired Claude-host hooks: `SessionStart → cleanup`, `PostToolUse:Write → quality_check` (advisory).
+- `.claude/handoffs/` added to repo `.gitignore` (handoffs remain local-only ephemeral).
+
 ## [Unreleased]
 
 ### Changed
