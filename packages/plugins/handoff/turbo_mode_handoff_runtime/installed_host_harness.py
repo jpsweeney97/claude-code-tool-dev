@@ -291,7 +291,7 @@ def _source_checkout_root(source_plugin_root: Path) -> Path:
 
 
 def _reject_real_codex_home(codex_home: Path) -> None:
-    real_home = (Path.home() / ".claude").resolve()
+    real_home = (Path.home() / ".codex").resolve()
     if codex_home == real_home or codex_home.is_relative_to(real_home):
         raise InstalledHostHarnessError(
             "source-harness-isolation-proof failed: real CODEX_HOME mutation blocked. "
