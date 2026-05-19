@@ -188,9 +188,13 @@ def begin_active_write(
         )
     transaction_id = uuid.uuid4().hex
     lock_path = layout.primary_state_dir / "locks" / "active-write.lock"
-    _acquire_lock(lock_path, project=project, operation=operation, transaction_id=transaction_id)
+    _acquire_lock(
+        lock_path, project=project, operation=operation, transaction_id=transaction_id
+    )
     try:
-        _continue_legacy_chain_state_if_unambiguous(layout.project_root, project=project)
+        _continue_legacy_chain_state_if_unambiguous(
+            layout.project_root, project=project
+        )
         (
             state_snapshot_id,
             state_snapshot_hash,
@@ -220,7 +224,9 @@ def begin_active_write(
         lease_id = uuid.uuid4().hex
         acquired_at = now.isoformat()
         expires_at = (now + timedelta(seconds=lease_seconds)).isoformat()
-        transaction_path = layout.primary_state_dir / "transactions" / f"{transaction_id}.json"
+        transaction_path = (
+            layout.primary_state_dir / "transactions" / f"{transaction_id}.json"
+        )
         idempotency_key = _stable_hash(
             [
                 project,
@@ -254,12 +260,16 @@ def begin_active_write(
             lease_acquired_at=acquired_at,
             lease_expires_at=expires_at,
             transaction_watermark=transaction_watermark,
-            recovery_commands=_recovery_commands(layout.project_root, operation_state_path),
+            recovery_commands=_recovery_commands(
+                layout.project_root, operation_state_path
+            ),
             status="begun",
             created_at=acquired_at,
             updated_at=acquired_at,
         )
-        _storage_primitives.write_json_atomic(operation_state_path, reservation.to_payload())
+        _storage_primitives.write_json_atomic(
+            operation_state_path, reservation.to_payload()
+        )
         _storage_primitives.write_json_atomic(
             transaction_path,
             {
@@ -272,7 +282,9 @@ def begin_active_write(
         _release_lock(lock_path)
 
 
-def _continue_legacy_chain_state_if_unambiguous(project_root: Path, *, project: str) -> None:
+def _continue_legacy_chain_state_if_unambiguous(
+    project_root: Path, *, project: str
+) -> None:
     try:
         chain_state = read_chain_state(project_root, project_name=project)
     except ChainStateDiagnosticError as exc:
@@ -330,7 +342,9 @@ def _bind_slug(operation: str, slug: str | None) -> tuple[str, str]:
     if slug is None:
         return DEFAULT_SLUGS[operation], "helper-default"
     if not slug:
-        raise ActiveWriteError("begin-active-write failed: slug must be non-empty. Got: ''")
+        raise ActiveWriteError(
+            "begin-active-write failed: slug must be non-empty. Got: ''"
+        )
     _ensure_slug_segment("begin-active-write", slug)
     return slug, "caller-predeclared"
 
@@ -365,7 +379,9 @@ def _reservation_from_payload(payload: dict[str, object]) -> ActiveWriteReservat
         allocated_active_path=Path(str(payload["allocated_active_path"])),
         state_snapshot_id=str(payload["state_snapshot_id"]),
         state_snapshot_hash=str(payload["state_snapshot_hash"]),
-        state_snapshot_paths=[str(path) for path in payload.get("state_snapshot_paths", [])],
+        state_snapshot_paths=[
+            str(path) for path in payload.get("state_snapshot_paths", [])
+        ],
         resumed_from_path=(
             str(payload["resumed_from_path"])
             if payload.get("resumed_from_path") is not None
@@ -451,7 +467,9 @@ def _auto_expire_pre_output_reservation(
     return True
 
 
-def _recovery_commands(project_root: Path, operation_state_path: Path) -> dict[str, object]:
+def _recovery_commands(
+    project_root: Path, operation_state_path: Path
+) -> dict[str, object]:
     operation_state = str(operation_state_path)
     return {
         "continue": {
@@ -505,7 +523,9 @@ def allocate_active_path(
     )
 
 
-def _write_content_to_active_path(active_path: Path, content: str, content_sha256: str) -> str:
+def _write_content_to_active_path(
+    active_path: Path, content: str, content_sha256: str
+) -> str:
     """Atomically write ``content`` to ``active_path`` via temp file + rename.
 
     Returns the temp path used. Raises ``ActiveWriteError`` on write failure or
@@ -579,10 +599,14 @@ def write_active_handoff(
     operation = str(state.get("operation", ""))
     transaction_id = str(state.get("transaction_id", ""))
     lock_path = layout.primary_state_dir / "locks" / "active-write.lock"
-    _acquire_lock(lock_path, project=project, operation=operation, transaction_id=transaction_id)
+    _acquire_lock(
+        lock_path, project=project, operation=operation, transaction_id=transaction_id
+    )
     try:
         _ensure_reservation_is_fresh(state, operation_state_path)
-        _ensure_state_snapshot_is_current(layout.primary_state_dir, state, operation_state_path)
+        _ensure_state_snapshot_is_current(
+            layout.primary_state_dir, state, operation_state_path
+        )
         _ensure_transaction_watermark_is_current(
             layout.primary_state_dir,
             state,
@@ -663,8 +687,8 @@ def write_active_handoff(
             transaction_active_path=str(active_path),
         )
         try:
-            cleanup_action, cleanup_path, cleanup_mechanism = _clear_snapshotted_primary_state(
-                state
+            cleanup_action, cleanup_path, cleanup_mechanism = (
+                _clear_snapshotted_primary_state(state)
             )
         except ActiveWriteError:
             failed_at = datetime.now(UTC).isoformat()
@@ -721,7 +745,9 @@ def list_active_writes(
         try:
             record = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError, ValueError) as exc:
-            records.append(_unreadable_active_write_record(path, operation=operation, exc=exc))
+            records.append(
+                _unreadable_active_write_record(path, operation=operation, exc=exc)
+            )
             continue
         if not isinstance(record, dict):
             records.append(
@@ -754,10 +780,14 @@ def abandon_active_write(
     operation = str(state.get("operation", ""))
     transaction_id = str(state.get("transaction_id", ""))
     lock_path = layout.primary_state_dir / "locks" / "active-write.lock"
-    _acquire_lock(lock_path, project=project, operation=operation, transaction_id=transaction_id)
+    _acquire_lock(
+        lock_path, project=project, operation=operation, transaction_id=transaction_id
+    )
     try:
         updated_at = datetime.now(UTC).isoformat()
-        active_path = Path(str(state.get("active_path") or state["allocated_active_path"]))
+        active_path = Path(
+            str(state.get("active_path") or state["allocated_active_path"])
+        )
         state.update(
             {
                 "status": "abandoned",
@@ -795,15 +825,21 @@ def recover_active_write_transaction(
     operation = str(state.get("operation", ""))
     transaction_id = str(state.get("transaction_id", ""))
     lock_path = layout.primary_state_dir / "locks" / "active-write.lock"
-    _acquire_lock(lock_path, project=project, operation=operation, transaction_id=transaction_id)
+    _acquire_lock(
+        lock_path, project=project, operation=operation, transaction_id=transaction_id
+    )
     try:
         if state.get("status") == "committed":
             return state
         if state.get("status") == "abandoned":
             return state
         recovered_from_status = str(state.get("status", ""))
-        active_path = Path(str(state.get("active_path") or state["allocated_active_path"]))
-        content_hash = str(state.get("content_hash") or state.get("output_sha256") or "")
+        active_path = Path(
+            str(state.get("active_path") or state["allocated_active_path"])
+        )
+        content_hash = str(
+            state.get("content_hash") or state.get("output_sha256") or ""
+        )
         if not content_hash:
             return state
         if not active_path.exists():
@@ -845,7 +881,9 @@ def recover_active_write_transaction(
                 f"Got: {str(active_path)!r:.100}"
             )
         updated_at = datetime.now(UTC).isoformat()
-        cleanup_action, cleanup_path, cleanup_mechanism = _clear_snapshotted_primary_state(state)
+        cleanup_action, cleanup_path, cleanup_mechanism = (
+            _clear_snapshotted_primary_state(state)
+        )
         state.update(
             {
                 "status": "committed",
@@ -957,7 +995,13 @@ def _state_snapshot(
                 )
             resumed_path = archive_path
     resumed_hash = _sha256_path(Path(resumed_path)) if resumed_path else None
-    return "primary-state", _stable_hash(payload_parts), state_paths, resumed_path, resumed_hash
+    return (
+        "primary-state",
+        _stable_hash(payload_parts),
+        state_paths,
+        resumed_path,
+        resumed_hash,
+    )
 
 
 def _clear_snapshotted_primary_state(

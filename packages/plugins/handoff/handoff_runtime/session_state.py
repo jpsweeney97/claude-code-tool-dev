@@ -82,7 +82,9 @@ def _delete_path(path: Path, *, context: str) -> bool:
 
 
 def _mark_legacy_state_consumed(legacy_path: Path, migrated_state_path: Path) -> None:
-    legacy_path.write_text(f"{LEGACY_CONSUMED_PREFIX}{migrated_state_path}\n", encoding="utf-8")
+    legacy_path.write_text(
+        f"{LEGACY_CONSUMED_PREFIX}{migrated_state_path}\n", encoding="utf-8"
+    )
 
 
 def _read_legacy_archive_path(legacy_path: Path) -> str | None:
@@ -178,8 +180,13 @@ def clear_resume_state(state_dir: Path, state_path_arg: str) -> bool:
     resolved_state_dir = state_dir.resolve()
     resolved_state_path = state_path.resolve()
     if resolved_state_path.exists() and not resolved_state_path.is_file():
-        raise ValueError(f"clear-state failed: state path must point to a file. Got: {raw!r:.100}")
-    if not state_path.name.startswith("handoff-") or state_path.suffix not in ("", ".json"):
+        raise ValueError(
+            f"clear-state failed: state path must point to a file. Got: {raw!r:.100}"
+        )
+    if not state_path.name.startswith("handoff-") or state_path.suffix not in (
+        "",
+        ".json",
+    ):
         raise ValueError(
             "clear-state failed: state path must match handoff-* or handoff-*.json. "
             f"Got: {raw!r:.100}"
@@ -192,7 +199,9 @@ def clear_resume_state(state_dir: Path, state_path_arg: str) -> bool:
         return True
     legacy_project: str | None = None
     if resolved_state_path.suffix == ".json":
-        payload = _read_resume_state_payload(resolved_state_path, operation="clear-state")
+        payload = _read_resume_state_payload(
+            resolved_state_path, operation="clear-state"
+        )
         legacy_project = payload.get("project")
 
     cleared = _delete_path(resolved_state_path, context="clear-state")
@@ -207,7 +216,9 @@ def clear_resume_state(state_dir: Path, state_path_arg: str) -> bool:
     return cleared
 
 
-def prune_old_state_files(max_age_hours: int = 24, *, state_dir: Path | None = None) -> list[Path]:
+def prune_old_state_files(
+    max_age_hours: int = 24, *, state_dir: Path | None = None
+) -> list[Path]:
     if state_dir is None:
         state_dir = get_state_dir()
     if not state_dir.exists():
@@ -237,7 +248,9 @@ def prune_old_state_files(max_age_hours: int = 24, *, state_dir: Path | None = N
                     continue
                 try:
                     payload = json.loads(tx_file.read_text(encoding="utf-8"))
-                    status = payload.get("status") if isinstance(payload, dict) else None
+                    status = (
+                        payload.get("status") if isinstance(payload, dict) else None
+                    )
                 except (OSError, json.JSONDecodeError, ValueError):
                     status = None
                 # Allow-list, not deny-list: past the TTL, prune only genuinely
@@ -346,7 +359,13 @@ def _build_parser() -> argparse.ArgumentParser:
     continue_chain_parser.add_argument("--expected-payload-sha256", required=True)
     continue_chain_parser.add_argument(
         "--field",
-        choices=("status", "state_path", "marker_path", "transaction_path", "transaction_id"),
+        choices=(
+            "status",
+            "state_path",
+            "marker_path",
+            "transaction_path",
+            "transaction_id",
+        ),
         default=None,
     )
 
@@ -358,7 +377,13 @@ def _build_parser() -> argparse.ArgumentParser:
     abandon_chain_parser.add_argument("--reason", required=True)
     abandon_chain_parser.add_argument(
         "--field",
-        choices=("status", "state_path", "abandoned_path", "transaction_path", "transaction_id"),
+        choices=(
+            "status",
+            "state_path",
+            "abandoned_path",
+            "transaction_path",
+            "transaction_id",
+        ),
         default=None,
     )
 
@@ -546,7 +571,9 @@ def _dispatch_resume_state_command(args: argparse.Namespace) -> int | None:
         return 0 if cleared else 1
 
     if args.command == "prune-state":
-        deleted = prune_old_state_files(args.max_age_hours, state_dir=Path(args.state_dir))
+        deleted = prune_old_state_files(
+            args.max_age_hours, state_dir=Path(args.state_dir)
+        )
         json.dump({"deleted": [str(path) for path in deleted]}, sys.stdout)
         return 0
     return None
@@ -705,7 +732,9 @@ def _dispatch_active_write_management_command(args: argparse.Namespace) -> int |
             project_name=args.project,
             operation=args.operation,
         )
-        json.dump({"total": len(records), "active_writes": records}, sys.stdout, indent=2)
+        json.dump(
+            {"total": len(records), "active_writes": records}, sys.stdout, indent=2
+        )
         print()
         return 0
     if args.command == "abandon-active-write":
@@ -758,7 +787,9 @@ def _dispatch_active_writer_flow_command(args: argparse.Namespace) -> int | None
                         operation=args.operation,
                     )
                 )
-                operation_state_path = Path(str(operation_state["operation_state_path"]))
+                operation_state_path = Path(
+                    str(operation_state["operation_state_path"])
+                )
             else:
                 reservation = begin_active_write(
                     project_root,

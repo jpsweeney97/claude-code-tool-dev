@@ -159,7 +159,9 @@ def validate_frontmatter(frontmatter: dict[str, str], doc_type: str) -> list[Iss
         )
 
     blank = [
-        f for f in REQUIRED_FRONTMATTER_FIELDS if f in frontmatter and not frontmatter[f].strip()
+        f
+        for f in REQUIRED_FRONTMATTER_FIELDS
+        if f in frontmatter and not frontmatter[f].strip()
     ]
     if blank:
         issues.append(

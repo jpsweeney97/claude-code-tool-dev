@@ -150,7 +150,9 @@ def _read(path: Path) -> dict[str, object]:
 def test_write_spy_intercepts_chain_state_importer(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    legacy_state_path = tmp_path / "docs" / "handoffs" / ".session-state" / "handoff-demo"
+    legacy_state_path = (
+        tmp_path / "docs" / "handoffs" / ".session-state" / "handoff-demo"
+    )
     legacy_state_path.parent.mkdir(parents=True, exist_ok=True)
     legacy_state_path.write_text(
         str(tmp_path / ".claude" / "handoffs" / "archive" / "old.md"),
@@ -230,9 +232,7 @@ def _drive_reservation_expired(
     res = _begin(tmp_path, slug="expired")
     state = _read(res.operation_state_path)
     state["lease_expires_at"] = "2000-01-01T00:00:00+00:00"
-    res.operation_state_path.write_text(
-        json.dumps(state, indent=2), encoding="utf-8"
-    )
+    res.operation_state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
     content = "body"
     with pytest.raises(active_writes.ActiveWriteError, match="reservation expired"):
         active_writes.write_active_handoff(
@@ -348,9 +348,7 @@ def _drive_conflict_watermark(
     return spy
 
 
-def _drive_cleanup_failed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> WriteSpy:
+def _drive_cleanup_failed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> WriteSpy:
     # Copied setup: test_active_writes.py::
     # test_write_active_handoff_persists_cleanup_failed_when_both_mechanisms_fail
     # Drives the REAL cleanup branch (write_active_handoff via
@@ -395,9 +393,7 @@ def _drive_cleanup_failed(
             raise PermissionError("unlink denied")
         return original_unlink(self, *a, **k)
 
-    monkeypatch.setattr(
-        active_writes._storage_primitives.subprocess, "run", fail_trash
-    )
+    monkeypatch.setattr(active_writes._storage_primitives.subprocess, "run", fail_trash)
     monkeypatch.setattr(Path, "unlink", fail_unlink)
     with pytest.raises(active_writes.ActiveWriteError, match="state cleanup failed"):
         active_writes.write_active_handoff(
@@ -411,9 +407,7 @@ def _drive_cleanup_failed(
     return spy
 
 
-def _drive_recover_pending(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> WriteSpy:
+def _drive_recover_pending(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> WriteSpy:
     # Copied setup: test_active_writes.py::
     # test_active_write_transaction_recover_records_pending_before_write
     spy = _install_spy(monkeypatch)
@@ -422,9 +416,7 @@ def _drive_recover_pending(
     state["status"] = "written_not_confirmed"
     state["content_hash"] = hashlib.sha256(b"missing output").hexdigest()
     state["output_sha256"] = state["content_hash"]
-    res.operation_state_path.write_text(
-        json.dumps(state, indent=2), encoding="utf-8"
-    )
+    res.operation_state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
     recovered = active_writes.recover_active_write_transaction(
         tmp_path,
         operation_state_path=res.operation_state_path,
@@ -450,9 +442,7 @@ def _drive_recover_mismatch(
     state["status"] = "written_not_confirmed"
     state["content_hash"] = expected_hash
     state["output_sha256"] = expected_hash
-    res.operation_state_path.write_text(
-        json.dumps(state, indent=2), encoding="utf-8"
-    )
+    res.operation_state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
     with pytest.raises(active_writes.ActiveWriteError, match="content mismatch"):
         active_writes.recover_active_write_transaction(
             tmp_path,
@@ -463,9 +453,7 @@ def _drive_recover_mismatch(
     return spy
 
 
-def _drive_recover_success(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> WriteSpy:
+def _drive_recover_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> WriteSpy:
     # Direct-API EQUIVALENT (NOT a verbatim copy -- Round-4 F1) of:
     # test_active_writes.py::
     # test_active_write_transaction_recover_commits_verified_written_output
@@ -488,9 +476,7 @@ def _drive_recover_success(
     state["status"] = "written_not_confirmed"
     state["content_hash"] = content_hash
     state["output_sha256"] = content_hash
-    res.operation_state_path.write_text(
-        json.dumps(state, indent=2), encoding="utf-8"
-    )
+    res.operation_state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
     recovered = active_writes.recover_active_write_transaction(
         tmp_path,
         operation_state_path=res.operation_state_path,
@@ -501,9 +487,7 @@ def _drive_recover_success(
     return spy
 
 
-def _drive_auto_expire(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> WriteSpy:
+def _drive_auto_expire(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> WriteSpy:
     # Copied setup: test_active_writes.py::
     # test_begin_active_write_auto_expires_stale_pre_output_reservation
     # This is the ONLY driver that exercises the begin-time auto-expire
@@ -579,8 +563,7 @@ def test_observed_status_coverage(tmp_path: Path) -> None:
         f"write: {missing_op}"
     )
     assert not missing_tx, (
-        f"transaction members never observed in a transaction write: "
-        f"{missing_tx}"
+        f"transaction members never observed in a transaction write: {missing_tx}"
     )
     assert "unreadable" not in (observed["op"] | observed["tx"]), (
         "'unreadable' was observed in a lifecycle write — the vocabulary "
