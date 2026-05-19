@@ -64,7 +64,7 @@ The plugin writes filesystem artifacts only. It does not add gitignore rules, st
    CONTENT_SHA256="$(python -c 'import hashlib,pathlib,sys; print(hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest())' "$CONTENT_FILE")"
    ```
 
-   The staged file lives under the 24h-TTL-pruned `.session-state/` tree so the advisory `PostToolUse:Write` quality check recognizes it; the active writer remains the only path to the durable handoff.
+   `$CONTENT_FILE` is staged under `.claude/handoffs/.session-state/staging/` solely so the advisory `PostToolUse:Write` quality check can validate the content before promotion; it is removed after the active writer commits the durable handoff (see step 9). Nothing prunes `staging/` automatically — the skill is responsible for removing the staged file on the success path.
 
 8. Commit the content through the active writer:
 
@@ -79,7 +79,13 @@ The plugin writes filesystem artifacts only. It does not add gitignore rules, st
        2>&1
    )" || { printf '%s\n' "$WRITE_OUTPUT" >&2; exit 1; }
    ACTIVE_PATH="$(printf '%s\n' "$WRITE_OUTPUT" | python -c 'import json,sys; print(json.load(sys.stdin)["active_path"])')"
+   # Success path only: the durable handoff now exists at $ACTIVE_PATH, so the
+   # staged copy is redundant. Nothing prunes staging/, so remove it here.
+   # Warn-don't-block: a leftover staged file is harmless and removable by hand.
+   trash "$CONTENT_FILE" 2>/dev/null \
+     || echo "warning: staged file persists and can be removed manually: $CONTENT_FILE" >&2
    ```
+   (If `write-active-handoff` failed above, the skill already STOPped via `exit 1`; `$CONTENT_FILE` is intentionally left in place for diagnosis on that path.)
 
 9. Verify the file exists under `<project_root>/.claude/handoffs/`, frontmatter parses, required fields are present, and required sections are present.
 10. Reply only with `Handoff saved: <path> - <title>`. Do not reproduce handoff content or synthesis answers in chat.
