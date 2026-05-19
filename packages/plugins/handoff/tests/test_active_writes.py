@@ -15,6 +15,14 @@ import handoff_runtime.active_writes as active_writes
 import handoff_runtime.session_state as session_state
 import handoff_runtime.storage_primitives as storage_primitives
 from handoff_runtime.chain_state import chain_state_recovery_inventory, read_chain_state
+from handoff_runtime.quality_check import (
+    HANDOFF_MIN_LINES,
+    REQUIRED_HANDOFF_SECTIONS,
+    REQUIRED_SUMMARY_SECTIONS,
+    SUMMARY_MAX_LINES,
+    count_body_lines,
+    validate,
+)
 
 # ---------------------------------------------------------------------------
 # Test content helpers — produce minimal content that passes the integrity gate.
@@ -2448,3 +2456,332 @@ def test_persist_operation_and_transaction_failure_leaves_operation_state(
     assert op_path.exists()
     assert json.loads(op_path.read_text(encoding="utf-8"))["status"] == "write-pending"
     assert not tx_path.exists()
+
+
+# ── AC#5 test matrix ──────────────────────────────────────────────────
+#
+# Cells (b5) and (e) are already covered by Task 2:
+#   (b5) hollow → test_integrity_failure_rejected_before_promotion
+#   (e)  reservation/staging cleanup after rejection →
+#            test_integrity_gate_reservation_stays_recoverable
+#
+# The remaining cells are below.
+
+def _build_handoff_content(
+    *,
+    body_lines: int | None = None,
+    omit_section: str | None = None,
+    omit_field: str | None = None,
+    override_type: str | None = None,
+    no_frontmatter: bool = False,
+) -> str:
+    """Build a handoff document string with optional defects injected.
+
+    Produces a document that, when no defects are requested, passes the
+    integrity gate exactly: all 7 frontmatter fields, all 13 handoff
+    sections present, Decisions has substantive content (hollow guardrail
+    satisfied).  Body line count is NOT padded by default — callers set
+    body_lines to control length.
+
+    Args:
+        body_lines: target body line count (pads or truncates Decisions
+            filler to hit this target).  None → use natural section body.
+        omit_section: drop this section name from the body.
+        omit_field: drop this frontmatter key.
+        override_type: replace the `type` frontmatter value.
+        no_frontmatter: if True, omit the entire YAML block.
+    """
+    doc_type = override_type if override_type is not None else "handoff"
+
+    frontmatter_fields: dict[str, str] = {
+        "date": "2026-05-13",
+        "time": '"16:45"',
+        "created_at": "2026-05-13T16:45:00+00:00",
+        "session_id": "ac5-test-run",
+        "project": "demo",
+        "title": "AC5 matrix test",
+        "type": doc_type,
+    }
+    if omit_field is not None:
+        frontmatter_fields.pop(omit_field, None)
+
+    sections = [s for s in REQUIRED_HANDOFF_SECTIONS if s != omit_section]
+
+    # Build section bodies — Decisions gets substantive content.
+    section_lines: list[str] = []
+    for section in sections:
+        section_lines.append(f"## {section}")
+        section_lines.append("")
+        if section == "Decisions":
+            section_lines.append("Decision: proceed with implementation.")
+        section_lines.append("")
+
+    # Pad body to reach body_lines if requested.
+    if body_lines is not None:
+        current = len(section_lines)
+        while current < body_lines:
+            section_lines.append("filler line for line-count test")
+            current += 1
+
+    body = "\n".join(section_lines)
+
+    if no_frontmatter:
+        return body
+
+    fm_pairs = "\n".join(f"{k}: {v}" for k, v in frontmatter_fields.items())
+    return f"---\n{fm_pairs}\n---\n\n{body}"
+
+
+def _build_summary_content(*, body_lines: int) -> str:
+    """Build a summary document that passes the integrity gate.
+
+    All 8 required summary sections present; Decisions has substantive
+    content; body is padded to body_lines.
+    """
+    section_lines: list[str] = []
+    for section in REQUIRED_SUMMARY_SECTIONS:
+        section_lines.append(f"## {section}")
+        section_lines.append("")
+        if section == "Decisions":
+            section_lines.append("Decision: summary approach confirmed.")
+        section_lines.append("")
+
+    while len(section_lines) < body_lines:
+        section_lines.append("filler line for over-max summary test")
+
+    body = "\n".join(section_lines)
+    fm = (
+        "---\n"
+        "date: 2026-05-13\n"
+        'time: "16:45"\n'
+        "created_at: 2026-05-13T16:45:00+00:00\n"
+        "session_id: ac5-summary-run\n"
+        "project: demo\n"
+        "title: Summary: AC5 over-max test\n"
+        "type: summary\n"
+        "---\n\n"
+    )
+    return fm + body
+
+
+# ── (a) clean handoff promotes ────────────────────────────────────────
+
+
+def test_ac5_clean_handoff_promotes(tmp_path: Path) -> None:
+    """(a) A document with all required fields, all required sections,
+    substantive Decisions content, and body >= HANDOFF_MIN_LINES promotes
+    without error and is written byte-equal to the input.
+    """
+    content = _build_handoff_content(body_lines=HANDOFF_MIN_LINES + 10)
+    assert count_body_lines(content) >= HANDOFF_MIN_LINES
+
+    reservation = active_writes.begin_active_write(
+        tmp_path,
+        project_name="demo",
+        operation="save",
+        slug="ac5-clean",
+        created_at="2026-05-13T16:45:00Z",
+    )
+    operation_state_path = reservation.operation_state_path
+    allocated_active_path = reservation.allocated_active_path
+    sha = hashlib.sha256(content.encode()).hexdigest()
+
+    # Must not raise.
+    active_writes.write_active_handoff(
+        tmp_path,
+        operation_state_path=operation_state_path,
+        content=content,
+        content_sha256=sha,
+    )
+
+    assert allocated_active_path.exists()
+    assert allocated_active_path.read_text(encoding="utf-8") == content
+    # Explicit: no integrity-tier issues.
+    integrity_issues = [i for i in validate(content) if i.tier == "integrity"]
+    assert not integrity_issues
+
+
+# ── (b1-b4) integrity rejection cases ────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("label", "content_builder", "expected_message_fragment"),
+    [
+        pytest.param(
+            "b1-no-frontmatter",
+            lambda: _build_handoff_content(no_frontmatter=True),
+            "No frontmatter",
+            id="b1-no-frontmatter",
+        ),
+        pytest.param(
+            "b2-invalid-type",
+            lambda: _build_handoff_content(override_type="bogus"),
+            "Invalid type",
+            id="b2-invalid-type",
+        ),
+        pytest.param(
+            "b3-missing-required-field",
+            lambda: _build_handoff_content(omit_field="session_id"),
+            "Missing required frontmatter",
+            id="b3-missing-required-field",
+        ),
+        pytest.param(
+            "b4-missing-required-section",
+            lambda: _build_handoff_content(omit_section="Decisions"),
+            "Missing required sections",
+            id="b4-missing-required-section",
+        ),
+        # (b5) hollow → already covered by test_integrity_failure_rejected_before_promotion
+    ],
+)
+def test_ac5_integrity_rejection(
+    tmp_path: Path,
+    label: str,
+    content_builder: object,
+    expected_message_fragment: str,
+) -> None:
+    """(b1-b4) Each integrity-tier defect raises ActiveWriteError before promotion.
+
+    For each variant: the error message mentions 'integrity', the allocated
+    active path is NOT created, and validate() confirms at least one
+    tier='integrity' issue whose message contains the expected fragment.
+    """
+    content = content_builder()  # type: ignore[operator]
+    sha = hashlib.sha256(content.encode()).hexdigest()
+
+    reservation = active_writes.begin_active_write(
+        tmp_path,
+        project_name="demo",
+        operation="save",
+        slug=label,
+        created_at="2026-05-13T16:45:00Z",
+    )
+    operation_state_path = reservation.operation_state_path
+    allocated_active_path = reservation.allocated_active_path
+
+    with pytest.raises(active_writes.ActiveWriteError, match="integrity"):
+        active_writes.write_active_handoff(
+            tmp_path,
+            operation_state_path=operation_state_path,
+            content=content,
+            content_sha256=sha,
+        )
+
+    assert not allocated_active_path.exists()
+
+    integrity_issues = [i for i in validate(content) if i.tier == "integrity"]
+    assert integrity_issues, "validate() must yield at least one integrity-tier issue"
+    messages = " ".join(i.message for i in integrity_issues)
+    assert expected_message_fragment in messages, (
+        f"Expected {expected_message_fragment!r} in integrity issues: {messages!r}"
+    )
+
+
+# ── (c) LINCHPIN: under-min still promotes ────────────────────────────
+
+
+def test_ac5_under_min_still_promotes(tmp_path: Path) -> None:
+    """(c) AC#5 linchpin: validate_line_count's severity='error' under-min
+    issue is tier='advisory'; the gate must NOT reject it.
+
+    This is the linchpin: validate_line_count's severity='error' under-min
+    issue is tier='advisory'; the gate must NOT reject it. Gating on severity
+    here would break /save under context pressure — the exact failure mode the
+    tier partition exists to prevent.
+    """
+    # Build a document that passes all integrity checks but is under the
+    # HANDOFF_MIN_LINES body threshold.  Sections are all present; Decisions
+    # has substantive content; body is STRICTLY less than HANDOFF_MIN_LINES.
+    content = _build_handoff_content(body_lines=HANDOFF_MIN_LINES - 10)
+
+    # Precondition: self-check that body IS under minimum.
+    actual_body = count_body_lines(content)
+    assert actual_body < HANDOFF_MIN_LINES, (
+        f"Test setup error: body_lines={actual_body} is not < HANDOFF_MIN_LINES={HANDOFF_MIN_LINES}"
+    )
+
+    reservation = active_writes.begin_active_write(
+        tmp_path,
+        project_name="demo",
+        operation="save",
+        slug="ac5-under-min",
+        created_at="2026-05-13T16:45:00Z",
+    )
+    operation_state_path = reservation.operation_state_path
+    allocated_active_path = reservation.allocated_active_path
+    sha = hashlib.sha256(content.encode()).hexdigest()
+
+    # Must NOT raise — advisory issues must not gate.
+    active_writes.write_active_handoff(
+        tmp_path,
+        operation_state_path=operation_state_path,
+        content=content,
+        content_sha256=sha,
+    )
+
+    assert allocated_active_path.exists()
+    assert allocated_active_path.read_text(encoding="utf-8") == content
+
+    # Explicit: validate produces the expected advisory under-min issue
+    # with severity='error' AND tier='advisory', confirming the decoupling.
+    issues = validate(content)
+    under_min_issues = [
+        i for i in issues
+        if i.severity == "error" and i.tier == "advisory" and "minimum" in i.message
+    ]
+    assert under_min_issues, (
+        "Expected at least one severity='error', tier='advisory' issue mentioning 'minimum'. "
+        f"Got: {[(i.severity, i.tier, i.message) for i in issues]}"
+    )
+    # And no integrity-tier issues — they would have blocked.
+    integrity_issues = [i for i in issues if i.tier == "integrity"]
+    assert not integrity_issues
+
+
+# ── (d) over-max still promotes (summary) ────────────────────────────
+
+
+def test_ac5_over_max_still_promotes(tmp_path: Path) -> None:
+    """(d) A summary document whose body exceeds SUMMARY_MAX_LINES still
+    promotes — over-max is tier='advisory', never blocks the gate.
+    """
+    content = _build_summary_content(body_lines=SUMMARY_MAX_LINES + 20)
+
+    # Precondition: self-check body IS over maximum.
+    actual_body = count_body_lines(content)
+    assert actual_body > SUMMARY_MAX_LINES, (
+        f"Test setup error: body_lines={actual_body} is not > SUMMARY_MAX_LINES={SUMMARY_MAX_LINES}"
+    )
+
+    reservation = active_writes.begin_active_write(
+        tmp_path,
+        project_name="demo",
+        operation="summary",
+        slug="ac5-over-max",
+        created_at="2026-05-13T16:45:00Z",
+    )
+    operation_state_path = reservation.operation_state_path
+    allocated_active_path = reservation.allocated_active_path
+    sha = hashlib.sha256(content.encode()).hexdigest()
+
+    # Must NOT raise — over-max is advisory.
+    active_writes.write_active_handoff(
+        tmp_path,
+        operation_state_path=operation_state_path,
+        content=content,
+        content_sha256=sha,
+    )
+
+    assert allocated_active_path.exists()
+    assert allocated_active_path.read_text(encoding="utf-8") == content
+
+    # Explicit: validate yields a tier='advisory' over-max issue.
+    issues = validate(content)
+    over_max_issues = [i for i in issues if "maximum" in i.message and i.tier == "advisory"]
+    assert over_max_issues, (
+        "Expected at least one tier='advisory' issue mentioning 'maximum'. "
+        f"Got: {[(i.severity, i.tier, i.message) for i in issues]}"
+    )
+    # And no integrity-tier issues.
+    integrity_issues = [i for i in issues if i.tier == "integrity"]
+    assert not integrity_issues
