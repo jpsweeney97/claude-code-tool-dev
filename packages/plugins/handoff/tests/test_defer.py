@@ -1,9 +1,10 @@
 """Tests for defer.py — envelope emission logic."""
+
 from __future__ import annotations
 
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -13,7 +14,7 @@ def _run_main(input_json: str, tickets_dir: Path) -> tuple[int, dict]:
     """Run main() with given stdin JSON, return (exit_code, parsed_output)."""
     import io
 
-    from scripts.defer import main
+    from turbo_mode_handoff_runtime.defer import main
 
     original_stdin, original_stdout = sys.stdin, sys.stdout
     sys.stdin = io.StringIO(input_json)
@@ -27,16 +28,18 @@ def _run_main(input_json: str, tickets_dir: Path) -> tuple[int, dict]:
 
 
 class TestEmitEnvelope:
-    def test_same_second_same_summary_gets_unique_filenames(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_same_second_same_summary_gets_unique_filenames(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Same-second collisions are resolved without overwriting data."""
-        import scripts.defer as defer_module
+        import turbo_mode_handoff_runtime.defer as defer_module
 
-        fixed_now = datetime(2026, 3, 10, 15, 4, 5, tzinfo=timezone.utc)
+        fixed_now = datetime(2026, 3, 10, 15, 4, 5, tzinfo=UTC)
 
         class FixedDateTime:
             @classmethod
             def now(cls, tz: timezone | None = None) -> datetime:
-                assert tz == timezone.utc
+                assert tz == UTC
                 return fixed_now
 
         monkeypatch.setattr(defer_module, "datetime", FixedDateTime)
@@ -79,7 +82,7 @@ class TestEmitEnvelope:
 
     def test_non_string_summary_raises_type_error(self, tmp_path: Path) -> None:
         """Non-string summary raises TypeError (caught by main's catch list)."""
-        from scripts.defer import emit_envelope
+        from turbo_mode_handoff_runtime.defer import emit_envelope
 
         candidate = {
             "summary": 42,
@@ -90,7 +93,7 @@ class TestEmitEnvelope:
 
     def test_empty_summary_raises_value_error(self, tmp_path: Path) -> None:
         """Whitespace-only summary raises ValueError (caught by main's catch list)."""
-        from scripts.defer import emit_envelope
+        from turbo_mode_handoff_runtime.defer import emit_envelope
 
         candidate = {
             "summary": "   ",
@@ -101,7 +104,7 @@ class TestEmitEnvelope:
 
     def test_minimal_candidate(self, tmp_path: Path) -> None:
         """Minimal candidate produces valid envelope JSON."""
-        from scripts.defer import emit_envelope
+        from turbo_mode_handoff_runtime.defer import emit_envelope
 
         candidate = {
             "summary": "Fix auth timeout",
@@ -133,7 +136,7 @@ class TestEmitEnvelope:
 
     def test_full_candidate_with_effort_and_files(self, tmp_path: Path) -> None:
         """All candidate fields mapped correctly including effort."""
-        from scripts.defer import emit_envelope
+        from turbo_mode_handoff_runtime.defer import emit_envelope
 
         candidate = {
             "summary": "Refactor parser",
@@ -160,7 +163,7 @@ class TestEmitEnvelope:
 
     def test_context_composition(self, tmp_path: Path) -> None:
         """Branch and source_text composed into context field."""
-        from scripts.defer import emit_envelope
+        from turbo_mode_handoff_runtime.defer import emit_envelope
 
         candidate = {
             "summary": "Test context",
@@ -180,12 +183,12 @@ class TestEmitEnvelope:
         data = json.loads(path.read_text())
         assert "context" in data
         assert "Captured on branch `fix/auth`" in data["context"]
-        assert 'Evidence anchor:' in data["context"]
+        assert "Evidence anchor:" in data["context"]
         assert "User said to defer this." in data["context"]
 
     def test_no_status_field(self, tmp_path: Path) -> None:
         """Envelope never contains status field."""
-        from scripts.defer import emit_envelope
+        from turbo_mode_handoff_runtime.defer import emit_envelope
 
         candidate = {
             "summary": "No status",
@@ -206,7 +209,7 @@ class TestEmitEnvelope:
 
     def test_emitted_at_is_iso8601(self, tmp_path: Path) -> None:
         """emitted_at is a valid ISO 8601 timestamp."""
-        from scripts.defer import emit_envelope
+        from turbo_mode_handoff_runtime.defer import emit_envelope
 
         candidate = {
             "summary": "Timestamp test",
@@ -229,7 +232,7 @@ class TestEmitEnvelope:
 
     def test_producer_defaults_applied(self, tmp_path: Path) -> None:
         """Absent priority/effort get SKILL.md-documented defaults."""
-        from scripts.defer import emit_envelope
+        from turbo_mode_handoff_runtime.defer import emit_envelope
 
         candidate = {"summary": "Test defaults", "problem": "No priority or effort."}
         path = emit_envelope(candidate, tmp_path / ".envelopes")
@@ -239,11 +242,13 @@ class TestEmitEnvelope:
 
     def test_explicit_values_override_defaults(self, tmp_path: Path) -> None:
         """Explicit priority/effort override defaults."""
-        from scripts.defer import emit_envelope
+        from turbo_mode_handoff_runtime.defer import emit_envelope
 
         candidate = {
-            "summary": "Test override", "problem": "Has values.",
-            "priority": "high", "effort": "XL",
+            "summary": "Test override",
+            "problem": "Has values.",
+            "priority": "high",
+            "effort": "XL",
         }
         path = emit_envelope(candidate, tmp_path / ".envelopes")
         data = json.loads(path.read_text())
@@ -255,24 +260,34 @@ class TestMainEmitsEnvelopes:
     def test_main_output_format(self, tmp_path: Path) -> None:
         """CLI writes envelopes and outputs JSON with 'envelopes' key."""
         candidate = {
-            "summary": "CLI test", "problem": "Test problem.",
-            "source_text": "Quote.", "proposed_approach": "Fix.",
-            "acceptance_criteria": ["Done"], "priority": "medium",
-            "source_type": "ad-hoc", "source_ref": "", "session_id": "sess-cli",
+            "summary": "CLI test",
+            "problem": "Test problem.",
+            "source_text": "Quote.",
+            "proposed_approach": "Fix.",
+            "acceptance_criteria": ["Done"],
+            "priority": "medium",
+            "source_type": "ad-hoc",
+            "source_ref": "",
+            "session_id": "sess-cli",
         }
         code, output = _run_main(json.dumps([candidate]), tmp_path)
         assert code == 0
         assert output["status"] == "ok"
         assert len(output["envelopes"]) == 1
-        assert output["envelopes"][0]["path"].endswith(".json")
+        assert output["envelopes"][0].endswith(".json")
 
     def test_envelopes_written_to_dir(self, tmp_path: Path) -> None:
         """Envelopes are written to .envelopes/ subdirectory."""
         candidate = {
-            "summary": "Dir test", "problem": "Problem.",
-            "source_text": "Quote.", "proposed_approach": "Fix.",
-            "acceptance_criteria": ["Done"], "priority": "low",
-            "source_type": "ad-hoc", "source_ref": "", "session_id": "sess-dir",
+            "summary": "Dir test",
+            "problem": "Problem.",
+            "source_text": "Quote.",
+            "proposed_approach": "Fix.",
+            "acceptance_criteria": ["Done"],
+            "priority": "low",
+            "source_type": "ad-hoc",
+            "source_ref": "",
+            "session_id": "sess-dir",
         }
         _run_main(json.dumps([candidate]), tmp_path)
         envelopes = list((tmp_path / ".envelopes").glob("*.json"))
@@ -354,12 +369,14 @@ class TestMainEmitsEnvelopes:
         assert output["status"] == "error"
 
     def test_collision_exhaustion_continues_batch(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """FileExistsError from collision exhaustion is candidate-local."""
-        import scripts.defer as defer_module
+        import turbo_mode_handoff_runtime.defer as defer_module
 
-        fixed_now = datetime(2026, 3, 10, 15, 0, 0, tzinfo=timezone.utc)
+        fixed_now = datetime(2026, 3, 10, 15, 0, 0, tzinfo=UTC)
 
         class FixedDateTime:
             @classmethod
@@ -416,3 +433,24 @@ class TestMainEmitsEnvelopes:
             assert "PermissionError" in output["errors"][0]["error"]
         finally:
             envelopes_dir.chmod(0o755)
+
+
+def test_write_envelope_payload_uses_atomic_exclusive_writer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import turbo_mode_handoff_runtime.defer as defer_module
+
+    calls: list[tuple[Path, str]] = []
+
+    def fake_write(path: Path, payload: str) -> Path:
+        calls.append((path, payload))
+        path.write_text(payload, encoding="utf-8")
+        return path
+
+    monkeypatch.setattr(defer_module, "write_text_atomic_exclusive", fake_write)
+
+    written = defer_module._write_envelope_payload(tmp_path, "stem", '{"ok": true}')
+
+    assert written == tmp_path / "stem.json"
+    assert calls == [(tmp_path / "stem.json", '{"ok": true}')]
