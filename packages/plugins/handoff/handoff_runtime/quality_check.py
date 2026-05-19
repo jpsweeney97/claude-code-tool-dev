@@ -338,10 +338,17 @@ def validate(content: str) -> list[Issue]:
 
 
 def is_handoff_path(file_path: str) -> bool:
-    """Check if file is a handoff/checkpoint (active or archived).
+    """Check if file is a handoff/checkpoint (active, archived, or staged).
 
-    Valid: <root>/.claude/handoffs/<file>.md, <root>/.claude/handoffs/archive/<file>.md
-    Invalid: non-.md, deeper nesting, no .claude parent, handoffs-variant directories.
+    Valid:
+      - <root>/.claude/handoffs/<file>.md
+      - <root>/.claude/handoffs/archive/<file>.md
+      - <root>/.claude/handoffs/.session-state/staging/<file>.md
+        (the deterministic Claude-host staging path: a 4-segment tail
+        .claude/handoffs/.session-state/staging then exactly one .md leaf,
+        committed to the durable handoff by the active writer)
+    Invalid: non-.md, deeper nesting, no .claude parent, handoffs-variant
+    directories, and any non-.claude-rooted staging path.
     """
     path = Path(file_path)
 
@@ -357,6 +364,16 @@ def is_handoff_path(file_path: str) -> bool:
                 return True
             # Direct child of handoffs/archive/
             if len(remaining) == 2 and remaining[0] == "archive":
+                return True
+            # Direct child of the deterministic staging dir
+            # handoffs/.session-state/staging/ — exactly one .md leaf,
+            # deeper nesting rejected. The codex-shaped path never reaches
+            # here because this loop only fires when parts[i] == ".claude".
+            if (
+                len(remaining) == 3
+                and remaining[0] == ".session-state"
+                and remaining[1] == "staging"
+            ):
                 return True
             return False
 

@@ -33,12 +33,15 @@ RUNTIME_MODULES = {
     "triage.py",
 }
 
+# cleanup.py + quality_check.py are Claude-host hook launchers (port Decision 7); Codex ships none.
 CLI_FACADES = {
+    "cleanup.py",
     "defer.py",
     "distill.py",
     "list_handoffs.py",
     "load_transactions.py",
     "plugin_siblings.py",
+    "quality_check.py",
     "search.py",
     "session_state.py",
     "triage.py",

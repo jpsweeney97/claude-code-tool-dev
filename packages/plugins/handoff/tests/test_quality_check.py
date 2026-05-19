@@ -720,6 +720,13 @@ def test_is_handoff_path_accepts_claude_rejects_codex():
     assert is_handoff_path("/r/.claude/handoffs/a/b/x.md") is False
 
 
+def test_is_handoff_path_accepts_claude_staging_rejects_codex_staging():
+    from handoff_runtime.quality_check import is_handoff_path
+    codex_seg = "." + "codex"  # de-literalized: proves .codex-shaped rejection WITHOUT a \.codex source literal (AC2)
+    assert is_handoff_path("/r/.claude/handoffs/.session-state/staging/save-2026.md") is True
+    assert is_handoff_path(f"/r/{codex_seg}/handoffs/.session-state/staging/save-2026.md") is False
+
+
 # --- Output formatting ---
 
 

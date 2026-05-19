@@ -57,10 +57,14 @@ The plugin writes filesystem artifacts only. It does not add gitignore rules, st
 7. Generate complete markdown in a temporary content file, not `ALLOCATED_ACTIVE_PATH`. Include `type: handoff`; if `RESUMED_FROM` is non-empty, include `resumed_from: "$RESUMED_FROM"`.
 
    ```bash
-   CONTENT_FILE="$(mktemp)"
+   STAGING_DIR="$PROJECT_ROOT/.claude/handoffs/.session-state/staging"
+   mkdir -p "$STAGING_DIR"
+   CONTENT_FILE="$STAGING_DIR/$(basename "$ALLOCATED_ACTIVE_PATH")"
    # Write the complete markdown body to "$CONTENT_FILE" before committing it.
    CONTENT_SHA256="$(python -c 'import hashlib,pathlib,sys; print(hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest())' "$CONTENT_FILE")"
    ```
+
+   The staged file lives under the 24h-TTL-pruned `.session-state/` tree so the advisory `PostToolUse:Write` quality check recognizes it; the active writer remains the only path to the durable handoff.
 
 8. Commit the content through the active writer:
 
