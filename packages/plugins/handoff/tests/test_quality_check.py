@@ -736,8 +736,8 @@ class TestFormatOutput:
 
     def test_errors_and_warnings(self) -> None:
         issues = [
-            Issue("error", "Missing field: date"),
-            Issue("warning", "Empty section: Goal"),
+            Issue("error", "Missing field: date", tier="integrity"),
+            Issue("warning", "Empty section: Goal", tier="advisory"),
         ]
         msg = format_output(issues)
         assert "1 error(s)" in msg
@@ -746,7 +746,7 @@ class TestFormatOutput:
         assert "Empty section: Goal" in msg
 
     def test_errors_only(self) -> None:
-        issues = [Issue("error", "Test error")]
+        issues = [Issue("error", "Test error", tier="integrity")]
         msg = format_output(issues)
         assert "Errors:" in msg
         assert "Warnings:" not in msg
@@ -754,7 +754,7 @@ class TestFormatOutput:
 
     def test_warnings_only_no_fix_instruction(self) -> None:
         """Warnings-only output should NOT say 'Fix the errors and rewrite'."""
-        issues = [Issue("warning", "Test warning")]
+        issues = [Issue("warning", "Test warning", tier="advisory")]
         msg = format_output(issues)
         assert "Warnings:" in msg
         assert "Errors:" not in msg
@@ -927,3 +927,45 @@ class TestMain:
         result, output = _run_main(_make_hook_input(HANDOFF_PATH, content))
         assert result == 0
         assert output == ""
+
+
+# --- Tier discriminator tests ---
+
+
+def _tiers(content):
+    return {(i.tier, i.severity, i.message[:30]) for i in validate(content)}
+
+
+def test_no_frontmatter_is_integrity():
+    issues = validate("no frontmatter at all\njust body\n")
+    assert issues and all(i.tier == "integrity" for i in issues)
+
+
+def test_invalid_type_is_integrity():
+    c = "---\ndate: 2026-01-01\ntime: \"00:00\"\ncreated_at: x\nsession_id: s\nproject: p\ntitle: t\ntype: bogus\n---\nbody\n"
+    assert any(i.tier == "integrity" and "Invalid type" in i.message for i in validate(c))
+
+
+def test_line_count_under_min_is_advisory_even_though_error_severity():
+    # valid frontmatter + all required handoff sections, but short body
+    fm = ("---\ndate: 2026-01-01\ntime: \"00:00\"\ncreated_at: x\n"
+          "session_id: s\nproject: p\ntitle: t\ntype: handoff\n---\n")
+    body = "".join(f"## {s}\nx\n" for s in (
+        "Goal","Session Narrative","Decisions","Changes","Codebase Knowledge",
+        "Context","Learnings","Next Steps","In Progress","Open Questions",
+        "Risks","References","Gotchas"))
+    issues = validate(fm + body)
+    lc = [i for i in issues if "lines" in i.message and "minimum" in i.message]
+    assert lc, "expected an under-minimum line-count issue"
+    assert all(i.tier == "advisory" for i in lc)
+    assert any(i.severity == "error" for i in lc)  # severity stays error; tier overrides gating
+
+
+def test_hollow_guardrail_is_integrity():
+    fm = ("---\ndate: 2026-01-01\ntime: \"00:00\"\ncreated_at: x\n"
+          "session_id: s\nproject: p\ntitle: t\ntype: handoff\n---\n")
+    body = "".join(f"## {s}\n\n" for s in (
+        "Goal","Session Narrative","Decisions","Changes","Codebase Knowledge",
+        "Context","Learnings","Next Steps","In Progress","Open Questions",
+        "Risks","References","Gotchas"))
+    assert any(i.tier == "integrity" and "Hollow" in i.message for i in validate(fm + body))
