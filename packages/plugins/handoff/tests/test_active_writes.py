@@ -16,6 +16,58 @@ import handoff_runtime.session_state as session_state
 import handoff_runtime.storage_primitives as storage_primitives
 from handoff_runtime.chain_state import chain_state_recovery_inventory, read_chain_state
 
+# ---------------------------------------------------------------------------
+# Test content helpers — produce minimal content that passes the integrity gate.
+# ---------------------------------------------------------------------------
+
+_HANDOFF_SECTIONS = (
+    "Goal", "Session Narrative", "Decisions", "Changes", "Codebase Knowledge",
+    "Context", "Learnings", "Next Steps", "In Progress", "Open Questions",
+    "Risks", "References", "Gotchas",
+)
+_SUMMARY_SECTIONS = (
+    "Goal", "Session Narrative", "Decisions", "Changes", "Codebase Knowledge",
+    "Learnings", "Next Steps", "Project Arc",
+)
+_CHECKPOINT_SECTIONS = (
+    "Current Task", "In Progress", "Active Files", "Next Action", "Verification Snapshot",
+)
+_SECTIONS_BY_OPERATION = {
+    "save": ("handoff", _HANDOFF_SECTIONS),
+    "summary": ("summary", _SUMMARY_SECTIONS),
+    "quicksave": ("checkpoint", _CHECKPOINT_SECTIONS),
+}
+
+
+def _valid_test_content(operation: str = "save", label: str = "test") -> str:
+    """Return minimal markdown that passes the commit-time integrity gate.
+
+    Frontmatter has all 7 required fields; all required sections are present;
+    for handoff/summary the Decisions section has content so the hollow-doc
+    guardrail is satisfied.
+    """
+    doc_type, sections = _SECTIONS_BY_OPERATION.get(operation, ("handoff", _HANDOFF_SECTIONS))
+    lines = [
+        "---",
+        "date: 2026-05-13",
+        'time: "16:45"',
+        "created_at: 2026-05-13T16:45:00+00:00",
+        "session_id: test-run",
+        "project: demo",
+        f"title: {label}",
+        f"type: {doc_type}",
+        "---",
+        "",
+    ]
+    for section in sections:
+        lines.append(f"## {section}")
+        lines.append("")
+        # Decisions gets content so the hollow-handoff guardrail is satisfied.
+        if section == "Decisions":
+            lines.append(f"{label} content.")
+        lines.append("")
+    return "\n".join(lines)
+
 
 @pytest.mark.parametrize(
     ("operation", "expected_slug"),
@@ -918,7 +970,7 @@ def test_write_active_handoff_commits_reserved_output(tmp_path: Path) -> None:
         text=True,
     )
     operation_state_path = Path(begin.stdout.strip())
-    content = "---\ntitle: Write phase\n---\n\n# Handoff\n"
+    content = _valid_test_content("save", "Write phase")
     content_path = tmp_path / "content.md"
     content_path.write_text(content, encoding="utf-8")
     content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
@@ -1071,7 +1123,7 @@ def test_write_active_handoff_changed_content_retry_preserves_committed_state(
         text=True,
     )
     operation_state_path = Path(begin.stdout.strip())
-    original = "---\ntitle: Retry\n---\n\n# Original\n"
+    original = _valid_test_content("quicksave", "Retry original")
     original_path = tmp_path / "original.md"
     original_path.write_text(original, encoding="utf-8")
     original_hash = hashlib.sha256(original.encode("utf-8")).hexdigest()
@@ -1093,7 +1145,7 @@ def test_write_active_handoff_changed_content_retry_preserves_committed_state(
         capture_output=True,
         text=True,
     )
-    changed = "---\ntitle: Retry\n---\n\n# Changed\n"
+    changed = _valid_test_content("quicksave", "Retry changed")
     changed_path = tmp_path / "changed.md"
     changed_path.write_text(changed, encoding="utf-8")
     changed_hash = hashlib.sha256(changed.encode("utf-8")).hexdigest()
@@ -1138,7 +1190,7 @@ def test_write_active_handoff_reports_unreadable_existing_active_output(
     )
     reservation.allocated_active_path.parent.mkdir(parents=True, exist_ok=True)
     reservation.allocated_active_path.write_text("existing", encoding="utf-8")
-    content = "---\ntitle: Unreadable\n---\n\n# Handoff\n"
+    content = _valid_test_content("summary", "Unreadable")
     content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
     original_sha256_file = active_writes._sha256_file
 
@@ -1172,7 +1224,7 @@ def test_write_active_handoff_records_content_generated_before_output_write(
         slug="generated-before-write",
         created_at="2026-05-13T16:45:00Z",
     )
-    content = "---\ntitle: Generated before write\n---\n\n# Handoff\n"
+    content = _valid_test_content("save", "Generated before write")
     content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
     original_write_text = Path.write_text
 
@@ -1470,7 +1522,7 @@ def test_write_active_handoff_clears_snapshotted_primary_state_after_output_writ
         text=True,
     )
     operation_state_path = Path(begin.stdout.strip())
-    content = "---\ntitle: Clears state\nresumed_from: previous.md\n---\n\n# Handoff\n"
+    content = _valid_test_content("save", "Clears state")
     content_path = tmp_path / "content.md"
     content_path.write_text(content, encoding="utf-8")
     content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
@@ -1532,7 +1584,7 @@ def test_write_active_handoff_falls_back_to_unlink_when_trash_fails(
         slug="cleanup-fallback",
         created_at="2026-05-13T16:45:00Z",
     )
-    content = "---\ntitle: Cleanup fallback\n---\n\n# Handoff\n"
+    content = _valid_test_content("save", "Cleanup fallback")
     content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
 
     original_subprocess_run = active_writes._storage_primitives.subprocess.run
@@ -1587,7 +1639,7 @@ def test_write_active_handoff_persists_cleanup_failed_when_both_mechanisms_fail(
         slug="cleanup-both-fail",
         created_at="2026-05-13T16:45:00Z",
     )
-    content = "---\ntitle: Cleanup both fail\n---\n\n# Handoff\n"
+    content = _valid_test_content("save", "Cleanup both fail")
     content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
 
     original_subprocess_run = active_writes._storage_primitives.subprocess.run
@@ -2263,6 +2315,83 @@ def test_write_active_handoff_reports_corrupt_operation_state(tmp_path: Path) ->
             content="content",
             content_sha256=hashlib.sha256(b"content").hexdigest(),
         )
+
+
+def test_integrity_failure_rejected_before_promotion(tmp_path: Path) -> None:
+    reservation = active_writes.begin_active_write(
+        tmp_path,
+        project_name="demo",
+        operation="save",
+        slug="integrity-gate",
+        created_at="2026-05-13T16:45:00Z",
+    )
+    operation_state_path = reservation.operation_state_path
+    allocated_active_path = reservation.allocated_active_path
+    hollow = (  # valid frontmatter, all sections present but empty -> hollow (integrity tier)
+        "---\ndate: 2026-01-01\ntime: \"00:00\"\ncreated_at: x\n"
+        "session_id: s\nproject: p\ntitle: t\ntype: handoff\n---\n"
+        + "".join(f"## {s}\n\n" for s in (
+            "Goal", "Session Narrative", "Decisions", "Changes", "Codebase Knowledge",
+            "Context", "Learnings", "Next Steps", "In Progress", "Open Questions",
+            "Risks", "References", "Gotchas")))
+    sha = hashlib.sha256(hollow.encode()).hexdigest()
+
+    with pytest.raises(active_writes.ActiveWriteError) as ei:
+        active_writes.write_active_handoff(
+            tmp_path,
+            operation_state_path=operation_state_path,
+            content=hollow,
+            content_sha256=sha,
+        )
+
+    assert "integrity" in str(ei.value).lower()
+    assert not allocated_active_path.exists()  # NOT promoted
+
+
+def test_integrity_gate_reservation_stays_recoverable(tmp_path: Path) -> None:
+    reservation = active_writes.begin_active_write(
+        tmp_path,
+        project_name="demo",
+        operation="save",
+        slug="integrity-gate-recovery",
+        created_at="2026-05-13T16:45:00Z",
+    )
+    operation_state_path = reservation.operation_state_path
+    allocated_active_path = reservation.allocated_active_path
+    hollow = (
+        "---\ndate: 2026-01-01\ntime: \"00:00\"\ncreated_at: x\n"
+        "session_id: s\nproject: p\ntitle: t\ntype: handoff\n---\n"
+        + "".join(f"## {s}\n\n" for s in (
+            "Goal", "Session Narrative", "Decisions", "Changes", "Codebase Knowledge",
+            "Context", "Learnings", "Next Steps", "In Progress", "Open Questions",
+            "Risks", "References", "Gotchas")))
+    sha = hashlib.sha256(hollow.encode()).hexdigest()
+
+    with pytest.raises(active_writes.ActiveWriteError):
+        active_writes.write_active_handoff(
+            tmp_path,
+            operation_state_path=operation_state_path,
+            content=hollow,
+            content_sha256=sha,
+        )
+
+    # (a) operation_state_path still exists
+    assert operation_state_path.exists()
+
+    # (b) recovery commands include continue/retry_write/abandon
+    recovery = active_writes._recovery_commands(tmp_path, operation_state_path)
+    assert "continue" in recovery
+    assert "retry_write" in recovery
+    assert "abandon" in recovery
+
+    # (c) no partial .md at allocated_active_path, no leftover .tmp sibling
+    assert not allocated_active_path.exists()
+    siblings = list(allocated_active_path.parent.glob(f".{allocated_active_path.name}.*.tmp"))
+    assert not siblings
+
+    # (d) status still "begun" — no operation-state mutation occurred
+    state = json.loads(operation_state_path.read_text(encoding="utf-8"))
+    assert state["status"] == "begun"
 
 
 def test_persist_operation_and_transaction_failure_leaves_operation_state(

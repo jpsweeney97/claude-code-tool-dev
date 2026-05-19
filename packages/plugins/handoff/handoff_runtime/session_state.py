@@ -793,24 +793,90 @@ def _single_pending_active_write(records: list[dict[str, object]]) -> dict[str, 
     return pending[0]
 
 
+_OPERATION_TO_DOC_TYPE: dict[str, str] = {
+    "save": "handoff",
+    "summary": "summary",
+    "quicksave": "checkpoint",
+}
+
+_HANDOFF_SECTIONS: tuple[str, ...] = (
+    "Goal",
+    "Session Narrative",
+    "Decisions",
+    "Changes",
+    "Codebase Knowledge",
+    "Context",
+    "Learnings",
+    "Next Steps",
+    "In Progress",
+    "Open Questions",
+    "Risks",
+    "References",
+    "Gotchas",
+)
+_SUMMARY_SECTIONS: tuple[str, ...] = (
+    "Goal",
+    "Session Narrative",
+    "Decisions",
+    "Changes",
+    "Codebase Knowledge",
+    "Learnings",
+    "Next Steps",
+    "Project Arc",
+)
+_CHECKPOINT_SECTIONS: tuple[str, ...] = (
+    "Current Task",
+    "In Progress",
+    "Active Files",
+    "Next Action",
+    "Verification Snapshot",
+)
+_SECTIONS_BY_TYPE: dict[str, tuple[str, ...]] = {
+    "handoff": _HANDOFF_SECTIONS,
+    "summary": _SUMMARY_SECTIONS,
+    "checkpoint": _CHECKPOINT_SECTIONS,
+}
+
+
 def _deterministic_active_writer_content(
     operation_state: dict[str, object],
     *,
     content_note: str | None = None,
 ) -> str:
-    """Return deterministic markdown bound to one active-writer operation."""
+    """Return deterministic markdown that passes the commit-time integrity gate.
+
+    Produces valid frontmatter (all 7 required fields) and all required sections
+    for the operation's doc type. For handoff/summary, Decisions gets the
+    content_note so the hollow-handoff guardrail is satisfied.
+    """
     note = content_note or "Deterministic active-writer flow content."
-    return (
+    operation = str(operation_state["operation"])
+    doc_type = _OPERATION_TO_DOC_TYPE.get(operation, "handoff")
+    sections = _SECTIONS_BY_TYPE.get(doc_type, _HANDOFF_SECTIONS)
+    created_at = str(operation_state.get("created_at", "2026-01-01T00:00:00+00:00"))
+    date_part = created_at[:10] if len(created_at) >= 10 else "2026-01-01"
+    time_part = created_at[11:16] if len(created_at) >= 16 else "00:00"
+
+    frontmatter = (
         "---\n"
-        f"project: {operation_state['project']}\n"
+        f"date: {date_part}\n"
+        f"time: \"{time_part}\"\n"
+        f"created_at: {created_at}\n"
         f"session_id: {operation_state['run_id']}\n"
-        f"type: {operation_state['operation']}\n"
+        f"project: {operation_state['project']}\n"
         f"title: {operation_state['operation']} {operation_state['bound_slug']}\n"
+        f"type: {doc_type}\n"
         f"active_writer_run_id: {operation_state['run_id']}\n"
         f"active_writer_transaction_id: {operation_state['transaction_id']}\n"
         f"active_writer_bound_slug: {operation_state['bound_slug']}\n"
         f"active_writer_allocated_path: {operation_state['allocated_active_path']}\n"
         "---\n\n"
-        f"# {operation_state['operation']} {operation_state['bound_slug']}\n\n"
-        f"{note}\n"
     )
+    body_parts: list[str] = []
+    for section in sections:
+        # Decisions gets the note so the hollow-handoff guardrail is satisfied
+        # (handoff and summary require at least one of Decisions/Changes/Learnings
+        # to have substantive content).
+        section_content = note if section == "Decisions" else ""
+        body_parts.append(f"## {section}\n\n{section_content}\n")
+    return frontmatter + "".join(body_parts)

@@ -27,6 +27,28 @@ OP_MEMBERS = set(get_args(active_writes.ActiveWriteOperationStateStatus))
 TX_MEMBERS = set(get_args(active_writes.ActiveWriteTransactionStatus))
 CREATED_AT = "2026-05-13T16:45:00Z"
 
+
+def _valid_matrix_content(label: str = "test") -> str:
+    """Minimal handoff markdown that passes the commit-time integrity gate."""
+    return (
+        "---\n"
+        "date: 2026-05-13\n"
+        'time: "16:45"\n'
+        "created_at: 2026-05-13T16:45:00+00:00\n"
+        "session_id: test-run\n"
+        "project: demo\n"
+        f"title: {label}\n"
+        "type: handoff\n"
+        "---\n\n"
+        "## Goal\n\n## Session Narrative\n\n"
+        "## Decisions\n\n" + label + " content.\n\n"
+        "## Changes\n\n## Codebase Knowledge\n\n"
+        "## Context\n\n## Learnings\n\n"
+        "## Next Steps\n\n## In Progress\n\n"
+        "## Open Questions\n\n## Risks\n\n"
+        "## References\n\n## Gotchas\n\n"
+    )
+
 # Runtime-reachable members. Every member EXCEPT operation-state
 # 'unreadable' is produced by some scenario below. 'unreadable' is the
 # synthetic unreadable-record marker built by
@@ -162,7 +184,7 @@ def _drive_begin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> WriteSpy:
 def _drive_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> WriteSpy:
     spy = _install_spy(monkeypatch)
     res = _begin(tmp_path, slug="success")
-    content = "body"
+    content = _valid_matrix_content("success")
     active_writes.write_active_handoff(
         tmp_path,
         operation_state_path=res.operation_state_path,
@@ -230,7 +252,7 @@ def _drive_content_mismatch(
     res = _begin(tmp_path, slug="mismatch")
     res.allocated_active_path.parent.mkdir(parents=True, exist_ok=True)
     res.allocated_active_path.write_text("OTHER CONTENT", encoding="utf-8")
-    content = "body"
+    content = _valid_matrix_content("mismatch")
     with pytest.raises(active_writes.ActiveWriteError, match="content mismatch"):
         active_writes.write_active_handoff(
             tmp_path,
@@ -355,7 +377,7 @@ def _drive_cleanup_failed(
         encoding="utf-8",
     )
     res = _begin(tmp_path, slug="cleanup-both-fail")
-    content = "body"
+    content = _valid_matrix_content("cleanup-both-fail")
     content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
 
     original_subprocess_run = active_writes._storage_primitives.subprocess.run

@@ -40,6 +40,7 @@ from handoff_runtime.storage_primitives import (
 from handoff_runtime.storage_primitives import (
     sha256_file_or_none as _sha256_path,
 )
+from handoff_runtime.quality_check import validate as _validate_quality
 
 
 class ActiveWriteError(RuntimeError):
@@ -591,6 +592,19 @@ def write_active_handoff(
         if expected_hash != content_sha256:
             raise ActiveWriteError(
                 f"write-active-handoff failed: content hash mismatch. Got: {content_sha256!r:.100}"
+            )
+        # Commit-time integrity gate (handoff-port-commit-time-quality-gate).
+        # Hollow/malformed handoffs are rejected BEFORE any operation-state
+        # mutation or durable write. The reservation stays in its existing
+        # `begun` state — the documented recoverable state — so the lock
+        # `finally` releases and _recovery_commands already enumerates
+        # continue/retry_write/abandon. Length/depth (advisory tier) never gate
+        # here; that stays on the PostToolUse advisory hook.
+        integrity = [i for i in _validate_quality(content) if i.tier == "integrity"]
+        if integrity:
+            raise ActiveWriteError(
+                "write-active-handoff failed: handoff failed integrity validation. "
+                f"Got: {'; '.join(i.message for i in integrity)!r:.100}"
             )
         active_path = Path(str(state["allocated_active_path"]))
         transaction_path = Path(str(state["transaction_path"]))
