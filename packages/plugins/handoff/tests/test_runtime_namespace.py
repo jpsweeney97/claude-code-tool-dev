@@ -15,7 +15,6 @@ RUNTIME_MODULES = {
     "defer.py",
     "distill.py",
     "handoff_parsing.py",
-    "installed_host_harness.py",
     "list_handoffs.py",
     "load_transactions.py",
     "plugin_siblings.py",

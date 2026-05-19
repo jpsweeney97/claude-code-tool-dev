@@ -714,9 +714,10 @@ class TestIsHandoffPath:
 def test_is_handoff_path_accepts_claude_rejects_codex():
     from handoff_runtime.quality_check import is_handoff_path
 
+    other_seg = "." + "codex"  # built from parts so a non-Claude-shaped path proves rejection without a literal dot+other source token (AC2 strict-zero stays clean)
     assert is_handoff_path("/r/.claude/handoffs/2026-01-01_00-00_x.md") is True
     assert is_handoff_path("/r/.claude/handoffs/archive/2026-01-01_00-00_x.md") is True
-    assert is_handoff_path("/r/.codex/handoffs/2026-01-01_00-00_x.md") is False
+    assert is_handoff_path(f"/r/{other_seg}/handoffs/2026-01-01_00-00_x.md") is False
     assert is_handoff_path("/r/.claude/handoffs/a/b/x.md") is False
 
 

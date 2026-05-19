@@ -7,7 +7,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [2.0.0] - 2026-05-19
 
 ### Changed
-- **BREAKING:** One-time port from the Codex `handoff` plugin (Codex v1.7.0). Runtime namespace `turbo_mode_handoff_runtime` → `handoff_runtime`.
+- **BREAKING:** One-time port from the Codex `handoff` plugin (Codex v1.7.0). The Codex marketplace-prefixed runtime namespace was renamed to `handoff_runtime`; all imports now use the `handoff_runtime` package.
 - **BREAKING:** Storage primary moved to `<project_root>/.claude/handoffs/`. Legacy `docs/handoffs/` retained as a read-only straggler classifier (not an active migration bridge). The full prior corpus was hard-migrated under a manifest.
 - Adopted the Codex rearchitecture: storage-authority layer, transactional active-writes, O_EXCL lock model, chain-state recovery.
 

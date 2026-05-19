@@ -60,14 +60,14 @@ PLUGIN_SPECS = (
     ),
 )
 
-REPO_SPECS = (
-    InventorySpec(
-        path="plugins/turbo-mode/tools/refresh/smoke.py",
-        root="repo",
-        required=(".claude/handoffs/archive", ".claude/handoffs/.session-state"),
-        forbidden=("docs/handoffs/archive", "docs/handoffs/.session-state"),
-    ),
-)
+# No repo-level storage-authority surfaces in the Claude single-plugin
+# package. The prior row targeted `plugins/turbo-mode/tools/refresh/smoke.py`,
+# a Codex marketplace-monorepo sibling-tool path with no equivalent in this
+# standalone Claude plugin (no `plugins/turbo-mode/` tree exists here). It was
+# host-shaped — it described a structure the Claude port does not have — so it
+# is dropped rather than retargeted. All real storage-authority text surfaces
+# are plugin-local and covered by PLUGIN_SPECS.
+REPO_SPECS: tuple[InventorySpec, ...] = ()
 
 
 def default_repo_root() -> Path:

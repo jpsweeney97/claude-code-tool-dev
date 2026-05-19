@@ -22,7 +22,10 @@ def test_storage_authority_inventory_covers_current_surfaces() -> None:
     assert "references/handoff-contract.md" in row_paths
     assert "references/format-reference.md" in row_paths
     assert "handoff_runtime/quality_check.py" in row_paths
-    assert "plugins/turbo-mode/tools/refresh/smoke.py" in row_paths
+    # The Codex marketplace-monorepo repo-level surface
+    # (plugins/turbo-mode/tools/refresh/smoke.py) has no equivalent in the
+    # Claude single-plugin package; REPO_SPECS is intentionally empty here.
+    assert all(row["root"] == "plugin" for row in inventory["rows"])
 
 
 def test_storage_authority_inventory_fixture_matches_current_inventory() -> None:

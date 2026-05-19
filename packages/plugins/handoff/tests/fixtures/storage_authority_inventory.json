@@ -16,7 +16,7 @@
       ],
       "required_missing": [],
       "root": "plugin",
-      "sha256": "9d11850c8658e21f7ecdcc4cb0d6af64ba7fc4f2c7d41f61b83f09c0ceaf60c5",
+      "sha256": "b749146c81ecdcbcce8f47588fed5264397ec84c40e4de269f44774394b19136",
       "status": "passed"
     },
     {
@@ -31,7 +31,7 @@
       ],
       "required_missing": [],
       "root": "plugin",
-      "sha256": "b40edce20a0d67c209a2a99edb43f8d2f394e0df3251f27283e62e6aac7c095f",
+      "sha256": "6255103af3b8dec828dbcd833ff91fa0a099a6cc21d5bf1dd8e2bb120c498642",
       "status": "passed"
     },
     {
@@ -47,7 +47,7 @@
       ],
       "required_missing": [],
       "root": "plugin",
-      "sha256": "4fd1a12eb4eb6d81af4cbd7c5f0dda9d8df648b789b2f9bfb25b64f5c6b1d9eb",
+      "sha256": "ae1e5171beca2eee8936b37abe47fa0fac554ea1b7327151f67f813031ea4a44",
       "status": "passed"
     },
     {
@@ -62,7 +62,7 @@
       ],
       "required_missing": [],
       "root": "plugin",
-      "sha256": "e01c801e822d51e027b165a790524dde46d41a8609e077ff32215da94d0fdb7e",
+      "sha256": "660241142e6da1e6659a48df6fedbe89e49ad079a7d4bd6cd0e1846e32d87155",
       "status": "passed"
     },
     {
@@ -76,23 +76,7 @@
       ],
       "required_missing": [],
       "root": "plugin",
-      "sha256": "b3022a1e22c29384e36137be49f7d726d848f0215e4ad8660aec9eb3414d22e3",
-      "status": "passed"
-    },
-    {
-      "forbidden": [
-        "docs/handoffs/archive",
-        "docs/handoffs/.session-state"
-      ],
-      "forbidden_present": [],
-      "path": "plugins/turbo-mode/tools/refresh/smoke.py",
-      "required": [
-        ".claude/handoffs/archive",
-        ".claude/handoffs/.session-state"
-      ],
-      "required_missing": [],
-      "root": "repo",
-      "sha256": "ae99b7f2108487db56ae4060f4354820ad6a8e4aae5cf80d910c788b555f0ec8",
+      "sha256": "c1c54197ffff68f13440c0afa9bd6447403c8808047daf0f55ecd7134dbdbbaf",
       "status": "passed"
     }
   ],
