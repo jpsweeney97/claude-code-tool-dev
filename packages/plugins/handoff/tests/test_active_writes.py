@@ -7,6 +7,7 @@ import socket
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -2467,6 +2468,7 @@ def test_persist_operation_and_transaction_failure_leaves_operation_state(
 #
 # The remaining cells are below.
 
+
 def _build_handoff_content(
     *,
     body_lines: int | None = None,
@@ -2484,8 +2486,9 @@ def _build_handoff_content(
     body_lines to control length.
 
     Args:
-        body_lines: target body line count (pads or truncates Decisions
-            filler to hit this target).  None → use natural section body.
+        body_lines: lower bound: pads with filler if natural body is shorter;
+            ignored if natural body is already longer.  None → use natural
+            section body.
         omit_section: drop this section name from the body.
         omit_field: drop this frontmatter key.
         override_type: replace the `type` frontmatter value.
@@ -2536,7 +2539,8 @@ def _build_summary_content(*, body_lines: int) -> str:
     """Build a summary document that passes the integrity gate.
 
     All 8 required summary sections present; Decisions has substantive
-    content; body is padded to body_lines.
+    content.  body_lines is a lower bound: pads with filler if natural body
+    is shorter; ignored if natural body is already longer.
     """
     section_lines: list[str] = []
     for section in REQUIRED_SUMMARY_SECTIONS:
@@ -2637,7 +2641,7 @@ def test_ac5_clean_handoff_promotes(tmp_path: Path) -> None:
 def test_ac5_integrity_rejection(
     tmp_path: Path,
     label: str,
-    content_builder: object,
+    content_builder: Callable[[], str],
     expected_message_fragment: str,
 ) -> None:
     """(b1-b4) Each integrity-tier defect raises ActiveWriteError before promotion.
@@ -2646,7 +2650,7 @@ def test_ac5_integrity_rejection(
     active path is NOT created, and validate() confirms at least one
     tier='integrity' issue whose message contains the expected fragment.
     """
-    content = content_builder()  # type: ignore[operator]
+    content = content_builder()
     sha = hashlib.sha256(content.encode()).hexdigest()
 
     reservation = active_writes.begin_active_write(
@@ -2684,10 +2688,8 @@ def test_ac5_under_min_still_promotes(tmp_path: Path) -> None:
     """(c) AC#5 linchpin: validate_line_count's severity='error' under-min
     issue is tier='advisory'; the gate must NOT reject it.
 
-    This is the linchpin: validate_line_count's severity='error' under-min
-    issue is tier='advisory'; the gate must NOT reject it. Gating on severity
-    here would break /save under context pressure — the exact failure mode the
-    tier partition exists to prevent.
+    Gating on severity here would break /save under context pressure — the
+    exact failure mode the tier partition exists to prevent.
     """
     # Build a document that passes all integrity checks but is under the
     # HANDOFF_MIN_LINES body threshold.  Sections are all present; Decisions
@@ -2726,7 +2728,8 @@ def test_ac5_under_min_still_promotes(tmp_path: Path) -> None:
     # with severity='error' AND tier='advisory', confirming the decoupling.
     issues = validate(content)
     under_min_issues = [
-        i for i in issues
+        i
+        for i in issues
         if i.severity == "error" and i.tier == "advisory" and "minimum" in i.message
     ]
     assert under_min_issues, (
@@ -2777,7 +2780,11 @@ def test_ac5_over_max_still_promotes(tmp_path: Path) -> None:
 
     # Explicit: validate yields a tier='advisory' over-max issue.
     issues = validate(content)
-    over_max_issues = [i for i in issues if "maximum" in i.message and i.tier == "advisory"]
+    over_max_issues = [
+        i
+        for i in issues
+        if i.severity == "warning" and i.tier == "advisory" and "maximum" in i.message
+    ]
     assert over_max_issues, (
         "Expected at least one tier='advisory' issue mentioning 'maximum'. "
         f"Got: {[(i.severity, i.tier, i.message) for i in issues]}"
