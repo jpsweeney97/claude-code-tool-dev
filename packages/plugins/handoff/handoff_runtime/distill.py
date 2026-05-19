@@ -17,9 +17,9 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal, NotRequired, TypedDict
 
-from turbo_mode_handoff_runtime.handoff_parsing import parse_handoff, section_name
-from turbo_mode_handoff_runtime.project_paths import get_project_root
-from turbo_mode_handoff_runtime.storage_authority import (
+from handoff_runtime.handoff_parsing import parse_handoff, section_name
+from handoff_runtime.project_paths import get_project_root
+from handoff_runtime.storage_authority import (
     HandoffCandidate,
     SelectionEligibility,
     discover_handoff_inventory,

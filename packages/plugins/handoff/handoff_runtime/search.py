@@ -10,14 +10,14 @@ import json
 import re
 from pathlib import Path
 
-from turbo_mode_handoff_runtime.handoff_parsing import parse_handoff
-from turbo_mode_handoff_runtime.project_paths import (
+from handoff_runtime.handoff_parsing import parse_handoff
+from handoff_runtime.project_paths import (
     get_handoffs_dir,
     get_legacy_handoffs_dir,
     get_project_name,
     get_project_root,
 )
-from turbo_mode_handoff_runtime.storage_authority import (
+from handoff_runtime.storage_authority import (
     HandoffCandidate,
     SelectionEligibility,
     StorageLocation,

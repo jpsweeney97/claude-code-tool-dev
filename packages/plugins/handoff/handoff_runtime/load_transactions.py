@@ -12,37 +12,37 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from turbo_mode_handoff_runtime.session_state import allocate_archive_path, write_resume_state
-from turbo_mode_handoff_runtime.storage_authority import (
+from handoff_runtime.session_state import allocate_archive_path, write_resume_state
+from handoff_runtime.storage_authority import (
     HandoffCandidate,
     SelectionEligibility,
     StorageLocation,
     discover_handoff_inventory,
     eligible_active_candidates,
 )
-from turbo_mode_handoff_runtime.storage_layout import (
+from handoff_runtime.storage_layout import (
     StorageLayout,
     get_storage_layout,
 )
-from turbo_mode_handoff_runtime.storage_primitives import (
+from handoff_runtime.storage_primitives import (
     LockPolicy,
 )
-from turbo_mode_handoff_runtime.storage_primitives import (
+from handoff_runtime.storage_primitives import (
     acquire_lock as _acquire_lock_with_policy,
 )
-from turbo_mode_handoff_runtime.storage_primitives import (
+from handoff_runtime.storage_primitives import (
     read_json_object as _read_json_object,
 )
-from turbo_mode_handoff_runtime.storage_primitives import (
+from handoff_runtime.storage_primitives import (
     registry_key as _registry_key,
 )
-from turbo_mode_handoff_runtime.storage_primitives import (
+from handoff_runtime.storage_primitives import (
     release_lock as _release_lock,
 )
-from turbo_mode_handoff_runtime.storage_primitives import (
+from handoff_runtime.storage_primitives import (
     sha256_file as _sha256_file,
 )
-from turbo_mode_handoff_runtime.storage_primitives import (
+from handoff_runtime.storage_primitives import (
     write_json_atomic as _write_json_atomic,
 )
 

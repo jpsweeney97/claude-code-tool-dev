@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from turbo_mode_handoff_runtime.handoff_parsing import (
+from handoff_runtime.handoff_parsing import (
     HandoffFile,
     parse_frontmatter,
     parse_handoff,

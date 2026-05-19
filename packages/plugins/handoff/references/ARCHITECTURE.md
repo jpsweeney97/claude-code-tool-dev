@@ -2,7 +2,7 @@
 
 ## Runtime Package
 
-`turbo_mode_handoff_runtime/` contains the implementation. `scripts/` contains only CLI facades used by skills.
+`handoff_runtime/` contains the implementation. `scripts/` contains only CLI facades used by skills.
 
 ## Storage Layout
 
@@ -15,7 +15,7 @@ Runtime ownership map (layering order, lowest first):
 - `chain_state.py`: chain-state inventory, diagnostics, read, and lifecycle.
 - `scripts/`: executable CLI facades only.
 
-Layering invariant: imports flow one way, lowest to highest. The base layer is three independent, stdlib-only modules with no internal imports — `storage_primitives`, `storage_layout`, and `storage_inspection` (they are peers; none imports another). Above them: `storage_authority` → `chain_state` → `active_writes` → `session_state`/`load_transactions` → domain modules. No base-layer module may import any `turbo_mode_handoff_runtime` module (by absolute or relative import); doing so re-creates the cross-module import cycle the storage reseam removed and is prohibited. This is enforced mechanically by `tests/test_runtime_namespace.py::test_storage_base_layer_has_no_internal_imports`.
+Layering invariant: imports flow one way, lowest to highest. The base layer is three independent, stdlib-only modules with no internal imports — `storage_primitives`, `storage_layout`, and `storage_inspection` (they are peers; none imports another). Above them: `storage_authority` → `chain_state` → `active_writes` → `session_state`/`load_transactions` → domain modules. No base-layer module may import any `handoff_runtime` module (by absolute or relative import); doing so re-creates the cross-module import cycle the storage reseam removed and is prohibited. This is enforced mechanically by `tests/test_runtime_namespace.py::test_storage_base_layer_has_no_internal_imports`.
 
 ### Active-write status-domain partition
 

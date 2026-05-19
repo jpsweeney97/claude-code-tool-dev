@@ -13,23 +13,23 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
-from turbo_mode_handoff_runtime import storage_layout as _storage_layout
-from turbo_mode_handoff_runtime.storage_inspection import (
+from handoff_runtime import storage_layout as _storage_layout
+from handoff_runtime.storage_inspection import (
     fs_status as _fs_status,
 )
-from turbo_mode_handoff_runtime.storage_inspection import (
+from handoff_runtime.storage_inspection import (
     git_visibility as _git_visibility,
 )
-from turbo_mode_handoff_runtime.storage_inspection import (
+from handoff_runtime.storage_inspection import (
     is_relative_to as _is_relative_to,
 )
-from turbo_mode_handoff_runtime.storage_primitives import (
+from handoff_runtime.storage_primitives import (
     read_json_object as _read_json_object_primitive,
 )
-from turbo_mode_handoff_runtime.storage_primitives import (
+from handoff_runtime.storage_primitives import (
     registry_key as _registry_key,
 )
-from turbo_mode_handoff_runtime.storage_primitives import (
+from handoff_runtime.storage_primitives import (
     sha256_regular_file_or_none as _content_sha256,
 )
 

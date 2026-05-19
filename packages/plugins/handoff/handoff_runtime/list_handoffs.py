@@ -7,9 +7,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-from turbo_mode_handoff_runtime.handoff_parsing import parse_handoff
-from turbo_mode_handoff_runtime.project_paths import get_project_root
-from turbo_mode_handoff_runtime.storage_authority import (
+from handoff_runtime.handoff_parsing import parse_handoff
+from handoff_runtime.project_paths import get_project_root
+from handoff_runtime.storage_authority import (
     discover_handoff_inventory,
     eligible_active_candidates,
 )

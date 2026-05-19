@@ -19,9 +19,9 @@ from pathlib import Path
 from typing import get_args
 
 import pytest
-import turbo_mode_handoff_runtime.active_writes as active_writes
-import turbo_mode_handoff_runtime.chain_state as chain_state
-import turbo_mode_handoff_runtime.storage_primitives as storage_primitives
+import handoff_runtime.active_writes as active_writes
+import handoff_runtime.chain_state as chain_state
+import handoff_runtime.storage_primitives as storage_primitives
 
 OP_MEMBERS = set(get_args(active_writes.ActiveWriteOperationStateStatus))
 TX_MEMBERS = set(get_args(active_writes.ActiveWriteTransactionStatus))

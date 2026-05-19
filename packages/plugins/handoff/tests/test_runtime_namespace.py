@@ -4,7 +4,7 @@ import ast
 from pathlib import Path
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
-RUNTIME_PACKAGE = "turbo_mode_handoff_runtime"
+RUNTIME_PACKAGE = "handoff_runtime"
 RUNTIME_DIR = PLUGIN_ROOT / RUNTIME_PACKAGE
 SCRIPTS_DIR = PLUGIN_ROOT / "scripts"
 
@@ -71,7 +71,7 @@ def test_runtime_modules_do_not_import_scripts_namespace() -> None:
                 for alias in node.names:
                     assert not alias.name.startswith("scripts"), path
             if isinstance(node, ast.Constant) and isinstance(node.value, str):
-                assert not node.value.startswith("turbo_mode_handoff_runtime."), path
+                assert not node.value.startswith("handoff_runtime."), path
 
 
 def test_runtime_modules_are_import_only() -> None:
@@ -115,7 +115,7 @@ STDLIB_ONLY_BASE_LAYER = {
 
 def test_storage_base_layer_has_no_internal_imports() -> None:
     """Enforces the ARCHITECTURE.md / ADR-0002 layering invariant: the
-    stdlib-only base layer must not import any turbo_mode_handoff_runtime
+    stdlib-only base layer must not import any handoff_runtime
     module, by absolute OR relative import. An internal import here
     re-creates the cycle the reseam removed."""
     for name in STDLIB_ONLY_BASE_LAYER:

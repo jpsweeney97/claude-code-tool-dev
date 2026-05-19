@@ -14,23 +14,23 @@ import warnings
 from pathlib import Path
 from typing import Any, Literal, TypedDict
 
-from turbo_mode_handoff_runtime.handoff_parsing import (
+from handoff_runtime.handoff_parsing import (
     parse_frontmatter,
     parse_sections,
     section_name,
 )
-from turbo_mode_handoff_runtime.project_paths import (
+from handoff_runtime.project_paths import (
     get_legacy_handoffs_dir,
     get_project_root,
 )
-from turbo_mode_handoff_runtime.provenance import read_provenance, session_matches
-from turbo_mode_handoff_runtime.storage_authority import (
+from handoff_runtime.provenance import read_provenance, session_matches
+from handoff_runtime.storage_authority import (
     HandoffCandidate,
     StorageLocation,
     discover_handoff_inventory,
     eligible_history_candidates,
 )
-from turbo_mode_handoff_runtime.ticket_parsing import parse_ticket
+from handoff_runtime.ticket_parsing import parse_ticket
 
 
 class OpenTicket(TypedDict):

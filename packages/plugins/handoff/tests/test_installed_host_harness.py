@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
-from turbo_mode_handoff_runtime.installed_host_harness import (
+from handoff_runtime.installed_host_harness import (
     EXPECTED_MANIFEST_VERSION,
     HARNESS_CACHE_PATH_VERSION,
     InstalledHostHarnessError,
@@ -56,7 +56,7 @@ def test_source_harness_isolation_proof_uses_test_only_copy_outside_source(
     assert runtime_module_paths
     assert all(path.is_relative_to(installed_root) for path in runtime_module_paths)
     assert all(
-        path.is_relative_to(installed_root / "turbo_mode_handoff_runtime")
+        path.is_relative_to(installed_root / "handoff_runtime")
         for path in runtime_module_paths
     )
     assert all(
@@ -107,7 +107,7 @@ def test_source_harness_payload_rejects_source_checkout_helper_leakage(
         ],
         "source_checkout_sys_path_entries": [],
         "loaded_runtime_module_files": [
-            str(source_plugin / "turbo_mode_handoff_runtime" / "session_state.py")
+            str(source_plugin / "handoff_runtime" / "session_state.py")
         ],
         "manifest_identity": {
             "name": "handoff",

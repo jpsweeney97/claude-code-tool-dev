@@ -50,7 +50,7 @@ Handoff does not ship plugin-bundled command hooks. The dormant hook-compatible 
 
 ### Runtime Package and CLI Facades
 
-Core logic lives in `turbo_mode_handoff_runtime/`. The `scripts/` directory now contains only thin executable CLI facades for skill-facing command paths. `scripts.*` is not a supported library import API.
+Core logic lives in `handoff_runtime/`. The `scripts/` directory now contains only thin executable CLI facades for skill-facing command paths. `scripts.*` is not a supported library import API.
 
 | Script Facade | Purpose | Called By |
 |---------------|---------|-----------|
@@ -63,7 +63,7 @@ Core logic lives in `turbo_mode_handoff_runtime/`. The `scripts/` directory now 
 | `session_state.py` | Chain and active-writer state operations | `/save`, `/quicksave`, `/summary` skills |
 | `triage.py` | Ticket scanning, orphan detection, matching | `/triage` skill |
 
-Runtime-only helpers such as `turbo_mode_handoff_runtime/quality_check.py`, `turbo_mode_handoff_runtime/cleanup.py`, and `turbo_mode_handoff_runtime/storage_authority_inventory.py` remain source utilities and are not wired into Handoff `1.7.0` skill entrypoints or hooks.
+Runtime-only helpers such as `handoff_runtime/quality_check.py`, `handoff_runtime/cleanup.py`, and `handoff_runtime/storage_authority_inventory.py` remain source utilities and are not wired into Handoff `1.7.0` skill entrypoints or hooks.
 
 Runtime module ownership for storage and chain behavior (layering order, lowest first):
 
@@ -184,7 +184,7 @@ Session 2:
 │  /save  /quicksave  /load  /defer                  │
 │  /search  /distill  /triage                        │
 ├─ Runtime Package (Implementation) ─────────────────┤
-│  turbo_mode_handoff_runtime/*                      │
+│  handoff_runtime/*                      │
 ├─ CLI Facades (Executable Paths) ───────────────────┤
 │  scripts/defer.py, distill.py, list_handoffs.py    │
 │  scripts/load_transactions.py, plugin_siblings.py  │
@@ -247,7 +247,7 @@ Handoff plugin-bundled command hooks are deferred from 1.7.0 until Codex exposes
 
 ### Adding Runtime Code
 
-Add new implementation under `turbo_mode_handoff_runtime/<name>.py`, and keep runtime modules import-only (no shebang, no `if __name__ == "__main__":` block). If the behavior must be skill-invokable, add or update one of the approved `scripts/*.py` facades to call the runtime module's `main()`.
+Add new implementation under `handoff_runtime/<name>.py`, and keep runtime modules import-only (no shebang, no `if __name__ == "__main__":` block). If the behavior must be skill-invokable, add or update one of the approved `scripts/*.py` facades to call the runtime module's `main()`.
 
 ## Development
 

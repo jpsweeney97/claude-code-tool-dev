@@ -24,13 +24,13 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from turbo_mode_handoff_runtime.handoff_parsing import (
+from handoff_runtime.handoff_parsing import (
     parse_frontmatter as _parse_handoff_frontmatter,
 )
-from turbo_mode_handoff_runtime.handoff_parsing import (
+from handoff_runtime.handoff_parsing import (
     parse_sections as _parse_handoff_sections,
 )
-from turbo_mode_handoff_runtime.handoff_parsing import (
+from handoff_runtime.handoff_parsing import (
     section_name as _section_name,
 )
 

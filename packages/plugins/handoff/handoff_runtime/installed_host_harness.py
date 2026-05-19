@@ -10,7 +10,7 @@ import sys
 import textwrap
 from pathlib import Path
 
-from turbo_mode_handoff_runtime.storage_primitives import sha256_file
+from handoff_runtime.storage_primitives import sha256_file
 
 # Intentional version split — see CONTRIBUTING.md "Versioning and Install Path"
 # and docs/decisions/0001. The install-path slot is frozen at the directory
@@ -140,7 +140,7 @@ def verify_source_harness_payload(payload: dict[str, object]) -> None:
         _require_path_inside_installed(path, installed_plugin, source_checkout)
         _require_path_inside_root(
             path,
-            installed_plugin / "turbo_mode_handoff_runtime",
+            installed_plugin / "handoff_runtime",
             "loaded runtime module file",
         )
 
@@ -221,8 +221,8 @@ def _run_helper_probe(
             ],
         ]
         runtime_modules = [
-            importlib.import_module("turbo_mode_handoff_runtime.session_state"),
-            importlib.import_module("turbo_mode_handoff_runtime.storage_authority"),
+            importlib.import_module("handoff_runtime.session_state"),
+            importlib.import_module("handoff_runtime.storage_authority"),
         ]
         sys_path_entries = [str(normalize_path(entry)) for entry in sys.path]
         source_sys_path_entries = [

@@ -7,7 +7,7 @@ from pathlib import Path
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PLUGIN_ROOT))
 
-from turbo_mode_handoff_runtime.distill import main
+from handoff_runtime.distill import main
 
 if __name__ == "__main__":
     print(main())

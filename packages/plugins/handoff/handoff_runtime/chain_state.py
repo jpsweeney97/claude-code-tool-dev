@@ -9,17 +9,17 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
-from turbo_mode_handoff_runtime import storage_primitives as _storage_primitives
+from handoff_runtime import storage_primitives as _storage_primitives
 
 # StorageLocation is the intentional shared bridge type: storage_authority is the
 # discovery authority that names locations, and chain_state consumes that
 # classification. This one-way edge (chain_state -> storage_authority) is by
 # design and must stay one-way — storage_authority must never import chain_state
 # (that would re-introduce the cross-module cycle the reseam removed).
-from turbo_mode_handoff_runtime.storage_authority import StorageLocation
-from turbo_mode_handoff_runtime.storage_inspection import fs_status, git_visibility
-from turbo_mode_handoff_runtime.storage_layout import StorageLayout, get_storage_layout
-from turbo_mode_handoff_runtime.storage_primitives import (
+from handoff_runtime.storage_authority import StorageLocation
+from handoff_runtime.storage_inspection import fs_status, git_visibility
+from handoff_runtime.storage_layout import StorageLayout, get_storage_layout
+from handoff_runtime.storage_primitives import (
     sha256_regular_file_or_none as _content_sha256,
 )
 

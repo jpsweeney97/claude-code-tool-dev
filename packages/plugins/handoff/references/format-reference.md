@@ -217,7 +217,7 @@ if client behavior analysis shows significant session migration.
 `src/api/middleware/__init__.py` for precedent).
 
 **Key detail:** Exports are explicit — `__all__` list prevents accidental exposure of internal
-helpers. Future-Codex: add new public classes to `__all__` when creating them.
+helpers. Add new public classes to `__all__` when creating them.
 
 ### `src/api/ratelimit/limiter.py` — Token bucket implementation
 
@@ -238,7 +238,7 @@ helpers. Future-Codex: add new public classes to `__all__` when creating them.
 **Design choice:** Separated `TokenBucket` (data) from `RateLimiter` (management) to allow
 future algorithm swaps without changing the management layer.
 
-**Future-Codex note:** `_cleanup()` runs every 1000th `consume()` call. Constant is
+`_cleanup()` runs every 1000th `consume()` call. Constant is
 `CLEANUP_INTERVAL` at line 15. Tune if memory profiling shows stale bucket accumulation.
 
 ### `src/api/ratelimit/middleware.py` — Rate limit middleware
@@ -614,7 +614,7 @@ read other instances' states, merge.
 - Graceful degradation: Redis unreachable → log warning, continue with local-only
 - Cleanup: expired instance keys (no heartbeat for 3x interval) removed
 
-**Future-Codex note:** Merge strategy (minimum tokens) is deliberately conservative. If users
+Merge strategy (minimum tokens) is deliberately conservative. If users
 report overly strict limits in multi-instance deployments, revisit merge — consider average or
 weighted merge.
 

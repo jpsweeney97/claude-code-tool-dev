@@ -17,7 +17,7 @@ Exit Codes:
 
 import sys
 
-from turbo_mode_handoff_runtime.session_state import prune_old_state_files
+from handoff_runtime.session_state import prune_old_state_files
 
 
 def main() -> int:

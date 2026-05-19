@@ -9,7 +9,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from turbo_mode_handoff_runtime.storage_layout import get_storage_layout
+from handoff_runtime.storage_layout import get_storage_layout
 
 
 def get_project_root() -> tuple[Path, str]:

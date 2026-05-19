@@ -53,7 +53,7 @@ PLUGIN_SPECS = (
         forbidden=(LEGACY_STORAGE_ROOT, "local-only working memory"),
     ),
     InventorySpec(
-        path="turbo_mode_handoff_runtime/quality_check.py",
+        path="handoff_runtime/quality_check.py",
         root="plugin",
         required=("<project_root>/.claude/handoffs/",),
         forbidden=("<project_root>/docs/handoffs/",),
@@ -74,7 +74,7 @@ def default_repo_root() -> Path:
     """Return the repository root for this source checkout.
 
     parents[4] assumes the fixed source tree depth
-    repo/plugins/turbo-mode/handoff/turbo_mode_handoff_runtime/. This is a
+    repo/plugins/turbo-mode/handoff/handoff_runtime/. This is a
     dev/CI inventory probe only (not the runtime load path); the literal depth
     breaks if the package is ever vendored or installed at a different depth.
     Callers (tests) may pass an explicit repo_root to bypass this assumption.

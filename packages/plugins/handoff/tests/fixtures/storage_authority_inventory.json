@@ -70,7 +70,7 @@
         "<project_root>/docs/handoffs/"
       ],
       "forbidden_present": [],
-      "path": "turbo_mode_handoff_runtime/quality_check.py",
+      "path": "handoff_runtime/quality_check.py",
       "required": [
         "<project_root>/.claude/handoffs/"
       ],

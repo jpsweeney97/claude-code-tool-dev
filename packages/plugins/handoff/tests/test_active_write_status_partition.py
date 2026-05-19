@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import get_args
 
-import turbo_mode_handoff_runtime.active_writes as active_writes
+import handoff_runtime.active_writes as active_writes
 
 # Source-grounded expected vocabularies (see plan "Source-Grounded Status
 # Vocabulary"). Every member has a verified source site in active_writes.py:
@@ -91,7 +91,7 @@ def test_terminal_transaction_statuses_align_with_partition() -> None:
     one constant (a load-time coupling, not a layering inversion — that
     import direction follows the documented layering; see ARCHITECTURE.md
     "Active-write status-domain partition")."""
-    import turbo_mode_handoff_runtime.session_state as session_state
+    import handoff_runtime.session_state as session_state
 
     terminal = set(session_state.TERMINAL_TRANSACTION_STATUSES)
     op = set(get_args(active_writes.ActiveWriteOperationStateStatus))

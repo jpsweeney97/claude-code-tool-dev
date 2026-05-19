@@ -5,21 +5,21 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from turbo_mode_handoff_runtime.search import main as search_main
-from turbo_mode_handoff_runtime.search import parse_handoff, search_handoffs
+from handoff_runtime.search import main as search_main
+from handoff_runtime.search import parse_handoff, search_handoffs
 
 
 @pytest.fixture(autouse=True)
 def default_missing_legacy_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(
-        "turbo_mode_handoff_runtime.search.get_legacy_handoffs_dir",
+        "handoff_runtime.search.get_legacy_handoffs_dir",
         lambda: tmp_path / "missing-legacy",
     )
 
 
 def test_search_runtime_exposes_parse_handoff_for_internal_use() -> None:
     """Verify parse_handoff remains importable from the runtime search module."""
-    from turbo_mode_handoff_runtime.search import parse_handoff  # noqa: F811
+    from handoff_runtime.search import parse_handoff  # noqa: F811
 
     assert callable(parse_handoff)
 
@@ -361,10 +361,10 @@ class TestSearchCLI:
         )
 
         with patch(
-            "turbo_mode_handoff_runtime.search.get_project_name", return_value=("test", "git")
+            "handoff_runtime.search.get_project_name", return_value=("test", "git")
         ):
             with patch(
-                "turbo_mode_handoff_runtime.search.get_legacy_handoffs_dir", return_value=legacy_dir
+                "handoff_runtime.search.get_legacy_handoffs_dir", return_value=legacy_dir
             ):
                 output = search_main(["split roots", "--handoffs-dir", str(primary_dir)])
 
@@ -427,7 +427,7 @@ class TestSearchCLI:
         primary_dir.mkdir(parents=True)
 
         with patch(
-            "turbo_mode_handoff_runtime.search.get_legacy_handoffs_dir", side_effect=OSError("boom")
+            "handoff_runtime.search.get_legacy_handoffs_dir", side_effect=OSError("boom")
         ):
             output = search_main(["anything", "--handoffs-dir", str(primary_dir)])
 
@@ -496,7 +496,7 @@ class TestSearchCLI:
         handoffs_dir.mkdir()
 
         with patch(
-            "turbo_mode_handoff_runtime.search.get_project_name", return_value=("test", "git")
+            "handoff_runtime.search.get_project_name", return_value=("test", "git")
         ):
             output = search_main(["anything", "--handoffs-dir", str(handoffs_dir)])
 
@@ -509,7 +509,7 @@ class TestSearchCLI:
         handoffs_dir.mkdir()
 
         with patch(
-            "turbo_mode_handoff_runtime.search.get_project_name", return_value=("test", "cwd")
+            "handoff_runtime.search.get_project_name", return_value=("test", "cwd")
         ):
             output = search_main(["anything", "--handoffs-dir", str(handoffs_dir)])
 

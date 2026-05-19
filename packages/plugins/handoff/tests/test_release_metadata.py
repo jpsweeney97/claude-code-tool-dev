@@ -30,8 +30,8 @@ STATE_WRITER_DOCS = [
     PLUGIN_ROOT / "skills" / "load" / "SKILL.md",
 ]
 POLICY_CODE_COMMENTS = [
-    PLUGIN_ROOT / "turbo_mode_handoff_runtime" / "cleanup.py",
-    PLUGIN_ROOT / "turbo_mode_handoff_runtime" / "project_paths.py",
+    PLUGIN_ROOT / "handoff_runtime" / "cleanup.py",
+    PLUGIN_ROOT / "handoff_runtime" / "project_paths.py",
 ]
 EXPECTED_VERSION = "1.7.0"
 

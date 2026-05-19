@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from turbo_mode_handoff_runtime.storage_primitives import write_text_atomic_exclusive
+from handoff_runtime.storage_primitives import write_text_atomic_exclusive
 
 
 def _slug(title: str) -> str:

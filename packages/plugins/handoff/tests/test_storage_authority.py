@@ -6,14 +6,14 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from turbo_mode_handoff_runtime.chain_state import (
+from handoff_runtime.chain_state import (
     ChainStateDiagnosticError,
     abandon_primary_chain_state,
     chain_state_recovery_inventory,
     continue_chain_state,
     mark_chain_state_consumed,
 )
-from turbo_mode_handoff_runtime.storage_authority import (
+from handoff_runtime.storage_authority import (
     SelectionEligibility,
     StorageLocation,
     _skip_reason,
@@ -86,7 +86,7 @@ def _write_legacy_active_opt_in(
 
 
 def test_storage_authority_does_not_export_active_write_facade() -> None:
-    import turbo_mode_handoff_runtime.storage_authority as storage_authority
+    import handoff_runtime.storage_authority as storage_authority
 
     removed_exports = {
         "begin_active_write",
@@ -101,14 +101,14 @@ def test_storage_authority_does_not_export_active_write_facade() -> None:
 
 
 def test_storage_authority_does_not_export_storage_layout_facade() -> None:
-    import turbo_mode_handoff_runtime.storage_authority as storage_authority
+    import handoff_runtime.storage_authority as storage_authority
 
     assert not hasattr(storage_authority, "StorageLayout")
     assert not hasattr(storage_authority, "get_storage_layout")
 
 
 def test_storage_authority_does_not_export_chain_state_facade() -> None:
-    import turbo_mode_handoff_runtime.storage_authority as storage_authority
+    import handoff_runtime.storage_authority as storage_authority
 
     moved_exports = {
         "CHAIN_STATE_TTL_SECONDS",

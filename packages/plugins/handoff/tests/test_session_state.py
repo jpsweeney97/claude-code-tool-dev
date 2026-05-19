@@ -9,8 +9,8 @@ import sys
 from pathlib import Path
 
 import pytest
-import turbo_mode_handoff_runtime.session_state as session_state
-from turbo_mode_handoff_runtime.session_state import (
+import handoff_runtime.session_state as session_state
+from handoff_runtime.session_state import (
     AmbiguousResumeStateError,
     allocate_archive_path,
     clear_resume_state,
@@ -84,9 +84,9 @@ def test_load_resume_state_ignores_consumed_legacy_marker(tmp_path: Path) -> Non
 
 
 def test_legacy_consumed_prefix_is_storage_primitives_owned() -> None:
-    import turbo_mode_handoff_runtime.chain_state as chain_state
-    from turbo_mode_handoff_runtime import storage_primitives
-    from turbo_mode_handoff_runtime.session_state import LEGACY_CONSUMED_PREFIX as state_prefix
+    import handoff_runtime.chain_state as chain_state
+    from handoff_runtime import storage_primitives
+    from handoff_runtime.session_state import LEGACY_CONSUMED_PREFIX as state_prefix
 
     assert storage_primitives.LEGACY_CONSUMED_PREFIX == "MIGRATED:"
     assert state_prefix == storage_primitives.LEGACY_CONSUMED_PREFIX

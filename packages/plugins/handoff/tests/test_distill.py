@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
-from turbo_mode_handoff_runtime.distill import (
+from handoff_runtime.distill import (
     check_exact_dup_content,
     check_exact_dup_source,
     classify_durability,
@@ -16,7 +16,7 @@ from turbo_mode_handoff_runtime.distill import (
     make_distill_meta,
     parse_subsections,
 )
-from turbo_mode_handoff_runtime.distill import (
+from handoff_runtime.distill import (
     main as distill_main,
 )
 
@@ -148,7 +148,7 @@ class TestClassifyDurability:
         """Content with 'pattern' or 'convention' can upgrade unknown heading."""
         hint = classify_durability(
             "Something else",
-            "This is a recurring pattern across all turbo_mode_handoff_runtime.",
+            "This is a recurring pattern across all handoff_runtime.",
         )
         assert hint == "likely_durable"
 
@@ -232,23 +232,23 @@ class TestDocumentIdentity:
     """Tests for _document_identity — session_id enforcement."""
 
     def test_returns_session_id(self) -> None:
-        from turbo_mode_handoff_runtime.distill import _document_identity
+        from handoff_runtime.distill import _document_identity
 
         assert _document_identity({"session_id": "abc-123"}) == "abc-123"
 
     def test_strips_whitespace(self) -> None:
-        from turbo_mode_handoff_runtime.distill import _document_identity
+        from handoff_runtime.distill import _document_identity
 
         assert _document_identity({"session_id": "  abc-123  "}) == "abc-123"
 
     def test_rejects_missing_session_id(self) -> None:
-        from turbo_mode_handoff_runtime.distill import _document_identity
+        from handoff_runtime.distill import _document_identity
 
         with pytest.raises(ValueError, match="No session_id"):
             _document_identity({})
 
     def test_rejects_blank_session_id(self) -> None:
-        from turbo_mode_handoff_runtime.distill import _document_identity
+        from handoff_runtime.distill import _document_identity
 
         with pytest.raises(ValueError, match="No session_id"):
             _document_identity({"session_id": "  "})
@@ -442,7 +442,7 @@ class TestExtractCandidates:
             "### Plugin hook naming pattern\n\n"
             "Hooks use `mcp__plugin_<name>__<tool>` format.\n\n"
             "### Current plugin architecture\n\n"
-            "The plugin has 3 turbo_mode_handoff_runtime.\n"
+            "The plugin has 3 handoff_runtime.\n"
         )
         result = extract_candidates(str(handoff), "")
         assert len(result["candidates"]) == 2
@@ -458,7 +458,7 @@ class TestExtractCandidates:
             "### Chose Python\n\n"
             "**Choice:** Python.\n\n"
         )
-        from turbo_mode_handoff_runtime.distill import compute_content_hash, compute_source_uid
+        from handoff_runtime.distill import compute_content_hash, compute_source_uid
 
         uid = compute_source_uid("test-session-123", "Decisions", "Chose Python", heading_ix=0)
         chash = compute_content_hash("**Choice:** Python.")
@@ -716,7 +716,7 @@ class TestEdgeCases:
         assert result["candidates"][0]["subsection_heading"] == ""
 
     def test_malformed_distill_meta_does_not_crash(self) -> None:
-        from turbo_mode_handoff_runtime.distill import _extract_distill_metas
+        from handoff_runtime.distill import _extract_distill_metas
 
         learnings = (
             "<!-- distill-meta {broken json here -->\n"
@@ -728,7 +728,7 @@ class TestEdgeCases:
         assert metas[0]["source_uid"] == "sha256:good"
 
     def test_malformed_distill_meta_returns_warning(self) -> None:
-        from turbo_mode_handoff_runtime.distill import _extract_distill_metas_detailed
+        from handoff_runtime.distill import _extract_distill_metas_detailed
 
         # Regex requires {…} — use valid braces with invalid JSON inside
         metas, warnings = _extract_distill_metas_detailed("<!-- distill-meta {broken json} -->")
@@ -737,7 +737,7 @@ class TestEdgeCases:
         assert "malformed distill-meta skipped" in warnings[0]
 
     def test_detailed_returns_valid_metas_alongside_warnings(self) -> None:
-        from turbo_mode_handoff_runtime.distill import _extract_distill_metas_detailed
+        from handoff_runtime.distill import _extract_distill_metas_detailed
 
         content = (
             '<!-- distill-meta {"source_uid": "sha256:abc"} -->\n'
@@ -773,7 +773,7 @@ class TestNoAutodropInvariant:
             "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: abc-123\n---\n\n"
             "## Decisions\n\n### Chose Python\n\n**Choice:** Python.\n\n"
         )
-        from turbo_mode_handoff_runtime.distill import compute_content_hash, compute_source_uid
+        from handoff_runtime.distill import compute_content_hash, compute_source_uid
 
         uid = compute_source_uid("abc-123", "Decisions", "Chose Python", heading_ix=0)
         chash = compute_content_hash("**Choice:** Python.")
@@ -791,7 +791,7 @@ class TestNoAutodropInvariant:
             "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: test-sess\n---\n\n"
             "## Decisions\n\n### Chose Python\n\n**Choice:** Python.\n\n"
         )
-        from turbo_mode_handoff_runtime.distill import compute_content_hash
+        from handoff_runtime.distill import compute_content_hash
 
         h = compute_content_hash("**Choice:** Python.")
         learnings = f'<!-- distill-meta {{"v": 1, "content_sha256": "{h}"}} -->\n'
@@ -809,7 +809,7 @@ class TestUpdatedSource:
             "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: update-test\n---\n\n"
             "## Decisions\n\n### Chose Python\n\n**Choice:** Python for speed.\n\n"
         )
-        from turbo_mode_handoff_runtime.distill import compute_source_uid
+        from handoff_runtime.distill import compute_source_uid
 
         uid = compute_source_uid("update-test", "Decisions", "Chose Python", heading_ix=0)
         learnings = (
@@ -1025,7 +1025,7 @@ class TestMakeAnchorEdgeCases:
     """Edge cases for _make_anchor."""
 
     def test_empty_heading_produces_valid_anchor(self) -> None:
-        from turbo_mode_handoff_runtime.distill import _make_anchor
+        from handoff_runtime.distill import _make_anchor
 
         anchor = _make_anchor("handoff.md", "Decisions", "")
         assert anchor == "handoff.md#decisions/"

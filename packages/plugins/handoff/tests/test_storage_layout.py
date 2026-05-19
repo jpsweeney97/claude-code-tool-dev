@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from turbo_mode_handoff_runtime.storage_layout import get_storage_layout
+from handoff_runtime.storage_layout import get_storage_layout
 
 
 def test_storage_layout_uses_codex_handoffs_as_primary(tmp_path: Path) -> None:
@@ -19,7 +19,7 @@ def test_storage_layout_uses_codex_handoffs_as_primary(tmp_path: Path) -> None:
 
 
 def test_primary_is_claude_handoffs_and_legacy_is_docs_handoffs(tmp_path):
-    from turbo_mode_handoff_runtime.storage_layout import get_storage_layout
+    from handoff_runtime.storage_layout import get_storage_layout
 
     layout = get_storage_layout(tmp_path)
     assert layout.primary_active_dir == tmp_path.resolve() / ".claude" / "handoffs"

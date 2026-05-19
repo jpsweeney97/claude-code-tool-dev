@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from turbo_mode_handoff_runtime.storage_authority_inventory import build_inventory, check_inventory
+from handoff_runtime.storage_authority_inventory import build_inventory, check_inventory
 
 PLUGIN_ROOT = Path(__file__).parent.parent
 REPO_ROOT = PLUGIN_ROOT.parents[2]
@@ -21,7 +21,7 @@ def test_storage_authority_inventory_covers_current_surfaces() -> None:
     assert "README.md" in row_paths
     assert "references/handoff-contract.md" in row_paths
     assert "references/format-reference.md" in row_paths
-    assert "turbo_mode_handoff_runtime/quality_check.py" in row_paths
+    assert "handoff_runtime/quality_check.py" in row_paths
     assert "plugins/turbo-mode/tools/refresh/smoke.py" in row_paths
 
 

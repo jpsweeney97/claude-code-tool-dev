@@ -165,7 +165,7 @@ If work was ongoing when the session ended, answer ALL of these:
 > - **Open question:** [what was uncertain]
 > - **Next action:** [immediate next step]
 
-**Depth target:** 15-25 lines in the final handoff. An in-progress entry without the specific approach being used, current state with evidence, and immediate next action is incomplete. Future-Codex should be able to pick up exactly where you left off without any investigation.
+**Depth target:** 15-25 lines in the final handoff. An in-progress entry without the specific approach being used, current state with evidence, and immediate next action is incomplete. The next agent should be able to pick up exactly where you left off without any investigation.
 
 **If work reached a clean stopping point, state:** "Clean stopping point — [what was completed], no work in flight."
 
@@ -303,7 +303,7 @@ Why are we doing this task? Not what we're building — why it matters.
 > - **Context:** Compliance deadline is March 15. Security team must sign off before launch.
 > - **Trigger:** User said: "We got the external API requirement confirmed yesterday, need to move on this now"
 
-**Depth target:** 10-15 lines in the final handoff. A why entry without the bigger picture, relevant context, or the trigger that made this work a priority is incomplete. Future-Codex needs to understand not just what to build but why it matters to calibrate effort and trade-offs.
+**Depth target:** 10-15 lines in the final handoff. A why entry without the bigger picture, relevant context, or the trigger that made this work a priority is incomplete. The next agent needs to understand not just what to build but why it matters to calibrate effort and trade-offs.
 
 **If the why is self-evident from the task, state:** "Why is implicit — [brief statement, e.g., 'bug fix for production issue']."
 
@@ -380,7 +380,7 @@ If you were debugging or investigating an issue, capture the investigation state
 > - **Narrowed to:** Session initialization in `auth/session.py`
 > - **Next check:** Add logging around Redis connection in CI, check if `REDIS_URL` env var is set
 
-**Depth target:** 15-25 lines in the final handoff. A debugging state without the current hypothesis, what's been ruled out with evidence, and the specific next investigation step is incomplete. Future-Codex should not repeat any investigation already performed.
+**Depth target:** 15-25 lines in the final handoff. A debugging state without the current hypothesis, what's been ruled out with evidence, and the specific next investigation step is incomplete. The next agent should not repeat any investigation already performed.
 
 **If no debugging occurred, skip this section entirely.**
 
@@ -510,7 +510,7 @@ Before writing the final handoff, verify against these checks. Every "no" indica
 
 4. **Resumption test:** Could future Codex start working without asking "why did we..." or "what about..."? If any likely question isn't answered, add the answer.
 
-5. **Codebase preservation:** Is the architecture understanding rendered in full (tables, relationships, key locations), not just referenced? Future-Codex should not need to re-read files explored this session.
+5. **Codebase preservation:** Is the architecture understanding rendered in full (tables, relationships, key locations), not just referenced? The next agent should not need to re-read files explored this session.
 
 6. **Conversation preservation:** Are user preferences captured with verbatim quotes? Paraphrased preferences lose the nuance that makes them actionable.
 

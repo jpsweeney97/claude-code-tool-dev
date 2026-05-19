@@ -14,7 +14,7 @@ def _run_main(input_json: str, tickets_dir: Path) -> tuple[int, dict]:
     """Run main() with given stdin JSON, return (exit_code, parsed_output)."""
     import io
 
-    from turbo_mode_handoff_runtime.defer import main
+    from handoff_runtime.defer import main
 
     original_stdin, original_stdout = sys.stdin, sys.stdout
     sys.stdin = io.StringIO(input_json)
@@ -32,7 +32,7 @@ class TestEmitEnvelope:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Same-second collisions are resolved without overwriting data."""
-        import turbo_mode_handoff_runtime.defer as defer_module
+        import handoff_runtime.defer as defer_module
 
         fixed_now = datetime(2026, 3, 10, 15, 4, 5, tzinfo=UTC)
 
@@ -82,7 +82,7 @@ class TestEmitEnvelope:
 
     def test_non_string_summary_raises_type_error(self, tmp_path: Path) -> None:
         """Non-string summary raises TypeError (caught by main's catch list)."""
-        from turbo_mode_handoff_runtime.defer import emit_envelope
+        from handoff_runtime.defer import emit_envelope
 
         candidate = {
             "summary": 42,
@@ -93,7 +93,7 @@ class TestEmitEnvelope:
 
     def test_empty_summary_raises_value_error(self, tmp_path: Path) -> None:
         """Whitespace-only summary raises ValueError (caught by main's catch list)."""
-        from turbo_mode_handoff_runtime.defer import emit_envelope
+        from handoff_runtime.defer import emit_envelope
 
         candidate = {
             "summary": "   ",
@@ -104,7 +104,7 @@ class TestEmitEnvelope:
 
     def test_minimal_candidate(self, tmp_path: Path) -> None:
         """Minimal candidate produces valid envelope JSON."""
-        from turbo_mode_handoff_runtime.defer import emit_envelope
+        from handoff_runtime.defer import emit_envelope
 
         candidate = {
             "summary": "Fix auth timeout",
@@ -136,7 +136,7 @@ class TestEmitEnvelope:
 
     def test_full_candidate_with_effort_and_files(self, tmp_path: Path) -> None:
         """All candidate fields mapped correctly including effort."""
-        from turbo_mode_handoff_runtime.defer import emit_envelope
+        from handoff_runtime.defer import emit_envelope
 
         candidate = {
             "summary": "Refactor parser",
@@ -163,7 +163,7 @@ class TestEmitEnvelope:
 
     def test_context_composition(self, tmp_path: Path) -> None:
         """Branch and source_text composed into context field."""
-        from turbo_mode_handoff_runtime.defer import emit_envelope
+        from handoff_runtime.defer import emit_envelope
 
         candidate = {
             "summary": "Test context",
@@ -188,7 +188,7 @@ class TestEmitEnvelope:
 
     def test_no_status_field(self, tmp_path: Path) -> None:
         """Envelope never contains status field."""
-        from turbo_mode_handoff_runtime.defer import emit_envelope
+        from handoff_runtime.defer import emit_envelope
 
         candidate = {
             "summary": "No status",
@@ -209,7 +209,7 @@ class TestEmitEnvelope:
 
     def test_emitted_at_is_iso8601(self, tmp_path: Path) -> None:
         """emitted_at is a valid ISO 8601 timestamp."""
-        from turbo_mode_handoff_runtime.defer import emit_envelope
+        from handoff_runtime.defer import emit_envelope
 
         candidate = {
             "summary": "Timestamp test",
@@ -232,7 +232,7 @@ class TestEmitEnvelope:
 
     def test_producer_defaults_applied(self, tmp_path: Path) -> None:
         """Absent priority/effort get SKILL.md-documented defaults."""
-        from turbo_mode_handoff_runtime.defer import emit_envelope
+        from handoff_runtime.defer import emit_envelope
 
         candidate = {"summary": "Test defaults", "problem": "No priority or effort."}
         path = emit_envelope(candidate, tmp_path / ".envelopes")
@@ -242,7 +242,7 @@ class TestEmitEnvelope:
 
     def test_explicit_values_override_defaults(self, tmp_path: Path) -> None:
         """Explicit priority/effort override defaults."""
-        from turbo_mode_handoff_runtime.defer import emit_envelope
+        from handoff_runtime.defer import emit_envelope
 
         candidate = {
             "summary": "Test override",
@@ -374,7 +374,7 @@ class TestMainEmitsEnvelopes:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """FileExistsError from collision exhaustion is candidate-local."""
-        import turbo_mode_handoff_runtime.defer as defer_module
+        import handoff_runtime.defer as defer_module
 
         fixed_now = datetime(2026, 3, 10, 15, 0, 0, tzinfo=UTC)
 
@@ -439,7 +439,7 @@ def test_write_envelope_payload_uses_atomic_exclusive_writer(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import turbo_mode_handoff_runtime.defer as defer_module
+    import handoff_runtime.defer as defer_module
 
     calls: list[tuple[Path, str]] = []
 

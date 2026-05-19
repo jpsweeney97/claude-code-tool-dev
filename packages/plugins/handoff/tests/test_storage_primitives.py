@@ -7,8 +7,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-import turbo_mode_handoff_runtime.storage_primitives as storage_primitives
-from turbo_mode_handoff_runtime.storage_primitives import (
+import handoff_runtime.storage_primitives as storage_primitives
+from handoff_runtime.storage_primitives import (
     LockPolicy,
     acquire_lock,
     parse_created_at,
@@ -591,8 +591,8 @@ def test_release_lock_preserves_locks_dir_with_sibling(tmp_path: Path) -> None:
 
 
 def test_registry_key_is_storage_primitives_owned() -> None:
-    import turbo_mode_handoff_runtime.load_transactions as load_transactions
-    import turbo_mode_handoff_runtime.storage_authority as storage_authority
+    import handoff_runtime.load_transactions as load_transactions
+    import handoff_runtime.storage_authority as storage_authority
 
     assert callable(storage_primitives.registry_key)
     # Both consumers must resolve the shared primitive, not a local copy — a

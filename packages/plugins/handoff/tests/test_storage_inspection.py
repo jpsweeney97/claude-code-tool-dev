@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from turbo_mode_handoff_runtime.storage_inspection import fs_status, git_visibility, is_relative_to
+from handoff_runtime.storage_inspection import fs_status, git_visibility, is_relative_to
 
 
 def test_is_relative_to_returns_true_for_children_and_false_for_siblings(tmp_path: Path) -> None:

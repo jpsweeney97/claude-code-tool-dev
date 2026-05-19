@@ -17,9 +17,9 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from turbo_mode_handoff_runtime import storage_primitives
-from turbo_mode_handoff_runtime.project_paths import get_state_dir
-from turbo_mode_handoff_runtime.storage_primitives import LEGACY_CONSUMED_PREFIX
+from handoff_runtime import storage_primitives
+from handoff_runtime.project_paths import get_state_dir
+from handoff_runtime.storage_primitives import LEGACY_CONSUMED_PREFIX
 
 
 class AmbiguousResumeStateError(RuntimeError):
@@ -545,7 +545,7 @@ def _dispatch_resume_state_command(args: argparse.Namespace) -> int | None:
 
 def _dispatch_chain_state_query_command(args: argparse.Namespace) -> int | None:
     if args.command in {"chain-state-recovery-inventory", "list-chain-state"}:
-        from turbo_mode_handoff_runtime.chain_state import chain_state_recovery_inventory
+        from handoff_runtime.chain_state import chain_state_recovery_inventory
 
         payload = chain_state_recovery_inventory(
             Path(args.project_root),
@@ -556,7 +556,7 @@ def _dispatch_chain_state_query_command(args: argparse.Namespace) -> int | None:
         return 0
 
     if args.command == "read-chain-state":
-        from turbo_mode_handoff_runtime.chain_state import (
+        from handoff_runtime.chain_state import (
             ChainStateDiagnosticError,
             read_chain_state,
         )
@@ -578,7 +578,7 @@ def _dispatch_chain_state_query_command(args: argparse.Namespace) -> int | None:
 
 def _dispatch_chain_state_mutation_command(args: argparse.Namespace) -> int | None:
     if args.command == "mark-chain-state-consumed":
-        from turbo_mode_handoff_runtime.chain_state import (
+        from handoff_runtime.chain_state import (
             ChainStateDiagnosticError,
             mark_chain_state_consumed,
         )
@@ -598,7 +598,7 @@ def _dispatch_chain_state_mutation_command(args: argparse.Namespace) -> int | No
         return _emit(payload, args.field)
 
     if args.command == "continue-chain-state":
-        from turbo_mode_handoff_runtime.chain_state import (
+        from handoff_runtime.chain_state import (
             ChainStateDiagnosticError,
             continue_chain_state,
         )
@@ -617,7 +617,7 @@ def _dispatch_chain_state_mutation_command(args: argparse.Namespace) -> int | No
         return _emit(payload, args.field)
 
     if args.command == "abandon-primary-chain-state":
-        from turbo_mode_handoff_runtime.chain_state import (
+        from handoff_runtime.chain_state import (
             ChainStateDiagnosticError,
             abandon_primary_chain_state,
         )
@@ -640,7 +640,7 @@ def _dispatch_chain_state_mutation_command(args: argparse.Namespace) -> int | No
 
 def _dispatch_active_write_setup_command(args: argparse.Namespace) -> int | None:
     if args.command == "allocate-active-path":
-        from turbo_mode_handoff_runtime.active_writes import ActiveWriteError, allocate_active_path
+        from handoff_runtime.active_writes import ActiveWriteError, allocate_active_path
 
         try:
             active_path = allocate_active_path(
@@ -655,7 +655,7 @@ def _dispatch_active_write_setup_command(args: argparse.Namespace) -> int | None
         return _emit({"active_path": str(active_path)}, args.field)
 
     if args.command == "begin-active-write":
-        from turbo_mode_handoff_runtime.active_writes import ActiveWriteError, begin_active_write
+        from handoff_runtime.active_writes import ActiveWriteError, begin_active_write
 
         try:
             reservation = begin_active_write(
@@ -671,7 +671,7 @@ def _dispatch_active_write_setup_command(args: argparse.Namespace) -> int | None
             return 1
         return _emit(reservation.to_payload(), args.field)
     if args.command == "write-active-handoff":
-        from turbo_mode_handoff_runtime.active_writes import ActiveWriteError, write_active_handoff
+        from handoff_runtime.active_writes import ActiveWriteError, write_active_handoff
 
         try:
             payload = write_active_handoff(
@@ -689,7 +689,7 @@ def _dispatch_active_write_setup_command(args: argparse.Namespace) -> int | None
 
 def _dispatch_active_write_management_command(args: argparse.Namespace) -> int | None:
     if args.command == "list-active-writes":
-        from turbo_mode_handoff_runtime.active_writes import list_active_writes
+        from handoff_runtime.active_writes import list_active_writes
 
         records = list_active_writes(
             Path(args.project_root),
@@ -700,7 +700,7 @@ def _dispatch_active_write_management_command(args: argparse.Namespace) -> int |
         print()
         return 0
     if args.command == "abandon-active-write":
-        from turbo_mode_handoff_runtime.active_writes import ActiveWriteError, abandon_active_write
+        from handoff_runtime.active_writes import ActiveWriteError, abandon_active_write
 
         try:
             payload = abandon_active_write(
@@ -713,7 +713,7 @@ def _dispatch_active_write_management_command(args: argparse.Namespace) -> int |
             return 1
         return _emit(payload, args.field)
     if args.command == "active-write-transaction-recover":
-        from turbo_mode_handoff_runtime.active_writes import (
+        from handoff_runtime.active_writes import (
             ActiveWriteError,
             recover_active_write_transaction,
         )
@@ -732,7 +732,7 @@ def _dispatch_active_write_management_command(args: argparse.Namespace) -> int |
 
 def _dispatch_active_writer_flow_command(args: argparse.Namespace) -> int | None:
     if args.command == "active-writer-flow":
-        from turbo_mode_handoff_runtime.active_writes import (
+        from handoff_runtime.active_writes import (
             ActiveWriteError,
             begin_active_write,
             list_active_writes,
