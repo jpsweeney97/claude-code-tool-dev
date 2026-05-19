@@ -870,12 +870,7 @@ Expected: `no .codex tree: OK`, `classification OK`.
 
 - [ ] **Step 3: New-state regeneration (the design proof — pre-existing state is NOT migrated, by design)**
 
-Rehearse a `/save`-equivalent on the disposable copy (or a tmp project root pointing at a copied corpus) driving the active-writer flow, then assert a tokenized state file appears at the new path:
-```bash
-ls /Users/jp/Projects/active/claude-code-tool-dev/.claude/handoffs/.session-state/ 2>/dev/null || true
-# After a rehearsal save, expect a handoff-<project>-<resume_token>.json here.
-```
-Expected: a `handoff-<project>-<resume_token>.json` regenerates at `.claude/handoffs/.session-state/` (proves the runtime regenerates state at the new path; the cutover-timing miss is the documented accepted risk).
+**Mechanism correction (execution-surfaced, Task 7).** The `handoff-<project>-<resume_token>.json` resume-state file is a **load/chain-time artifact**, NOT a `save`-skill output: `write_resume_state` (`session_state.py:105`, names `handoff-{project}-{token}.json`) is invoked only by `migrate_legacy_resume_state` and the `write-state` CLI subcommand; no skill calls `write-state` from the `save` flow. The `save` flow (begin→stage→write-active-handoff→trash) writes the durable handoff + active-write/transaction state but NOT the resume-state JSON. The binding property is "**the runtime regenerates resume state at the new `.claude` path**" — prove it by exercising the runtime's resume-state writer (the `write-state` subcommand, the real resume mechanism) against an isolated scratch `.claude` state dir, asserting `handoff-<project>-<resume_token>.json` appears under `.claude/handoffs/.session-state/` with no `docs/` reference. (Pre-existing resume state is NOT migrated, by design — the cutover-timing miss is the documented accepted risk; new state regenerates at the new path on the next resume.)
 
 - [ ] **Step 4: Ported skill round-trip smoke (list / search / triage / load / save / summary)**
 
