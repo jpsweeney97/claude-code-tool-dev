@@ -7,27 +7,24 @@ Session continuity plugin for Claude Code. Saves session state as structured mar
 Bundled in the `turbo-mode` marketplace:
 
 ```bash
-claude plugin marketplace update turbo-mode
 claude plugin install handoff@turbo-mode
 ```
 
-Or install directly from the development repo:
+Restart Claude Code after installing.
 
-```bash
-claude plugin install ./packages/plugins/handoff
-```
+For local development, the plugin source lives at `packages/plugins/handoff`.
 
-**Requirements:** Python 3.11+, PyYAML 6.0+, `trash` command (for cleanup).
+**Requirements:** Python 3.11+, PyYAML 6.0+. The optional `trash` command is used for recoverable cleanup when available; cleanup falls back to `unlink` with warnings if `trash` is unavailable or fails.
 
 ## What It Does
 
 | Capability | Skills | Description |
 |------------|--------|-------------|
-| **Session save/resume** | `/save`, `/load`, `/quicksave` | Create structured handoff documents capturing session state. Resume later with full context. Quicksave for fast checkpoints under context pressure. |
+| **Session save/resume** | `/save`, `/load`, `/quicksave`, `/summary` | Create structured handoff documents capturing session state. Resume later with full context. Quicksave for fast checkpoints and summary for medium-depth session capture. |
 | **Deferred work tracking** | `/defer`, `/triage` | Extract work items from conversation into structured tickets. Audit ticket health, detect orphaned items, organize by priority. |
 | **Knowledge extraction** | `/distill` | Synthesize durable insights from handoff documents into a project learnings file with deduplication. |
 | **Handoff search** | `/search` | Query past handoffs by keyword or regex across active and archived files. |
-| **Automatic maintenance** | *(hooks)* | Prune state files (24h) at session start. Validate handoff format on write. |
+| **State maintenance** | `/load`, `/save`, `/quicksave`, `/summary` | Manage chain state files during explicit handoff workflows. |
 
 ## Components
 
@@ -35,9 +32,10 @@ claude plugin install ./packages/plugins/handoff
 
 | Skill | Trigger Phrases | Purpose |
 |-------|----------------|---------|
-| **save** | `/save`, "wrap this up", "new session", "handoff" | Full session report (13 sections, 400+ lines). Writes to `<project_root>/docs/handoffs/`. |
+| **save** | `/save`, "wrap this up", "new session", "handoff" | Full session report (13 sections, 400+ lines). Writes to `<project_root>/.claude/handoffs/`. |
 | **load** | `/load`, "continue from where we left off" | Resume from a previous handoff. Archives the source file, writes a state file for chain linking. |
 | **quicksave** | `/quicksave`, "checkpoint", "save state" | Lightweight checkpoint (22-55 lines, 5 sections). Warns on 3rd consecutive checkpoint. |
+| **summary** | `/summary`, "summary", "summarize" | Medium-depth session summary with project arc context. Writes to `<project_root>/.claude/handoffs/`. |
 | **defer** | `/defer`, "track these for later", "create tickets" | Extract deferred work items from conversation into ticket files in `docs/tickets/`. |
 | **triage** | `/triage`, "what's in the backlog", "any open tickets" | Audit open tickets by priority. Detect orphaned handoff items not tracked by tickets. |
 | **distill** | `/distill`, "extract knowledge", "graduate knowledge" | Extract durable insights from handoffs into `docs/learnings/learnings.md` with SHA256 deduplication. |
@@ -45,27 +43,33 @@ claude plugin install ./packages/plugins/handoff
 
 ### Hooks
 
-| Event | Script | Behavior |
-|-------|--------|----------|
-| **SessionStart** | `cleanup.py` | Silently prunes state files >24h. Always exits 0. |
-| **PostToolUse** (Write) | `quality_check.py` | Validates handoff/checkpoint frontmatter, required sections, and line count. Non-blocking — outputs feedback via `additionalContext`. |
+Handoff does not ship plugin-bundled command hooks. The dormant hook-compatible scripts are retained in source, but the installed plugin manifest exposes no bundled hook command contract. Plugin-bundled command hooks remain deferred until Claude Code provides a documented portable launcher contract or a separate generated-config architecture is approved.
 
-### Scripts
+### Runtime Package and CLI Facades
 
-Core logic lives in `scripts/`. Skills handle UX and judgment; scripts handle deterministic work.
+Core logic lives in `handoff_runtime/`. The `scripts/` directory now contains only thin executable CLI facades for skill-facing command paths. `scripts.*` is not a supported library import API.
 
-| Script | Purpose | Called By |
-|--------|---------|-----------|
-| `cleanup.py` | Archive pruning and state file TTL | SessionStart hook |
-| `quality_check.py` | Handoff/checkpoint format validation | PostToolUse hook |
+| Script Facade | Purpose | Called By |
+|---------------|---------|-----------|
 | `defer.py` | Ticket ID allocation, rendering, writing | `/defer` skill |
 | `distill.py` | Candidate extraction, dedup, metadata | `/distill` skill |
-| `triage.py` | Ticket scanning, orphan detection, matching | `/triage` skill |
+| `list_handoffs.py` | Enumerate active handoff candidates | `/load` skill |
+| `load_transactions.py` | Load transaction lifecycle management | `/load` skill |
+| `plugin_siblings.py` | Resolve sibling plugin roots | `/defer` skill |
 | `search.py` | Section-aware handoff search | `/search` skill |
-| `handoff_parsing.py` | Frontmatter and section parsing | Shared by distill, triage, search |
-| `ticket_parsing.py` | Ticket YAML parsing and validation | Shared by defer, triage |
-| `project_paths.py` | Project name and directory resolution | Shared by all scripts |
-| `provenance.py` | Source tracking and dedup metadata | Shared by defer, distill, triage |
+| `session_state.py` | Chain and active-writer state operations | `/save`, `/quicksave`, `/summary` skills |
+| `triage.py` | Ticket scanning, orphan detection, matching | `/triage` skill |
+
+Runtime-only helpers such as `handoff_runtime/quality_check.py`, `handoff_runtime/cleanup.py`, and `handoff_runtime/storage_authority_inventory.py` remain source utilities and are not wired into Handoff `1.7.0` skill entrypoints or hooks.
+
+Runtime module ownership for storage and chain behavior (layering order, lowest first):
+
+- `storage_primitives.py`: filesystem primitives, locking protocol, and atomic write helpers. Stdlib-only base layer with no internal imports — the one-way import foundation for all other storage modules.
+- `storage_layout.py`: storage paths.
+- `storage_inspection.py`: filesystem and git inspection helpers.
+- `storage_authority.py`: handoff discovery and selection authority.
+- `chain_state.py`: chain-state inventory, diagnostics, read, and lifecycle.
+- `scripts/`: executable CLI facades only.
 
 ## Configuration
 
@@ -73,13 +77,14 @@ Core logic lives in `scripts/`. Skills handle UX and judgment; scripts handle de
 
 | Location | Contents | Retention |
 |----------|----------|-----------|
-| `<project_root>/docs/handoffs/` | Active handoffs and checkpoints | No auto-prune (gitignored, local-only) |
-| `<project_root>/docs/handoffs/archive/` | Archived handoffs (moved by `/load`) | No auto-prune (gitignored, local-only) |
-| `<project_root>/docs/handoffs/.session-state/handoff-<UUID>` | Chain protocol state files | 24 hours |
+| `<project_root>/.claude/handoffs/` | Active handoffs and checkpoints | No auto-prune |
+| `<project_root>/.claude/handoffs/archive/` | Archived handoffs (moved by `/load`) | No auto-prune |
+| `<project_root>/.claude/handoffs/.session-state/handoff-<project>-<resume_token>.json` | Chain protocol state files | 24 hours |
 | `docs/tickets/` | Deferred work tickets | Permanent |
 | `docs/learnings/learnings.md` | Distilled knowledge entries | Permanent |
 
-Handoff files are gitignored and local-only — `/save`, `/load`, and `/quicksave` write or move files on the filesystem without committing. See `references/handoff-contract.md` for the Git Tracking section.
+The plugin writes filesystem artifacts only. It does not add gitignore rules, stage files, or auto-commit files.
+Whether `.claude/handoffs/` is tracked or ignored is host-repository policy, not a plugin invariant.
 
 ### Handoff Frontmatter
 
@@ -93,7 +98,7 @@ Every handoff/checkpoint uses YAML frontmatter with these fields:
 | `session_id` | Yes | UUID | Session that created the document |
 | `project` | Yes | string | Project name |
 | `title` | Yes | string | Descriptive title |
-| `type` | Yes | `handoff` or `checkpoint` | Document type |
+| `type` | Yes | `handoff`, `checkpoint`, or `summary` | Document type |
 | `branch` | No | string | Git branch name |
 | `commit` | No | string | Git commit hash |
 | `resumed_from` | No | path | Previous handoff (chain protocol) |
@@ -120,7 +125,7 @@ Tickets created by `/defer` include:
 ```
 Session 1:
   /save                              → Creates handoff document
-                                        (<project_root>/docs/handoffs/2026-03-09_14-30_feature-work.md)
+                                        (<project_root>/.claude/handoffs/2026-03-09_14-30_feature-work.md)
 
 Session 2:
   /load                              → Loads most recent handoff, archives it
@@ -175,18 +180,18 @@ Session 2:
 ┌─ Skills (User Entry Points) ──────────────────────┐
 │  /save  /quicksave  /load  /defer                  │
 │  /search  /distill  /triage                        │
-├─ Scripts (Deterministic Work) ────────────────────┤
-│  Core:    project_paths, handoff_parsing           │
-│  Domain:  defer, distill, triage, search           │
-│  Audit:   provenance, ticket_parsing               │
-│  Maint:   cleanup                                  │
-├─ Hooks (Automatic Validation) ────────────────────┤
-│  SessionStart → cleanup (prune old files)          │
-│  PostToolUse  → quality_check (validate format)    │
+├─ Runtime Package (Implementation) ─────────────────┤
+│  handoff_runtime/*                      │
+├─ CLI Facades (Executable Paths) ───────────────────┤
+│  scripts/defer.py, distill.py, list_handoffs.py    │
+│  scripts/load_transactions.py, plugin_siblings.py  │
+│  scripts/search.py, session_state.py, triage.py    │
+├─ Runtime-only Helpers (Not Skill/Hook-wired) ──────┤
+│  cleanup, quality_check, storage_authority_inventory│
 ├─ Storage ─────────────────────────────────────────┤
-│  Active:  <project_root>/docs/handoffs/         │
-│  Archive: <project_root>/docs/handoffs/archive/  │
-│  State:   docs/handoffs/.session-state/handoff-<UUID>│
+│  Active:  <project_root>/.claude/handoffs/         │
+│  Archive: <project_root>/.claude/handoffs/archive/ │
+│  State:   .claude/handoffs/.session-state/      │
 └─ References ──────────────────────────────────────┘
    handoff-contract.md  format-reference.md
    synthesis-guide.md
@@ -198,23 +203,23 @@ The chain protocol links sessions together via state files:
 
 ```
 Session A (/save)
-  └─ Writes handoff → cleans up state file
+  └─ Writes handoff with active-writer reservation
 
 Session B (/load)
-  └─ Archives handoff → writes state file (points to archive)
+  └─ Archives handoff under .claude/handoffs/archive/ → writes JSON state file
 
 Session C (/save, resumed from B)
-  └─ Reads state file → sets resumed_from → writes new handoff → cleans up state file
+  └─ Reads JSON state → sets resumed_from → writes new handoff → clears consumed state
 ```
 
-State files are plain text containing a single path. Created by `/load`, consumed by `/save` and `/quicksave`, cleaned up after use. 24-hour TTL handles orphaned state files from crashed sessions.
+State files are JSON records under `.claude/handoffs/.session-state/handoff-<project>-<resume_token>.json`. Created by `/load`, consumed by `/save`, `/quicksave`, and `/summary`, then cleared after use. Active writers can bridge one valid legacy state file when needed and mark that source consumed without modifying legacy bytes. A 24-hour TTL handles orphaned state files from crashed sessions.
 
 ### Design Principles
 
-- **Skills handle judgment, scripts handle computation.** Skills analyze conversation and prompt users. Scripts parse files, allocate IDs, and validate structure.
-- **JSON contracts between layers.** Scripts communicate with skills via JSON on stdin/stdout.
+- **Skills handle judgment, runtime modules handle computation.** Skills analyze conversation and prompt users. Runtime modules parse files, allocate IDs, and validate structure.
+- **JSON contracts between layers.** CLI facades communicate with skills via JSON on stdin/stdout and delegate to runtime modules.
 - **Provenance tracking.** Tickets and learnings include metadata (`defer-meta`, `distill-meta`) for source tracing and dedup.
-- **Non-blocking validation.** The PostToolUse hook validates after write — it provides feedback but cannot prevent the write.
+- **Validation helpers are non-gating in 1.7.0.** Hook-compatible validation code remains in source, but installed Handoff does not expose plugin-bundled command hooks in this release.
 - **Safety-first I/O.** Uses `trash` instead of `rm`. Graceful degradation on read errors. TTL cleanup for orphaned files.
 
 ## Extension Points
@@ -228,36 +233,18 @@ Create `skills/<name>/SKILL.md` with YAML frontmatter:
 name: my-skill
 description: Brief description for trigger detection
 argument-hint: "[optional-argument]"
-allowed-tools:
-  - Bash
-  - Read
-  - Write
 ---
 ```
 
 See `skills/save/SKILL.md` for a comprehensive example.
 
-### Adding a Hook
+### Hook Scope
 
-Edit `hooks/hooks.json` to register new event handlers:
+Handoff plugin-bundled command hooks are deferred from 1.7.0 until Claude Code exposes a documented plugin-root launcher contract or a generated-config architecture is designed and proven.
 
-```json
-{
-  "type": "command",
-  "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/my-script.py"
-}
-```
+### Adding Runtime Code
 
-Supported events: `SessionStart`, `PostToolUse` (with `matcher` for tool filtering).
-
-### Adding a Script
-
-Create `scripts/<name>.py` following the existing pattern:
-
-- Implement `main(argv=None) -> int` for CLI compatibility
-- Use `project_paths.get_project_name()` for project detection
-- Return JSON on stdout, diagnostics on stderr
-- Exit 0 on success, non-zero on failure
+Add new implementation under `handoff_runtime/<name>.py`, and keep runtime modules import-only (no shebang, no `if __name__ == "__main__":` block). If the behavior must be skill-invokable, add or update one of the approved `scripts/*.py` facades to call the runtime module's `main()`.
 
 ## Development
 
@@ -270,18 +257,22 @@ uv sync
 
 ### Testing
 
-354 tests across 10 test modules (2:1 test-to-code ratio):
+To inspect the current test inventory:
 
 ```bash
-uv run pytest                          # All tests
-uv run pytest tests/test_defer.py      # Single module
-uv run pytest tests/test_defer.py -v   # Verbose
+PYTHONDONTWRITEBYTECODE=1 uv run --package handoff-plugin pytest --collect-only -q -p no:cacheprovider
 ```
 
-Or from the repo root:
+To run the suite from the repo root:
 
 ```bash
-uv run --package handoff-plugin pytest
+PYTHONDONTWRITEBYTECODE=1 uv run --package handoff-plugin pytest -q -p no:cacheprovider
+```
+
+To run a single module from the plugin directory:
+
+```bash
+uv run pytest tests/test_defer.py -q
 ```
 
 ### Linting
@@ -299,14 +290,18 @@ Three inherited edge cases are documented in `references/handoff-contract.md`:
 2. **Archive-failure poisoning** — If archiving fails but the state file is written, the next handoff's `resumed_from` points to a non-existent file. Skills handle this gracefully.
 3. **State-file TTL race** — Sessions spanning >24 hours may lose their state file to cleanup, resulting in a missing `resumed_from` link.
 
+When a chain-state operation raises a `ChainStateDiagnosticError`, see the **Chain State Diagnostics** table in `references/ARCHITECTURE.md` for the per-code trigger and operator recovery action.
+
 ## References
 
 | Document | Purpose |
 |----------|---------|
+| `CONTRIBUTING.md` | Contributor setup, source authority, and runtime boundaries |
+| `references/ARCHITECTURE.md` | Runtime ownership map, storage layout, and reseam boundaries |
 | `references/handoff-contract.md` | Frontmatter schema, chain protocol, storage conventions, known limitations |
 | `references/format-reference.md` | Section checklist, quality targets, worked examples |
 | `skills/save/synthesis-guide.md` | Internal synthesis guidance for the save skill |
-| `CHANGELOG.md` | Version history (1.0.0–1.5.0) |
+| `CHANGELOG.md` | Version history (1.0.0-1.7.0) |
 
 ## License
 

@@ -1,11 +1,22 @@
 """Tests for triage.py — ticket reading, status normalization, orphan detection."""
+
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 
 import pytest
+import handoff_runtime.triage as triage_module
+
+
+@pytest.fixture(autouse=True)
+def default_missing_legacy_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        triage_module,
+        "get_legacy_handoffs_dir",
+        lambda: tmp_path / "missing-legacy",
+    )
+
 
 TICKET_DEFERRED = """\
 # T-20260228-01: Deferred ticket
@@ -70,7 +81,7 @@ Still planning.
 
 class TestNormalizeStatus:
     def test_known_statuses_pass_through(self) -> None:
-        from scripts.triage import normalize_status
+        from handoff_runtime.triage import normalize_status
 
         for s in ("deferred", "open", "in_progress", "blocked", "done", "wontfix"):
             norm, conf = normalize_status(s)
@@ -78,42 +89,42 @@ class TestNormalizeStatus:
             assert conf == "high"
 
     def test_complete_maps_to_done(self) -> None:
-        from scripts.triage import normalize_status
+        from handoff_runtime.triage import normalize_status
 
         norm, conf = normalize_status("complete")
         assert norm == "done"
         assert conf == "high"
 
     def test_implemented_maps_to_done(self) -> None:
-        from scripts.triage import normalize_status
+        from handoff_runtime.triage import normalize_status
 
         norm, conf = normalize_status("implemented")
         assert norm == "done"
         assert conf == "high"
 
     def test_closed_maps_to_done_medium(self) -> None:
-        from scripts.triage import normalize_status
+        from handoff_runtime.triage import normalize_status
 
         norm, conf = normalize_status("closed")
         assert norm == "done"
         assert conf == "medium"
 
     def test_planning_maps_to_open_medium(self) -> None:
-        from scripts.triage import normalize_status
+        from handoff_runtime.triage import normalize_status
 
         norm, conf = normalize_status("planning")
         assert norm == "open"
         assert conf == "medium"
 
     def test_implementing_maps_to_in_progress(self) -> None:
-        from scripts.triage import normalize_status
+        from handoff_runtime.triage import normalize_status
 
         norm, conf = normalize_status("implementing")
         assert norm == "in_progress"
         assert conf == "high"
 
     def test_unknown_status_returns_open_low(self) -> None:
-        from scripts.triage import normalize_status
+        from handoff_runtime.triage import normalize_status
 
         norm, conf = normalize_status("something-weird")
         assert norm == "open"
@@ -123,7 +134,7 @@ class TestNormalizeStatus:
         """Unknown statuses must warn before defaulting to open."""
         import warnings
 
-        from scripts.triage import normalize_status
+        from handoff_runtime.triage import normalize_status
 
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
@@ -137,7 +148,7 @@ class TestNormalizeStatus:
 
 class TestReadOpenTickets:
     def test_filters_out_done_and_wontfix(self, tmp_path: Path) -> None:
-        from scripts.triage import read_open_tickets
+        from handoff_runtime.triage import read_open_tickets
 
         (tmp_path / "a.md").write_text(TICKET_DEFERRED)
         (tmp_path / "b.md").write_text(TICKET_DONE)
@@ -146,7 +157,7 @@ class TestReadOpenTickets:
         assert result[0]["id"] == "T-20260228-01"
 
     def test_includes_normalized_status(self, tmp_path: Path) -> None:
-        from scripts.triage import read_open_tickets
+        from handoff_runtime.triage import read_open_tickets
 
         (tmp_path / "a.md").write_text(TICKET_LEGACY_COMPLETE)
         (tmp_path / "b.md").write_text(TICKET_LEGACY_PLANNING)
@@ -159,19 +170,19 @@ class TestReadOpenTickets:
         assert result[0]["normalization_confidence"] == "medium"
 
     def test_empty_dir(self, tmp_path: Path) -> None:
-        from scripts.triage import read_open_tickets
+        from handoff_runtime.triage import read_open_tickets
 
         result = read_open_tickets(tmp_path)
         assert result == []
 
     def test_nonexistent_dir(self, tmp_path: Path) -> None:
-        from scripts.triage import read_open_tickets
+        from handoff_runtime.triage import read_open_tickets
 
         result = read_open_tickets(tmp_path / "nonexistent")
         assert result == []
 
     def test_skips_malformed_tickets(self, tmp_path: Path) -> None:
-        from scripts.triage import read_open_tickets
+        from handoff_runtime.triage import read_open_tickets
 
         (tmp_path / "good.md").write_text(TICKET_DEFERRED)
         (tmp_path / "bad.md").write_text("# No YAML here\n\nJust text.")
@@ -214,31 +225,46 @@ session_id: ffff-0000-1111-2222-333344445555
 Clean session.
 """
 
-TICKET_WITH_PROVENANCE = """\
-# T-20260228-03: Ticket with provenance
 
-```yaml
-id: T-20260228-03
+def _current_handoff(title: str = "Current handoff") -> str:
+    return f"""\
+---
+title: {title}
 date: 2026-02-28
-status: deferred
-priority: medium
-provenance:
-  source_session: "aaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-  source_type: handoff
-  created_by: defer-skill
-```
+created_at: "2026-02-28T00:00:00Z"
+session_id: aaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+project: test-project
+type: handoff
+---
 
-## Problem
+## Open Questions
 
-Has provenance.
-
-<!-- defer-meta {"v":1,"source_session":"aaaa-bbbb-cccc-dddd-eeeeeeeeeeee","source_type":"handoff","source_ref":"test","created_by":"defer-skill"} -->
+- Should we refactor the parser?
 """
+
+
+TICKET_WITH_PROVENANCE = (
+    "# T-20260228-03: Ticket with provenance\n\n"
+    "```yaml\n"
+    "id: T-20260228-03\n"
+    "date: 2026-02-28\n"
+    "status: deferred\n"
+    "priority: medium\n"
+    "provenance:\n"
+    '  source_session: "aaaa-bbbb-cccc-dddd-eeeeeeeeeeee"\n'
+    "  source_type: handoff\n"
+    "  created_by: defer-skill\n"
+    "```\n\n"
+    "## Problem\n\n"
+    "Has provenance.\n\n"
+    '<!-- defer-meta {"v":1,"source_session":"aaaa-bbbb-cccc-dddd-eeeeeeeeeeee",'
+    '"source_type":"handoff","source_ref":"test","created_by":"defer-skill"} -->\n'
+)
 
 
 class TestExtractHandoffItems:
     def test_extracts_list_items_from_open_questions(self) -> None:
-        from scripts.triage import extract_handoff_items
+        from handoff_runtime.triage import extract_handoff_items
 
         items, skipped = extract_handoff_items(HANDOFF_WITH_OPEN_QUESTIONS, "test.md")
         questions = [i for i in items if i["section"] == "Open Questions"]
@@ -246,27 +272,27 @@ class TestExtractHandoffItems:
         assert "refactor the parser" in questions[0]["text"]
 
     def test_extracts_list_items_from_risks(self) -> None:
-        from scripts.triage import extract_handoff_items
+        from handoff_runtime.triage import extract_handoff_items
 
         items, skipped = extract_handoff_items(HANDOFF_WITH_OPEN_QUESTIONS, "test.md")
         risks = [i for i in items if i["section"] == "Risks"]
         assert len(risks) == 2
 
     def test_returns_empty_for_no_sections(self) -> None:
-        from scripts.triage import extract_handoff_items
+        from handoff_runtime.triage import extract_handoff_items
 
         items, skipped = extract_handoff_items(HANDOFF_NO_OPEN_QUESTIONS, "clean.md")
         assert items == []
 
     def test_includes_session_id(self) -> None:
-        from scripts.triage import extract_handoff_items
+        from handoff_runtime.triage import extract_handoff_items
 
         items, skipped = extract_handoff_items(HANDOFF_WITH_OPEN_QUESTIONS, "test.md")
         assert all(i["session_id"] == "aaaa-bbbb-cccc-dddd-eeeeeeeeeeee" for i in items)
 
     def test_returns_skipped_prose_count(self) -> None:
         """P1-4: Verify prose lines are counted, not extracted."""
-        from scripts.triage import extract_handoff_items
+        from handoff_runtime.triage import extract_handoff_items
 
         handoff_with_prose = """\
 ---
@@ -287,7 +313,7 @@ Some prose paragraph that is not a list item.
 
 class TestMatchOrphans:
     def test_uid_match(self, tmp_path: Path) -> None:
-        from scripts.triage import match_orphan_item
+        from handoff_runtime.triage import match_orphan_item
 
         (tmp_path / "ticket.md").write_text(TICKET_WITH_PROVENANCE)
         tickets = _load_all_tickets(tmp_path)
@@ -303,7 +329,7 @@ class TestMatchOrphans:
         assert result["matched_ticket"] == "T-20260228-03"
 
     def test_ticket_id_reference(self, tmp_path: Path) -> None:
-        from scripts.triage import match_orphan_item
+        from handoff_runtime.triage import match_orphan_item
 
         (tmp_path / "ticket.md").write_text(TICKET_DEFERRED)
         tickets = _load_all_tickets(tmp_path)
@@ -318,7 +344,7 @@ class TestMatchOrphans:
         assert result["match_type"] == "id_ref"
 
     def test_manual_review_fallback(self, tmp_path: Path) -> None:
-        from scripts.triage import match_orphan_item
+        from handoff_runtime.triage import match_orphan_item
 
         (tmp_path / "ticket.md").write_text(TICKET_DEFERRED)
         tickets = _load_all_tickets(tmp_path)
@@ -333,7 +359,7 @@ class TestMatchOrphans:
         assert result["match_type"] == "manual_review"
 
     def test_legacy_ticket_id_match(self, tmp_path: Path) -> None:
-        from scripts.triage import match_orphan_item
+        from handoff_runtime.triage import match_orphan_item
 
         (tmp_path / "legacy.md").write_text(TICKET_LEGACY_COMPLETE)
         tickets = _load_all_tickets(tmp_path)
@@ -349,7 +375,7 @@ class TestMatchOrphans:
 
     def test_hyphenated_handoff_id_match(self, tmp_path: Path) -> None:
         """P1-11 fix: handoff-quality-hook should match, not truncate to handoff-quality."""
-        from scripts.triage import match_orphan_item
+        from handoff_runtime.triage import match_orphan_item
 
         # Create a ticket with a hyphenated handoff-style ID
         handoff_ticket = TICKET_DEFERRED.replace("T-20260228-01", "handoff-quality-hook")
@@ -368,7 +394,7 @@ class TestMatchOrphans:
 
     def test_three_digit_sequence_id_ref(self, tmp_path: Path) -> None:
         """IDs with 3+ digit sequences (e.g. T-20260228-100) must match via id_ref."""
-        from scripts.triage import match_orphan_item
+        from handoff_runtime.triage import match_orphan_item
 
         three_digit_ticket = TICKET_DEFERRED.replace("T-20260228-01", "T-20260228-100")
         (tmp_path / "overflow.md").write_text(three_digit_ticket)
@@ -387,14 +413,14 @@ class TestMatchOrphans:
 
 def _load_all_tickets(tickets_dir: Path) -> list[dict]:
     """Helper to load all tickets for matching tests."""
-    from scripts.triage import _load_tickets_for_matching
+    from handoff_runtime.triage import _load_tickets_for_matching
 
     return _load_tickets_for_matching(tickets_dir)
 
 
 class TestGenerateReport:
     def test_report_structure(self, tmp_path: Path) -> None:
-        from scripts.triage import generate_report
+        from handoff_runtime.triage import generate_report
 
         tickets_dir = tmp_path / "tickets"
         tickets_dir.mkdir()
@@ -413,7 +439,7 @@ class TestGenerateReport:
 
     def test_match_counts_reflect_actual_matching(self, tmp_path: Path) -> None:
         """P2-2 fix: assert specific count values, not identity."""
-        from scripts.triage import generate_report
+        from handoff_runtime.triage import generate_report
 
         tickets_dir = tmp_path / "tickets"
         tickets_dir.mkdir()
@@ -438,7 +464,7 @@ class TestGenerateReport:
         assert len(report["matched_items"]) == counts["uid_match"] + counts["id_ref"]
 
     def test_empty_dirs(self, tmp_path: Path) -> None:
-        from scripts.triage import generate_report
+        from handoff_runtime.triage import generate_report
 
         report = generate_report(tmp_path / "no-tickets", tmp_path / "no-handoffs")
         assert report["open_tickets"] == []
@@ -446,7 +472,7 @@ class TestGenerateReport:
         assert report["matched_items"] == []
 
     def test_includes_archive(self, tmp_path: Path) -> None:
-        from scripts.triage import generate_report
+        from handoff_runtime.triage import generate_report
 
         tickets_dir = tmp_path / "tickets"
         tickets_dir.mkdir()
@@ -460,12 +486,56 @@ class TestGenerateReport:
         # Should find items from archived handoff (all manual_review since no matching tickets)
         assert len(report["orphaned_items"]) > 0
 
+    def test_post_cutover_includes_legacy_docs_archive(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        from handoff_runtime.triage import generate_report
+
+        tickets_dir = tmp_path / "tickets"
+        tickets_dir.mkdir()
+        primary = tmp_path / ".claude" / "handoffs"
+        primary.mkdir(parents=True)
+        legacy = tmp_path / "docs" / "handoffs"
+        legacy_archive = legacy / "archive"
+        legacy_archive.mkdir(parents=True)
+        (legacy_archive / "legacy.md").write_text(HANDOFF_WITH_OPEN_QUESTIONS)
+        monkeypatch.setattr(triage_module, "get_legacy_handoffs_dir", lambda: legacy)
+
+        report = generate_report(tickets_dir, primary)
+
+        assert len(report["orphaned_items"]) > 0
+        assert "docs/handoffs" in report["legacy_warning"]
+        assert "next save will write to `docs/handoffs/`" not in report["legacy_warning"]
+
+    def test_legacy_discovery_error_warns(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        from handoff_runtime.triage import generate_report
+
+        tickets_dir = tmp_path / "tickets"
+        tickets_dir.mkdir()
+        primary = tmp_path / ".claude" / "handoffs"
+        primary.mkdir(parents=True)
+
+        def _fail_legacy() -> Path:
+            raise OSError("boom")
+
+        monkeypatch.setattr(triage_module, "get_legacy_handoffs_dir", _fail_legacy)
+        with pytest.warns(UserWarning, match="Cannot scan legacy handoffs"):
+            report = generate_report(tickets_dir, primary)
+
+        assert report["orphaned_items"] == []
+
     def test_excludes_old_files(self, tmp_path: Path) -> None:
         """P1-10 fix: files older than 30 days should be excluded by mtime filter."""
         import os
         import time
 
-        from scripts.triage import generate_report
+        from handoff_runtime.triage import generate_report
 
         tickets_dir = tmp_path / "tickets"
         tickets_dir.mkdir()
@@ -486,7 +556,7 @@ class TestGenerateReport:
         """Unreadable handoff files must warn and not crash the report."""
         import warnings
 
-        from scripts.triage import generate_report
+        from handoff_runtime.triage import generate_report
 
         tickets_dir = tmp_path / "tickets"
         tickets_dir.mkdir()
@@ -504,10 +574,50 @@ class TestGenerateReport:
         assert len(report["orphaned_items"]) > 0
         assert any("Cannot read handoff file" in str(x.message) for x in w)
 
+    def test_project_report_uses_storage_authority_history_provenance(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        from handoff_runtime.triage import generate_project_report
+
+        tickets_dir = tmp_path / "tickets"
+        tickets_dir.mkdir()
+        legacy_archive = tmp_path / "docs" / "handoffs" / "archive"
+        legacy_archive.mkdir(parents=True)
+        (legacy_archive / "2026-02-28_00-00_legacy.md").write_text(_current_handoff())
+
+        report = generate_project_report(tickets_dir, tmp_path)
+
+        assert len(report["orphaned_items"]) == 1
+        item = report["orphaned_items"][0]["item"]
+        assert item["storage_location"] == "legacy_archive"
+        assert item["document_profile"] == "current_contract"
+        assert item["dedup_winner"] is True
+        assert "docs/handoffs" in report["legacy_warning"]
+
+    def test_project_report_dedups_duplicate_history_content_by_winner(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        from handoff_runtime.triage import generate_project_report
+
+        tickets_dir = tmp_path / "tickets"
+        tickets_dir.mkdir()
+        primary = tmp_path / ".claude" / "handoffs"
+        primary_archive = primary / "archive"
+        primary_archive.mkdir(parents=True)
+        (primary / "2026-02-28_00-00_same.md").write_text(_current_handoff("Same"))
+        (primary_archive / "2026-02-28_00-00_same.md").write_text(_current_handoff("Same"))
+
+        report = generate_project_report(tickets_dir, tmp_path)
+
+        assert len(report["orphaned_items"]) == 1
+        assert report["orphaned_items"][0]["item"]["storage_location"] == "primary_active"
+
 
 class TestMain:
     def test_json_output(self, tmp_path: Path, capsys) -> None:
-        from scripts.triage import main
+        from handoff_runtime.triage import main
 
         tickets_dir = tmp_path / "tickets"
         tickets_dir.mkdir()
@@ -521,20 +631,36 @@ class TestMain:
         report = json.loads(output)
         assert report["open_tickets"][0]["id"] == "T-20260228-01"
 
+    def test_project_root_output_uses_storage_authority(self, tmp_path: Path, capsys) -> None:
+        from handoff_runtime.triage import main
+
+        tickets_dir = tmp_path / "tickets"
+        tickets_dir.mkdir()
+        primary = tmp_path / ".claude" / "handoffs"
+        primary.mkdir(parents=True)
+        (primary / "2026-02-28_00-00_current.md").write_text(_current_handoff())
+
+        main(["--tickets-dir", str(tickets_dir), "--project-root", str(tmp_path)])
+        output = capsys.readouterr().out
+        report = json.loads(output)
+
+        assert len(report["orphaned_items"]) == 1
+        assert report["orphaned_items"][0]["item"]["storage_location"] == "primary_active"
+
 
 class TestEndToEnd:
     """Integration test: tickets + handoffs → generate_report with all match types."""
 
     def test_full_triage_pipeline(self, tmp_path: Path) -> None:
-        from scripts.triage import generate_report
+        from handoff_runtime.triage import generate_report
 
         # Setup: tickets directory with diverse tickets
         tickets_dir = tmp_path / "tickets"
         tickets_dir.mkdir()
-        (tickets_dir / "deferred.md").write_text(TICKET_DEFERRED)      # non-terminal, open
-        (tickets_dir / "done.md").write_text(TICKET_DONE)              # terminal, filtered out
-        (tickets_dir / "legacy.md").write_text(TICKET_LEGACY_COMPLETE) # terminal (complete→done)
-        (tickets_dir / "prov.md").write_text(TICKET_WITH_PROVENANCE)   # has provenance
+        (tickets_dir / "deferred.md").write_text(TICKET_DEFERRED)  # non-terminal, open
+        (tickets_dir / "done.md").write_text(TICKET_DONE)  # terminal, filtered out
+        (tickets_dir / "legacy.md").write_text(TICKET_LEGACY_COMPLETE)  # terminal (complete→done)
+        (tickets_dir / "prov.md").write_text(TICKET_WITH_PROVENANCE)  # has provenance
 
         # Setup: handoffs directory
         handoffs_dir = tmp_path / "handoffs"
@@ -545,10 +671,10 @@ class TestEndToEnd:
 
         # Verify open_tickets: only non-terminal tickets
         open_ids = {t["id"] for t in report["open_tickets"]}
-        assert "T-20260228-01" in open_ids    # deferred
-        assert "T-20260228-03" in open_ids    # deferred (with provenance)
-        assert "T-20260228-02" not in open_ids # done
-        assert "T-004" not in open_ids         # complete → done
+        assert "T-20260228-01" in open_ids  # deferred
+        assert "T-20260228-03" in open_ids  # deferred (with provenance)
+        assert "T-20260228-02" not in open_ids  # done
+        assert "T-004" not in open_ids  # complete → done
 
         # Verify match counts
         counts = report["match_counts"]
@@ -568,7 +694,7 @@ class TestDeferTriageRoundTrip:
     """P2-4: End-to-end round-trip — defer creates ticket, triage finds it."""
 
     def test_deferred_ticket_appears_in_triage(self, tmp_path: Path) -> None:
-        from scripts.triage import generate_report
+        from handoff_runtime.triage import generate_report
 
         # Step 1: Create a ticket file directly (defer.py now emits envelopes,
         # not ticket markdown — the ticket engine creates the markdown file)
@@ -640,9 +766,11 @@ session_id: aaaa-bbbb-cccc-dddd-eeeeeeeeeeee
             assert item["matched_ticket"] == "T-20260228-01"
 
         # Step 6: Round-trip — parse the created ticket
-        from scripts.ticket_parsing import parse_ticket
+        from handoff_runtime.ticket_parsing import parse_ticket
 
         parsed = parse_ticket(created_path)
         assert parsed is not None
         assert parsed.frontmatter["id"] == "T-20260228-01"
-        assert parsed.frontmatter["provenance"]["source_session"] == "aaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+        assert (
+            parsed.frontmatter["provenance"]["source_session"] == "aaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+        )

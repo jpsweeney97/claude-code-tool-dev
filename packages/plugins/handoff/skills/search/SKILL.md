@@ -1,12 +1,19 @@
 ---
 name: search
 description: Search across handoff history for decisions, learnings, and context. Use when user says "search handoffs", "find in handoffs", "what did we decide about", or runs /search.
-argument-hint: "<query> [--regex]"
 ---
 
 # Search
 
 Search active and archived handoffs for the current project. Returns full matching sections.
+
+## Setup (run once per skill invocation)
+
+**Step 1 - Resolve plugin root:**
+Set `PLUGIN_ROOT` to the plugin root directory three levels above this `SKILL.md`, not the `skills/` directory.
+Use a literal absolute value such as `PLUGIN_ROOT="/absolute/path/to/handoff"`.
+For example, if the skill file is `/absolute/path/to/handoff/skills/search/SKILL.md`, then `PLUGIN_ROOT` is `/absolute/path/to/handoff`.
+When executing commands, use the absolute path for `PLUGIN_ROOT`; do not `cd` into the plugin directory.
 
 ## Procedure
 
@@ -15,7 +22,10 @@ When user runs `/search <query>`:
 1. **Run the search script:**
 
    ```bash
-   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/search.py" '<query>'
+   PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+   PYTHONDONTWRITEBYTECODE=1 \
+   UV_PROJECT_ENVIRONMENT="$PROJECT_ROOT/.claude/plugin-runtimes/handoff" \
+   uv run --project "$PLUGIN_ROOT/pyproject.toml" python "$PLUGIN_ROOT/scripts/search.py" '<query>'
    ```
 
    **Query quoting:** Wrap the query in single quotes to prevent shell expansion. If the query contains single quotes, escape each `'` as `'\''`.
@@ -23,11 +33,6 @@ When user runs `/search <query>`:
    If user passed `--regex`, append `--regex` to the command.
 
    **Note:** Literal search is case-insensitive. Regex search is case-sensitive by default — users can add `(?i)` to their pattern for case-insensitive regex (e.g., `(?i)merge.*strategy`).
-
-   If `${CLAUDE_PLUGIN_ROOT}` is not set (e.g., running from the development repo), use:
-   ```bash
-   python3 "$(git rev-parse --show-toplevel)/packages/plugins/handoff/scripts/search.py" '<query>'
-   ```
 
    **Important:** Do NOT `cd` into the plugin directory before running. `get_project_name()` resolves the project from the current working directory — changing CWD to the plugin directory would resolve to the plugin's repo name instead of the user's project.
 

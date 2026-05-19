@@ -1,0 +1,84 @@
+{
+  "legacy_storage_root": "<project_root>/docs/handoffs/",
+  "overall_status": "passed",
+  "primary_storage_root": "<project_root>/.claude/handoffs/",
+  "rows": [
+    {
+      "forbidden": [
+        "<project_root>/docs/handoffs/",
+        "local-only working memory"
+      ],
+      "forbidden_present": [],
+      "path": "README.md",
+      "required": [
+        "<project_root>/.claude/handoffs/",
+        "handoff-<project>-<resume_token>.json"
+      ],
+      "required_missing": [],
+      "root": "plugin",
+      "sha256": "0bdfd4966a59a904a653cd326e3ec774f122cd03c46cf9e680ecdb06ba97d382",
+      "status": "passed"
+    },
+    {
+      "forbidden": [
+        "Handoff storage moved from `<project_root>/.claude/handoffs/` to `<project_root>/docs/handoffs/`",
+        "local-only working memory"
+      ],
+      "forbidden_present": [],
+      "path": "CHANGELOG.md",
+      "required": [
+        "Handoff storage moved from `<project_root>/docs/handoffs/` to `<project_root>/.claude/handoffs/`"
+      ],
+      "required_missing": [],
+      "root": "plugin",
+      "sha256": "6255103af3b8dec828dbcd833ff91fa0a099a6cc21d5bf1dd8e2bb120c498642",
+      "status": "passed"
+    },
+    {
+      "forbidden": [
+        "<project_root>/docs/handoffs/",
+        "local-only working memory"
+      ],
+      "forbidden_present": [],
+      "path": "references/handoff-contract.md",
+      "required": [
+        "<project_root>/.claude/handoffs/",
+        "handoff-<project>-<resume_token>.json"
+      ],
+      "required_missing": [],
+      "root": "plugin",
+      "sha256": "ae1e5171beca2eee8936b37abe47fa0fac554ea1b7327151f67f813031ea4a44",
+      "status": "passed"
+    },
+    {
+      "forbidden": [
+        "<project_root>/docs/handoffs/",
+        "local-only working memory"
+      ],
+      "forbidden_present": [],
+      "path": "references/format-reference.md",
+      "required": [
+        "<project_root>/.claude/handoffs/"
+      ],
+      "required_missing": [],
+      "root": "plugin",
+      "sha256": "660241142e6da1e6659a48df6fedbe89e49ad079a7d4bd6cd0e1846e32d87155",
+      "status": "passed"
+    },
+    {
+      "forbidden": [
+        "<project_root>/docs/handoffs/"
+      ],
+      "forbidden_present": [],
+      "path": "handoff_runtime/quality_check.py",
+      "required": [
+        "<project_root>/.claude/handoffs/"
+      ],
+      "required_missing": [],
+      "root": "plugin",
+      "sha256": "c1c54197ffff68f13440c0afa9bd6447403c8808047daf0f55ecd7134dbdbbaf",
+      "status": "passed"
+    }
+  ],
+  "schema_version": "handoff-storage-authority-inventory-v1"
+}

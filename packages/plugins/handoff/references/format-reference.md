@@ -11,7 +11,7 @@ Shared schema and conventions for handoff documents.
 date: 2026-01-08                    # Date (YYYY-MM-DD)
 time: "14:30"                       # Time (HH:MM, quoted for YAML)
 created_at: "2026-01-08T14:30:00Z"  # ISO 8601 UTC timestamp
-session_id: <UUID>                  # Claude session ID
+session_id: <UUID>                  # Required: from ${CLAUDE_SESSION_ID}
 resumed_from: <path>                # Archive path if resumed (optional)
 project: <project-name>             # Git root or directory name
 branch: <branch-name>               # Current git branch (optional)
@@ -36,11 +36,11 @@ files:
 | Goal | Session had a clear objective | 10-20 lines: trigger, stakes, broader context, success criteria, connection to project arc |
 | Session Narrative | Always — every session has a story | 60-100 lines: chronological story, exploration path, pivots with triggers, hypotheses tested, key understanding shifts |
 | Decisions | Choices made with tradeoffs/reasoning | 20-30 lines per decision: choice, driver, alternatives, rejection reasons, trade-offs, confidence, reversibility, change triggers |
-| Changes | Files created/modified with purpose | 8-15 lines per file: purpose, approach, key implementation details, patterns followed, design choices, what future-Claude needs to modify it |
+| Changes | Files created/modified with purpose | 8-15 lines per file: purpose, approach, key implementation details, patterns followed, design choices, what the next agent needs to modify it |
 | In Progress | Work was ongoing when session ended | As needed: approach, state, what's working/broken, open questions, immediate next action |
 | Codebase Knowledge | Always — even known codebases yield new understanding | 60-100 lines: files read and why, patterns with file:line, architecture mapped, conventions observed, key locations, dependency graphs |
-| Conversation Highlights | Any session with user-Claude dialogue | 30-60 lines: key exchanges with verbatim quotes, alignment moments, disagreements and resolutions, working style observations |
-| Context | Background info future-Claude needs | 60-120 lines: mental model, architecture, environment state, project history, component relationships |
+| Conversation Highlights | Any session with user-assistant dialogue | 30-60 lines: key exchanges with verbatim quotes, alignment moments, disagreements and resolutions, working style observations |
+| Context | Background info the next agent needs | 60-120 lines: mental model, architecture, environment state, project history, component relationships |
 | Gotchas | Something unexpected or tricky discovered | As needed |
 | Next Steps | Work is incomplete, clear follow-ups exist | 10-15 lines per item: dependencies, what to read first, approach suggestion, acceptance criteria, potential obstacles |
 | Blockers | Stuck on something, waiting for resolution | As needed |
@@ -55,19 +55,19 @@ files:
 
 ## Storage
 
-**Location:** `<project_root>/docs/handoffs/`
+**Location:** `<project_root>/.claude/handoffs/`
 
 **Filename:** `YYYY-MM-DD_HH-MM_<title-slug>.md`
 
-**Archive:** `<project_root>/docs/handoffs/archive/`
+**Archive:** `<project_root>/.claude/handoffs/archive/`
 
 ## Retention
 
 | Location | Retention |
 |----------|-----------|
-| Active handoffs (`<project_root>/docs/handoffs/`) | No auto-prune |
-| Archived handoffs (`<project_root>/docs/handoffs/archive/`) | No auto-prune |
-| State files (`<project_root>/docs/handoffs/.session-state/handoff-*`) | 24 hours |
+| Active handoffs (`<project_root>/.claude/handoffs/`) | No auto-prune |
+| Archived handoffs (`<project_root>/.claude/handoffs/archive/`) | No auto-prune |
+| State files (`<project_root>/.claude/handoffs/.session-state/handoff-*`) | 24 hours |
 
 ## Example: New Session
 
@@ -217,7 +217,7 @@ if client behavior analysis shows significant session migration.
 `src/api/middleware/__init__.py` for precedent).
 
 **Key detail:** Exports are explicit — `__all__` list prevents accidental exposure of internal
-helpers. Future-Claude: add new public classes to `__all__` when creating them.
+helpers. Add new public classes to `__all__` when creating them.
 
 ### `src/api/ratelimit/limiter.py` — Token bucket implementation
 
@@ -238,7 +238,7 @@ helpers. Future-Claude: add new public classes to `__all__` when creating them.
 **Design choice:** Separated `TokenBucket` (data) from `RateLimiter` (management) to allow
 future algorithm swaps without changing the management layer.
 
-**Future-Claude note:** `_cleanup()` runs every 1000th `consume()` call. Constant is
+`_cleanup()` runs every 1000th `consume()` call. Constant is
 `CLEANUP_INTERVAL` at line 15. Tune if memory profiling shows stale bucket accumulation.
 
 ### `src/api/ratelimit/middleware.py` — Rate limit middleware
@@ -506,7 +506,7 @@ date: 2026-01-15
 time: "16:45"
 created_at: "2026-01-15T16:45:00Z"
 session_id: f9e8d7c6-b5a4-3210-fedc-ba0987654321
-resumed_from: <project_root>/docs/handoffs/archive/2026-01-15_14-30_rate-limiting-system-architecture-and-initial-implementation.md
+resumed_from: <project_root>/.claude/handoffs/archive/2026-01-15_14-30_rate-limiting-system-architecture-and-initial-implementation.md
 project: api-gateway
 branch: feat/rate-limiting
 commit: c3d4e5f
@@ -614,7 +614,7 @@ read other instances' states, merge.
 - Graceful degradation: Redis unreachable → log warning, continue with local-only
 - Cleanup: expired instance keys (no heartbeat for 3x interval) removed
 
-**Future-Claude note:** Merge strategy (minimum tokens) is deliberately conservative. If users
+Merge strategy (minimum tokens) is deliberately conservative. If users
 report overly strict limits in multi-instance deployments, revisit merge — consider average or
 weighted merge.
 

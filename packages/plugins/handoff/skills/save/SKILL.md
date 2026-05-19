@@ -1,234 +1,92 @@
 ---
 name: save
-description: Used when user says "wrap this up", "new session", "almost out of context", "save", "next session", or "handoff"; when stopping work with context to preserve.
+description: Use when user says "wrap this up", "new session", "almost out of context", "save", "next session", or "handoff"; use when stopping work with context to preserve.
 allowed-tools: Write, Read, Edit, Glob, Grep, Bash
 ---
 
-**Session ID:** ${CLAUDE_SESSION_ID}
-**Read [handoff-contract.md](../../references/handoff-contract.md) for:** frontmatter schema, chain protocol, storage conventions.
-
 # Save
 
-Create comprehensive session reports that preserve the full context future-Claude needs to continue without re-exploration.
+Create a comprehensive handoff at `<project_root>/.claude/handoffs/`. Use this for real session boundaries where future Claude sessions need decisions, file context, risks, and next steps without re-exploration.
 
-**Core Promise:** One action to save (`/save`).
+**Session ID:** ${CLAUDE_SESSION_ID}
 
-## When to Use
+Read these only when needed:
+- [handoff-contract.md](../../references/handoff-contract.md) for frontmatter, chain protocol, storage conventions.
+- [format-reference.md](../../references/format-reference.md) for required handoff sections.
+- [synthesis-guide.md](synthesis-guide.md) for the full internal synthesis prompts.
+- [skill-details.md](../../references/skill-details.md) for examples, anti-patterns, and troubleshooting.
 
-- User explicitly runs `/save` or `/save <title>`
-- User says signal phrases: "wrap this up", "new session", "save", "handoff"
-- Session contains at least one of: decision made, file changed, gotcha discovered, next step identified
-- User is stopping work and wants to resume later with context
+The plugin writes filesystem artifacts only. It does not add gitignore rules, stage files, or auto-commit files. Whether `.claude/handoffs/` is tracked or ignored is host-repository policy, not a plugin invariant.
 
-## When NOT to Use
+## Use
 
-- Session was trivial (quick Q&A with no decisions, changes, or learnings)
-- User explicitly declines handoff offer
-- Context is already captured elsewhere (PR description, committed docs, issue tracker)
-- Session is exploratory research with no actionable next steps
-- **Resuming from a handoff** — use the `load` skill instead
-
-**Non-goals (this skill does NOT):**
-- Resume from handoffs (that's the `load` skill)
-- Replace proper documentation (handoffs are ephemeral, docs are permanent)
-- Reproduce the raw conversation transcript — but decisions, reasoning chains, codebase knowledge, and user preferences should be captured with enough depth and evidence to be fully actionable
-- Work across different machines (handoffs are local to the project directory)
-
-**STOP:** If unclear whether session has meaningful content, ask: "Should I create a handoff? This session seems light on decisions/changes."
-
-## Inputs
-
-**Required:**
-- Session context (gathered from conversation history)
-
-**Optional:**
-- `title` argument for `/save <title>` — if omitted, Claude generates a descriptive title
-
-**Constraints/Assumptions:**
-
-| Assumption | Required? | Fallback |
-|------------|-----------|----------|
-| Git repository | No | Omit `branch` and `commit` fields from frontmatter |
-| Write access to `<project_root>/docs/handoffs/` | Yes | **STOP** and ask for alternative path. If `docs/handoffs/` doesn't exist, create it with `mkdir -p`. |
-| Project root determinable | No | Use current directory; if ambiguous, ask user |
-
-**STOP:** If `<project_root>/docs/handoffs/` doesn't exist and cannot be created, ask: "I can't write to docs/handoffs/. Where should I save handoffs?"
-
-## Outputs
-
-**Artifacts:**
-- Markdown file at `<project_root>/docs/handoffs/YYYY-MM-DD_HH-MM_<slug>.md`
-- Frontmatter with session metadata (date, time, created_at, project, title, files)
-- Body with all 13 required sections (placeholder content when not applicable)
-
-**Definition of Done:**
-
-| Check | Expected |
-|-------|----------|
-| File exists at expected path | `ls $(git rev-parse --show-toplevel)/docs/handoffs/YYYY-MM-DD_HH-MM_*.md` returns file |
-| Frontmatter parses as valid YAML | No YAML syntax errors |
-| Required fields present | `date`, `time`, `created_at`, `session_id`, `project`, `title`, `type` all have values |
-| Body line count | >=400 for all sessions, >=500 for complex |
-| Decision depth | Every decision has all 8 elements (choice, driver, alternatives, rejection reasons, trade-offs, confidence, reversibility, change triggers) |
-| Evidence density | Every factual claim has file:line, quote, or output reference |
-| Codebase knowledge | All files explored are listed with patterns, architecture, and key locations |
-| Session narrative | Exploration arc told chronologically with pivots and triggers |
-| User preferences | Captured with verbatim quotes; corrections and push-back included |
-| Resumption readiness | Future-Claude could continue without re-reading any file explored this session |
-
-**Quick check:** After writing, verify file exists and contains the title. If missing, check write permissions and path.
-
-## Commands
-
-| Command | Action |
-|---------|--------|
-| `/save` | Create handoff (Claude generates title) |
-| `/save <title>` | Create handoff with specified title |
-
-## Decision Points
-
-1. **Signal phrase detected:**
-   - If user says "wrap this up", "new session", "save", or "handoff", then offer: "Create a handoff before ending?"
-   - If user declines, **STOP**. Do not re-prompt or proceed.
-
-2. **Session content assessment:**
-   - If session contains at least one of: decision made, file changed, gotcha discovered, next step identified, then proceed with handoff.
-   - Otherwise, ask: "This session seems light — create a handoff anyway, or skip?"
-
-3. **Git repository detection:**
-   - If `.git/` directory exists in current or parent directories, then include `branch` and `commit` in frontmatter.
-   - Otherwise, omit `branch` and `commit` fields entirely (don't use placeholders).
-
-4. **Timestamp generation:**
-   - Generate `created_at` as ISO 8601 UTC timestamp (e.g., `2026-01-12T14:30:00Z`)
-   - Use the current time when the handoff is created
-
-5. **Write permission check:**
-   - If `<project_root>/docs/handoffs/` is writable (or can be created), write handoff there.
-   - Otherwise, **STOP** and ask: "Can't write to docs/handoffs/. Where should I save this handoff?"
+- Use for `/save`, `/save <title>`, "wrap this up", "new session", "save", or "handoff".
+- Skip trivial sessions with no decisions, changes, gotchas, or next steps unless the user explicitly wants a handoff.
+- Do not use to resume prior work; use `load`.
+- If active-writer reservation or write fails, report the helper error and STOP. Do not write the final handoff manually or fall back to `docs/handoffs/`.
 
 ## Procedure
 
-When user runs `/save [title]` or confirms a signal phrase offer:
+1. Use the session ID injected at skill load time (see handoff-contract.md) for the `session_id` frontmatter field.
+2. Read `synthesis-guide.md` completely. Answer every applicable synthesis prompt internally; do not show those answers in chat.
+3. Gather session context, current git branch/commit when available, and the files that should appear in frontmatter `files:`.
+4. Select sections from [format-reference.md](../../references/format-reference.md). Include all required handoff sections; use brief placeholders only when a section genuinely does not apply.
+5. Resolve plugin root before running state helpers. Set `PLUGIN_ROOT` to the plugin root, three levels above this `SKILL.md`, not the `skills/` directory. Use a literal absolute value such as `PLUGIN_ROOT="/absolute/path/to/handoff"`. The literal `python` command must resolve to Python >=3.11.
+6. Reserve the final path before writing content:
 
-1. **Check prerequisites:**
-   - If session appears trivial (no decisions, changes, or learnings), ask: "This session seems light — create a handoff anyway?"
-   - If user declines, **STOP**. Do not proceed.
+   ```bash
+   PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+   PROJECT_NAME="$(basename "$PROJECT_ROOT")"
+   SLUG_ARGS=()
+   if [ -n "${SLUG:-}" ]; then
+     SLUG_ARGS=(--slug "$SLUG")
+   fi
+   BEGIN_OUTPUT="$(
+     PYTHONDONTWRITEBYTECODE=1 python "$PLUGIN_ROOT/scripts/session_state.py" \
+       begin-active-write \
+       --project-root "$PROJECT_ROOT" \
+       --project "$PROJECT_NAME" \
+       --operation save \
+       "${SLUG_ARGS[@]}" \
+       2>&1
+   )" || { printf '%s\n' "$BEGIN_OUTPUT" >&2; exit 1; }
+   OPERATION_STATE_PATH="$(printf '%s\n' "$BEGIN_OUTPUT" | python -c 'import json,sys; print(json.load(sys.stdin)["operation_state_path"])')"
+   ALLOCATED_ACTIVE_PATH="$(printf '%s\n' "$BEGIN_OUTPUT" | python -c 'import json,sys; print(json.load(sys.stdin)["allocated_active_path"])')"
+   RESUMED_FROM="$(printf '%s\n' "$BEGIN_OUTPUT" | python -c 'import json,sys; value=json.load(sys.stdin).get("resumed_from_path"); print(value or "")')"
+   ```
 
-2. **Note the session ID** from the "Session ID:" line at the top of this skill (substituted by Claude Code at load time)
+7. Generate complete markdown in a temporary content file, not `ALLOCATED_ACTIVE_PATH`. Include `type: handoff`; if `RESUMED_FROM` is non-empty, include `resumed_from: "$RESUMED_FROM"`.
 
-3. **Complete the synthesis process (INTERNAL — do not output to chat):**
-   - YOU MUST read [synthesis-guide.md](synthesis-guide.md) completely before proceeding
-   - Answer every applicable synthesis prompt in the guide
-   - This is not optional — do not skip to filling sections
-   - The synthesis prompts are THINKING; the handoff sections are OUTPUT
-   - **IMPORTANT:** The synthesis work is internal reasoning. Do NOT present synthesis answers in chat. Only the final handoff file is the deliverable.
+   ```bash
+   STAGING_DIR="$PROJECT_ROOT/.claude/handoffs/.session-state/staging"
+   mkdir -p "$STAGING_DIR"
+   CONTENT_FILE="$STAGING_DIR/$(basename "$ALLOCATED_ACTIVE_PATH")"
+   # Write the complete markdown body to "$CONTENT_FILE" before committing it.
+   CONTENT_SHA256="$(python -c 'import hashlib,pathlib,sys; print(hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest())' "$CONTENT_FILE")"
+   ```
 
-4. **Gather context** from the session (informed by your synthesis work)
+   `$CONTENT_FILE` is staged under `.claude/handoffs/.session-state/staging/` solely so the advisory `PostToolUse:Write` quality check can validate the content before promotion; it is removed after the active writer commits the durable handoff (see step 9). Nothing prunes `staging/` automatically — the skill is responsible for removing the staged file on the success path.
 
-5. **Select relevant sections** using the checklist in [format-reference.md](../../references/format-reference.md)
-   - If no sections have content, **STOP** and ask: "I don't see anything to hand off. What should I capture?"
-   - Include all 13 required sections. Use brief placeholder content (e.g., "No risks identified this session.") for sections that genuinely don't apply
-   - **Calibration:** Distinguish verified facts (explicitly discussed) from inferred conclusions (reasonable next steps) from assumed context (background not verified this session)
+8. Commit the content through the active writer:
 
-5b. **Depth check before writing:**
-   - Verify all 13 required sections present: Goal, Session Narrative, Decisions, Changes, Codebase Knowledge, Context, Learnings, Next Steps, In Progress, Open Questions, Risks, References, Gotchas
-   - Verify each Decision entry has all 8 elements from the synthesis prompts
-   - Estimate body line count — target 400-700 depending on session complexity
-   - If estimate is under 400, you are almost certainly under-capturing. Re-examine: implicit decisions, codebase knowledge gained, conversation dynamics, exploration arc, files read that produced understanding.
-   - **Default to inclusion.** If you're unsure whether something belongs, include it.
+   ```bash
+   WRITE_OUTPUT="$(
+     PYTHONDONTWRITEBYTECODE=1 python "$PLUGIN_ROOT/scripts/session_state.py" \
+       write-active-handoff \
+       --project-root "$PROJECT_ROOT" \
+       --operation-state-path "$OPERATION_STATE_PATH" \
+       --content-file "$CONTENT_FILE" \
+       --content-sha256 "$CONTENT_SHA256" \
+       2>&1
+   )" || { printf '%s\n' "$WRITE_OUTPUT" >&2; exit 1; }
+   ACTIVE_PATH="$(printf '%s\n' "$WRITE_OUTPUT" | python -c 'import json,sys; print(json.load(sys.stdin)["active_path"])')"
+   # Success path only: the durable handoff now exists at $ACTIVE_PATH, so the
+   # staged copy is redundant. Nothing prunes staging/, so remove it here.
+   # Warn-don't-block: a leftover staged file is harmless and removable by hand.
+   trash "$CONTENT_FILE" 2>/dev/null \
+     || echo "warning: staged file persists and can be removed manually: $CONTENT_FILE" >&2
+   ```
+   (If `write-active-handoff` failed above, the skill already STOPped via `exit 1`; `$CONTENT_FILE` is intentionally left in place for diagnosis on that path.)
 
-6. **Determine output path:**
-   - Resolve project root: `$(git rev-parse --show-toplevel)` (falls back to cwd if not in a git repo)
-   - If `<project_root>/docs/handoffs/` is not writable, **STOP** and ask for alternative path
-
-7. **Generate markdown** with frontmatter per [format-reference.md](../../references/format-reference.md) and [handoff-contract.md](../../references/handoff-contract.md):
-   - Include `session_id:` with the UUID from step 2
-   - Include `type: handoff` in frontmatter
-   - Per chain protocol in [handoff-contract.md](../../references/handoff-contract.md): read `<project_root>/docs/handoffs/.session-state/handoff-<session_id>` — if exists, set `resumed_from` to its content
-   - Use fallbacks for optional fields (see Inputs → Constraints/Assumptions)
-
-8. **Write file** to `<project_root>/docs/handoffs/YYYY-MM-DD_HH-MM_<slug>.md`
-
-   Handoffs are local-only working memory — the file is durable on disk but is not committed. See `references/handoff-contract.md` for the Git Tracking section.
-
-9. **Cleanup state file** per chain protocol in [handoff-contract.md](../../references/handoff-contract.md):
-   - `trash` the state file at `<project_root>/docs/handoffs/.session-state/handoff-<session_id>` if it exists. If `trash` fails, warn the user that the state file persists but do not block — the 24-hour TTL will clean it up.
-
-10. **Verify and confirm (brief summary only):**
-    - Check file exists and frontmatter is valid
-    - Confirm briefly: "Handoff saved: `<path>` — <title>"
-    - **Do NOT** reproduce handoff content or synthesis answers in chat. The file is the deliverable.
-
-## Verification
-
-After creating handoff, verify:
-
-- [ ] File exists at `<project_root>/docs/handoffs/YYYY-MM-DD_HH-MM_<slug>.md`
-- [ ] Frontmatter parses as valid YAML
-- [ ] Required fields present and non-blank: date, time, created_at, session_id, project, title, type (hook-enforced)
-- [ ] All 13 required sections present (hook-enforced)
-- [ ] At least 1 of {Decisions, Changes, Learnings} has substantive content (hook-enforced)
-- [ ] Body line count >= 400 (hook-enforced)
-
-**Quick check:** Run `ls "$(git rev-parse --show-toplevel)/docs/handoffs/"` and confirm new file appears. If not, check write permissions.
-
-**If verification fails:** Do not report success. Check Troubleshooting section and resolve before confirming.
-
-## Troubleshooting
-
-### Handoff file not created
-
-**Symptoms:** `/save` completes but no file appears at `<project_root>/docs/handoffs/`
-
-**Likely causes:**
-- Permission denied on project `docs/` directory
-- Project root couldn't be determined (not in git, ambiguous directory)
-- Disk full or path too long
-
-**Next steps:**
-1. Check if `docs/handoffs/` exists: `ls -la "$(git rev-parse --show-toplevel)/docs/handoffs/"`
-2. Check write permissions: `touch "$(git rev-parse --show-toplevel)/docs/handoffs/test" && trash "$(git rev-parse --show-toplevel)/docs/handoffs/test"`
-3. If permissions issue, ask user for alternative path
-4. If project root undetermined, ask user to specify
-
-### Handoff content missing key decisions
-
-**Symptoms:** Resumed handoff lacks important context from original session
-
-**Likely causes:**
-- Handoff created too early (before key decisions made)
-- Section checklist didn't capture all relevant categories
-- Session had implicit decisions not stated explicitly
-
-**Next steps:**
-1. Review session history for decisions made after handoff
-2. Create new handoff with more complete context
-3. Consider adding to existing handoff manually if file still accessible
-
-## Anti-Patterns
-
-| Avoid | Why | Instead |
-|-------|-----|---------|
-| Handoff for trivial sessions | Noise accumulation | Skip if no meaningful decisions/progress |
-| Listing files without purpose or detail | Future-Claude can't act on bare filenames | Each file gets purpose, approach, and key implementation details |
-| Single-sentence decisions | Missing reasoning makes decisions non-actionable | Every decision needs: choice, driver, alternatives, trade-offs, confidence, implications |
-| Handoffs under 400 lines | Indicates significant information loss | Re-examine session for under-capture — implicit decisions, codebase knowledge, conversation dynamics |
-| Paraphrasing user preferences | Paraphrase loses nuance that makes preferences actionable | Use verbatim quotes for every user preference and correction |
-| Missing decisions/rationale | Just listing changes isn't useful | Always capture at least one "why" |
-| Re-prompting after user declines | Annoying, ignores user intent | Respect "no" and move on |
-| Guessing when uncertain | May create useless handoff | Ask user if handoff is needed |
-
-## Quality Calibration
-
-| Complexity | Target Lines | Required Sections |
-|------------|-------------|-------------------|
-| All sessions | 400+ | All 13 required (hook-enforced): Goal, Session Narrative, Decisions, Changes, Codebase Knowledge, Context, Learnings, Next Steps, In Progress, Open Questions, Risks, References, Gotchas |
-| Moderate (decisions, exploration) | 500+ | Above + Conversation Highlights, User Preferences (quality targets, not hook-enforced) |
-| Complex (pivots, design work, discovery) | 500-700+ | All sections fully populated, including Rejected Approaches (quality targets, not hook-enforced) |
-
-## Related Skills
-
-| Skill | Relationship |
-|-------|--------------|
-| `load` | Complementary: save creates, load resumes |
+9. Verify the file exists under `<project_root>/.claude/handoffs/`, frontmatter parses, required fields are present, and required sections are present.
+10. Reply only with `Handoff saved: <path> - <title>`. Do not reproduce handoff content or synthesis answers in chat.

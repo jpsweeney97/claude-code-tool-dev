@@ -4,13 +4,31 @@ All notable changes to the handoff plugin are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.0.0] - 2026-05-19
+
+### Changed
+- **BREAKING:** One-time port from the Codex `handoff` plugin (Codex v1.7.0). The Codex marketplace-prefixed runtime namespace was renamed to `handoff_runtime`; all imports now use the `handoff_runtime` package.
+- **BREAKING:** Storage primary moved to `<project_root>/.claude/handoffs/`. Legacy `docs/handoffs/` retained as a read-only straggler classifier (not an active migration bridge). The full prior corpus was hard-migrated under a manifest.
+- Adopted the Codex rearchitecture: storage-authority layer, transactional active-writes, O_EXCL lock model, chain-state recovery.
+
+### Added
+- `${CLAUDE_SESSION_ID}` sourcing restored for the `session_id` frontmatter field (the Codex write-time-UUID host-compensation is rejected; the `resume_token` resume spine is kept verbatim).
+- Re-wired Claude-host hooks: `SessionStart → cleanup`, `PostToolUse:Write → quality_check` (advisory).
+- `.claude/handoffs/` added to repo `.gitignore` (handoffs remain local-only ephemeral).
+
 ## [Unreleased]
 
 ### Changed
-- **BREAKING:** Handoff storage moved from `<project_root>/.claude/handoffs/` to `<project_root>/docs/handoffs/`. Handoffs remain local-only working memory — gitignored and never auto-committed. Archive renamed from `.archive/` to `archive/`. No auto-pruning — handoffs are ephemeral by design.
+- Removed `allowed-tools` from Handoff skill frontmatter so skill invocation does not request up-front tool permissions before the normal workflow runs.
+
+## [1.7.0] - 2026-05-15
+
+### Changed
+- **BREAKING:** Handoff storage moved from `<project_root>/docs/handoffs/` to `<project_root>/.claude/handoffs/`. The plugin still does not add gitignore rules, stage files, or auto-commit files; host-repository tracking policy remains external to the plugin. Archive remains `archive/`. No auto-pruning is applied to handoff files.
+- **BREAKING:** Implementation modules moved from `scripts/*` into `handoff_runtime/*`. The `scripts/` directory now contains only eight CLI facades (`defer.py`, `distill.py`, `list_handoffs.py`, `load_transactions.py`, `plugin_siblings.py`, `search.py`, `session_state.py`, `triage.py`), and `scripts.*` is no longer a supported import namespace.
 - Cleanup hook (`cleanup.py`) prunes session-state files only (24h TTL); handoff files are never auto-pruned.
-- `is_handoff_path()` now matches `docs/handoffs/` (active and archived) instead of `.claude/handoffs/`.
-- `search.py` and `triage.py` check legacy `.claude/handoffs/` location as fallback.
+- `is_handoff_path()` now matches `.claude/handoffs/` (active and archived) instead of `docs/handoffs/`.
+- `search.py` and `triage.py` keep controlled legacy `docs/handoffs/` fallback discovery for pre-cutover files.
 
 ### Added
 - `get_legacy_handoffs_dir()` in `project_paths.py` for fallback discovery.
@@ -35,6 +53,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - End-to-end integration tests for defer and triage pipelines
 - Priority/effort validation tests
 - Tests for provenance fallback, YAML null, stdin wrapping, and warning paths
+
+## [1.6.0] - 2026-05-03
+
+### Fixed
+- Remove broken `../../scripts/*.py` skill commands.
+- Replace fixed Ticket version/path coupling in `/defer`.
+- Harden load/archive/state lifecycle against collisions and concurrent sessions.
+- Reconcile release metadata and host-repository tracking language.
+
+### Deferred
+- Defer plugin-bundled command hooks because Codex executes hook command strings from the session cwd and no portable plugin-root launcher contract exists in current docs.
 
 ## [1.5.0] - 2026-02-28
 

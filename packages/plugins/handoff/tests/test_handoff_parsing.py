@@ -2,9 +2,8 @@
 
 from pathlib import Path
 
-from scripts.handoff_parsing import (
+from handoff_runtime.handoff_parsing import (
     HandoffFile,
-    Section,
     parse_frontmatter,
     parse_handoff,
     parse_sections,
@@ -89,6 +88,18 @@ class TestParseSections:
         assert len(sections) == 2
         assert sections[0].heading == "## A"
         assert sections[1].heading == "## B"
+
+    def test_parse_sections_ignores_headings_inside_indented_code_fences(self) -> None:
+        text = "## A\nSome content\n   ```\n## Fake\n   ```\n## B\nFinal\n"
+        sections = parse_sections(text)
+        headings = [section.heading for section in sections]
+        assert headings == ["## A", "## B"]
+
+    def test_parse_sections_does_not_close_backtick_fence_with_tilde_fence(self) -> None:
+        text = "## A\n```\n~~~\n## inside\n```\n## B\nbody\n"
+        sections = parse_sections(text)
+        headings = [section.heading for section in sections]
+        assert headings == ["## A", "## B"]
 
     def test_empty_text_returns_empty(self) -> None:
         assert parse_sections("") == []

@@ -46,7 +46,7 @@ dev = [
 
 [[package]]
 name = "handoff-plugin"
-version = "1.5.0"
+version = "2.0.0"
 source = { virtual = "packages/plugins/handoff" }
 dependencies = [
     { name = "pyyaml" },
