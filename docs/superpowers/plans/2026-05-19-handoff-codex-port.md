@@ -478,7 +478,7 @@ At the top of `packages/plugins/handoff/CHANGELOG.md` (below the header, above t
 ## [2.0.0] - 2026-05-19
 
 ### Changed
-- **BREAKING:** One-time port from the Codex `handoff` plugin (Codex v1.7.0). Runtime namespace `turbo_mode_handoff_runtime` → `handoff_runtime`.
+- **BREAKING:** One-time port from the Codex `handoff` plugin (Codex v1.7.0). The Codex marketplace-prefixed runtime namespace was renamed to `handoff_runtime`; all imports now use the `handoff_runtime` package. (Execution-surfaced reconciliation: the CHANGELOG must NOT contain the literal old `turbo_mode_handoff_runtime` token — that trips the AC2 `rg 'turbo_mode_handoff_runtime'`=0 gate, exactly like the AC5 `.codex` negative-control tension. Use prose; the old Codex-internal name is not Claude-user-relevant since v1.6.0 Claude users never had it.)
 - **BREAKING:** Storage primary moved to `<project_root>/.claude/handoffs/`. Legacy `docs/handoffs/` retained as a read-only straggler classifier (not an active migration bridge). The full prior corpus was hard-migrated under a manifest.
 - Adopted the Codex rearchitecture: storage-authority layer, transactional active-writes, O_EXCL lock model, chain-state recovery.
 
@@ -998,7 +998,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 2. **`${CLAUDE_PLUGIN_ROOT}` in installed cache** — inferred from the current plugin, not re-proven in an installed cache (ticket risk, unchanged).
 3. **Skill prose divergence 256–275 lines/skill** — accepted under one-time port; Task 7 Step 4 is the parity spot-check.
 4. **Cutover-timing auto-resume miss** — accepted, recoverable (ephemeral 24h state; handoff file still `/load`-able). Documented, not gated.
-5. **`allowed-tools` parity** — Codex's `[Unreleased]` removed skill `allowed-tools`; v1.6.0 had `Bash` for save/load/quicksave. Decision 2 (reject host-compensation) → restore `Bash` (+ Read) to `allowed-tools` for the skills that run the active-writer bash flow. Folded into Task 4 Step 4 branding/skills pass; flagged here as a Decision-2-derived judgement, verified by the Task 7 round-trip (skills must not stall on permission prompts).
+5. **`allowed-tools` parity — RESOLVED in Task 8.5 (was a Task-4 dispatch-omission gap, NOT folded in as originally claimed).** Codex's `[Unreleased]` removed skill `allowed-tools`; v1.6.0 Claude had non-empty values for save/quicksave/summary/load (search/triage/defer/distill had none/empty — port already matches). Decision 2 + Option-A → restore the **exact v1.6.0** values verbatim to the 4 active-writer skills: save `Write, Read, Edit, Glob, Grep, Bash`; quicksave `Write, Read, Bash`; summary `Write, Read, Bash, Glob`; load `Write, Read, Edit, Glob, Grep, Bash`. Execution-surfaced: the ported suite's `test_skill_docs_do_not_request_tool_permissions_up_front` ENFORCED the rejected Codex no-allowed-tools host-compensation — it is itself a Codex-ism, retargeted (not deleted/masked) to assert the Claude-parity invariant (the 4 skills declare their v1.6.0 values; the other 4 do not). Same documented-behavior-retarget class as Task 8's other host-shaped tests.
 6. **M1 reversibility** — tested (Task 6 Step 3) but the live cutover touches the full corpus; the manifest + reconciliation (Task 7 Step 1) is the safety net, not optional. Manifest + rollback retained until Task 10 Step 2.
 
 ## Self-Review (run before execution)
