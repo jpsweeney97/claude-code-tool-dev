@@ -49,6 +49,7 @@ def _valid_matrix_content(label: str = "test") -> str:
         "## References\n\n## Gotchas\n\n"
     )
 
+
 # Runtime-reachable members. Every member EXCEPT operation-state
 # 'unreadable' is produced by some scenario below. 'unreadable' is the
 # synthetic unreadable-record marker built by

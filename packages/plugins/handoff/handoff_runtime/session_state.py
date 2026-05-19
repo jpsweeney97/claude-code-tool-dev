@@ -19,6 +19,15 @@ from pathlib import Path
 
 from handoff_runtime import storage_primitives
 from handoff_runtime.project_paths import get_state_dir
+from handoff_runtime.quality_check import (
+    REQUIRED_CHECKPOINT_SECTIONS as _CHECKPOINT_SECTIONS,
+)
+from handoff_runtime.quality_check import (
+    REQUIRED_HANDOFF_SECTIONS as _HANDOFF_SECTIONS,
+)
+from handoff_runtime.quality_check import (
+    REQUIRED_SUMMARY_SECTIONS as _SUMMARY_SECTIONS,
+)
 from handoff_runtime.storage_primitives import LEGACY_CONSUMED_PREFIX
 
 
@@ -799,38 +808,6 @@ _OPERATION_TO_DOC_TYPE: dict[str, str] = {
     "quicksave": "checkpoint",
 }
 
-_HANDOFF_SECTIONS: tuple[str, ...] = (
-    "Goal",
-    "Session Narrative",
-    "Decisions",
-    "Changes",
-    "Codebase Knowledge",
-    "Context",
-    "Learnings",
-    "Next Steps",
-    "In Progress",
-    "Open Questions",
-    "Risks",
-    "References",
-    "Gotchas",
-)
-_SUMMARY_SECTIONS: tuple[str, ...] = (
-    "Goal",
-    "Session Narrative",
-    "Decisions",
-    "Changes",
-    "Codebase Knowledge",
-    "Learnings",
-    "Next Steps",
-    "Project Arc",
-)
-_CHECKPOINT_SECTIONS: tuple[str, ...] = (
-    "Current Task",
-    "In Progress",
-    "Active Files",
-    "Next Action",
-    "Verification Snapshot",
-)
 _SECTIONS_BY_TYPE: dict[str, tuple[str, ...]] = {
     "handoff": _HANDOFF_SECTIONS,
     "summary": _SUMMARY_SECTIONS,
@@ -853,14 +830,14 @@ def _deterministic_active_writer_content(
     operation = str(operation_state["operation"])
     doc_type = _OPERATION_TO_DOC_TYPE.get(operation, "handoff")
     sections = _SECTIONS_BY_TYPE.get(doc_type, _HANDOFF_SECTIONS)
-    created_at = str(operation_state.get("created_at", "2026-01-01T00:00:00+00:00"))
+    created_at = str(operation_state.get("created_at") or "2026-01-01T00:00:00+00:00")
     date_part = created_at[:10] if len(created_at) >= 10 else "2026-01-01"
     time_part = created_at[11:16] if len(created_at) >= 16 else "00:00"
 
     frontmatter = (
         "---\n"
         f"date: {date_part}\n"
-        f"time: \"{time_part}\"\n"
+        f'time: "{time_part}"\n'
         f"created_at: {created_at}\n"
         f"session_id: {operation_state['run_id']}\n"
         f"project: {operation_state['project']}\n"

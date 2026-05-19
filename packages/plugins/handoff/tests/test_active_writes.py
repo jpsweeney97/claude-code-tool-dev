@@ -21,16 +21,36 @@ from handoff_runtime.chain_state import chain_state_recovery_inventory, read_cha
 # ---------------------------------------------------------------------------
 
 _HANDOFF_SECTIONS = (
-    "Goal", "Session Narrative", "Decisions", "Changes", "Codebase Knowledge",
-    "Context", "Learnings", "Next Steps", "In Progress", "Open Questions",
-    "Risks", "References", "Gotchas",
+    "Goal",
+    "Session Narrative",
+    "Decisions",
+    "Changes",
+    "Codebase Knowledge",
+    "Context",
+    "Learnings",
+    "Next Steps",
+    "In Progress",
+    "Open Questions",
+    "Risks",
+    "References",
+    "Gotchas",
 )
 _SUMMARY_SECTIONS = (
-    "Goal", "Session Narrative", "Decisions", "Changes", "Codebase Knowledge",
-    "Learnings", "Next Steps", "Project Arc",
+    "Goal",
+    "Session Narrative",
+    "Decisions",
+    "Changes",
+    "Codebase Knowledge",
+    "Learnings",
+    "Next Steps",
+    "Project Arc",
 )
 _CHECKPOINT_SECTIONS = (
-    "Current Task", "In Progress", "Active Files", "Next Action", "Verification Snapshot",
+    "Current Task",
+    "In Progress",
+    "Active Files",
+    "Next Action",
+    "Verification Snapshot",
 )
 _SECTIONS_BY_OPERATION = {
     "save": ("handoff", _HANDOFF_SECTIONS),
@@ -46,7 +66,9 @@ def _valid_test_content(operation: str = "save", label: str = "test") -> str:
     for handoff/summary the Decisions section has content so the hollow-doc
     guardrail is satisfied.
     """
-    doc_type, sections = _SECTIONS_BY_OPERATION.get(operation, ("handoff", _HANDOFF_SECTIONS))
+    doc_type, sections = _SECTIONS_BY_OPERATION.get(
+        operation, ("handoff", _HANDOFF_SECTIONS)
+    )
     lines = [
         "---",
         "date: 2026-05-13",
@@ -2327,13 +2349,13 @@ def test_integrity_failure_rejected_before_promotion(tmp_path: Path) -> None:
     )
     operation_state_path = reservation.operation_state_path
     allocated_active_path = reservation.allocated_active_path
-    hollow = (  # valid frontmatter, all sections present but empty -> hollow (integrity tier)
-        "---\ndate: 2026-01-01\ntime: \"00:00\"\ncreated_at: x\n"
+    # Valid frontmatter, all required sections present but empty -> hollow
+    # (hollow-handoff guardrail fires at the integrity tier).
+    hollow = (
+        '---\ndate: 2026-01-01\ntime: "00:00"\ncreated_at: x\n'
         "session_id: s\nproject: p\ntitle: t\ntype: handoff\n---\n"
-        + "".join(f"## {s}\n\n" for s in (
-            "Goal", "Session Narrative", "Decisions", "Changes", "Codebase Knowledge",
-            "Context", "Learnings", "Next Steps", "In Progress", "Open Questions",
-            "Risks", "References", "Gotchas")))
+        + "".join(f"## {s}\n\n" for s in _HANDOFF_SECTIONS)
+    )
     sha = hashlib.sha256(hollow.encode()).hexdigest()
 
     with pytest.raises(active_writes.ActiveWriteError) as ei:
@@ -2359,12 +2381,10 @@ def test_integrity_gate_reservation_stays_recoverable(tmp_path: Path) -> None:
     operation_state_path = reservation.operation_state_path
     allocated_active_path = reservation.allocated_active_path
     hollow = (
-        "---\ndate: 2026-01-01\ntime: \"00:00\"\ncreated_at: x\n"
+        '---\ndate: 2026-01-01\ntime: "00:00"\ncreated_at: x\n'
         "session_id: s\nproject: p\ntitle: t\ntype: handoff\n---\n"
-        + "".join(f"## {s}\n\n" for s in (
-            "Goal", "Session Narrative", "Decisions", "Changes", "Codebase Knowledge",
-            "Context", "Learnings", "Next Steps", "In Progress", "Open Questions",
-            "Risks", "References", "Gotchas")))
+        + "".join(f"## {s}\n\n" for s in _HANDOFF_SECTIONS)
+    )
     sha = hashlib.sha256(hollow.encode()).hexdigest()
 
     with pytest.raises(active_writes.ActiveWriteError):
@@ -2386,7 +2406,9 @@ def test_integrity_gate_reservation_stays_recoverable(tmp_path: Path) -> None:
 
     # (c) no partial .md at allocated_active_path, no leftover .tmp sibling
     assert not allocated_active_path.exists()
-    siblings = list(allocated_active_path.parent.glob(f".{allocated_active_path.name}.*.tmp"))
+    siblings = list(
+        allocated_active_path.parent.glob(f".{allocated_active_path.name}.*.tmp")
+    )
     assert not siblings
 
     # (d) status still "begun" — no operation-state mutation occurred
