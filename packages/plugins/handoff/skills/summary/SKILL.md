@@ -86,5 +86,16 @@ The plugin writes filesystem artifacts only. It does not add gitignore rules, st
    ```
    (If `write-active-handoff` failed above, the skill already STOPped via `exit 1`; `$CONTENT_FILE` is intentionally left in place for diagnosis on that path.)
 
+   **Integrity rejection (hard gate):** The active writer rejects a handoff
+   that fails the integrity tier of the quality contract — no frontmatter,
+   invalid `type`, missing/blank required frontmatter, a missing required
+   section, or a hollow document (required content sections present but
+   empty). It fails with an `ActiveWriteError` ("… failed integrity
+   validation …") and the handoff is NOT written. Recovery: fix the flagged
+   content and retry, or abandon the reservation (see `_recovery_commands`:
+   `retry_write` / `abandon`). Length and section depth remain **advisory
+   only** — a terse `/summary` under the line-count minimum still saves;
+   that feedback comes from the `PostToolUse` quality hook, not the gate.
+
 8. Verify `ACTIVE_PATH` exists under `<project_root>/.claude/handoffs/`, frontmatter parses, required fields are present, all eight summary sections are present, and the Project Arc is populated.
 9. Reply only with `Summary saved: <path> - <title>`. Do not reproduce summary content or synthesis answers in chat.

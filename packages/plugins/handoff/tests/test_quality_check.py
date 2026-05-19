@@ -116,7 +116,9 @@ def _make_hook_input(file_path: str, content: str) -> dict:
     }
 
 
-HANDOFF_PATH = str(Path("/tmp/test-project") / ".claude" / "handoffs" / "2026-02-26_16-00_test.md")
+HANDOFF_PATH = str(
+    Path("/tmp/test-project") / ".claude" / "handoffs" / "2026-02-26_16-00_test.md"
+)
 
 
 # --- Frontmatter parsing ---
@@ -167,7 +169,9 @@ class TestValidateFrontmatter:
         assert "session_id" in issues[0].message
 
     def test_multiple_missing_fields(self) -> None:
-        issues = validate_frontmatter(_make_frontmatter(omit=["date", "time"]), "handoff")
+        issues = validate_frontmatter(
+            _make_frontmatter(omit=["date", "time"]), "handoff"
+        )
         assert len(issues) == 1  # Single error listing both fields
         assert "date" in issues[0].message
         assert "time" in issues[0].message
@@ -178,7 +182,9 @@ class TestValidateFrontmatter:
         assert any("Checkpoint:" in i.message for i in issues)
 
     def test_checkpoint_title_valid(self) -> None:
-        fm = _make_frontmatter(overrides={"type": "checkpoint", "title": "Checkpoint: Valid"})
+        fm = _make_frontmatter(
+            overrides={"type": "checkpoint", "title": "Checkpoint: Valid"}
+        )
         assert validate_frontmatter(fm, "checkpoint") == []
 
     def test_blank_value_rejected(self) -> None:
@@ -186,7 +192,8 @@ class TestValidateFrontmatter:
         fm = _make_frontmatter(overrides={"title": ""})
         issues = validate_frontmatter(fm, "handoff")
         assert any(
-            i.severity == "error" and "title" in i.message and "Blank" in i.message for i in issues
+            i.severity == "error" and "title" in i.message and "Blank" in i.message
+            for i in issues
         )
 
     def test_whitespace_only_value_rejected(self) -> None:
@@ -210,7 +217,9 @@ class TestValidateFrontmatter:
         assert any("Summary:" in i.message for i in issues)
 
     def test_summary_title_valid(self) -> None:
-        fm = _make_frontmatter(overrides={"type": "summary", "title": "Summary: Valid Title"})
+        fm = _make_frontmatter(
+            overrides={"type": "summary", "title": "Summary: Valid Title"}
+        )
         assert validate_frontmatter(fm, "summary") == []
 
 
@@ -303,7 +312,9 @@ class TestParseSections:
         assert "Real Section" in headings
         assert "Another Real Section" in headings
 
-    def test_parse_sections_does_not_close_backtick_fence_with_tilde_fence(self) -> None:
+    def test_parse_sections_does_not_close_backtick_fence_with_tilde_fence(
+        self,
+    ) -> None:
         content = "\n".join(
             [
                 "---",
@@ -348,18 +359,24 @@ class TestValidateSections:
     """Tests for validate_sections — required sections and empty checks."""
 
     def test_all_handoff_sections_present(self) -> None:
-        sections = [{"heading": s, "content": "text"} for s in REQUIRED_HANDOFF_SECTIONS]
+        sections = [
+            {"heading": s, "content": "text"} for s in REQUIRED_HANDOFF_SECTIONS
+        ]
         assert validate_sections(sections, "handoff") == []
 
     def test_missing_section(self) -> None:
         sections = [
-            {"heading": s, "content": "text"} for s in REQUIRED_HANDOFF_SECTIONS if s != "Goal"
+            {"heading": s, "content": "text"}
+            for s in REQUIRED_HANDOFF_SECTIONS
+            if s != "Goal"
         ]
         issues = validate_sections(sections, "handoff")
         assert any("Goal" in i.message for i in issues)
 
     def test_all_checkpoint_sections_present(self) -> None:
-        sections = [{"heading": s, "content": "text"} for s in REQUIRED_CHECKPOINT_SECTIONS]
+        sections = [
+            {"heading": s, "content": "text"} for s in REQUIRED_CHECKPOINT_SECTIONS
+        ]
         assert validate_sections(sections, "checkpoint") == []
 
     def test_empty_section_warned(self) -> None:
@@ -373,7 +390,9 @@ class TestValidateSections:
         assert any(i.severity == "warning" and "Empty" in i.message for i in issues)
 
     def test_extra_sections_allowed(self) -> None:
-        sections = [{"heading": s, "content": "text"} for s in REQUIRED_HANDOFF_SECTIONS]
+        sections = [
+            {"heading": s, "content": "text"} for s in REQUIRED_HANDOFF_SECTIONS
+        ]
         sections.append({"heading": "Conversation Highlights", "content": "text"})
         assert validate_sections(sections, "handoff") == []
 
@@ -426,7 +445,9 @@ class TestValidateSections:
         assert not any("Hollow handoff" in i.message for i in issues)
 
     def test_all_summary_sections_present(self) -> None:
-        sections = [{"heading": s, "content": "text"} for s in REQUIRED_SUMMARY_SECTIONS]
+        sections = [
+            {"heading": s, "content": "text"} for s in REQUIRED_SUMMARY_SECTIONS
+        ]
         assert validate_sections(sections, "summary") == []
 
     def test_summary_missing_section(self) -> None:
@@ -714,7 +735,9 @@ class TestIsHandoffPath:
 def test_is_handoff_path_accepts_claude_rejects_codex():
     from handoff_runtime.quality_check import is_handoff_path
 
-    other_seg = "." + "codex"  # built from parts so a non-Claude-shaped path proves rejection without a literal dot+other source token (AC2 strict-zero stays clean)
+    other_seg = (
+        "." + "codex"
+    )  # built from parts so a non-Claude-shaped path proves rejection without a literal dot+other source token (AC2 strict-zero stays clean)
     assert is_handoff_path("/r/.claude/handoffs/2026-01-01_00-00_x.md") is True
     assert is_handoff_path("/r/.claude/handoffs/archive/2026-01-01_00-00_x.md") is True
     assert is_handoff_path(f"/r/{other_seg}/handoffs/2026-01-01_00-00_x.md") is False
@@ -723,9 +746,18 @@ def test_is_handoff_path_accepts_claude_rejects_codex():
 
 def test_is_handoff_path_accepts_claude_staging_rejects_codex_staging():
     from handoff_runtime.quality_check import is_handoff_path
-    codex_seg = "." + "codex"  # built from parts so a Codex-shaped path proves rejection without a literal dot+codex source token (AC2 strict-zero stays clean)
-    assert is_handoff_path("/r/.claude/handoffs/.session-state/staging/save-2026.md") is True
-    assert is_handoff_path(f"/r/{codex_seg}/handoffs/.session-state/staging/save-2026.md") is False
+
+    codex_seg = (
+        "." + "codex"
+    )  # built from parts so a Codex-shaped path proves rejection without a literal dot+codex source token (AC2 strict-zero stays clean)
+    assert (
+        is_handoff_path("/r/.claude/handoffs/.session-state/staging/save-2026.md")
+        is True
+    )
+    assert (
+        is_handoff_path(f"/r/{codex_seg}/handoffs/.session-state/staging/save-2026.md")
+        is False
+    )
 
 
 # --- Output formatting ---
@@ -736,8 +768,8 @@ class TestFormatOutput:
 
     def test_errors_and_warnings(self) -> None:
         issues = [
-            Issue("error", "Missing field: date"),
-            Issue("warning", "Empty section: Goal"),
+            Issue("error", "Missing field: date", tier="integrity"),
+            Issue("warning", "Empty section: Goal", tier="advisory"),
         ]
         msg = format_output(issues)
         assert "1 error(s)" in msg
@@ -746,7 +778,7 @@ class TestFormatOutput:
         assert "Empty section: Goal" in msg
 
     def test_errors_only(self) -> None:
-        issues = [Issue("error", "Test error")]
+        issues = [Issue("error", "Test error", tier="integrity")]
         msg = format_output(issues)
         assert "Errors:" in msg
         assert "Warnings:" not in msg
@@ -754,7 +786,7 @@ class TestFormatOutput:
 
     def test_warnings_only_no_fix_instruction(self) -> None:
         """Warnings-only output should NOT say 'Fix the errors and rewrite'."""
-        issues = [Issue("warning", "Test warning")]
+        issues = [Issue("warning", "Test warning", tier="advisory")]
         msg = format_output(issues)
         assert "Warnings:" in msg
         assert "Errors:" not in msg
@@ -808,7 +840,9 @@ class TestMain:
 
     def test_archive_path_validates(self) -> None:
         """Archive path IS validated (is_handoff_path matches it)."""
-        archive_path = str(Path("/tmp/test-project") / "docs" / "handoffs" / "archive" / "old.md")
+        archive_path = str(
+            Path("/tmp/test-project") / "docs" / "handoffs" / "archive" / "old.md"
+        )
         content = _make_content()
         result, output = _run_main(_make_hook_input(archive_path, content))
         assert result == 0
@@ -881,7 +915,11 @@ class TestMain:
             patch(
                 "sys.stdin",
                 io.StringIO(
-                    json.dumps(_make_hook_input(HANDOFF_PATH, "---\ntype: handoff\n---\ncontent"))
+                    json.dumps(
+                        _make_hook_input(
+                            HANDOFF_PATH, "---\ntype: handoff\n---\ncontent"
+                        )
+                    )
                 ),
             ),
             patch("sys.stdout", new_callable=io.StringIO),
@@ -927,3 +965,82 @@ class TestMain:
         result, output = _run_main(_make_hook_input(HANDOFF_PATH, content))
         assert result == 0
         assert output == ""
+
+
+# --- Tier discriminator tests ---
+
+
+def test_no_frontmatter_is_integrity() -> None:
+    issues = validate("no frontmatter at all\njust body\n")
+    assert issues and all(i.tier == "integrity" for i in issues)
+
+
+def test_invalid_type_is_integrity() -> None:
+    c = (
+        '---\ndate: 2026-01-01\ntime: "00:00"\ncreated_at: x\n'
+        "session_id: s\nproject: p\ntitle: t\ntype: bogus\n---\nbody\n"
+    )
+    assert any(
+        i.tier == "integrity" and "Invalid type" in i.message for i in validate(c)
+    )
+
+
+def test_line_count_under_min_is_advisory_even_though_error_severity() -> None:
+    # valid frontmatter + all required handoff sections, but short body
+    fm = (
+        '---\ndate: 2026-01-01\ntime: "00:00"\ncreated_at: x\n'
+        "session_id: s\nproject: p\ntitle: t\ntype: handoff\n---\n"
+    )
+    body = "".join(
+        f"## {s}\nx\n"
+        for s in (
+            "Goal",
+            "Session Narrative",
+            "Decisions",
+            "Changes",
+            "Codebase Knowledge",
+            "Context",
+            "Learnings",
+            "Next Steps",
+            "In Progress",
+            "Open Questions",
+            "Risks",
+            "References",
+            "Gotchas",
+        )
+    )
+    issues = validate(fm + body)
+    lc = [i for i in issues if "lines" in i.message and "minimum" in i.message]
+    assert lc, "expected an under-minimum line-count issue"
+    assert all(i.tier == "advisory" for i in lc)
+    assert any(
+        i.severity == "error" for i in lc
+    )  # severity stays error; tier overrides gating
+
+
+def test_hollow_guardrail_is_integrity() -> None:
+    fm = (
+        '---\ndate: 2026-01-01\ntime: "00:00"\ncreated_at: x\n'
+        "session_id: s\nproject: p\ntitle: t\ntype: handoff\n---\n"
+    )
+    body = "".join(
+        f"## {s}\n\n"
+        for s in (
+            "Goal",
+            "Session Narrative",
+            "Decisions",
+            "Changes",
+            "Codebase Knowledge",
+            "Context",
+            "Learnings",
+            "Next Steps",
+            "In Progress",
+            "Open Questions",
+            "Risks",
+            "References",
+            "Gotchas",
+        )
+    )
+    assert any(
+        i.tier == "integrity" and "Hollow" in i.message for i in validate(fm + body)
+    )

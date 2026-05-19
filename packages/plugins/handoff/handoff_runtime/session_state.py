@@ -19,6 +19,15 @@ from pathlib import Path
 
 from handoff_runtime import storage_primitives
 from handoff_runtime.project_paths import get_state_dir
+from handoff_runtime.quality_check import (
+    REQUIRED_CHECKPOINT_SECTIONS as _CHECKPOINT_SECTIONS,
+)
+from handoff_runtime.quality_check import (
+    REQUIRED_HANDOFF_SECTIONS as _HANDOFF_SECTIONS,
+)
+from handoff_runtime.quality_check import (
+    REQUIRED_SUMMARY_SECTIONS as _SUMMARY_SECTIONS,
+)
 from handoff_runtime.storage_primitives import LEGACY_CONSUMED_PREFIX
 
 
@@ -73,7 +82,9 @@ def _delete_path(path: Path, *, context: str) -> bool:
 
 
 def _mark_legacy_state_consumed(legacy_path: Path, migrated_state_path: Path) -> None:
-    legacy_path.write_text(f"{LEGACY_CONSUMED_PREFIX}{migrated_state_path}\n", encoding="utf-8")
+    legacy_path.write_text(
+        f"{LEGACY_CONSUMED_PREFIX}{migrated_state_path}\n", encoding="utf-8"
+    )
 
 
 def _read_legacy_archive_path(legacy_path: Path) -> str | None:
@@ -169,8 +180,13 @@ def clear_resume_state(state_dir: Path, state_path_arg: str) -> bool:
     resolved_state_dir = state_dir.resolve()
     resolved_state_path = state_path.resolve()
     if resolved_state_path.exists() and not resolved_state_path.is_file():
-        raise ValueError(f"clear-state failed: state path must point to a file. Got: {raw!r:.100}")
-    if not state_path.name.startswith("handoff-") or state_path.suffix not in ("", ".json"):
+        raise ValueError(
+            f"clear-state failed: state path must point to a file. Got: {raw!r:.100}"
+        )
+    if not state_path.name.startswith("handoff-") or state_path.suffix not in (
+        "",
+        ".json",
+    ):
         raise ValueError(
             "clear-state failed: state path must match handoff-* or handoff-*.json. "
             f"Got: {raw!r:.100}"
@@ -183,7 +199,9 @@ def clear_resume_state(state_dir: Path, state_path_arg: str) -> bool:
         return True
     legacy_project: str | None = None
     if resolved_state_path.suffix == ".json":
-        payload = _read_resume_state_payload(resolved_state_path, operation="clear-state")
+        payload = _read_resume_state_payload(
+            resolved_state_path, operation="clear-state"
+        )
         legacy_project = payload.get("project")
 
     cleared = _delete_path(resolved_state_path, context="clear-state")
@@ -198,7 +216,9 @@ def clear_resume_state(state_dir: Path, state_path_arg: str) -> bool:
     return cleared
 
 
-def prune_old_state_files(max_age_hours: int = 24, *, state_dir: Path | None = None) -> list[Path]:
+def prune_old_state_files(
+    max_age_hours: int = 24, *, state_dir: Path | None = None
+) -> list[Path]:
     if state_dir is None:
         state_dir = get_state_dir()
     if not state_dir.exists():
@@ -228,7 +248,9 @@ def prune_old_state_files(max_age_hours: int = 24, *, state_dir: Path | None = N
                     continue
                 try:
                     payload = json.loads(tx_file.read_text(encoding="utf-8"))
-                    status = payload.get("status") if isinstance(payload, dict) else None
+                    status = (
+                        payload.get("status") if isinstance(payload, dict) else None
+                    )
                 except (OSError, json.JSONDecodeError, ValueError):
                     status = None
                 # Allow-list, not deny-list: past the TTL, prune only genuinely
@@ -337,7 +359,13 @@ def _build_parser() -> argparse.ArgumentParser:
     continue_chain_parser.add_argument("--expected-payload-sha256", required=True)
     continue_chain_parser.add_argument(
         "--field",
-        choices=("status", "state_path", "marker_path", "transaction_path", "transaction_id"),
+        choices=(
+            "status",
+            "state_path",
+            "marker_path",
+            "transaction_path",
+            "transaction_id",
+        ),
         default=None,
     )
 
@@ -349,7 +377,13 @@ def _build_parser() -> argparse.ArgumentParser:
     abandon_chain_parser.add_argument("--reason", required=True)
     abandon_chain_parser.add_argument(
         "--field",
-        choices=("status", "state_path", "abandoned_path", "transaction_path", "transaction_id"),
+        choices=(
+            "status",
+            "state_path",
+            "abandoned_path",
+            "transaction_path",
+            "transaction_id",
+        ),
         default=None,
     )
 
@@ -537,7 +571,9 @@ def _dispatch_resume_state_command(args: argparse.Namespace) -> int | None:
         return 0 if cleared else 1
 
     if args.command == "prune-state":
-        deleted = prune_old_state_files(args.max_age_hours, state_dir=Path(args.state_dir))
+        deleted = prune_old_state_files(
+            args.max_age_hours, state_dir=Path(args.state_dir)
+        )
         json.dump({"deleted": [str(path) for path in deleted]}, sys.stdout)
         return 0
     return None
@@ -696,7 +732,9 @@ def _dispatch_active_write_management_command(args: argparse.Namespace) -> int |
             project_name=args.project,
             operation=args.operation,
         )
-        json.dump({"total": len(records), "active_writes": records}, sys.stdout, indent=2)
+        json.dump(
+            {"total": len(records), "active_writes": records}, sys.stdout, indent=2
+        )
         print()
         return 0
     if args.command == "abandon-active-write":
@@ -749,7 +787,9 @@ def _dispatch_active_writer_flow_command(args: argparse.Namespace) -> int | None
                         operation=args.operation,
                     )
                 )
-                operation_state_path = Path(str(operation_state["operation_state_path"]))
+                operation_state_path = Path(
+                    str(operation_state["operation_state_path"])
+                )
             else:
                 reservation = begin_active_write(
                     project_root,
@@ -793,24 +833,58 @@ def _single_pending_active_write(records: list[dict[str, object]]) -> dict[str, 
     return pending[0]
 
 
+_OPERATION_TO_DOC_TYPE: dict[str, str] = {
+    "save": "handoff",
+    "summary": "summary",
+    "quicksave": "checkpoint",
+}
+
+_SECTIONS_BY_TYPE: dict[str, tuple[str, ...]] = {
+    "handoff": _HANDOFF_SECTIONS,
+    "summary": _SUMMARY_SECTIONS,
+    "checkpoint": _CHECKPOINT_SECTIONS,
+}
+
+
 def _deterministic_active_writer_content(
     operation_state: dict[str, object],
     *,
     content_note: str | None = None,
 ) -> str:
-    """Return deterministic markdown bound to one active-writer operation."""
+    """Return deterministic markdown that passes the commit-time integrity gate.
+
+    Produces valid frontmatter (all 7 required fields) and all required sections
+    for the operation's doc type. For handoff/summary, Decisions gets the
+    content_note so the hollow-handoff guardrail is satisfied.
+    """
     note = content_note or "Deterministic active-writer flow content."
-    return (
+    operation = str(operation_state["operation"])
+    doc_type = _OPERATION_TO_DOC_TYPE.get(operation, "handoff")
+    sections = _SECTIONS_BY_TYPE.get(doc_type, _HANDOFF_SECTIONS)
+    created_at = str(operation_state.get("created_at") or "2026-01-01T00:00:00+00:00")
+    date_part = created_at[:10] if len(created_at) >= 10 else "2026-01-01"
+    time_part = created_at[11:16] if len(created_at) >= 16 else "00:00"
+
+    frontmatter = (
         "---\n"
-        f"project: {operation_state['project']}\n"
+        f"date: {date_part}\n"
+        f'time: "{time_part}"\n'
+        f"created_at: {created_at}\n"
         f"session_id: {operation_state['run_id']}\n"
-        f"type: {operation_state['operation']}\n"
+        f"project: {operation_state['project']}\n"
         f"title: {operation_state['operation']} {operation_state['bound_slug']}\n"
+        f"type: {doc_type}\n"
         f"active_writer_run_id: {operation_state['run_id']}\n"
         f"active_writer_transaction_id: {operation_state['transaction_id']}\n"
         f"active_writer_bound_slug: {operation_state['bound_slug']}\n"
         f"active_writer_allocated_path: {operation_state['allocated_active_path']}\n"
         "---\n\n"
-        f"# {operation_state['operation']} {operation_state['bound_slug']}\n\n"
-        f"{note}\n"
     )
+    body_parts: list[str] = []
+    for section in sections:
+        # Decisions gets the note so the hollow-handoff guardrail is satisfied
+        # (handoff and summary require at least one of Decisions/Changes/Learnings
+        # to have substantive content).
+        section_content = note if section == "Decisions" else ""
+        body_parts.append(f"## {section}\n\n{section_content}\n")
+    return frontmatter + "".join(body_parts)

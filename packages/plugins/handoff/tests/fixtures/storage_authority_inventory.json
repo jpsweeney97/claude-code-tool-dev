@@ -31,7 +31,7 @@
       ],
       "required_missing": [],
       "root": "plugin",
-      "sha256": "6255103af3b8dec828dbcd833ff91fa0a099a6cc21d5bf1dd8e2bb120c498642",
+      "sha256": "205c3f273f84811bbe673b51658ca9d32335ec1aa5a2a720aac9577044f73f25",
       "status": "passed"
     },
     {
@@ -76,7 +76,7 @@
       ],
       "required_missing": [],
       "root": "plugin",
-      "sha256": "c1c54197ffff68f13440c0afa9bd6447403c8808047daf0f55ecd7134dbdbbaf",
+      "sha256": "32d856b961f2f9d2f4d5174bf61ca2138d3e153225b85708213a6b94344eb873",
       "status": "passed"
     }
   ],

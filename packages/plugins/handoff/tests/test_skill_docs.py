@@ -77,7 +77,10 @@ def test_command_skills_define_plugin_root_setup() -> None:
         assert "not the `skills/` directory" in text
         assert 'PLUGIN_ROOT="/absolute/path/to/handoff"' in text
         assert "two levels above" not in text
-        assert 'UV_PROJECT_ENVIRONMENT="$PROJECT_ROOT/.claude/plugin-runtimes/handoff"' in text
+        assert (
+            'UV_PROJECT_ENVIRONMENT="$PROJECT_ROOT/.claude/plugin-runtimes/handoff"'
+            in text
+        )
         assert "PYTHONDONTWRITEBYTECODE=1" in text
 
 
@@ -128,14 +131,23 @@ def test_load_skill_uses_load_transaction_and_listing_scripts() -> None:
 def test_load_skill_documents_fail_closed_operator_recovery_boundaries() -> None:
     text = LOAD_SKILL.read_text(encoding="utf-8")
 
-    assert "Readable pending load transactions are recovered before a new load is selected" in text
+    assert (
+        "Readable pending load transactions are recovered before a new load is selected"
+        in text
+    )
     assert "Unreadable or corrupt transaction records block `/load`" in text
     assert "global fail-closed" in text
     assert "recovery claim file present" in text
     assert "stale lock from another host" in text
     assert "operator review" in text
-    assert "Pending interrupted loads are recovered before a new load is selected" not in text
-    assert "Re-run `/load`; pending transactions are recovered before new selection" not in text
+    assert (
+        "Pending interrupted loads are recovered before a new load is selected"
+        not in text
+    )
+    assert (
+        "Re-run `/load`; pending transactions are recovered before new selection"
+        not in text
+    )
 
 
 def test_session_id_sourced_from_claude_session_id_not_write_time_uuid() -> None:
@@ -148,7 +160,9 @@ def test_session_id_sourced_from_claude_session_id_not_write_time_uuid() -> None
 
 def test_resume_token_spine_unchanged() -> None:
     contract = (PLUGIN_ROOT / "references" / "handoff-contract.md").read_text("utf-8")
-    assert "handoff-<project>-<resume_token>.json" in contract  # Codex spine kept verbatim
+    assert (
+        "handoff-<project>-<resume_token>.json" in contract
+    )  # Codex spine kept verbatim
 
 
 def test_defer_skill_uses_plugin_siblings_plain_field() -> None:
@@ -168,3 +182,14 @@ def test_defer_skill_uses_plugin_siblings_plain_field() -> None:
     assert "/tmp/ingest_payload.json" not in text
     assert "../../../../ticket/" not in text
     assert "ticket/1.4.0/scripts" not in text
+
+
+def test_skills_document_integrity_rejection_and_advisory_length() -> None:
+    import pathlib
+
+    skills = pathlib.Path(__file__).resolve().parents[1] / "skills"
+    for name in ("save", "quicksave", "summary"):
+        t = (skills / name / "SKILL.md").read_text("utf-8")
+        assert "integrity" in t.lower()
+        assert "ActiveWriteError" in t or "integrity validation" in t
+        assert "advisory" in t.lower()  # length/depth remain advisory

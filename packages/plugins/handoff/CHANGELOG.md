@@ -4,6 +4,23 @@ All notable changes to the handoff plugin are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.1.0] - 2026-05-19
+
+### Added
+- **Commit-time integrity gate:** `write_active_handoff` now invokes the
+  `quality_check` validation core before the durable write and rejects
+  integrity-tier failures (no-frontmatter, invalid `type`, missing/blank
+  required frontmatter, missing required section, hollow document) via
+  `ActiveWriteError` — a hard pre-promotion gate. `save`/`quicksave`/
+  `summary` can now fail on integrity grounds (deliberate behavior change).
+- `Issue.tier` ("integrity" | "advisory") partitions gating; the gate
+  keys on tier, never on `severity`.
+
+### Changed
+- Length/depth checks remain **advisory only** and stay on the retained
+  Option-A `PostToolUse:Write → quality_check` hook (AC#6) — a terse
+  handoff under the line-count minimum still promotes.
+
 ## [2.0.0] - 2026-05-19
 
 ### Changed

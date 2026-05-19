@@ -102,10 +102,17 @@ SUMMARY_MAX_LINES: int = 250
 
 @dataclass
 class Issue:
-    """A quality issue found during validation."""
+    """A quality issue found during validation.
 
-    severity: str  # "error" or "warning"
+    `tier` partitions gating, NOT `severity`: the commit-time quality gate
+    (handoff-port-commit-time-quality-gate) hard-blocks promotion on
+    tier == "integrity" only. Every Issue MUST declare its tier — there is
+    no default, so a missed construction site is a TypeError caught by tests.
+    """
+
+    severity: str  # "error" or "warning" (display grouping only)
     message: str
+    tier: str  # "integrity" (hard-blocks at commit) | "advisory" (never blocks)
 
 
 # --- Parsing ---
@@ -143,13 +150,27 @@ def validate_frontmatter(frontmatter: dict[str, str], doc_type: str) -> list[Iss
 
     missing = [f for f in REQUIRED_FRONTMATTER_FIELDS if f not in frontmatter]
     if missing:
-        issues.append(Issue("error", f"Missing required frontmatter: {', '.join(missing)}"))
+        issues.append(
+            Issue(
+                "error",
+                f"Missing required frontmatter: {', '.join(missing)}",
+                tier="integrity",
+            )
+        )
 
     blank = [
-        f for f in REQUIRED_FRONTMATTER_FIELDS if f in frontmatter and not frontmatter[f].strip()
+        f
+        for f in REQUIRED_FRONTMATTER_FIELDS
+        if f in frontmatter and not frontmatter[f].strip()
     ]
     if blank:
-        issues.append(Issue("error", f"Blank required frontmatter: {', '.join(blank)}"))
+        issues.append(
+            Issue(
+                "error",
+                f"Blank required frontmatter: {', '.join(blank)}",
+                tier="integrity",
+            )
+        )
 
     if doc_type == "checkpoint" and "title" in frontmatter:
         title = frontmatter["title"]
@@ -158,6 +179,7 @@ def validate_frontmatter(frontmatter: dict[str, str], doc_type: str) -> list[Iss
                 Issue(
                     "warning",
                     f"Checkpoint title should start with 'Checkpoint:', got: '{title[:60]}'",
+                    tier="advisory",
                 )
             )
 
@@ -168,6 +190,7 @@ def validate_frontmatter(frontmatter: dict[str, str], doc_type: str) -> list[Iss
                 Issue(
                     "warning",
                     f"Summary title should start with 'Summary:', got: '{title[:60]}'",
+                    tier="advisory",
                 )
             )
 
@@ -191,11 +214,21 @@ def validate_sections(sections: list[dict[str, str]], doc_type: str) -> list[Iss
 
     missing = [name for name in required if name not in section_names]
     if missing:
-        issues.append(Issue("error", f"Missing required sections: {', '.join(missing)}"))
+        issues.append(
+            Issue(
+                "error",
+                f"Missing required sections: {', '.join(missing)}",
+                tier="integrity",
+            )
+        )
 
     for section in sections:
         if not section["content"].strip():
-            issues.append(Issue("warning", f"Empty section: '{section['heading']}'"))
+            issues.append(
+                Issue(
+                    "warning", f"Empty section: '{section['heading']}'", tier="advisory"
+                )
+            )
 
     # Hollow-handoff guardrail: at least 1 of {Decisions, Changes, Learnings}
     # must have non-empty content (handoffs only).
@@ -213,6 +246,7 @@ def validate_sections(sections: list[dict[str, str]], doc_type: str) -> list[Iss
                         "error",
                         "Hollow document: at least 1 of {Decisions, Changes, Learnings} "
                         "must have substantive content.",
+                        tier="integrity",
                     )
                 )
 
@@ -250,6 +284,7 @@ def validate_line_count(content: str, doc_type: str) -> list[Issue]:
                     f"Handoff body is {body_lines} lines "
                     f"(minimum: {HANDOFF_MIN_LINES}). "
                     "Under-capturing session content.",
+                    tier="advisory",
                 )
             )
     elif doc_type == "summary":
@@ -260,6 +295,7 @@ def validate_line_count(content: str, doc_type: str) -> list[Issue]:
                     f"Summary body is {body_lines} lines "
                     f"(minimum: {SUMMARY_MIN_LINES}). "
                     "Under-capturing session content.",
+                    tier="advisory",
                 )
             )
         elif body_lines > SUMMARY_MAX_LINES:
@@ -269,6 +305,7 @@ def validate_line_count(content: str, doc_type: str) -> list[Issue]:
                     f"Summary body is {body_lines} lines "
                     f"(maximum: {SUMMARY_MAX_LINES}). "
                     "Consider a full handoff instead.",
+                    tier="advisory",
                 )
             )
     elif doc_type == "checkpoint":
@@ -279,6 +316,7 @@ def validate_line_count(content: str, doc_type: str) -> list[Issue]:
                     f"Checkpoint body is {body_lines} lines "
                     f"(minimum: {CHECKPOINT_MIN_LINES}). "
                     "Missing required sections.",
+                    tier="advisory",
                 )
             )
         elif body_lines > CHECKPOINT_MAX_LINES:
@@ -288,6 +326,7 @@ def validate_line_count(content: str, doc_type: str) -> list[Issue]:
                     f"Checkpoint body is {body_lines} lines "
                     f"(maximum: {CHECKPOINT_MAX_LINES}). "
                     "Consider a full handoff instead.",
+                    tier="advisory",
                 )
             )
 
@@ -308,6 +347,7 @@ def validate(content: str) -> list[Issue]:
             Issue(
                 "error",
                 "No frontmatter found. Document must start with --- YAML block.",
+                tier="integrity",
             )
         ]
 
@@ -323,6 +363,7 @@ def validate(content: str) -> list[Issue]:
             Issue(
                 "error",
                 f"Invalid type '{doc_type}'. Must be one of: {', '.join(sorted(VALID_TYPES))}.",
+                tier="integrity",
             )
         )
         return issues  # Can't validate sections/lines without valid type
