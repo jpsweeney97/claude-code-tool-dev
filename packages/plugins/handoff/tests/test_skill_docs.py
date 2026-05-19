@@ -168,3 +168,14 @@ def test_defer_skill_uses_plugin_siblings_plain_field() -> None:
     assert "/tmp/ingest_payload.json" not in text
     assert "../../../../ticket/" not in text
     assert "ticket/1.4.0/scripts" not in text
+
+
+def test_skills_document_integrity_rejection_and_advisory_length() -> None:
+    import pathlib
+
+    skills = pathlib.Path(__file__).resolve().parents[1] / "skills"
+    for name in ("save", "quicksave", "summary"):
+        t = (skills / name / "SKILL.md").read_text("utf-8")
+        assert "integrity" in t.lower()
+        assert "ActiveWriteError" in t or "integrity validation" in t
+        assert "advisory" in t.lower()  # length/depth remain advisory
