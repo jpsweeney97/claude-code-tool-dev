@@ -75,7 +75,7 @@ Expected: `feature/handoff-port-commit-time-quality-gate`.
 
 - [ ] **Step 3: Green baseline**
 
-Run: `uv run --package handoff pytest packages/plugins/handoff/tests -q 2>&1 | tail -1`
+Run: `uv run --package handoff-plugin pytest packages/plugins/handoff/tests -q 2>&1 | tail -1`
 Expected: all pass (Plan A's final state). Record the count.
 
 ---
@@ -131,7 +131,7 @@ def test_hollow_guardrail_is_integrity():
 
 - [ ] **Step 2: Run it — expect FAIL** (`Issue` has no `tier`)
 
-Run: `cd /Users/jp/Projects/active/claude-code-tool-dev && uv run --package handoff pytest packages/plugins/handoff/tests/test_quality_check.py -k "tier or integrity or advisory or hollow" -q`
+Run: `cd /Users/jp/Projects/active/claude-code-tool-dev && uv run --package handoff-plugin pytest packages/plugins/handoff/tests/test_quality_check.py -k "tier or integrity or advisory or hollow" -q`
 Expected: FAIL — `AttributeError: 'Issue' object has no attribute 'tier'` (or `TypeError` once the field is added but a site is missed — that is the desired tripwire).
 
 - [ ] **Step 3: Add the required `tier` field to `Issue`**
@@ -166,7 +166,7 @@ Expected: PASS (all four tier tests green; the under-min test proves severity st
 
 - [ ] **Step 6: Regression — existing quality tests still pass; `format_output` unchanged**
 
-Run: `uv run --package handoff pytest packages/plugins/handoff/tests/test_quality_check.py -q`
+Run: `uv run --package handoff-plugin pytest packages/plugins/handoff/tests/test_quality_check.py -q`
 Expected: PASS. Any existing test that constructs `Issue("error","msg")` positionally now fails with `TypeError` — update those *test* constructions to pass `tier=` (test-fixture retarget, the intended cross-cutting consequence; not a defect mask). `format_output` filters by `severity` for display — leave it; the gate (Task 2) filters by `tier`.
 
 - [ ] **Step 7: Commit**
@@ -220,7 +220,7 @@ def test_integrity_failure_rejected_before_promotion(tmp_path):
 
 - [ ] **Step 2: Run it — expect FAIL** (hollow doc currently promotes)
 
-Run: `uv run --package handoff pytest packages/plugins/handoff/tests/test_active_writes.py -k integrity -q`
+Run: `uv run --package handoff-plugin pytest packages/plugins/handoff/tests/test_active_writes.py -k integrity -q`
 Expected: FAIL — no exception; `allocated_active_path` exists.
 
 - [ ] **Step 3: Insert the gate at the verified seam**
@@ -251,7 +251,7 @@ Expected: PASS — `ActiveWriteError` raised, message contains "integrity", `all
 
 Add a test asserting that after the rejection the `operation_state_path` still exists and `_recovery_commands(project_root, operation_state_path)` returns the `{continue, retry_write, abandon}` dict (the reservation is in the documented recoverable state — nothing to clean up beyond what the existing lock `finally` + reservation TTL already do). No new status literal; assert `test_active_write_status_partition` still passes unchanged.
 
-Run: `uv run --package handoff pytest packages/plugins/handoff/tests/test_active_writes.py packages/plugins/handoff/tests/test_active_write_status_partition.py -q`
+Run: `uv run --package handoff-plugin pytest packages/plugins/handoff/tests/test_active_writes.py packages/plugins/handoff/tests/test_active_write_status_partition.py -q`
 Expected: PASS (status-partition invariant untouched).
 
 - [ ] **Step 6: Commit**
@@ -291,7 +291,7 @@ Cases, each driving `write_active_handoff` through a fresh reservation:
 
 - [ ] **Step 2: Run — expect PASS (all cases)**
 
-Run: `uv run --package handoff pytest packages/plugins/handoff/tests/test_active_writes.py -q`
+Run: `uv run --package handoff-plugin pytest packages/plugins/handoff/tests/test_active_writes.py -q`
 Expected: PASS. If (c) fails (doc rejected), the gate is wrongly keying on `severity`/line-count — fix the gate filter to `i.tier == "integrity"`, never severity.
 
 - [ ] **Step 3: Commit**
@@ -330,7 +330,7 @@ def test_skills_document_integrity_rejection_and_advisory_length():
 
 - [ ] **Step 2: Run — expect FAIL**
 
-Run: `uv run --package handoff pytest packages/plugins/handoff/tests/test_skill_docs.py -k integrity -q`
+Run: `uv run --package handoff-plugin pytest packages/plugins/handoff/tests/test_skill_docs.py -k integrity -q`
 Expected: FAIL.
 
 - [ ] **Step 3: Add a "Failure modes" note to each of save/quicksave/summary SKILL.md**
@@ -392,7 +392,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 
 - [ ] **Step 1: Whole ported suite**
 
-Run: `cd /Users/jp/Projects/active/claude-code-tool-dev && uv run --package handoff pytest packages/plugins/handoff/tests -q 2>&1 | tail -8`
+Run: `cd /Users/jp/Projects/active/claude-code-tool-dev && uv run --package handoff-plugin pytest packages/plugins/handoff/tests -q 2>&1 | tail -8`
 Expected: **all pass** (Task 0 baseline count + the new tests; any positional-`Issue` test fixtures already retargeted in Task 1 Step 6).
 
 - [ ] **Step 2: AC checklist (evidence, not assertion)**

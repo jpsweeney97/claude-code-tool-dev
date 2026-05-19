@@ -93,8 +93,8 @@ Expected: `feature/handoff-codex-port` and empty status.
 
 - [ ] **Step 2: Record the current Claude plugin test baseline**
 
-Run: `cd /Users/jp/Projects/active/claude-code-tool-dev && uv run --package handoff pytest packages/plugins/handoff/tests -q 2>&1 | tail -5`
-Expected: all pass. Record the count (this is the v1.6.0 pre-port baseline; the ported suite replaces it).
+Run: `cd /Users/jp/Projects/active/claude-code-tool-dev && uv run --package handoff-plugin pytest packages/plugins/handoff/tests -q 2>&1 | tail -5`
+Expected: all pass. **Verified baseline: 351 passed** (v1.6.0 pre-port; the ported suite replaces it).
 
 - [ ] **Step 3: Capture the pre-move corpus manifest (sorted path + sha256)**
 
@@ -112,7 +112,7 @@ Expected: **161** lines.
 
 Run:
 ```bash
-rm -rf /tmp/handoff-port-baseline/corpus-copy 2>/dev/null
+[ -e /tmp/handoff-port-baseline/corpus-copy ] && trash /tmp/handoff-port-baseline/corpus-copy || true
 mkdir -p /tmp/handoff-port-baseline/corpus-copy
 cp -R docs/handoffs /tmp/handoff-port-baseline/corpus-copy/docs-handoffs
 cp -R .claude/handoffs /tmp/handoff-port-baseline/corpus-copy/claude-handoffs
@@ -211,7 +211,7 @@ def test_primary_is_claude_handoffs_and_legacy_is_docs_handoffs(tmp_path):
 
 - [ ] **Step 2: Run it — expect FAIL**
 
-Run: `cd /Users/jp/Projects/active/claude-code-tool-dev && uv run --package handoff pytest packages/plugins/handoff/tests/test_storage_layout.py::test_primary_is_claude_handoffs_and_legacy_is_docs_handoffs -q`
+Run: `cd /Users/jp/Projects/active/claude-code-tool-dev && uv run --package handoff-plugin pytest packages/plugins/handoff/tests/test_storage_layout.py::test_primary_is_claude_handoffs_and_legacy_is_docs_handoffs -q`
 Expected: FAIL — primary resolves to `.codex/handoffs`.
 
 - [ ] **Step 3: Retarget the storage_layout.py primary path (the one decisive symbol edit)**
@@ -242,7 +242,7 @@ def test_is_handoff_path_accepts_claude_rejects_codex():
 
 - [ ] **Step 6: Run it — expect FAIL** (accepts `.codex`, rejects `.claude`)
 
-Run: `uv run --package handoff pytest packages/plugins/handoff/tests/test_quality_check.py::test_is_handoff_path_accepts_claude_rejects_codex -q`
+Run: `uv run --package handoff-plugin pytest packages/plugins/handoff/tests/test_quality_check.py::test_is_handoff_path_accepts_claude_rejects_codex -q`
 Expected: FAIL.
 
 - [ ] **Step 7: Retarget the `is_handoff_path` part-check + docstrings (the second split-token site)**
@@ -275,7 +275,7 @@ Expected: **zero matches.** If any remain: each is either (a) a real storage ato
 
 - [ ] **Step 11: Run the storage + quality test files**
 
-Run: `uv run --package handoff pytest packages/plugins/handoff/tests/test_storage_layout.py packages/plugins/handoff/tests/test_quality_check.py -q`
+Run: `uv run --package handoff-plugin pytest packages/plugins/handoff/tests/test_storage_layout.py packages/plugins/handoff/tests/test_quality_check.py -q`
 Expected: PASS (Codex-host-shaped path assertions in these files were swept in Step 9; if any still assert `.codex`, fix the assertion to `.claude` — this is documented-behavior retarget, not a code defect masked).
 
 - [ ] **Step 12: Commit**
@@ -326,12 +326,12 @@ Expected: **zero matches** (the `.codex` atom does NOT cover this token — it i
 
 - [ ] **Step 4: Run the namespace-invariant test first (it guards the rest)**
 
-Run: `cd /Users/jp/Projects/active/claude-code-tool-dev && uv run --package handoff pytest packages/plugins/handoff/tests/test_runtime_namespace.py -q`
+Run: `cd /Users/jp/Projects/active/claude-code-tool-dev && uv run --package handoff-plugin pytest packages/plugins/handoff/tests/test_runtime_namespace.py -q`
 Expected: PASS. Specifically `test_runtime_module_inventory_is_explicit` (22 modules under `handoff_runtime/`), `test_runtime_modules_do_not_import_scripts_namespace`, `test_storage_base_layer_has_no_internal_imports`, `test_cli_facades_use_the_approved_template` all green. If `test_runtime_modules_are_import_only` or the base-layer test fails, a `perl` edit corrupted a module — inspect, do not mass-edit again.
 
 - [ ] **Step 5: Full ported suite smoke (rename correctness across 55 files)**
 
-Run: `uv run --package handoff pytest packages/plugins/handoff/tests -q 2>&1 | tail -8`
+Run: `uv run --package handoff-plugin pytest packages/plugins/handoff/tests -q 2>&1 | tail -8`
 Expected: collection succeeds (no `ModuleNotFoundError: turbo_mode_handoff_runtime`). Failures here are expected only in storage/host-shaped tests retargeted in later tasks; note them, do not fix yet.
 
 - [ ] **Step 6: Sweep `Future-Codex` (2 files) — strip per Execution step 3**
@@ -423,7 +423,7 @@ def test_resume_token_spine_unchanged():
 
 - [ ] **Step 6: Run it — expect FAIL**
 
-Run: `uv run --package handoff pytest packages/plugins/handoff/tests/test_skill_docs.py -k "session_id or resume_token" -q`
+Run: `uv run --package handoff-plugin pytest packages/plugins/handoff/tests/test_skill_docs.py -k "session_id or resume_token" -q`
 Expected: FAIL (`Generate a fresh UUID` present; `${CLAUDE_SESSION_ID}` absent).
 
 - [ ] **Step 7: Reverse the Session-ID section of `references/handoff-contract.md`**
@@ -484,7 +484,7 @@ Expected: **zero matches.** This is the definitive AC2 gate. Also re-run `rg 'tu
 
 - [ ] **Step 12: Run release-metadata + docs tests**
 
-Run: `uv run --package handoff pytest packages/plugins/handoff/tests/test_release_metadata.py packages/plugins/handoff/tests/test_skill_docs.py packages/plugins/handoff/tests/test_architecture_docs.py -q`
+Run: `uv run --package handoff-plugin pytest packages/plugins/handoff/tests/test_release_metadata.py packages/plugins/handoff/tests/test_skill_docs.py packages/plugins/handoff/tests/test_architecture_docs.py -q`
 Expected: PASS. These tests are Codex-host-shaped (expect `1.7.0`, `.codex-plugin`, Codex strings); retarget their *expectations* to the Claude values (2.0.0, `.claude-plugin`, Claude branding) — documented-behavior retarget per Execution step 3, not a defect mask. If a test asserts the `interface` block exists, delete that assertion (Claude manifest has no interface block by design).
 
 - [ ] **Step 13: Commit**
@@ -526,7 +526,7 @@ In `packages/plugins/handoff/tests/test_runtime_namespace.py`:
 
 - [ ] **Step 2: Run it — expect FAIL** (`test_scripts_directory_contains_only_cli_facades` now expects 10, finds 8)
 
-Run: `uv run --package handoff pytest packages/plugins/handoff/tests/test_runtime_namespace.py -q`
+Run: `uv run --package handoff-plugin pytest packages/plugins/handoff/tests/test_runtime_namespace.py -q`
 Expected: FAIL on the scripts-inventory test (10 expected, 8 present).
 
 - [ ] **Step 3: Create the two hook-launcher facades (exact, template-conformant)**
@@ -586,7 +586,7 @@ def test_is_handoff_path_accepts_claude_staging_rejects_codex_staging():
 
 - [ ] **Step 6: Run it — expect FAIL**
 
-Run: `uv run --package handoff pytest packages/plugins/handoff/tests/test_quality_check.py -k staging -q`
+Run: `uv run --package handoff-plugin pytest packages/plugins/handoff/tests/test_quality_check.py -k staging -q`
 Expected: FAIL (staging path not recognized).
 
 - [ ] **Step 7: Extend `is_handoff_path` to recognize the staging path**
@@ -669,7 +669,7 @@ Expected: `cleanup exit=0`; `quality_check` emits `hookSpecificOutput.additional
 
 - [ ] **Step 12: Run namespace + quality tests; commit**
 
-Run: `uv run --package handoff pytest packages/plugins/handoff/tests/test_runtime_namespace.py packages/plugins/handoff/tests/test_quality_check.py -q`
+Run: `uv run --package handoff-plugin pytest packages/plugins/handoff/tests/test_runtime_namespace.py packages/plugins/handoff/tests/test_quality_check.py -q`
 Expected: PASS.
 ```bash
 git add packages/plugins/handoff
@@ -754,7 +754,7 @@ cd /Users/jp/Projects/active/claude-code-tool-dev
 # Rehearse on the disposable copy from Task 0, not the live tree:
 bash -c '
 set -e; SBX=/tmp/handoff-port-baseline/rollback-rehearsal
-rm -rf "$SBX"; mkdir -p "$SBX"; cp -R /tmp/handoff-port-baseline/corpus-copy "$SBX/c"
+[ -e "$SBX" ] && trash "$SBX" || true; mkdir -p "$SBX"; cp -R /tmp/handoff-port-baseline/corpus-copy "$SBX/c"
 cd "$SBX/c"
 # build a manifest relative to the sandbox, run migrate then rollback DRY
 '
@@ -880,7 +880,7 @@ Write a one-paragraph PASS/FAIL note to the commit message of Task 8. The manife
 
 - [ ] **Step 1: Run the entire ported suite**
 
-Run: `cd /Users/jp/Projects/active/claude-code-tool-dev && uv run --package handoff pytest packages/plugins/handoff/tests -q 2>&1 | tail -15`
+Run: `cd /Users/jp/Projects/active/claude-code-tool-dev && uv run --package handoff-plugin pytest packages/plugins/handoff/tests -q 2>&1 | tail -15`
 
 - [ ] **Step 2: Triage failures by class (retarget vs defect)**
 
@@ -955,7 +955,7 @@ echo "AC2 future-codex:"; rg 'Future-Codex' packages/plugins/handoff | wc -l  # 
 echo "AC3 layout:"; python3 -c "import sys;sys.path.insert(0,'packages/plugins/handoff');from handoff_runtime.storage_layout import get_storage_layout as g;import pathlib;L=g(pathlib.Path('.'));print('.claude' in str(L.primary_active_dir), 'docs' in str(L.legacy_active_dir))"
 echo "AC4 identity:"; rg -c '\$\{CLAUDE_SESSION_ID\}' packages/plugins/handoff/references/handoff-contract.md
 echo "AC6 gitignore:"; git check-ignore -q .claude/handoffs && echo ok
-echo "AC7 tests:"; uv run --package handoff pytest packages/plugins/handoff/tests -q 2>&1 | tail -1
+echo "AC7 tests:"; uv run --package handoff-plugin pytest packages/plugins/handoff/tests -q 2>&1 | tail -1
 ```
 Expected: AC1 exact entry; AC2 all `0`; AC3 `True True`; AC4 ≥1; AC6 `ok`; AC7 all pass.
 
