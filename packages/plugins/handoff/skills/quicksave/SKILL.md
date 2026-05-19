@@ -5,13 +5,13 @@ description: Used when user runs /quicksave to save session state quickly under 
 
 # Quicksave
 
-Create a fast checkpoint at `<project_root>/.codex/handoffs/` so the next session can resume without re-exploration.
+Create a fast checkpoint at `<project_root>/.claude/handoffs/` so the next session can resume without re-exploration.
 
 Read these only when needed:
 - [handoff-contract.md](../../references/handoff-contract.md) for frontmatter, chain protocol, storage conventions.
 - [skill-details.md](../../references/skill-details.md) for section targets, anti-patterns, and troubleshooting.
 
-The plugin writes filesystem artifacts only. It does not add gitignore rules, stage files, or auto-commit files. Whether `.codex/handoffs/` is tracked or ignored is host-repository policy, not a plugin invariant.
+The plugin writes filesystem artifacts only. It does not add gitignore rules, stage files, or auto-commit files. Whether `.claude/handoffs/` is tracked or ignored is host-repository policy, not a plugin invariant.
 
 ## Use
 
@@ -72,5 +72,5 @@ The plugin writes filesystem artifacts only. It does not add gitignore rules, st
    ACTIVE_PATH="$(printf '%s\n' "$WRITE_OUTPUT" | python -c 'import json,sys; print(json.load(sys.stdin)["active_path"])')"
    ```
 
-8. Verify `ACTIVE_PATH` exists under `<project_root>/.codex/handoffs/` and required frontmatter fields are present.
+8. Verify `ACTIVE_PATH` exists under `<project_root>/.claude/handoffs/` and required frontmatter fields are present.
 9. Reply only with `Quicksave saved: <path>`. Do not reproduce checkpoint content in chat.

@@ -587,7 +587,7 @@ class TestDistillCLI:
         assert len(result["candidates"]) == 1
 
     def test_project_root_defaults_to_newest_active_handoff(self, tmp_path: Path) -> None:
-        active = tmp_path / ".codex" / "handoffs"
+        active = tmp_path / ".claude" / "handoffs"
         active.mkdir(parents=True)
         older = active / "2026-02-27_10-00_old.md"
         newer = active / "2026-02-27_11-00_new.md"
@@ -601,7 +601,7 @@ class TestDistillCLI:
         assert result["source_storage_location"] == "primary_active"
 
     def test_project_root_explicit_path_reports_storage_provenance(self, tmp_path: Path) -> None:
-        archive = tmp_path / ".codex" / "handoffs" / "archive"
+        archive = tmp_path / ".claude" / "handoffs" / "archive"
         archive.mkdir(parents=True)
         handoff = archive / "2026-02-27_10-00_archived.md"
         handoff.write_text(_current_distill_handoff("archived-session", "Archived"))

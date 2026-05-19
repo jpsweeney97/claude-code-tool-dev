@@ -21,7 +21,7 @@ class StorageLayout:
 def get_storage_layout(project_root: Path) -> StorageLayout:
     """Return the post-cutover Handoff storage layout for a project root."""
     root = project_root.resolve()
-    primary = root / ".codex" / "handoffs"
+    primary = root / ".claude" / "handoffs"
     legacy = root / "docs" / "handoffs"
     return StorageLayout(
         project_root=root,

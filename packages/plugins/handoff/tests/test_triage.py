@@ -495,7 +495,7 @@ class TestGenerateReport:
 
         tickets_dir = tmp_path / "tickets"
         tickets_dir.mkdir()
-        primary = tmp_path / ".codex" / "handoffs"
+        primary = tmp_path / ".claude" / "handoffs"
         primary.mkdir(parents=True)
         legacy = tmp_path / "docs" / "handoffs"
         legacy_archive = legacy / "archive"
@@ -518,7 +518,7 @@ class TestGenerateReport:
 
         tickets_dir = tmp_path / "tickets"
         tickets_dir.mkdir()
-        primary = tmp_path / ".codex" / "handoffs"
+        primary = tmp_path / ".claude" / "handoffs"
         primary.mkdir(parents=True)
 
         def _fail_legacy() -> Path:
@@ -603,7 +603,7 @@ class TestGenerateReport:
 
         tickets_dir = tmp_path / "tickets"
         tickets_dir.mkdir()
-        primary = tmp_path / ".codex" / "handoffs"
+        primary = tmp_path / ".claude" / "handoffs"
         primary_archive = primary / "archive"
         primary_archive.mkdir(parents=True)
         (primary / "2026-02-28_00-00_same.md").write_text(_current_handoff("Same"))
@@ -636,7 +636,7 @@ class TestMain:
 
         tickets_dir = tmp_path / "tickets"
         tickets_dir.mkdir()
-        primary = tmp_path / ".codex" / "handoffs"
+        primary = tmp_path / ".claude" / "handoffs"
         primary.mkdir(parents=True)
         (primary / "2026-02-28_00-00_current.md").write_text(_current_handoff())
 

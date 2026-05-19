@@ -5,7 +5,7 @@ description: Use when user says "wrap this up", "new session", "almost out of co
 
 # Save
 
-Create a comprehensive handoff at `<project_root>/.codex/handoffs/`. Use this for real session boundaries where future Codex needs decisions, file context, risks, and next steps without re-exploration.
+Create a comprehensive handoff at `<project_root>/.claude/handoffs/`. Use this for real session boundaries where future Codex needs decisions, file context, risks, and next steps without re-exploration.
 
 Read these only when needed:
 - [handoff-contract.md](../../references/handoff-contract.md) for frontmatter, chain protocol, storage conventions.
@@ -13,7 +13,7 @@ Read these only when needed:
 - [synthesis-guide.md](synthesis-guide.md) for the full internal synthesis prompts.
 - [skill-details.md](../../references/skill-details.md) for examples, anti-patterns, and troubleshooting.
 
-The plugin writes filesystem artifacts only. It does not add gitignore rules, stage files, or auto-commit files. Whether `.codex/handoffs/` is tracked or ignored is host-repository policy, not a plugin invariant.
+The plugin writes filesystem artifacts only. It does not add gitignore rules, stage files, or auto-commit files. Whether `.claude/handoffs/` is tracked or ignored is host-repository policy, not a plugin invariant.
 
 ## Use
 
@@ -75,5 +75,5 @@ The plugin writes filesystem artifacts only. It does not add gitignore rules, st
    ACTIVE_PATH="$(printf '%s\n' "$WRITE_OUTPUT" | python -c 'import json,sys; print(json.load(sys.stdin)["active_path"])')"
    ```
 
-9. Verify the file exists under `<project_root>/.codex/handoffs/`, frontmatter parses, required fields are present, and required sections are present.
+9. Verify the file exists under `<project_root>/.claude/handoffs/`, frontmatter parses, required fields are present, and required sections are present.
 10. Reply only with `Handoff saved: <path> - <title>`. Do not reproduce handoff content or synthesis answers in chat.

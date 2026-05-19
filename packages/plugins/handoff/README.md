@@ -35,10 +35,10 @@ codex plugin install ./plugins/turbo-mode/handoff
 
 | Skill | Trigger Phrases | Purpose |
 |-------|----------------|---------|
-| **save** | `/save`, "wrap this up", "new session", "handoff" | Full session report (13 sections, 400+ lines). Writes to `<project_root>/.codex/handoffs/`. |
+| **save** | `/save`, "wrap this up", "new session", "handoff" | Full session report (13 sections, 400+ lines). Writes to `<project_root>/.claude/handoffs/`. |
 | **load** | `/load`, "continue from where we left off" | Resume from a previous handoff. Archives the source file, writes a state file for chain linking. |
 | **quicksave** | `/quicksave`, "checkpoint", "save state" | Lightweight checkpoint (22-55 lines, 5 sections). Warns on 3rd consecutive checkpoint. |
-| **summary** | `/summary`, "summary", "summarize" | Medium-depth session summary with project arc context. Writes to `<project_root>/.codex/handoffs/`. |
+| **summary** | `/summary`, "summary", "summarize" | Medium-depth session summary with project arc context. Writes to `<project_root>/.claude/handoffs/`. |
 | **defer** | `/defer`, "track these for later", "create tickets" | Extract deferred work items from conversation into ticket files in `docs/tickets/`. |
 | **triage** | `/triage`, "what's in the backlog", "any open tickets" | Audit open tickets by priority. Detect orphaned handoff items not tracked by tickets. |
 | **distill** | `/distill`, "extract knowledge", "graduate knowledge" | Extract durable insights from handoffs into `docs/learnings/learnings.md` with SHA256 deduplication. |
@@ -80,14 +80,14 @@ Runtime module ownership for storage and chain behavior (layering order, lowest 
 
 | Location | Contents | Retention |
 |----------|----------|-----------|
-| `<project_root>/.codex/handoffs/` | Active handoffs and checkpoints | No auto-prune |
-| `<project_root>/.codex/handoffs/archive/` | Archived handoffs (moved by `/load`) | No auto-prune |
-| `<project_root>/.codex/handoffs/.session-state/handoff-<project>-<resume_token>.json` | Chain protocol state files | 24 hours |
+| `<project_root>/.claude/handoffs/` | Active handoffs and checkpoints | No auto-prune |
+| `<project_root>/.claude/handoffs/archive/` | Archived handoffs (moved by `/load`) | No auto-prune |
+| `<project_root>/.claude/handoffs/.session-state/handoff-<project>-<resume_token>.json` | Chain protocol state files | 24 hours |
 | `docs/tickets/` | Deferred work tickets | Permanent |
 | `docs/learnings/learnings.md` | Distilled knowledge entries | Permanent |
 
 The plugin writes filesystem artifacts only. It does not add gitignore rules, stage files, or auto-commit files.
-Whether `.codex/handoffs/` is tracked or ignored is host-repository policy, not a plugin invariant.
+Whether `.claude/handoffs/` is tracked or ignored is host-repository policy, not a plugin invariant.
 
 ### Handoff Frontmatter
 
@@ -128,7 +128,7 @@ Tickets created by `/defer` include:
 ```
 Session 1:
   /save                              → Creates handoff document
-                                        (<project_root>/.codex/handoffs/2026-03-09_14-30_feature-work.md)
+                                        (<project_root>/.claude/handoffs/2026-03-09_14-30_feature-work.md)
 
 Session 2:
   /load                              → Loads most recent handoff, archives it
@@ -192,9 +192,9 @@ Session 2:
 ├─ Runtime-only Helpers (Not Skill/Hook-wired) ──────┤
 │  cleanup, quality_check, storage_authority_inventory│
 ├─ Storage ─────────────────────────────────────────┤
-│  Active:  <project_root>/.codex/handoffs/         │
-│  Archive: <project_root>/.codex/handoffs/archive/ │
-│  State:   .codex/handoffs/.session-state/      │
+│  Active:  <project_root>/.claude/handoffs/         │
+│  Archive: <project_root>/.claude/handoffs/archive/ │
+│  State:   .claude/handoffs/.session-state/      │
 └─ References ──────────────────────────────────────┘
    handoff-contract.md  format-reference.md
    synthesis-guide.md
@@ -209,13 +209,13 @@ Session A (/save)
   └─ Writes handoff with active-writer reservation
 
 Session B (/load)
-  └─ Archives handoff under .codex/handoffs/archive/ → writes JSON state file
+  └─ Archives handoff under .claude/handoffs/archive/ → writes JSON state file
 
 Session C (/save, resumed from B)
   └─ Reads JSON state → sets resumed_from → writes new handoff → clears consumed state
 ```
 
-State files are JSON records under `.codex/handoffs/.session-state/handoff-<project>-<resume_token>.json`. Created by `/load`, consumed by `/save`, `/quicksave`, and `/summary`, then cleared after use. Active writers can bridge one valid legacy state file when needed and mark that source consumed without modifying legacy bytes. A 24-hour TTL handles orphaned state files from crashed sessions.
+State files are JSON records under `.claude/handoffs/.session-state/handoff-<project>-<resume_token>.json`. Created by `/load`, consumed by `/save`, `/quicksave`, and `/summary`, then cleared after use. Active writers can bridge one valid legacy state file when needed and mark that source consumed without modifying legacy bytes. A 24-hour TTL handles orphaned state files from crashed sessions.
 
 ### Design Principles
 

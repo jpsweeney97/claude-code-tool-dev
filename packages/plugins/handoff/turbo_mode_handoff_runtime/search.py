@@ -234,7 +234,7 @@ def main(argv: list[str] | None = None) -> str:
         if any(result.get("storage_location", "").startswith("legacy_") for result in results):
             legacy_warning = (
                 "Found handoffs at legacy location `docs/handoffs/`. "
-                "Post-cutover writes use `.codex/handoffs/`; legacy matches are "
+                "Post-cutover writes use `.claude/handoffs/`; legacy matches are "
                 "read-only compatibility input."
             )
         return json.dumps(
@@ -296,7 +296,7 @@ def main(argv: list[str] | None = None) -> str:
             if legacy_results:
                 legacy_warning = (
                     "Found handoffs at legacy location `docs/handoffs/`. "
-                    "Post-cutover writes use `.codex/handoffs/`; legacy matches are "
+                    "Post-cutover writes use `.claude/handoffs/`; legacy matches are "
                     "read-only compatibility input."
                 )
                 results.extend(legacy_results)

@@ -51,7 +51,7 @@ def get_project_name() -> tuple[str, str]:
 
 
 def get_handoffs_dir() -> Path:
-    """Get primary handoffs directory: <project_root>/.codex/handoffs/."""
+    """Get primary handoffs directory: <project_root>/.claude/handoffs/."""
     root, _ = get_project_root()
     return get_storage_layout(root).primary_active_dir
 
@@ -63,7 +63,7 @@ def get_archive_dir() -> Path:
 
 
 def get_state_dir() -> Path:
-    """Get session state directory: <project_root>/.codex/handoffs/.session-state/
+    """Get session state directory: <project_root>/.claude/handoffs/.session-state/
 
     State files are ephemeral bridge objects (24h TTL) linking resume to save
     via the chain protocol. The plugin writes filesystem artifacts only and

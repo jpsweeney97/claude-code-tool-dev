@@ -30,7 +30,7 @@ def test_fs_status_covers_missing_file_directory_and_symlink(tmp_path: Path) -> 
 
 
 def test_git_visibility_reports_not_git_repo_outside_worktree(tmp_path: Path) -> None:
-    handoff = tmp_path / ".codex" / "handoffs" / "2026-05-13_12-00_primary.md"
+    handoff = tmp_path / ".claude" / "handoffs" / "2026-05-13_12-00_primary.md"
     handoff.parent.mkdir(parents=True)
     handoff.write_text("---\ntitle: Primary\n---\n", encoding="utf-8")
 
@@ -41,7 +41,7 @@ def test_git_visibility_reports_tracked_conflict(tmp_path: Path) -> None:
     subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True, text=True)
     subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=tmp_path, check=True)
     subprocess.run(["git", "config", "user.name", "Test User"], cwd=tmp_path, check=True)
-    handoff = tmp_path / ".codex" / "handoffs" / "2026-05-13_12-00_primary.md"
+    handoff = tmp_path / ".claude" / "handoffs" / "2026-05-13_12-00_primary.md"
     handoff.parent.mkdir(parents=True)
     handoff.write_text("---\ntitle: Primary\n---\n", encoding="utf-8")
     subprocess.run(["git", "add", str(handoff.relative_to(tmp_path))], cwd=tmp_path, check=True)

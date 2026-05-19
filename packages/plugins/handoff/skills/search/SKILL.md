@@ -24,7 +24,7 @@ When user runs `/search <query>`:
    ```bash
    PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
    PYTHONDONTWRITEBYTECODE=1 \
-   UV_PROJECT_ENVIRONMENT="$PROJECT_ROOT/.codex/plugin-runtimes/handoff" \
+   UV_PROJECT_ENVIRONMENT="$PROJECT_ROOT/.claude/plugin-runtimes/handoff" \
    uv run --project "$PLUGIN_ROOT/pyproject.toml" python "$PLUGIN_ROOT/scripts/search.py" '<query>'
    ```
 

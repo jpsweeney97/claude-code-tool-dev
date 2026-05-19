@@ -53,7 +53,7 @@ and status/payload bugs recur beyond PR #15.
 
 `storage_authority_inventory.py` is a non-wired dev/CI helper (not part of the runtime load path): it builds and checks the storage-authority documentation-coverage fixture. See CONTRIBUTING.md for how to regenerate that fixture after a storage-authority doc change.
 
-Primary handoffs live under `.codex/handoffs/`; controlled legacy discovery covers pre-cutover `docs/handoffs/` history.
+Primary handoffs live under `.claude/handoffs/`; controlled legacy discovery covers pre-cutover `docs/handoffs/` history.
 
 ## Locking Model
 

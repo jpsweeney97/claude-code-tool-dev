@@ -349,7 +349,7 @@ def generate_report(
     if legacy_found:
         legacy_warning = (
             "Found handoffs at legacy location `docs/handoffs/`. "
-            "Post-cutover writes use `.codex/handoffs/`; legacy matches are "
+            "Post-cutover writes use `.claude/handoffs/`; legacy matches are "
             "read-only compatibility input."
         )
 
@@ -406,7 +406,7 @@ def generate_project_report(tickets_dir: Path, project_root: Path) -> TriageRepo
     if legacy_found:
         legacy_warning = (
             "Found handoffs at legacy location `docs/handoffs/`. "
-            "Post-cutover writes use `.codex/handoffs/`; legacy matches are "
+            "Post-cutover writes use `.claude/handoffs/`; legacy matches are "
             "read-only compatibility input."
         )
 

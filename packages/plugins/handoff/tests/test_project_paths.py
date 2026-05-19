@@ -97,7 +97,7 @@ class TestGetHandoffsDir:
             return_value=(Path("/Users/jp/Projects/myproject"), "git"),
         ):
             result = get_handoffs_dir()
-        assert result == Path("/Users/jp/Projects/myproject") / ".codex" / "handoffs"
+        assert result == Path("/Users/jp/Projects/myproject") / ".claude" / "handoffs"
 
 
 class TestGetArchiveDir:

@@ -8,7 +8,7 @@ Use `/save` for session boundaries where future Codex needs full reasoning, deci
 
 Avoid trivial handoffs, single-sentence decisions, bare file lists, paraphrased user preferences when verbatim wording matters, and chat reproduction of the saved artifact. If the body looks thin, re-check implicit decisions, explored files, rejected approaches, and the conversation arc before writing. If the saved content is materially incomplete, create a replacement handoff rather than editing committed active-writer output in place.
 
-Troubleshooting: if the file is not created, inspect the active-writer error, operation-state JSON, write permissions under `.codex/handoffs/`, and project-root detection. If content misses key decisions, create a new handoff with fuller context.
+Troubleshooting: if the file is not created, inspect the active-writer error, operation-state JSON, write permissions under `.claude/handoffs/`, and project-root detection. If content misses key decisions, create a new handoff with fuller context.
 
 ## Summary
 
@@ -29,12 +29,12 @@ Troubleshooting: if the file is not created, inspect project detection and activ
 ## Load
 
 Primary runtime storage:
-- Active handoffs: `<project_root>/.codex/handoffs/`
-- Archive: `<project_root>/.codex/handoffs/archive/`
-- Resume state: `<project_root>/.codex/handoffs/.session-state/handoff-<project>-<resume_token>.json`
-- Load transactions: `<project_root>/.codex/handoffs/.session-state/transactions/`
+- Active handoffs: `<project_root>/.claude/handoffs/`
+- Archive: `<project_root>/.claude/handoffs/archive/`
+- Resume state: `<project_root>/.claude/handoffs/.session-state/handoff-<project>-<resume_token>.json`
+- Load transactions: `<project_root>/.claude/handoffs/.session-state/transactions/`
 
-Legacy read compatibility may include reviewed active inputs from `docs/handoffs/*.md`, explicit legacy archive inputs from `docs/handoffs/archive/*.md`, and hidden primary archives from `.codex/handoffs/.archive/*.md`. Legacy sources are not deleted by load.
+Legacy read compatibility may include reviewed active inputs from `docs/handoffs/*.md`, explicit legacy archive inputs from `docs/handoffs/archive/*.md`, and hidden primary archives from `.claude/handoffs/.archive/*.md`. Legacy sources are not deleted by load.
 
 Avoid auto-injecting handoffs, suggesting old handoffs without user request, loading the synthesis guide, modifying handoff content, or hand-editing resume state.
 

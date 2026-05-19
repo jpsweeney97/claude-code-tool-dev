@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 SCHEMA_VERSION = "handoff-storage-authority-inventory-v1"
-PRIMARY_STORAGE_ROOT = "<project_root>/.codex/handoffs/"
+PRIMARY_STORAGE_ROOT = "<project_root>/.claude/handoffs/"
 LEGACY_STORAGE_ROOT = "<project_root>/docs/handoffs/"
 
 
@@ -55,7 +55,7 @@ PLUGIN_SPECS = (
     InventorySpec(
         path="turbo_mode_handoff_runtime/quality_check.py",
         root="plugin",
-        required=("<project_root>/.codex/handoffs/",),
+        required=("<project_root>/.claude/handoffs/",),
         forbidden=("<project_root>/docs/handoffs/",),
     ),
 )
@@ -64,7 +64,7 @@ REPO_SPECS = (
     InventorySpec(
         path="plugins/turbo-mode/tools/refresh/smoke.py",
         root="repo",
-        required=(".codex/handoffs/archive", ".codex/handoffs/.session-state"),
+        required=(".claude/handoffs/archive", ".claude/handoffs/.session-state"),
         forbidden=("docs/handoffs/archive", "docs/handoffs/.session-state"),
     ),
 )

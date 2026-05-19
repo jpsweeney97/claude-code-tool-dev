@@ -500,10 +500,10 @@ def test_chain_state_recovery_inventory_cli_reports_state_identity_without_mutat
     tmp_path: Path,
 ) -> None:
     script = Path(__file__).parent.parent / "scripts" / "session_state.py"
-    primary = tmp_path / ".codex" / "handoffs" / ".session-state" / "handoff-demo-token-a.json"
+    primary = tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-token-a.json"
     legacy = tmp_path / "docs" / "handoffs" / ".session-state" / "handoff-demo-token-b.json"
     residue = tmp_path / "docs" / "handoffs" / "handoff-demo"
-    archive = tmp_path / ".codex" / "handoffs" / "archive" / "previous.md"
+    archive = tmp_path / ".claude" / "handoffs" / "archive" / "previous.md"
     primary.parent.mkdir(parents=True, exist_ok=True)
     legacy.parent.mkdir(parents=True, exist_ok=True)
     residue.parent.mkdir(parents=True, exist_ok=True)
@@ -552,7 +552,7 @@ def test_chain_state_recovery_inventory_cli_reports_state_identity_without_mutat
     by_path = {
         candidate["project_relative_state_path"]: candidate for candidate in payload["candidates"]
     }
-    primary_row = by_path[".codex/handoffs/.session-state/handoff-demo-token-a.json"]
+    primary_row = by_path[".claude/handoffs/.session-state/handoff-demo-token-a.json"]
     legacy_row = by_path["docs/handoffs/.session-state/handoff-demo-token-b.json"]
     residue_row = by_path["docs/handoffs/handoff-demo"]
     assert primary_row["source_root"] == "primary"
@@ -568,12 +568,12 @@ def test_chain_state_recovery_inventory_cli_reports_state_identity_without_mutat
     assert residue_row["detected_format"] == "plain-state"
     assert residue_row["archive_path"] == str(archive)
     assert legacy.read_text(encoding="utf-8") == json.dumps(legacy_payload)
-    assert not (tmp_path / ".codex" / "handoffs" / ".session-state" / "markers").exists()
+    assert not (tmp_path / ".claude" / "handoffs" / ".session-state" / "markers").exists()
 
 
 def test_list_chain_state_cli_aliases_recovery_inventory(tmp_path: Path) -> None:
     script = Path(__file__).parent.parent / "scripts" / "session_state.py"
-    primary = tmp_path / ".codex" / "handoffs" / ".session-state" / "handoff-demo-token-a.json"
+    primary = tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-token-a.json"
     primary.parent.mkdir(parents=True, exist_ok=True)
     primary.write_text(
         json.dumps(
@@ -607,7 +607,7 @@ def test_list_chain_state_cli_aliases_recovery_inventory(tmp_path: Path) -> None
     payload = json.loads(result.stdout)
     assert payload["total"] == 1
     assert payload["candidates"][0]["project_relative_state_path"] == (
-        ".codex/handoffs/.session-state/handoff-demo-token-a.json"
+        ".claude/handoffs/.session-state/handoff-demo-token-a.json"
     )
 
 
@@ -615,7 +615,7 @@ def test_read_chain_state_cli_fails_ambiguous_primary_with_recovery_inventory(
     tmp_path: Path,
 ) -> None:
     script = Path(__file__).parent.parent / "scripts" / "session_state.py"
-    state_dir = tmp_path / ".codex" / "handoffs" / ".session-state"
+    state_dir = tmp_path / ".claude" / "handoffs" / ".session-state"
     state_dir.mkdir(parents=True, exist_ok=True)
     for token in ("token-a", "token-b"):
         state = state_dir / f"handoff-demo-{token}.json"
@@ -670,7 +670,7 @@ def test_read_chain_state_cli_rejects_primary_with_unresolved_legacy(
     tmp_path: Path,
 ) -> None:
     script = Path(__file__).parent.parent / "scripts" / "session_state.py"
-    primary = tmp_path / ".codex" / "handoffs" / ".session-state" / "handoff-demo-token-a.json"
+    primary = tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-token-a.json"
     legacy = tmp_path / "docs" / "handoffs" / ".session-state" / "handoff-demo-token-b.json"
     primary.parent.mkdir(parents=True, exist_ok=True)
     legacy.parent.mkdir(parents=True, exist_ok=True)
@@ -733,7 +733,7 @@ def test_mark_chain_state_consumed_suppresses_unresolved_legacy_state(
     tmp_path: Path,
 ) -> None:
     script = Path(__file__).parent.parent / "scripts" / "session_state.py"
-    primary = tmp_path / ".codex" / "handoffs" / ".session-state" / "handoff-demo-token-a.json"
+    primary = tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-token-a.json"
     legacy = tmp_path / "docs" / "handoffs" / ".session-state" / "handoff-demo-token-b.json"
     primary.parent.mkdir(parents=True, exist_ok=True)
     legacy.parent.mkdir(parents=True, exist_ok=True)
@@ -886,7 +886,7 @@ def test_continue_chain_state_from_legacy_writes_primary_and_marks_source_consum
     transaction_path = Path(payload["transaction_path"])
     marker_path = Path(payload["marker_path"])
     assert primary_state_path == (
-        tmp_path / ".codex" / "handoffs" / ".session-state" / "handoff-demo-token-b.json"
+        tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-token-b.json"
     )
     assert transaction_path.exists()
     assert marker_path.exists()
@@ -926,7 +926,7 @@ def test_abandon_primary_chain_state_moves_exact_primary_and_unblocks_legacy(
     tmp_path: Path,
 ) -> None:
     script = Path(__file__).parent.parent / "scripts" / "session_state.py"
-    primary = tmp_path / ".codex" / "handoffs" / ".session-state" / "handoff-demo-token-a.json"
+    primary = tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-token-a.json"
     legacy = tmp_path / "docs" / "handoffs" / ".session-state" / "handoff-demo-token-b.json"
     primary.parent.mkdir(parents=True, exist_ok=True)
     legacy.parent.mkdir(parents=True, exist_ok=True)
@@ -960,7 +960,7 @@ def test_abandon_primary_chain_state_moves_exact_primary_and_unblocks_legacy(
             "--project",
             "demo",
             "--state-path",
-            ".codex/handoffs/.session-state/handoff-demo-token-a.json",
+            ".claude/handoffs/.session-state/handoff-demo-token-a.json",
             "--expected-payload-sha256",
             primary_hash,
             "--reason",
@@ -1168,7 +1168,7 @@ def test_continue_chain_state_from_state_like_residue_mints_primary_token(
     assert continued.returncode == 0, continued.stderr
     payload = json.loads(continued.stdout)
     primary_state_path = Path(payload["state_path"])
-    assert primary_state_path.parent == tmp_path / ".codex" / "handoffs" / ".session-state"
+    assert primary_state_path.parent == tmp_path / ".claude" / "handoffs" / ".session-state"
     assert primary_state_path.name.startswith("handoff-demo-")
     assert primary_state_path.suffix == ".json"
     primary_payload = json.loads(primary_state_path.read_text(encoding="utf-8"))
@@ -1205,7 +1205,7 @@ def test_continue_chain_state_from_state_like_residue_mints_primary_token(
 
 def test_read_chain_state_cli_reads_single_primary_state(tmp_path: Path) -> None:
     script = Path(__file__).parent.parent / "scripts" / "session_state.py"
-    primary = tmp_path / ".codex" / "handoffs" / ".session-state" / "handoff-demo-token-a.json"
+    primary = tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-token-a.json"
     primary.parent.mkdir(parents=True, exist_ok=True)
     primary.write_text(
         json.dumps(
@@ -1240,14 +1240,14 @@ def test_read_chain_state_cli_reads_single_primary_state(tmp_path: Path) -> None
     assert payload["status"] == "found"
     assert payload["source"] == "primary"
     assert payload["state"]["project_relative_state_path"] == (
-        ".codex/handoffs/.session-state/handoff-demo-token-a.json"
+        ".claude/handoffs/.session-state/handoff-demo-token-a.json"
     )
     assert payload["state"]["resume_token"] == "token-a"
 
 
 def test_read_chain_state_cli_field_state_outputs_json(tmp_path: Path) -> None:
     script = Path(__file__).parent.parent / "scripts" / "session_state.py"
-    primary = tmp_path / ".codex" / "handoffs" / ".session-state" / "handoff-demo-token-a.json"
+    primary = tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-token-a.json"
     primary.parent.mkdir(parents=True, exist_ok=True)
     primary.write_text(
         json.dumps(
@@ -1282,7 +1282,7 @@ def test_read_chain_state_cli_field_state_outputs_json(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert payload["project_relative_state_path"] == (
-        ".codex/handoffs/.session-state/handoff-demo-token-a.json"
+        ".claude/handoffs/.session-state/handoff-demo-token-a.json"
     )
     assert payload["resume_token"] == "token-a"
 
@@ -1302,8 +1302,8 @@ def _project_residue_snapshot(project_root: Path) -> set[str]:
     return _residue_snapshot(
         project_root,
         [
-            ".codex/plugin-runtimes/handoff",
-            ".codex/plugin-runtimes/handoff/.lock",
+            ".claude/plugin-runtimes/handoff",
+            ".claude/plugin-runtimes/handoff/.lock",
             "**/__pycache__",
             "**/*.pyc",
         ],
@@ -1317,7 +1317,7 @@ def test_state_shell_snippet_preserves_exit_2(tmp_path: Path) -> None:
     subprocess.run(["git", "init"], cwd=str(tmp_path), check=True, capture_output=True, text=True)
     state_dir = tmp_path / "docs" / "handoffs" / ".session-state"
     state_dir.mkdir(parents=True)
-    runtime_env = tmp_path / ".codex" / "plugin-runtimes" / "handoff"
+    runtime_env = tmp_path / ".claude" / "plugin-runtimes" / "handoff"
     project_before = _project_residue_snapshot(tmp_path)
     write_resume_state(state_dir, "demo", "/tmp/archive-a.md", "token-a")
     write_resume_state(state_dir, "demo", "/tmp/archive-b.md", "token-b")
@@ -1350,7 +1350,7 @@ def test_state_shell_snippet_skips_clear_when_absent(tmp_path: Path) -> None:
     subprocess.run(["git", "init"], cwd=str(tmp_path), check=True, capture_output=True, text=True)
     state_dir = tmp_path / "docs" / "handoffs" / ".session-state"
     state_dir.mkdir(parents=True)
-    runtime_env = tmp_path / ".codex" / "plugin-runtimes" / "handoff"
+    runtime_env = tmp_path / ".claude" / "plugin-runtimes" / "handoff"
     project_before = _project_residue_snapshot(tmp_path)
     shell = f'''
 PLUGIN_ROOT="{plugin_root}"

@@ -62,7 +62,7 @@ def test_active_writer_flow_cli_runs_begin_generate_write_protocol(
     assert payload["bound_slug"] == expected_slug
     assert payload["content_hash"] == state["content_hash"]
     assert active_path == (
-        tmp_path / ".codex" / "handoffs" / f"2026-05-13_16-45_{operation}-{expected_slug}.md"
+        tmp_path / ".claude" / "handoffs" / f"2026-05-13_16-45_{operation}-{expected_slug}.md"
     )
     assert state["status"] == "committed"
     assert active_path.read_text(encoding="utf-8").startswith("---\n")
@@ -123,7 +123,7 @@ def test_active_writer_flow_cli_bridges_legacy_state_and_marks_source_consumed(
     operation_state_path = Path(payload["operation_state_path"])
     operation_state = json.loads(operation_state_path.read_text(encoding="utf-8"))
     primary_state = (
-        tmp_path / ".codex" / "handoffs" / ".session-state" / "handoff-demo-token-b.json"
+        tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-token-b.json"
     )
     inventory = chain_state_recovery_inventory(tmp_path, project_name="demo")
     by_path = {
@@ -131,7 +131,7 @@ def test_active_writer_flow_cli_bridges_legacy_state_and_marks_source_consumed(
     }
 
     assert Path(payload["active_path"]) == (
-        tmp_path / ".codex" / "handoffs" / f"2026-05-13_16-45_{operation}-{expected_slug}.md"
+        tmp_path / ".claude" / "handoffs" / f"2026-05-13_16-45_{operation}-{expected_slug}.md"
     )
     assert operation_state["resumed_from_path"] == str(archive)
     assert operation_state["resumed_from_hash"] == hashlib.sha256(archive.read_bytes()).hexdigest()
@@ -147,7 +147,7 @@ def test_active_writer_flow_cli_bridges_legacy_state_and_marks_source_consumed(
 
 
 def test_begin_active_write_rejects_corrupt_resume_state_snapshot(tmp_path: Path) -> None:
-    state_dir = tmp_path / ".codex" / "handoffs" / ".session-state"
+    state_dir = tmp_path / ".claude" / "handoffs" / ".session-state"
     state_dir.mkdir(parents=True)
     corrupt = state_dir / "handoff-demo-bad.json"
     corrupt.write_text("{bad", encoding="utf-8")
@@ -317,7 +317,7 @@ def test_active_writer_flow_cli_fails_on_ambiguous_pending_inventory(
         slug="first",
         created_at="2026-05-13T16:45:00Z",
     )
-    state_dir = tmp_path / ".codex" / "handoffs" / ".session-state"
+    state_dir = tmp_path / ".claude" / "handoffs" / ".session-state"
     chain_state = state_dir / "handoff-demo-resume.json"
     chain_state.write_text(
         json.dumps({"project": "demo", "archive_path": "/tmp/archive.md"}),
@@ -362,10 +362,10 @@ def test_active_writer_flow_cli_cleanup_falls_back_to_unlink_when_trash_fails(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    archive = tmp_path / ".codex" / "handoffs" / "archive" / "previous.md"
+    archive = tmp_path / ".claude" / "handoffs" / "archive" / "previous.md"
     archive.parent.mkdir(parents=True)
     archive.write_text("---\ntitle: Previous\n---\n", encoding="utf-8")
-    state_dir = tmp_path / ".codex" / "handoffs" / ".session-state"
+    state_dir = tmp_path / ".claude" / "handoffs" / ".session-state"
     state_dir.mkdir(parents=True)
     state_path = state_dir / "handoff-demo-resume.json"
     state_path.write_text(
@@ -410,7 +410,7 @@ def test_active_writer_flow_cli_cleanup_falls_back_to_unlink_when_trash_fails(
     assert "Traceback" not in captured.err
     operation_state_path = (
         tmp_path
-        / ".codex"
+        / ".claude"
         / "handoffs"
         / ".session-state"
         / "active-writes"
@@ -468,7 +468,7 @@ def test_active_writer_flow_cli_allocates_collision_safe_paths_through_02(
         assert result.returncode == 0, result.stderr
         payloads.append(json.loads(result.stdout))
 
-    active_dir = tmp_path / ".codex" / "handoffs"
+    active_dir = tmp_path / ".claude" / "handoffs"
     assert [payload["active_path"] for payload in payloads] == [
         str(active_dir / f"2026-05-13_16-45_{operation}-{slug}.md"),
         str(active_dir / f"2026-05-13_16-45_{operation}-{slug}-01.md"),
@@ -482,7 +482,7 @@ def test_active_writer_flow_releases_lock_during_generation_and_reacquires_for_w
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    lock_path = tmp_path / ".codex" / "handoffs" / ".session-state" / "locks" / "active-write.lock"
+    lock_path = tmp_path / ".claude" / "handoffs" / ".session-state" / "locks" / "active-write.lock"
     original_generator = session_state._deterministic_active_writer_content
     observed: dict[str, bool] = {}
 
@@ -536,7 +536,7 @@ def test_active_writer_flow_releases_lock_during_generation_and_reacquires_for_w
     assert "lock is already held" in captured.err
     operation_state_path = (
         tmp_path
-        / ".codex"
+        / ".claude"
         / "handoffs"
         / ".session-state"
         / "active-writes"
@@ -591,7 +591,7 @@ def test_begin_active_write_persists_operation_state_before_content_generation(
     assert payload["bound_slug"] == "next-step"
     assert payload["slug_source"] == "caller-predeclared"
     assert payload["allocated_active_path"] == str(
-        tmp_path / ".codex" / "handoffs" / "2026-05-13_16-45_save-next-step.md"
+        tmp_path / ".claude" / "handoffs" / "2026-05-13_16-45_save-next-step.md"
     )
     assert payload["operation_state_path"] == str(operation_state_path)
     assert payload["lease_id"]
@@ -614,7 +614,7 @@ def test_begin_active_write_persists_operation_state_before_content_generation(
     assert transaction["status"] == "pending_before_write"
     assert transaction["allocated_active_path"] == payload["allocated_active_path"]
     assert not (
-        tmp_path / ".codex" / "handoffs" / ".session-state" / "locks" / "active-write.lock"
+        tmp_path / ".claude" / "handoffs" / ".session-state" / "locks" / "active-write.lock"
     ).exists()
 
 
@@ -647,14 +647,14 @@ def test_begin_active_write_mints_helper_default_slug_before_content_generation(
     assert payload["bound_slug"] == "summary"
     assert payload["slug_source"] == "helper-default"
     assert payload["allocated_active_path"] == str(
-        tmp_path / ".codex" / "handoffs" / "2026-05-13_16-45_summary-summary.md"
+        tmp_path / ".claude" / "handoffs" / "2026-05-13_16-45_summary-summary.md"
     )
     assert not Path(payload["allocated_active_path"]).exists()
 
 
 def test_allocate_active_path_cli_returns_collision_safe_primary_path(tmp_path: Path) -> None:
     script = Path(__file__).parent.parent / "scripts" / "session_state.py"
-    existing = tmp_path / ".codex" / "handoffs" / "2026-05-13_16-45_save-repeat.md"
+    existing = tmp_path / ".claude" / "handoffs" / "2026-05-13_16-45_save-repeat.md"
     existing.parent.mkdir(parents=True)
     existing.write_text("existing\n", encoding="utf-8")
 
@@ -681,13 +681,13 @@ def test_allocate_active_path_cli_returns_collision_safe_primary_path(tmp_path: 
 
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == str(
-        tmp_path / ".codex" / "handoffs" / "2026-05-13_16-45_save-repeat-01.md"
+        tmp_path / ".claude" / "handoffs" / "2026-05-13_16-45_save-repeat-01.md"
     )
     assert existing.read_text(encoding="utf-8") == "existing\n"
 
 
 def test_allocate_active_path_treats_dangling_symlink_as_occupied(tmp_path: Path) -> None:
-    existing = tmp_path / ".codex" / "handoffs" / "2026-05-13_16-45_save-repeat.md"
+    existing = tmp_path / ".claude" / "handoffs" / "2026-05-13_16-45_save-repeat.md"
     existing.parent.mkdir(parents=True)
     existing.symlink_to(tmp_path / "missing-target.md")
 
@@ -698,12 +698,12 @@ def test_allocate_active_path_treats_dangling_symlink_as_occupied(tmp_path: Path
         created_at="2026-05-13T16:45:00Z",
     )
 
-    assert active_path == tmp_path / ".codex" / "handoffs" / "2026-05-13_16-45_save-repeat-01.md"
+    assert active_path == tmp_path / ".claude" / "handoffs" / "2026-05-13_16-45_save-repeat-01.md"
 
 
 def test_allocate_active_path_treats_tracked_missing_path_as_occupied(tmp_path: Path) -> None:
     subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True, text=True)
-    existing = tmp_path / ".codex" / "handoffs" / "2026-05-13_16-45_save-repeat.md"
+    existing = tmp_path / ".claude" / "handoffs" / "2026-05-13_16-45_save-repeat.md"
     existing.parent.mkdir(parents=True)
     existing.write_text("tracked candidate\n", encoding="utf-8")
     subprocess.run(
@@ -722,7 +722,7 @@ def test_allocate_active_path_treats_tracked_missing_path_as_occupied(tmp_path: 
         created_at="2026-05-13T16:45:00Z",
     )
 
-    assert active_path == tmp_path / ".codex" / "handoffs" / "2026-05-13_16-45_save-repeat-01.md"
+    assert active_path == tmp_path / ".claude" / "handoffs" / "2026-05-13_16-45_save-repeat-01.md"
 
 
 def test_allocate_active_path_rejects_path_like_slug(tmp_path: Path) -> None:
@@ -736,7 +736,7 @@ def test_allocate_active_path_rejects_path_like_slug(tmp_path: Path) -> None:
 
 
 def test_allocate_active_path_reports_parent_file_conflict(tmp_path: Path) -> None:
-    (tmp_path / ".codex").write_text("not a directory\n", encoding="utf-8")
+    (tmp_path / ".claude").write_text("not a directory\n", encoding="utf-8")
 
     with pytest.raises(active_writes.ActiveWriteError, match="parent path conflict"):
         active_writes.allocate_active_path(
@@ -771,7 +771,7 @@ def test_begin_active_write_reuses_existing_run_id_reservation(tmp_path: Path) -
     assert second.operation_state_path == first.operation_state_path
     assert second.allocated_active_path == first.allocated_active_path
     transactions = sorted(
-        (tmp_path / ".codex" / "handoffs" / ".session-state" / "transactions").glob("*.json")
+        (tmp_path / ".claude" / "handoffs" / ".session-state" / "transactions").glob("*.json")
     )
     assert transactions == [first.transaction_path]
 
@@ -799,7 +799,7 @@ def test_begin_active_write_rejects_slug_change_for_existing_run_id(tmp_path: Pa
 
     after = json.loads(first.operation_state_path.read_text(encoding="utf-8"))
     transactions = sorted(
-        (tmp_path / ".codex" / "handoffs" / ".session-state" / "transactions").glob("*.json")
+        (tmp_path / ".claude" / "handoffs" / ".session-state" / "transactions").glob("*.json")
     )
     assert after == before
     assert transactions == [first.transaction_path]
@@ -826,10 +826,10 @@ def test_begin_active_write_rejects_second_live_reservation_for_same_state(
         )
 
     transactions = sorted(
-        (tmp_path / ".codex" / "handoffs" / ".session-state" / "transactions").glob("*.json")
+        (tmp_path / ".claude" / "handoffs" / ".session-state" / "transactions").glob("*.json")
     )
     assert transactions == [first.transaction_path]
-    assert not (tmp_path / ".codex" / "handoffs" / "2026-05-13_16-46_save-second.md").exists()
+    assert not (tmp_path / ".claude" / "handoffs" / "2026-05-13_16-46_save-second.md").exists()
 
 
 def test_begin_active_write_auto_expires_stale_pre_output_reservation(
@@ -858,11 +858,11 @@ def test_begin_active_write_auto_expires_stale_pre_output_reservation(
     assert expired_transaction["status"] == "reservation_expired"
     assert replacement.transaction_id != first.transaction_id
     assert replacement.allocated_active_path == (
-        tmp_path / ".codex" / "handoffs" / "2026-05-13_16-46_save-replacement.md"
+        tmp_path / ".claude" / "handoffs" / "2026-05-13_16-46_save-replacement.md"
     )
 
     transactions = sorted(
-        (tmp_path / ".codex" / "handoffs" / ".session-state" / "transactions").glob("*.json")
+        (tmp_path / ".claude" / "handoffs" / ".session-state" / "transactions").glob("*.json")
     )
     assert set(transactions) == {first.transaction_path, replacement.transaction_path}
 
@@ -946,7 +946,7 @@ def test_write_active_handoff_commits_reserved_output(tmp_path: Path) -> None:
 
     assert write.returncode == 0, write.stderr
     active_path = Path(write.stdout.strip())
-    assert active_path == tmp_path / ".codex" / "handoffs" / "2026-05-13_16-45_save-write-phase.md"
+    assert active_path == tmp_path / ".claude" / "handoffs" / "2026-05-13_16-45_save-write-phase.md"
     assert active_path.read_text(encoding="utf-8") == content
     state = json.loads(operation_state_path.read_text(encoding="utf-8"))
     assert state["status"] == "committed"
@@ -960,7 +960,7 @@ def test_write_active_handoff_commits_reserved_output(tmp_path: Path) -> None:
     )
     assert transaction["temp_active_path"].endswith(".tmp")
     assert not (
-        tmp_path / ".codex" / "handoffs" / ".session-state" / "locks" / "active-write.lock"
+        tmp_path / ".claude" / "handoffs" / ".session-state" / "locks" / "active-write.lock"
     ).exists()
 
 
@@ -1019,7 +1019,7 @@ def test_list_active_writes_reports_pending_operation_state_without_mutation(
 
 def test_list_active_writes_surfaces_unreadable_operation_state(tmp_path: Path) -> None:
     active_writes_dir = (
-        tmp_path / ".codex" / "handoffs" / ".session-state" / "active-writes" / "demo"
+        tmp_path / ".claude" / "handoffs" / ".session-state" / "active-writes" / "demo"
     )
     active_writes_dir.mkdir(parents=True)
     corrupt = active_writes_dir / "corrupt.json"
@@ -1429,10 +1429,10 @@ def test_write_active_handoff_clears_snapshotted_primary_state_after_output_writ
     tmp_path: Path,
 ) -> None:
     script = Path(__file__).parent.parent / "scripts" / "session_state.py"
-    archive = tmp_path / ".codex" / "handoffs" / "archive" / "previous.md"
+    archive = tmp_path / ".claude" / "handoffs" / "archive" / "previous.md"
     archive.parent.mkdir(parents=True)
     archive.write_text("---\ntitle: Previous\n---\n", encoding="utf-8")
-    state_dir = tmp_path / ".codex" / "handoffs" / ".session-state"
+    state_dir = tmp_path / ".claude" / "handoffs" / ".session-state"
     state_dir.mkdir(parents=True)
     state_path = state_dir / "handoff-demo-resume.json"
     state_path.write_text(
@@ -1507,10 +1507,10 @@ def test_write_active_handoff_falls_back_to_unlink_when_trash_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    archive = tmp_path / ".codex" / "handoffs" / "archive" / "previous.md"
+    archive = tmp_path / ".claude" / "handoffs" / "archive" / "previous.md"
     archive.parent.mkdir(parents=True)
     archive.write_text("---\ntitle: Previous\n---\n", encoding="utf-8")
-    state_dir = tmp_path / ".codex" / "handoffs" / ".session-state"
+    state_dir = tmp_path / ".claude" / "handoffs" / ".session-state"
     state_dir.mkdir(parents=True)
     state_path = state_dir / "handoff-demo-resume.json"
     state_path.write_text(
@@ -1562,10 +1562,10 @@ def test_write_active_handoff_persists_cleanup_failed_when_both_mechanisms_fail(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    archive = tmp_path / ".codex" / "handoffs" / "archive" / "previous.md"
+    archive = tmp_path / ".claude" / "handoffs" / "archive" / "previous.md"
     archive.parent.mkdir(parents=True)
     archive.write_text("---\ntitle: Previous\n---\n", encoding="utf-8")
-    state_dir = tmp_path / ".codex" / "handoffs" / ".session-state"
+    state_dir = tmp_path / ".claude" / "handoffs" / ".session-state"
     state_dir.mkdir(parents=True)
     state_path = state_dir / "handoff-demo-resume.json"
     state_path.write_text(
@@ -1667,7 +1667,7 @@ def test_write_active_handoff_rejects_changed_state_snapshot_before_output_write
         slug="state-conflict",
         created_at="2026-05-13T16:45:00Z",
     )
-    state_dir = tmp_path / ".codex" / "handoffs" / ".session-state"
+    state_dir = tmp_path / ".claude" / "handoffs" / ".session-state"
     conflicting_state = state_dir / "handoff-demo-conflict.json"
     conflicting_state.write_text(
         json.dumps(
@@ -1713,7 +1713,7 @@ def test_write_active_handoff_rejects_changed_transaction_watermark_before_outpu
     )
     conflict_transaction = (
         tmp_path
-        / ".codex"
+        / ".claude"
         / "handoffs"
         / ".session-state"
         / "transactions"
@@ -1753,7 +1753,7 @@ def test_write_active_handoff_rejects_changed_transaction_watermark_before_outpu
 
 
 def _lock_path(tmp_path: Path) -> Path:
-    return tmp_path / ".codex" / "handoffs" / ".session-state" / "locks" / "active-write.lock"
+    return tmp_path / ".claude" / "handoffs" / ".session-state" / "locks" / "active-write.lock"
 
 
 def _valid_lock_metadata(
@@ -2117,7 +2117,7 @@ def test_release_lock_preserves_session_state_dir(tmp_path: Path) -> None:
         operation="save",
         created_at="2026-05-13T16:45:00Z",
     )
-    session_state_dir = tmp_path / ".codex" / "handoffs" / ".session-state"
+    session_state_dir = tmp_path / ".claude" / "handoffs" / ".session-state"
     assert session_state_dir.exists()
     assert not _lock_path(tmp_path).exists()
     assert reservation.operation_state_path.exists()
@@ -2127,7 +2127,7 @@ def test_release_lock_preserves_session_state_dir(tmp_path: Path) -> None:
 def test_active_write_lock_live_contention_with_subprocess(tmp_path: Path) -> None:
     plugin_root = str(Path(__file__).resolve().parent.parent)
 
-    lock_path = tmp_path / ".codex" / "handoffs" / ".session-state" / "locks" / "active-write.lock"
+    lock_path = tmp_path / ".claude" / "handoffs" / ".session-state" / "locks" / "active-write.lock"
     lock_path_repr = repr(str(lock_path))
 
     ready_marker = tmp_path / "ready.marker"
@@ -2214,7 +2214,7 @@ except Exception as exc:
 def test_ensure_no_compatible_reservation_fails_closed_on_corrupt_record(
     tmp_path: Path,
 ) -> None:
-    corrupt_dir = tmp_path / ".codex" / "handoffs" / ".session-state" / "active-writes" / "demo"
+    corrupt_dir = tmp_path / ".claude" / "handoffs" / ".session-state" / "active-writes" / "demo"
     corrupt_dir.mkdir(parents=True, exist_ok=True)
     corrupt_file = corrupt_dir / "garbage.json"
     corrupt_file.write_text("not-json{{{", encoding="utf-8")
@@ -2228,7 +2228,7 @@ def test_ensure_no_compatible_reservation_fails_closed_on_corrupt_record(
 
 
 def test_existing_reservation_reports_corrupt_operation_state(tmp_path: Path) -> None:
-    state_dir = tmp_path / ".codex" / "handoffs" / ".session-state"
+    state_dir = tmp_path / ".claude" / "handoffs" / ".session-state"
     operation_state_path = state_dir / "active-writes" / "demo" / "run-1.json"
     operation_state_path.parent.mkdir(parents=True, exist_ok=True)
     operation_state_path.write_text("{bad", encoding="utf-8")
@@ -2246,7 +2246,7 @@ def test_existing_reservation_reports_corrupt_operation_state(tmp_path: Path) ->
 def test_write_active_handoff_reports_corrupt_operation_state(tmp_path: Path) -> None:
     operation_state_path = (
         tmp_path
-        / ".codex"
+        / ".claude"
         / "handoffs"
         / ".session-state"
         / "active-writes"

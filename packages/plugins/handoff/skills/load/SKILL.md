@@ -5,9 +5,9 @@ description: Use when continuing from a previous session, when user runs `/load`
 
 # Load
 
-Resume work from an existing Handoff artifact. Loading may archive or copy the selected handoff and writes resume state under `<project_root>/.codex/handoffs/.session-state/handoff-<project>-<resume_token>.json`.
+Resume work from an existing Handoff artifact. Loading may archive or copy the selected handoff and writes resume state under `<project_root>/.claude/handoffs/.session-state/handoff-<project>-<resume_token>.json`.
 
-The plugin writes filesystem artifacts only. It does not add gitignore rules, stage files, or auto-commit files. Whether `.codex/handoffs/` is tracked or ignored is host-repository policy, not a plugin invariant.
+The plugin writes filesystem artifacts only. It does not add gitignore rules, stage files, or auto-commit files. Whether `.claude/handoffs/` is tracked or ignored is host-repository policy, not a plugin invariant.
 
 Handoff does not ship plugin-bundled command hooks. Run the load helper directly with the resolved plugin root.
 
@@ -58,7 +58,7 @@ Read these only when needed:
 
    The command emits JSON with `transaction_id`, `transaction_path`, `source_path`, `archive_path`, `state_path`, and `storage_location`. If it exits non-zero, report stderr and STOP. Do not delete transaction, lock, or recovery-claim files unless the operator explicitly confirms the diagnostic repair path.
 
-4. Read handoff content from the returned `archive_path`, not from the original source. Primary active handoffs may have been moved to `<project_root>/.codex/handoffs/archive/<filename>`.
+4. Read handoff content from the returned `archive_path`, not from the original source. Primary active handoffs may have been moved to `<project_root>/.claude/handoffs/archive/<filename>`.
 5. Display the full handoff/checkpoint/summary content, note its type, summarize goal/current task, decisions, and next steps, then offer the first next action.
 
 ## List
@@ -84,5 +84,5 @@ If `total` is `0`, report "No handoffs found for this project" and STOP. Otherwi
 
 - Handoff content is displayed to the user.
 - Transaction JSON includes `archive_path`, `state_path`, and `storage_location`.
-- State file exists at `<project_root>/.codex/handoffs/.session-state/handoff-<project>-<resume_token>.json`.
+- State file exists at `<project_root>/.claude/handoffs/.session-state/handoff-<project>-<resume_token>.json`.
 - The response names whether this is a checkpoint, summary, or handoff and offers a concrete continuation prompt.

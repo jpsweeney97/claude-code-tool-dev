@@ -98,7 +98,7 @@ def test_chain_writer_docs_use_active_writer_state_bridge() -> None:
 def test_current_storage_docs_name_codex_handoffs_as_primary_storage() -> None:
     for path in CURRENT_STORAGE_DOCS:
         text = path.read_text(encoding="utf-8")
-        assert "<project_root>/.codex/handoffs/" in text
+        assert "<project_root>/.claude/handoffs/" in text
         assert "<project_root>/docs/handoffs/" not in text
         assert "local-only working memory" not in text
 
@@ -107,10 +107,10 @@ def test_changelog_records_handoff_storage_reversal() -> None:
     text = (PLUGIN_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     assert (
         "Handoff storage moved from `<project_root>/docs/handoffs/` "
-        "to `<project_root>/.codex/handoffs/`"
+        "to `<project_root>/.claude/handoffs/`"
     ) in text
     assert (
-        "Handoff storage moved from `<project_root>/.codex/handoffs/` "
+        "Handoff storage moved from `<project_root>/.claude/handoffs/` "
         "to `<project_root>/docs/handoffs/`"
     ) not in text
     assert "local-only working memory" not in text

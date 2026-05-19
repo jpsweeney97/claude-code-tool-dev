@@ -1,7 +1,7 @@
 {
   "legacy_storage_root": "<project_root>/docs/handoffs/",
   "overall_status": "passed",
-  "primary_storage_root": "<project_root>/.codex/handoffs/",
+  "primary_storage_root": "<project_root>/.claude/handoffs/",
   "rows": [
     {
       "forbidden": [
@@ -11,7 +11,7 @@
       "forbidden_present": [],
       "path": "README.md",
       "required": [
-        "<project_root>/.codex/handoffs/",
+        "<project_root>/.claude/handoffs/",
         "handoff-<project>-<resume_token>.json"
       ],
       "required_missing": [],
@@ -21,13 +21,13 @@
     },
     {
       "forbidden": [
-        "Handoff storage moved from `<project_root>/.codex/handoffs/` to `<project_root>/docs/handoffs/`",
+        "Handoff storage moved from `<project_root>/.claude/handoffs/` to `<project_root>/docs/handoffs/`",
         "local-only working memory"
       ],
       "forbidden_present": [],
       "path": "CHANGELOG.md",
       "required": [
-        "Handoff storage moved from `<project_root>/docs/handoffs/` to `<project_root>/.codex/handoffs/`"
+        "Handoff storage moved from `<project_root>/docs/handoffs/` to `<project_root>/.claude/handoffs/`"
       ],
       "required_missing": [],
       "root": "plugin",
@@ -42,7 +42,7 @@
       "forbidden_present": [],
       "path": "references/handoff-contract.md",
       "required": [
-        "<project_root>/.codex/handoffs/",
+        "<project_root>/.claude/handoffs/",
         "handoff-<project>-<resume_token>.json"
       ],
       "required_missing": [],
@@ -58,7 +58,7 @@
       "forbidden_present": [],
       "path": "references/format-reference.md",
       "required": [
-        "<project_root>/.codex/handoffs/"
+        "<project_root>/.claude/handoffs/"
       ],
       "required_missing": [],
       "root": "plugin",
@@ -72,7 +72,7 @@
       "forbidden_present": [],
       "path": "turbo_mode_handoff_runtime/quality_check.py",
       "required": [
-        "<project_root>/.codex/handoffs/"
+        "<project_root>/.claude/handoffs/"
       ],
       "required_missing": [],
       "root": "plugin",
@@ -87,8 +87,8 @@
       "forbidden_present": [],
       "path": "plugins/turbo-mode/tools/refresh/smoke.py",
       "required": [
-        ".codex/handoffs/archive",
-        ".codex/handoffs/.session-state"
+        ".claude/handoffs/archive",
+        ".claude/handoffs/.session-state"
       ],
       "required_missing": [],
       "root": "repo",

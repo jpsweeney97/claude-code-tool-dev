@@ -130,7 +130,7 @@ def test_write_spy_intercepts_chain_state_importer(
     legacy_state_path = tmp_path / "docs" / "handoffs" / ".session-state" / "handoff-demo"
     legacy_state_path.parent.mkdir(parents=True, exist_ok=True)
     legacy_state_path.write_text(
-        str(tmp_path / ".codex" / "handoffs" / "archive" / "old.md"),
+        str(tmp_path / ".claude" / "handoffs" / "archive" / "old.md"),
         encoding="utf-8",
     )
     legacy_hash = hashlib.sha256(legacy_state_path.read_bytes()).hexdigest()
@@ -254,7 +254,7 @@ def _drive_conflict_snapshot(
     # test_write_active_handoff_rejects_changed_state_snapshot_before_output_write
     spy = _install_spy(monkeypatch)
     res = _begin(tmp_path, slug="state-conflict")
-    state_dir = tmp_path / ".codex" / "handoffs" / ".session-state"
+    state_dir = tmp_path / ".claude" / "handoffs" / ".session-state"
     conflicting_state = state_dir / "handoff-demo-conflict.json"
     conflicting_state.write_text(
         json.dumps(
@@ -292,7 +292,7 @@ def _drive_conflict_watermark(
     res = _begin(tmp_path, slug="transaction-conflict")
     conflict_transaction = (
         tmp_path
-        / ".codex"
+        / ".claude"
         / "handoffs"
         / ".session-state"
         / "transactions"
@@ -336,10 +336,10 @@ def _drive_cleanup_failed(
     # cleanup helper itself, so the genuine persistence path runs (review
     # Finding 4: prefer the copied real setup over synthetic injection).
     spy = _install_spy(monkeypatch)
-    archive = tmp_path / ".codex" / "handoffs" / "archive" / "previous.md"
+    archive = tmp_path / ".claude" / "handoffs" / "archive" / "previous.md"
     archive.parent.mkdir(parents=True)
     archive.write_text("---\ntitle: Previous\n---\n", encoding="utf-8")
-    state_dir = tmp_path / ".codex" / "handoffs" / ".session-state"
+    state_dir = tmp_path / ".claude" / "handoffs" / ".session-state"
     state_dir.mkdir(parents=True)
     state_path = state_dir / "handoff-demo-resume.json"
     state_path.write_text(

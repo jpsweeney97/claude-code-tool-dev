@@ -348,7 +348,7 @@ class TestSearchCLI:
         assert result["error"] is None
 
     def test_post_cutover_searches_legacy_docs_archive(self, tmp_path: Path) -> None:
-        primary_dir = tmp_path / ".codex" / "handoffs"
+        primary_dir = tmp_path / ".claude" / "handoffs"
         primary_dir.mkdir(parents=True)
         legacy_dir = tmp_path / "docs" / "handoffs"
         legacy_archive = legacy_dir / "archive"
@@ -375,7 +375,7 @@ class TestSearchCLI:
         assert "next save will write to `docs/handoffs/`" not in result["legacy_warning"]
 
     def test_project_root_uses_storage_authority_history_search(self, tmp_path: Path) -> None:
-        primary_dir = tmp_path / ".codex" / "handoffs"
+        primary_dir = tmp_path / ".claude" / "handoffs"
         legacy_archive = tmp_path / "docs" / "handoffs" / "archive"
         primary_dir.mkdir(parents=True)
         legacy_archive.mkdir(parents=True)
@@ -400,7 +400,7 @@ class TestSearchCLI:
         self,
         tmp_path: Path,
     ) -> None:
-        primary_dir = tmp_path / ".codex" / "handoffs"
+        primary_dir = tmp_path / ".claude" / "handoffs"
         primary_archive = primary_dir / "archive"
         primary_archive.mkdir(parents=True)
         _make_handoff(
@@ -423,7 +423,7 @@ class TestSearchCLI:
         assert result["results"][0]["storage_location"] == "primary_active"
 
     def test_legacy_discovery_error_is_reported(self, tmp_path: Path) -> None:
-        primary_dir = tmp_path / ".codex" / "handoffs"
+        primary_dir = tmp_path / ".claude" / "handoffs"
         primary_dir.mkdir(parents=True)
 
         with patch(

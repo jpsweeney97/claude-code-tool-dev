@@ -26,7 +26,7 @@ def _handoff(path: Path, title: str, branch: str = "main") -> Path:
 
 
 def test_lists_active_handoffs_in_storage_authority_order(tmp_path: Path) -> None:
-    active = tmp_path / ".codex" / "handoffs"
+    active = tmp_path / ".claude" / "handoffs"
     older = _handoff(active / "2026-02-28_10-00_old.md", "Old")
     newer = _handoff(active / "2026-02-28_11-00_new.md", "New")
 

@@ -30,7 +30,7 @@ Resolve plugin root before running helpers. Set `PLUGIN_ROOT` to the plugin root
    ```bash
    PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
    PYTHONDONTWRITEBYTECODE=1 \
-   UV_PROJECT_ENVIRONMENT="$PROJECT_ROOT/.codex/plugin-runtimes/handoff" \
+   UV_PROJECT_ENVIRONMENT="$PROJECT_ROOT/.claude/plugin-runtimes/handoff" \
    uv run --project "$PLUGIN_ROOT/pyproject.toml" python "$PLUGIN_ROOT/scripts/defer.py" --tickets-dir "$PROJECT_ROOT/docs/tickets" <<'JSON'
    <candidates_json>
    JSON
@@ -43,18 +43,18 @@ Resolve plugin root before running helpers. Set `PLUGIN_ROOT` to the plugin root
    ```bash
    PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
    PYTHONDONTWRITEBYTECODE=1 \
-   UV_PROJECT_ENVIRONMENT="$PROJECT_ROOT/.codex/plugin-runtimes/handoff" \
+   UV_PROJECT_ENVIRONMENT="$PROJECT_ROOT/.claude/plugin-runtimes/handoff" \
    uv run --project "$PLUGIN_ROOT/pyproject.toml" python "$PLUGIN_ROOT/scripts/plugin_siblings.py" --plugin-root "$PLUGIN_ROOT" --sibling ticket --field plugin_root
    ```
 
    Copy the printed absolute Ticket plugin root literally. If more than one installed Ticket version is reported, fail closed and do not guess. Do not use a relative payload path or `/tmp` payload path.
 
-6. For each envelope, create a payload file under `$PROJECT_ROOT/.codex/ticket-tmp/`, then ingest it:
+6. For each envelope, create a payload file under `$PROJECT_ROOT/.claude/ticket-tmp/`, then ingest it:
 
    ```bash
-   mkdir -p "$PROJECT_ROOT/.codex/ticket-tmp"
+   mkdir -p "$PROJECT_ROOT/.claude/ticket-tmp"
    # Write {"envelope_path": "<envelope_path_from_defer.py>", "tickets_dir": "docs/tickets"}.
-   python3 /absolute/ticket/root/scripts/ticket_engine_user.py ingest "$PROJECT_ROOT/.codex/ticket-tmp/payload-ingest-<timestamp>-<suffix>.json"
+   python3 /absolute/ticket/root/scripts/ticket_engine_user.py ingest "$PROJECT_ROOT/.claude/ticket-tmp/payload-ingest-<timestamp>-<suffix>.json"
    ```
 
 7. Stage created ticket files and processed envelopes by explicit path only. Never use `git add .`.

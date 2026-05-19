@@ -45,7 +45,7 @@ def test_search_command_runs_from_normal_repo_cwd(tmp_path: Path) -> None:
     before = _residue_snapshot(PLUGIN_ROOT)
     handoffs = tmp_path / "docs" / "handoffs"
     handoffs.mkdir(parents=True)
-    runtime_env = tmp_path / ".codex" / "plugin-runtimes" / "handoff"
+    runtime_env = tmp_path / ".claude" / "plugin-runtimes" / "handoff"
     command = (
         f'PLUGIN_ROOT="{PLUGIN_ROOT}" '
         f'PROJECT_ROOT="{tmp_path}" '
@@ -66,7 +66,7 @@ def test_triage_command_runs_from_normal_repo_cwd(tmp_path: Path) -> None:
     before = _residue_snapshot(PLUGIN_ROOT)
     tickets = tmp_path / "docs" / "tickets"
     tickets.mkdir(parents=True)
-    runtime_env = tmp_path / ".codex" / "plugin-runtimes" / "handoff"
+    runtime_env = tmp_path / ".claude" / "plugin-runtimes" / "handoff"
     command = (
         f'PLUGIN_ROOT="{PLUGIN_ROOT}" '
         f'PROJECT_ROOT="{tmp_path}" '
@@ -104,7 +104,7 @@ def test_distill_command_runs_from_normal_repo_cwd(tmp_path: Path) -> None:
     learnings = tmp_path / "docs" / "learnings" / "learnings.md"
     learnings.parent.mkdir(parents=True)
     learnings.write_text("# Learnings\n", encoding="utf-8")
-    runtime_env = tmp_path / ".codex" / "plugin-runtimes" / "handoff"
+    runtime_env = tmp_path / ".claude" / "plugin-runtimes" / "handoff"
     command = (
         f'PLUGIN_ROOT="{PLUGIN_ROOT}" '
         f'PROJECT_ROOT="{tmp_path}" '
@@ -123,7 +123,7 @@ def test_distill_command_runs_from_normal_repo_cwd(tmp_path: Path) -> None:
 def test_defer_pipeline_matches_ticket_guard_contract(tmp_path: Path) -> None:
     _init_repo(tmp_path)
     before = _residue_snapshot(PLUGIN_ROOT)
-    runtime_env = tmp_path / ".codex" / "plugin-runtimes" / "handoff"
+    runtime_env = tmp_path / ".claude" / "plugin-runtimes" / "handoff"
     tickets_dir = tmp_path / "docs" / "tickets"
     tickets_dir.mkdir(parents=True)
     candidates_json = json.dumps(
@@ -162,7 +162,7 @@ JSON
     assert emitted["status"] in {"ok", "partial_success"}, emitted
     envelope_path = emitted["envelopes"][0]
 
-    payload_path = tmp_path / ".codex" / "ticket-tmp" / "payload-ingest.json"
+    payload_path = tmp_path / ".claude" / "ticket-tmp" / "payload-ingest.json"
     payload_path.parent.mkdir(parents=True)
     payload_path.write_text(
         json.dumps({"envelope_path": envelope_path, "tickets_dir": "docs/tickets"}, indent=2),

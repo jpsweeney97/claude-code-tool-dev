@@ -126,7 +126,7 @@ def test_storage_authority_does_not_export_chain_state_facade() -> None:
 
 def test_active_selection_blocks_unproven_legacy_active_markdown(tmp_path: Path) -> None:
     _git_init(tmp_path)
-    primary = _handoff(tmp_path / ".codex" / "handoffs" / "2026-05-13_12-00_primary.md", "Primary")
+    primary = _handoff(tmp_path / ".claude" / "handoffs" / "2026-05-13_12-00_primary.md", "Primary")
     legacy = _handoff(tmp_path / "docs" / "handoffs" / "2026-05-13_12-01_legacy.md", "Legacy")
     legacy_archive = _handoff(
         tmp_path / "docs" / "handoffs" / "archive" / "2026-05-13_12-02_archive.md",
@@ -178,7 +178,7 @@ def test_active_selection_suppresses_consumed_legacy_active_by_stable_hash(
 ) -> None:
     legacy = _handoff(tmp_path / "docs" / "handoffs" / "2026-05-13_12-01_legacy.md", "Legacy")
     _write_legacy_active_opt_in(tmp_path, legacy)
-    consumed = tmp_path / ".codex" / "handoffs" / ".session-state" / "consumed-legacy-active.json"
+    consumed = tmp_path / ".claude" / "handoffs" / ".session-state" / "consumed-legacy-active.json"
     consumed.parent.mkdir(parents=True, exist_ok=True)
     consumed.write_text(
         json.dumps(
@@ -217,9 +217,9 @@ def test_active_selection_suppresses_consumed_legacy_active_by_stable_hash(
 
 
 def test_history_search_includes_archive_tiers_but_not_state(tmp_path: Path) -> None:
-    primary = _handoff(tmp_path / ".codex" / "handoffs" / "2026-05-13_12-00_primary.md", "Primary")
+    primary = _handoff(tmp_path / ".claude" / "handoffs" / "2026-05-13_12-00_primary.md", "Primary")
     primary_archive = _handoff(
-        tmp_path / ".codex" / "handoffs" / "archive" / "2026-05-13_11-00_primary-archive.md",
+        tmp_path / ".claude" / "handoffs" / "archive" / "2026-05-13_11-00_primary-archive.md",
         "Primary Archive",
     )
     legacy_archive = _handoff(
@@ -227,10 +227,10 @@ def test_history_search_includes_archive_tiers_but_not_state(tmp_path: Path) -> 
         "Legacy Archive",
     )
     previous_hidden = _handoff(
-        tmp_path / ".codex" / "handoffs" / ".archive" / "2026-05-13_09-00_hidden.md",
+        tmp_path / ".claude" / "handoffs" / ".archive" / "2026-05-13_09-00_hidden.md",
         "Hidden Archive",
     )
-    state = tmp_path / ".codex" / "handoffs" / ".session-state" / "handoff-demo-token.json"
+    state = tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-token.json"
     state.parent.mkdir(parents=True)
     state.write_text("{}", encoding="utf-8")
 
@@ -250,7 +250,7 @@ def test_history_search_includes_archive_tiers_but_not_state(tmp_path: Path) -> 
 
 def test_tracked_primary_active_source_is_blocked(tmp_path: Path) -> None:
     _git_init(tmp_path)
-    primary = _handoff(tmp_path / ".codex" / "handoffs" / "2026-05-13_12-00_primary.md", "Primary")
+    primary = _handoff(tmp_path / ".claude" / "handoffs" / "2026-05-13_12-00_primary.md", "Primary")
     subprocess.run(["git", "add", str(primary.relative_to(tmp_path))], cwd=tmp_path, check=True)
 
     inventory = discover_handoff_inventory(tmp_path, scan_mode="active-selection")
@@ -262,15 +262,15 @@ def test_tracked_primary_active_source_is_blocked(tmp_path: Path) -> None:
 
 def test_active_selection_orders_by_filename_timestamp_then_lexical_path(tmp_path: Path) -> None:
     older = _handoff(
-        tmp_path / ".codex" / "handoffs" / "2026-05-13_10-00_older.md",
+        tmp_path / ".claude" / "handoffs" / "2026-05-13_10-00_older.md",
         "Older",
     )
     later_b = _handoff(
-        tmp_path / ".codex" / "handoffs" / "2026-05-13_12-00_b.md",
+        tmp_path / ".claude" / "handoffs" / "2026-05-13_12-00_b.md",
         "Later B",
     )
     later_a = _handoff(
-        tmp_path / ".codex" / "handoffs" / "2026-05-13_12-00_a.md",
+        tmp_path / ".claude" / "handoffs" / "2026-05-13_12-00_a.md",
         "Later A",
     )
 
@@ -286,11 +286,11 @@ def test_active_selection_orders_by_filename_timestamp_then_lexical_path(tmp_pat
 def test_active_selection_reports_invalid_hidden_nested_and_state_diagnostics(
     tmp_path: Path,
 ) -> None:
-    invalid = _invalid_handoff(tmp_path / ".codex" / "handoffs" / "2026-05-13_12-00_invalid.md")
-    hidden = _handoff(tmp_path / ".codex" / "handoffs" / ".hidden.md")
-    nested = _handoff(tmp_path / ".codex" / "handoffs" / "nested" / "2026-05-13_12-00_nested.md")
+    invalid = _invalid_handoff(tmp_path / ".claude" / "handoffs" / "2026-05-13_12-00_invalid.md")
+    hidden = _handoff(tmp_path / ".claude" / "handoffs" / ".hidden.md")
+    nested = _handoff(tmp_path / ".claude" / "handoffs" / "nested" / "2026-05-13_12-00_nested.md")
     state_doc = _handoff(
-        tmp_path / ".codex" / "handoffs" / ".session-state" / "2026-05-13_12-00_state.md"
+        tmp_path / ".claude" / "handoffs" / ".session-state" / "2026-05-13_12-00_state.md"
     )
 
     inventory = discover_handoff_inventory(tmp_path, scan_mode="active-selection")
@@ -309,7 +309,7 @@ def test_active_selection_reports_invalid_hidden_nested_and_state_diagnostics(
 def test_history_search_keeps_no_frontmatter_archives_as_historical_profile(
     tmp_path: Path,
 ) -> None:
-    archive = tmp_path / ".codex" / "handoffs" / "archive" / "2026-05-13_12-00_old.md"
+    archive = tmp_path / ".claude" / "handoffs" / "archive" / "2026-05-13_12-00_old.md"
     archive.parent.mkdir(parents=True, exist_ok=True)
     archive.write_text("## Older Handoff\n\nNo current frontmatter.\n", encoding="utf-8")
 
@@ -324,11 +324,11 @@ def test_history_search_dedups_duplicate_hashes_by_source_tier_then_path(
     tmp_path: Path,
 ) -> None:
     primary_active = _handoff(
-        tmp_path / ".codex" / "handoffs" / "2026-05-13_12-00_same.md",
+        tmp_path / ".claude" / "handoffs" / "2026-05-13_12-00_same.md",
         "Same",
     )
     _handoff(
-        tmp_path / ".codex" / "handoffs" / "archive" / "2026-05-13_12-00_same.md",
+        tmp_path / ".claude" / "handoffs" / "archive" / "2026-05-13_12-00_same.md",
         "Same",
     )
     _handoff(tmp_path / "docs" / "handoffs" / "2026-05-13_12-00_same.md", "Same")
@@ -337,7 +337,7 @@ def test_history_search_dedups_duplicate_hashes_by_source_tier_then_path(
         "Same",
     )
     _handoff(
-        tmp_path / ".codex" / "handoffs" / ".archive" / "2026-05-13_12-00_same.md",
+        tmp_path / ".claude" / "handoffs" / ".archive" / "2026-05-13_12-00_same.md",
         "Same",
     )
 
@@ -351,10 +351,10 @@ def test_history_search_dedups_duplicate_hashes_by_source_tier_then_path(
 def test_explicit_path_classifies_supported_storage_locations(tmp_path: Path) -> None:
     paths = {
         StorageLocation.PRIMARY_ACTIVE: _handoff(
-            tmp_path / ".codex" / "handoffs" / "2026-05-13_12-00_primary.md"
+            tmp_path / ".claude" / "handoffs" / "2026-05-13_12-00_primary.md"
         ),
         StorageLocation.PRIMARY_ARCHIVE: _handoff(
-            tmp_path / ".codex" / "handoffs" / "archive" / "2026-05-13_12-00_primary.md"
+            tmp_path / ".claude" / "handoffs" / "archive" / "2026-05-13_12-00_primary.md"
         ),
         StorageLocation.LEGACY_ACTIVE: _handoff(
             tmp_path / "docs" / "handoffs" / "2026-05-13_12-00_legacy.md"
@@ -363,7 +363,7 @@ def test_explicit_path_classifies_supported_storage_locations(tmp_path: Path) ->
             tmp_path / "docs" / "handoffs" / "archive" / "2026-05-13_12-00_legacy.md"
         ),
         StorageLocation.PREVIOUS_PRIMARY_HIDDEN_ARCHIVE: _handoff(
-            tmp_path / ".codex" / "handoffs" / ".archive" / "2026-05-13_12-00_hidden.md"
+            tmp_path / ".claude" / "handoffs" / ".archive" / "2026-05-13_12-00_hidden.md"
         ),
     }
 
@@ -381,7 +381,7 @@ def test_explicit_path_classifies_supported_storage_locations(tmp_path: Path) ->
 def test_state_bridge_reports_primary_and_legacy_state_without_mutation(
     tmp_path: Path,
 ) -> None:
-    primary = tmp_path / ".codex" / "handoffs" / ".session-state" / "handoff-demo-token.json"
+    primary = tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-token.json"
     legacy = tmp_path / "docs" / "handoffs" / ".session-state" / "handoff-demo"
     primary.parent.mkdir(parents=True, exist_ok=True)
     legacy.parent.mkdir(parents=True, exist_ok=True)
@@ -402,7 +402,7 @@ def test_state_bridge_reports_primary_and_legacy_state_without_mutation(
 def test_chain_state_recovery_inventory_reports_token_mismatch_as_invalid(
     tmp_path: Path,
 ) -> None:
-    state = tmp_path / ".codex" / "handoffs" / ".session-state" / "handoff-demo-token-a.json"
+    state = tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-token-a.json"
     state.parent.mkdir(parents=True, exist_ok=True)
     state.write_text(
         json.dumps(
@@ -421,7 +421,7 @@ def test_chain_state_recovery_inventory_reports_token_mismatch_as_invalid(
 
     candidate = inventory["candidates"][0]
     assert candidate["project_relative_state_path"] == (
-        ".codex/handoffs/.session-state/handoff-demo-token-a.json"
+        ".claude/handoffs/.session-state/handoff-demo-token-a.json"
     )
     assert candidate["detected_format"] == "tokenized-json"
     assert candidate["validation_status"] == "invalid"
@@ -436,7 +436,7 @@ def _seed_legacy_state(tmp_path: Path, *, project: str = "demo") -> tuple[Path, 
     state = tmp_path / "docs" / "handoffs" / ".session-state" / f"handoff-{project}"
     state.parent.mkdir(parents=True, exist_ok=True)
     state.write_text(
-        str(tmp_path / ".codex" / "handoffs" / "archive" / "old.md"),
+        str(tmp_path / ".claude" / "handoffs" / "archive" / "old.md"),
         encoding="utf-8",
     )
     return state, hashlib.sha256(state.read_bytes()).hexdigest()
@@ -444,7 +444,7 @@ def _seed_legacy_state(tmp_path: Path, *, project: str = "demo") -> tuple[Path, 
 
 def _seed_primary_state(tmp_path: Path, *, project: str = "demo") -> tuple[Path, str]:
     """Seed a valid primary chain-state file and return (path, sha256)."""
-    state = tmp_path / ".codex" / "handoffs" / ".session-state" / f"handoff-{project}-token-a.json"
+    state = tmp_path / ".claude" / "handoffs" / ".session-state" / f"handoff-{project}-token-a.json"
     state.parent.mkdir(parents=True, exist_ok=True)
     state.write_text(
         json.dumps(
@@ -452,7 +452,7 @@ def _seed_primary_state(tmp_path: Path, *, project: str = "demo") -> tuple[Path,
                 "state_path": str(state),
                 "project": project,
                 "resume_token": "token-a",
-                "archive_path": str(tmp_path / ".codex" / "handoffs" / "archive" / "old.md"),
+                "archive_path": str(tmp_path / ".claude" / "handoffs" / "archive" / "old.md"),
                 "created_at": "2026-05-13T16:00:00Z",
             }
         ),
@@ -535,7 +535,7 @@ def test_abandon_primary_chain_state_raises_chain_state_candidate_not_primary(
 
 
 def test_select_chain_state_candidate_raises_selector_ambiguous(tmp_path: Path) -> None:
-    state_a = tmp_path / ".codex" / "handoffs" / ".session-state" / "handoff-demo-token-a.json"
+    state_a = tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-token-a.json"
     state_a.parent.mkdir(parents=True, exist_ok=True)
     state_a.write_text(
         json.dumps(
@@ -543,20 +543,20 @@ def test_select_chain_state_candidate_raises_selector_ambiguous(tmp_path: Path) 
                 "state_path": str(state_a),
                 "project": "demo",
                 "resume_token": "token-a",
-                "archive_path": str(tmp_path / ".codex" / "handoffs" / "archive" / "old-a.md"),
+                "archive_path": str(tmp_path / ".claude" / "handoffs" / "archive" / "old-a.md"),
                 "created_at": "2026-05-13T16:00:00Z",
             }
         ),
         encoding="utf-8",
     )
-    state_b = tmp_path / ".codex" / "handoffs" / ".session-state" / "handoff-demo-token-b.json"
+    state_b = tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-token-b.json"
     state_b.write_text(
         json.dumps(
             {
                 "state_path": str(state_b),
                 "project": "demo",
                 "resume_token": "token-b",
-                "archive_path": str(tmp_path / ".codex" / "handoffs" / "archive" / "old-b.md"),
+                "archive_path": str(tmp_path / ".claude" / "handoffs" / "archive" / "old-b.md"),
                 "created_at": "2026-05-13T16:01:00Z",
             }
         ),
@@ -567,7 +567,7 @@ def test_select_chain_state_candidate_raises_selector_ambiguous(tmp_path: Path) 
         continue_chain_state(
             tmp_path,
             project_name="demo",
-            state_path=".codex/handoffs/.session-state",
+            state_path=".claude/handoffs/.session-state",
             expected_payload_sha256=sha_a,
         )
     assert exc_info.value.payload["error"]["code"] == "chain-state-selector-ambiguous"
@@ -581,7 +581,7 @@ def test_consumed_legacy_active_matches_fails_closed_on_corrupt_registry(
 ) -> None:
     legacy = _handoff(tmp_path / "docs" / "handoffs" / "2026-05-13_12-01_legacy.md", "Legacy")
     _write_legacy_active_opt_in(tmp_path, legacy)
-    registry = tmp_path / ".codex" / "handoffs" / ".session-state" / "consumed-legacy-active.json"
+    registry = tmp_path / ".claude" / "handoffs" / ".session-state" / "consumed-legacy-active.json"
     registry.parent.mkdir(parents=True, exist_ok=True)
     registry.write_text("{truncated", encoding="utf-8")
 
@@ -599,7 +599,7 @@ def test_consumed_legacy_active_matches_fails_closed_on_malformed_registry(
 ) -> None:
     legacy = _handoff(tmp_path / "docs" / "handoffs" / "2026-05-13_12-01_legacy.md", "Legacy")
     _write_legacy_active_opt_in(tmp_path, legacy)
-    registry = tmp_path / ".codex" / "handoffs" / ".session-state" / "consumed-legacy-active.json"
+    registry = tmp_path / ".claude" / "handoffs" / ".session-state" / "consumed-legacy-active.json"
     registry.parent.mkdir(parents=True, exist_ok=True)
     registry.write_text(json.dumps({"entries": "not-a-list"}), encoding="utf-8")
 
@@ -616,7 +616,7 @@ def test_read_json_object_fails_closed_on_corrupt_marker(tmp_path: Path) -> None
     state, sha = _seed_legacy_state(tmp_path)
     marker_path = (
         tmp_path
-        / ".codex"
+        / ".claude"
         / "handoffs"
         / ".session-state"
         / "markers"
@@ -637,7 +637,7 @@ def test_read_json_object_fails_closed_on_corrupt_marker(tmp_path: Path) -> None
 
 
 def test_chain_state_recovery_inventory_degrades_on_corrupt_marker(tmp_path: Path) -> None:
-    state_dir = tmp_path / ".codex" / "handoffs" / ".session-state"
+    state_dir = tmp_path / ".claude" / "handoffs" / ".session-state"
     state_dir.mkdir(parents=True)
     state_path = state_dir / "handoff-demo-token.json"
     state_path.write_text(
@@ -675,7 +675,7 @@ def test_active_inventory_degrades_on_corrupt_consumed_legacy_active_registry(
         "---\n\n## Goal\nbody\n",
         encoding="utf-8",
     )
-    registry = tmp_path / ".codex" / "handoffs" / ".session-state" / "consumed-legacy-active.json"
+    registry = tmp_path / ".claude" / "handoffs" / ".session-state" / "consumed-legacy-active.json"
     registry.parent.mkdir(parents=True)
     registry.write_text("{bad", encoding="utf-8")
 
@@ -697,7 +697,7 @@ def test_active_inventory_degrades_on_corrupt_consumed_legacy_active_registry(
 def test_chain_state_marker_status_returns_unmarked_when_marker_missing(
     tmp_path: Path,
 ) -> None:
-    state_dir = tmp_path / ".codex" / "handoffs" / ".session-state"
+    state_dir = tmp_path / ".claude" / "handoffs" / ".session-state"
     state_dir.mkdir(parents=True)
     state_path = state_dir / "handoff-demo-token.json"
     state_path.write_text(
@@ -724,7 +724,7 @@ def test_chain_state_marker_status_returns_unmarked_when_marker_missing(
 def test_chain_state_marker_status_returns_marker_unreadable_when_payload_malformed(
     tmp_path: Path,
 ) -> None:
-    state_dir = tmp_path / ".codex" / "handoffs" / ".session-state"
+    state_dir = tmp_path / ".claude" / "handoffs" / ".session-state"
     state_dir.mkdir(parents=True)
     state_path = state_dir / "handoff-demo-token.json"
     state_path.write_text(

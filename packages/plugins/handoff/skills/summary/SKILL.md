@@ -5,13 +5,13 @@ description: Session summary with project arc context. Use when a full /save is 
 
 # Summary
 
-Create a moderate-depth session summary at `<project_root>/.codex/handoffs/`: more durable than `/quicksave`, lighter than `/save`.
+Create a moderate-depth session summary at `<project_root>/.claude/handoffs/`: more durable than `/quicksave`, lighter than `/save`.
 
 Read these only when needed:
 - [handoff-contract.md](../../references/handoff-contract.md) for frontmatter, chain protocol, storage conventions.
 - [skill-details.md](../../references/skill-details.md) for section depth targets, anti-patterns, and troubleshooting.
 
-The plugin writes filesystem artifacts only. It does not add gitignore rules, stage files, or auto-commit files. Whether `.codex/handoffs/` is tracked or ignored is host-repository policy, not a plugin invariant.
+The plugin writes filesystem artifacts only. It does not add gitignore rules, stage files, or auto-commit files. Whether `.claude/handoffs/` is tracked or ignored is host-repository policy, not a plugin invariant.
 
 ## Use
 
@@ -24,7 +24,7 @@ The plugin writes filesystem artifacts only. It does not add gitignore rules, st
 ## Procedure
 
 1. Generate a fresh UUID for `session_id`.
-2. Gather current conversation context, relevant archived handoff titles/dates from `<project_root>/.codex/handoffs/archive/`, and recent git history.
+2. Gather current conversation context, relevant archived handoff titles/dates from `<project_root>/.claude/handoffs/archive/`, and recent git history.
 3. Internally synthesize: goal, session narrative, decisions, changes, codebase knowledge, learnings, next steps, and project arc. Do not show synthesis answers in chat.
 4. Resolve plugin root before running state helpers. Set `PLUGIN_ROOT` to the plugin root, three levels above this `SKILL.md`, not the `skills/` directory. Use a literal absolute value such as `PLUGIN_ROOT="/absolute/path/to/handoff"`. The literal `python` command must resolve to Python >=3.11.
 5. Reserve the final path before writing content:
@@ -73,5 +73,5 @@ The plugin writes filesystem artifacts only. It does not add gitignore rules, st
    ACTIVE_PATH="$(printf '%s\n' "$WRITE_OUTPUT" | python -c 'import json,sys; print(json.load(sys.stdin)["active_path"])')"
    ```
 
-8. Verify `ACTIVE_PATH` exists under `<project_root>/.codex/handoffs/`, frontmatter parses, required fields are present, all eight summary sections are present, and the Project Arc is populated.
+8. Verify `ACTIVE_PATH` exists under `<project_root>/.claude/handoffs/`, frontmatter parses, required fields are present, all eight summary sections are present, and the Project Arc is populated.
 9. Reply only with `Summary saved: <path> - <title>`. Do not reproduce summary content or synthesis answers in chat.
