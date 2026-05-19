@@ -29,10 +29,44 @@ def test_no_skill_doc_uses_relative_script_paths() -> None:
         assert "../../scripts/" not in text
 
 
-def test_skill_docs_do_not_request_tool_permissions_up_front() -> None:
-    for path in COMMAND_SKILLS + STATE_SKILLS:
+def test_active_writer_skills_declare_v160_allowed_tools_parity() -> None:
+    """Port Decision 2 + Decision 7 Option-A reject the Codex no-allowed-tools
+    host-compensation (the Codex host is weaker; the Claude host benefits from
+    pre-declared permissions). The 4 active-writer skills restore v1.6.0
+    ``allowed-tools`` verbatim so the Bash-heavy active-writer flow does not
+    permission-prompt every ``/save``; the read/analysis command skills match
+    v1.6.0 by carrying no non-empty ``allowed-tools`` line. This replaces the
+    former Codex-policy test (``test_skill_docs_do_not_request_tool_
+    permissions_up_front``) which asserted the now-rejected absence invariant.
+    """
+    expected_active_writer = {
+        "save": "allowed-tools: Write, Read, Edit, Glob, Grep, Bash",
+        "quicksave": "allowed-tools: Write, Read, Bash",
+        "summary": "allowed-tools: Write, Read, Bash, Glob",
+        "load": "allowed-tools: Write, Read, Edit, Glob, Grep, Bash",
+    }
+    for name, expected_line in expected_active_writer.items():
+        text = (PLUGIN_ROOT / "skills" / name / "SKILL.md").read_text(encoding="utf-8")
+        lines = text.splitlines()
+        assert lines[0] == "---", name
+        closing = lines.index("---", 1)
+        frontmatter = lines[1:closing]
+        allowed = [ln for ln in frontmatter if ln.startswith("allowed-tools:")]
+        assert allowed == [expected_line], (name, allowed)
+
+    # Parity floor: read/analysis command skills had no (or empty) allowed-tools
+    # in v1.6.0; the port must not introduce one for them.
+    for path in COMMAND_SKILLS:
         text = path.read_text(encoding="utf-8")
-        assert "allowed-tools" not in text
+        lines = text.splitlines()
+        closing = lines.index("---", 1)
+        frontmatter = lines[1:closing]
+        non_empty_allowed = [
+            ln
+            for ln in frontmatter
+            if ln.startswith("allowed-tools:") and ln.split(":", 1)[1].strip()
+        ]
+        assert non_empty_allowed == [], (path.parent.name, non_empty_allowed)
 
 
 def test_command_skills_define_plugin_root_setup() -> None:

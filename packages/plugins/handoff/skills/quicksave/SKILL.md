@@ -1,6 +1,7 @@
 ---
 name: quicksave
 description: Used when user runs /quicksave to save session state quickly under context pressure. Fast, lightweight alternative to /save. Use when user says "quicksave", "checkpoint", "save state", "quick save", or is running low on context.
+allowed-tools: Write, Read, Bash
 ---
 
 # Quicksave

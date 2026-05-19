@@ -1,6 +1,7 @@
 ---
 name: load
 description: Use when continuing from a previous session, when user runs `/load` to load the most recent handoff, or when user runs `/load <path>` for a specific handoff.
+allowed-tools: Write, Read, Edit, Glob, Grep, Bash
 ---
 
 # Load
