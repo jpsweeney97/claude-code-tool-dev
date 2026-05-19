@@ -7,15 +7,12 @@ Session continuity plugin for Claude Code. Saves session state as structured mar
 Bundled in the `turbo-mode` marketplace:
 
 ```bash
-codex plugin marketplace update turbo-mode
-codex plugin install handoff@turbo-mode
+claude plugin install handoff@turbo-mode
 ```
 
-Or install directly from the development repo:
+Restart Claude Code after installing.
 
-```bash
-codex plugin install ./plugins/turbo-mode/handoff
-```
+For local development, the plugin source lives at `packages/plugins/handoff`.
 
 **Requirements:** Python 3.11+, PyYAML 6.0+. The optional `trash` command is used for recoverable cleanup when available; cleanup falls back to `unlink` with warnings if `trash` is unavailable or fails.
 
@@ -254,7 +251,7 @@ Add new implementation under `handoff_runtime/<name>.py`, and keep runtime modul
 ### Setup
 
 ```bash
-cd plugins/turbo-mode/handoff
+cd packages/plugins/handoff
 uv sync
 ```
 
@@ -263,13 +260,13 @@ uv sync
 To inspect the current test inventory:
 
 ```bash
-PYTHONDONTWRITEBYTECODE=1 PYTHONPYCACHEPREFIX=/private/tmp/codex-tool-dev-pycache uv run --directory plugins/turbo-mode/handoff pytest --collect-only -q -p no:cacheprovider
+PYTHONDONTWRITEBYTECODE=1 uv run --package handoff-plugin pytest --collect-only -q -p no:cacheprovider
 ```
 
 To run the suite from the repo root:
 
 ```bash
-PYTHONDONTWRITEBYTECODE=1 PYTHONPYCACHEPREFIX=/private/tmp/codex-tool-dev-pycache uv run --directory plugins/turbo-mode/handoff pytest -q -p no:cacheprovider
+PYTHONDONTWRITEBYTECODE=1 uv run --package handoff-plugin pytest -q -p no:cacheprovider
 ```
 
 To run a single module from the plugin directory:

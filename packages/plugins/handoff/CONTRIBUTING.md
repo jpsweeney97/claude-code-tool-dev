@@ -1,6 +1,6 @@
 # Contributing to Handoff
 
-Handoff source lives under `plugins/turbo-mode/handoff/`.
+Handoff source lives under `packages/plugins/handoff/`.
 
 ## Source Authority
 
@@ -9,7 +9,7 @@ This checkout is source authority for Handoff source files. It is not proof that
 ## Setup
 
 ```bash
-cd plugins/turbo-mode/handoff
+cd packages/plugins/handoff
 uv sync
 ```
 
@@ -18,13 +18,13 @@ uv sync
 From the repository root:
 
 ```bash
-PYTHONDONTWRITEBYTECODE=1 PYTHONPYCACHEPREFIX=/private/tmp/codex-tool-dev-pycache uv run --directory plugins/turbo-mode/handoff pytest -q -p no:cacheprovider
+PYTHONDONTWRITEBYTECODE=1 uv run --package handoff-plugin pytest -q -p no:cacheprovider
 ```
 
 For release metadata and docs-only changes:
 
 ```bash
-PYTHONDONTWRITEBYTECODE=1 PYTHONPYCACHEPREFIX=/private/tmp/codex-tool-dev-pycache uv run --directory plugins/turbo-mode/handoff pytest tests/test_release_metadata.py tests/test_skill_docs.py -q -p no:cacheprovider
+PYTHONDONTWRITEBYTECODE=1 uv run --package handoff-plugin pytest tests/test_release_metadata.py tests/test_skill_docs.py -q -p no:cacheprovider
 ```
 
 ## Regenerating the Storage-Authority Inventory Fixture
@@ -35,10 +35,10 @@ storage-authority documentation surfaces. When you intentionally change a tracke
 surface (e.g. `README.md`, `references/ARCHITECTURE.md`), that test fails with
 `fixture drift`. Regenerate the fixture with the module's own `--write` path
 (runtime modules are import-only with no `__main__` guard, so invoke `main`
-explicitly):
+explicitly) from the plugin directory so `handoff_runtime` resolves:
 
 ```bash
-PYTHONDONTWRITEBYTECODE=1 PYTHONPYCACHEPREFIX=/private/tmp/codex-tool-dev-pycache uv run --directory plugins/turbo-mode/handoff python -c "import sys; from handoff_runtime.storage_authority_inventory import main; sys.argv=['storage_authority_inventory','--write']; raise SystemExit(main())"
+cd packages/plugins/handoff && PYTHONDONTWRITEBYTECODE=1 uv run --package handoff-plugin python -c "import sys; from handoff_runtime.storage_authority_inventory import main; sys.argv=['storage_authority_inventory','--write']; raise SystemExit(main())"
 ```
 
 Review the resulting one-file diff to confirm only intended hash rows changed,
@@ -69,7 +69,7 @@ that future contributors would otherwise have to reconstruct from commit history
 
 ## Versioning and Source Path
 
-The source root is stable: `plugins/turbo-mode/handoff/`. Release versions live
+The source root is stable: `packages/plugins/handoff/`. Release versions live
 in `.claude-plugin/plugin.json`, `pyproject.toml`, `uv.lock`, `CHANGELOG.md`, and
 git tags or releases. Do not encode release versions in source directory names,
 repository URLs, or routine test commands. A version bump updates metadata and

@@ -46,16 +46,26 @@ def test_versions_are_aligned() -> None:
 
 
 def test_readme_documents_current_summary_and_development_commands() -> None:
+    """Claude-host retarget of a Codex-host-shaped invariant (port Decision 2:
+    reject every Codex host-compensation). The README must document the Claude
+    Code plugin-install flow (``claude plugin install handoff@turbo-mode``) and
+    the uv-workspace dev commands (``cd packages/plugins/handoff``,
+    ``uv run --package handoff-plugin pytest``) — NOT the former Codex-CLI host
+    commands (``codex plugin install``, ``plugins/turbo-mode/handoff`` paths).
+    The forbid guards are inverted from the pre-port test: they now forbid the
+    retired Codex-host tokens so the README cannot regress to Codex framing.
+    Asserted strings are kept lockstep with README.md (this test reads the
+    actual README and asserts its actual current Claude-host commands)."""
     text = (PLUGIN_ROOT / "README.md").read_text(encoding="utf-8")
-    assert "codex plugin install ./plugins/turbo-mode/handoff" in text
-    assert "cd plugins/turbo-mode/handoff" in text
-    assert "uv run --directory plugins/turbo-mode/handoff pytest" in text
+    assert "claude plugin install handoff@turbo-mode" in text
+    assert "cd packages/plugins/handoff" in text
+    assert "uv run --package handoff-plugin pytest" in text
     assert "pytest --collect-only -q" in text
     assert "/summary" in text
     assert "`handoff`, `checkpoint`, or `summary`" in text
-    assert "./packages/plugins/handoff" not in text
-    assert "cd packages/plugins/handoff" not in text
-    assert "uv run --package handoff-plugin pytest" not in text
+    assert "codex plugin install ./plugins/turbo-mode/handoff" not in text
+    assert "cd plugins/turbo-mode/handoff" not in text
+    assert "uv run --directory plugins/turbo-mode/handoff pytest" not in text
     assert "354 tests across 10 test modules" not in text
     assert "allowed-tools:" not in text
 
