@@ -760,6 +760,8 @@ echo "M1: move complete"
 
 - [ ] **Step 3: Dry-run the rollback against a *simulated* post-move tree (proves reversibility BEFORE the real move)**
 
+> **Resilience (execution-surfaced).** `/tmp/handoff-port-baseline/corpus-copy` is ephemeral; this is a long multi-task run and `/tmp` may have been cleared since Task 0. The **git-committed** `packages/plugins/handoff-port-manifests/M1-premove-manifest.txt` (`3d007729`) is the authoritative safety net, not the /tmp copy. If `[ -d /tmp/handoff-port-baseline/corpus-copy ]` is false, RE-SNAPSHOT from the still-intact live pre-move tree before proceeding (Task 6's actual move has NOT happened yet, so `docs/handoffs/` + the residue are still authoritative): `mkdir -p /tmp/handoff-port-baseline/corpus-copy && cp -R docs/handoffs /tmp/handoff-port-baseline/corpus-copy/docs-handoffs && cp -R .claude/handoffs /tmp/handoff-port-baseline/corpus-copy/claude-handoffs`, then re-verify `find /tmp/handoff-port-baseline/corpus-copy -name '*.md' | wc -l` == 161 AND it reconciles against the committed manifest (path+sha256) before trusting it. Do NOT proceed to the live move (Step 4) until a 161/161 sha256-clean reconcile of the snapshot vs the committed manifest passes.
+
 ```bash
 cd /Users/jp/Projects/active/claude-code-tool-dev
 # Rehearse on the disposable copy from Task 0, not the live tree:
