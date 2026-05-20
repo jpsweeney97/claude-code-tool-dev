@@ -18,8 +18,9 @@ import handoff_runtime.storage_primitives as storage_primitives
 from handoff_runtime.chain_state import chain_state_recovery_inventory, read_chain_state
 from handoff_runtime.quality_check import (
     HANDOFF_MIN_LINES,
-    REQUIRED_HANDOFF_SECTIONS,
-    REQUIRED_SUMMARY_SECTIONS,
+    REQUIRED_CHECKPOINT_SECTIONS as _CHECKPOINT_SECTIONS,
+    REQUIRED_HANDOFF_SECTIONS as _HANDOFF_SECTIONS,
+    REQUIRED_SUMMARY_SECTIONS as _SUMMARY_SECTIONS,
     SUMMARY_MAX_LINES,
     count_body_lines,
     validate,
@@ -29,38 +30,6 @@ from handoff_runtime.quality_check import (
 # Test content helpers — produce minimal content that passes the integrity gate.
 # ---------------------------------------------------------------------------
 
-_HANDOFF_SECTIONS = (
-    "Goal",
-    "Session Narrative",
-    "Decisions",
-    "Changes",
-    "Codebase Knowledge",
-    "Context",
-    "Learnings",
-    "Next Steps",
-    "In Progress",
-    "Open Questions",
-    "Risks",
-    "References",
-    "Gotchas",
-)
-_SUMMARY_SECTIONS = (
-    "Goal",
-    "Session Narrative",
-    "Decisions",
-    "Changes",
-    "Codebase Knowledge",
-    "Learnings",
-    "Next Steps",
-    "Project Arc",
-)
-_CHECKPOINT_SECTIONS = (
-    "Current Task",
-    "In Progress",
-    "Active Files",
-    "Next Action",
-    "Verification Snapshot",
-)
 _SECTIONS_BY_OPERATION = {
     "save": ("handoff", _HANDOFF_SECTIONS),
     "summary": ("summary", _SUMMARY_SECTIONS),
@@ -2687,7 +2656,7 @@ def _build_handoff_content(
     if omit_field is not None:
         frontmatter_fields.pop(omit_field, None)
 
-    sections = [s for s in REQUIRED_HANDOFF_SECTIONS if s != omit_section]
+    sections = [s for s in _HANDOFF_SECTIONS if s != omit_section]
 
     # Build section bodies — Decisions gets substantive content.
     section_lines: list[str] = []
@@ -2722,7 +2691,7 @@ def _build_summary_content(*, body_lines: int) -> str:
     is shorter; ignored if natural body is already longer.
     """
     section_lines: list[str] = []
-    for section in REQUIRED_SUMMARY_SECTIONS:
+    for section in _SUMMARY_SECTIONS:
         section_lines.append(f"## {section}")
         section_lines.append("")
         if section == "Decisions":
