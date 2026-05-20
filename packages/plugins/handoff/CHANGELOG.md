@@ -32,11 +32,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `${CLAUDE_SESSION_ID}` sourcing restored for the `session_id` frontmatter field (the Codex write-time-UUID host-compensation is rejected; the `resume_token` resume spine is kept verbatim).
 - Re-wired Claude-host hooks: `SessionStart → cleanup`, `PostToolUse:Write → quality_check` (advisory).
 - `.claude/handoffs/` added to repo `.gitignore` (handoffs remain local-only ephemeral).
-
-## [Unreleased]
-
-### Changed
-- Removed `allowed-tools` from Handoff skill frontmatter so skill invocation does not request up-front tool permissions before the normal workflow runs.
+- Restored `allowed-tools` on save/load/quicksave/summary skill frontmatter to Codex v1.7.0 parity (supersedes a transient interim removal that was never released).
 
 ## [1.7.0] - 2026-05-15
 
