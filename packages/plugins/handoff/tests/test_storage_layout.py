@@ -10,11 +10,14 @@ def test_storage_layout_uses_codex_handoffs_as_primary(tmp_path: Path) -> None:
 
     assert layout.primary_active_dir == tmp_path / ".claude" / "handoffs"
     assert layout.primary_archive_dir == tmp_path / ".claude" / "handoffs" / "archive"
-    assert layout.primary_state_dir == tmp_path / ".claude" / "handoffs" / ".session-state"
+    assert (
+        layout.primary_state_dir == tmp_path / ".claude" / "handoffs" / ".session-state"
+    )
     assert layout.legacy_active_dir == tmp_path / "docs" / "handoffs"
     assert layout.legacy_archive_dir == tmp_path / "docs" / "handoffs" / "archive"
     assert (
-        layout.previous_primary_hidden_archive_dir == tmp_path / ".claude" / "handoffs" / ".archive"
+        layout.previous_primary_hidden_archive_dir
+        == tmp_path / ".claude" / "handoffs" / ".archive"
     )
 
 
@@ -23,7 +26,16 @@ def test_primary_is_claude_handoffs_and_legacy_is_docs_handoffs(tmp_path):
 
     layout = get_storage_layout(tmp_path)
     assert layout.primary_active_dir == tmp_path.resolve() / ".claude" / "handoffs"
-    assert layout.primary_archive_dir == tmp_path.resolve() / ".claude" / "handoffs" / "archive"
-    assert layout.primary_state_dir == tmp_path.resolve() / ".claude" / "handoffs" / ".session-state"
-    assert layout.previous_primary_hidden_archive_dir == tmp_path.resolve() / ".claude" / "handoffs" / ".archive"
+    assert (
+        layout.primary_archive_dir
+        == tmp_path.resolve() / ".claude" / "handoffs" / "archive"
+    )
+    assert (
+        layout.primary_state_dir
+        == tmp_path.resolve() / ".claude" / "handoffs" / ".session-state"
+    )
+    assert (
+        layout.previous_primary_hidden_archive_dir
+        == tmp_path.resolve() / ".claude" / "handoffs" / ".archive"
+    )
     assert layout.legacy_active_dir == tmp_path.resolve() / "docs" / "handoffs"

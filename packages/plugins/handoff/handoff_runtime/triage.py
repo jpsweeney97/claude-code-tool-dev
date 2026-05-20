@@ -197,7 +197,9 @@ def _load_tickets_for_matching(tickets_dir: Path) -> list[dict[str, Any]]:
     if not tickets_dir.exists():
         return results
 
-    for path in sorted(tickets_dir.rglob("*.md")):  # P2-10 fix: deterministic iteration order
+    for path in sorted(
+        tickets_dir.rglob("*.md")
+    ):  # P2-10 fix: deterministic iteration order
         ticket = parse_ticket(path)
         if ticket is None:
             continue
@@ -243,7 +245,9 @@ def match_orphan_item(
     if matched:
         return {
             "match_type": "id_ref",
-            "matched_ticket": sorted(matched)[0],  # P2-7 fix: deterministic alphabetic order
+            "matched_ticket": sorted(matched)[
+                0
+            ],  # P2-7 fix: deterministic alphabetic order
             "item": item,
         }
 
@@ -323,7 +327,9 @@ def generate_report(
                 try:
                     text = path.read_text(encoding="utf-8")
                 except (OSError, UnicodeDecodeError) as exc:
-                    warnings.warn(f"Cannot read handoff file {path}: {exc}", stacklevel=2)
+                    warnings.warn(
+                        f"Cannot read handoff file {path}: {exc}", stacklevel=2
+                    )
                     continue
                 items, skipped = extract_handoff_items(text, path.name)
                 if items:
@@ -378,7 +384,9 @@ def generate_project_report(tickets_dir: Path, project_root: Path) -> TriageRepo
         try:
             text = candidate.path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError) as exc:
-            warnings.warn(f"Cannot read handoff file {candidate.path}: {exc}", stacklevel=2)
+            warnings.warn(
+                f"Cannot read handoff file {candidate.path}: {exc}", stacklevel=2
+            )
             continue
         items, skipped = extract_handoff_items(text, candidate.path.name)
         for item in items:
@@ -443,7 +451,9 @@ def _candidate_provenance(candidate: HandoffCandidate) -> dict[str, Any]:
 
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point. Outputs JSON triage report to stdout."""
-    parser = argparse.ArgumentParser(description="Triage open tickets and orphaned items")
+    parser = argparse.ArgumentParser(
+        description="Triage open tickets and orphaned items"
+    )
     parser.add_argument("--tickets-dir", type=Path, default=Path("docs/tickets"))
     parser.add_argument("--handoffs-dir", type=Path, default=None)
     parser.add_argument("--project-root", type=Path, default=None)
@@ -451,7 +461,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.handoffs_dir is None:
         project_root = (
-            args.project_root.resolve() if args.project_root is not None else get_project_root()[0]
+            args.project_root.resolve()
+            if args.project_root is not None
+            else get_project_root()[0]
         )
         report = generate_project_report(args.tickets_dir, project_root)
     else:

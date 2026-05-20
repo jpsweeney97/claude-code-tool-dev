@@ -44,6 +44,8 @@ def main(argv: list[str] | None = None) -> str:
     parser.add_argument("--project-root", type=Path, default=None)
     args = parser.parse_args(argv)
 
-    project_root = args.project_root.resolve() if args.project_root else get_project_root()[0]
+    project_root = (
+        args.project_root.resolve() if args.project_root else get_project_root()[0]
+    )
     handoffs = list_handoffs(project_root)
     return json.dumps({"total": len(handoffs), "handoffs": handoffs}, indent=2)

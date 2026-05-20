@@ -116,7 +116,9 @@ class TestParseSubsections:
 
     def test_unterminated_fence_suppresses_splits(self) -> None:
         """An unclosed fence suppresses all subsequent ### splits (fail-safe)."""
-        content = "### Real\n\n```\n### Suppressed by unclosed fence\ntext inside fence\n"
+        content = (
+            "### Real\n\n```\n### Suppressed by unclosed fence\ntext inside fence\n"
+        )
         subs = parse_subsections(content)
         assert len(subs) == 1
         assert subs[0].heading == "Real"
@@ -130,13 +132,18 @@ class TestClassifyDurability:
         assert classify_durability("Plugin hook naming pattern", "") == "likely_durable"
 
     def test_convention_is_likely_durable(self) -> None:
-        assert classify_durability("Test file naming convention", "") == "likely_durable"
+        assert (
+            classify_durability("Test file naming convention", "") == "likely_durable"
+        )
 
     def test_gotcha_is_likely_durable(self) -> None:
         assert classify_durability("Heredoc gotcha in zsh", "") == "likely_durable"
 
     def test_architecture_is_likely_ephemeral(self) -> None:
-        assert classify_durability("Plugin architecture overview", "") == "likely_ephemeral"
+        assert (
+            classify_durability("Plugin architecture overview", "")
+            == "likely_ephemeral"
+        )
 
     def test_key_locations_is_likely_ephemeral(self) -> None:
         assert classify_durability("Key code locations", "") == "likely_ephemeral"
@@ -169,15 +176,21 @@ class TestClassifyDurability:
             "Miscellaneous notes",
             "The architecture overview shows a pipeline pattern.",
         )
-        assert hint != "likely_ephemeral", "Content ephemeral keywords must not trigger ephemeral"
+        assert hint != "likely_ephemeral", (
+            "Content ephemeral keywords must not trigger ephemeral"
+        )
 
 
 class TestProvenance:
     """Tests for provenance computation."""
 
     def test_source_uid_deterministic(self) -> None:
-        uid1 = compute_source_uid("session-abc-123", "Decisions", "Token bucket", heading_ix=0)
-        uid2 = compute_source_uid("session-abc-123", "Decisions", "Token bucket", heading_ix=0)
+        uid1 = compute_source_uid(
+            "session-abc-123", "Decisions", "Token bucket", heading_ix=0
+        )
+        uid2 = compute_source_uid(
+            "session-abc-123", "Decisions", "Token bucket", heading_ix=0
+        )
         assert uid1 == uid2
         assert uid1.startswith("sha256:")
 
@@ -190,7 +203,9 @@ class TestProvenance:
         """source_uid is driven by document_identity, not filesystem path."""
         uid1 = compute_source_uid("session-abc-123", "Decisions", "Sub A", heading_ix=0)
         uid2 = compute_source_uid("session-abc-123", "Decisions", "Sub A", heading_ix=0)
-        uid_different = compute_source_uid("different-session", "Decisions", "Sub A", heading_ix=0)
+        uid_different = compute_source_uid(
+            "different-session", "Decisions", "Sub A", heading_ix=0
+        )
         assert uid1 == uid2
         assert uid1 != uid_different
 
@@ -327,7 +342,10 @@ class TestDetermineDedup:
             '<!-- distill-meta {"v": 1, "source_uid": "sha256:src_A", '
             '"content_sha256": "sha256:old"} -->\n'
         )
-        assert determine_dedup_status("sha256:src_A", "sha256:new", learnings) == "UPDATED_SOURCE"
+        assert (
+            determine_dedup_status("sha256:src_A", "sha256:new", learnings)
+            == "UPDATED_SOURCE"
+        )
 
     def test_content_only_match(self) -> None:
         learnings = (
@@ -344,7 +362,10 @@ class TestDetermineDedup:
             '<!-- distill-meta {"v": 1, "source_uid": "sha256:other", '
             '"content_sha256": "sha256:other"} -->\n'
         )
-        assert determine_dedup_status("sha256:src_A", "sha256:content_A", learnings) == "NEW"
+        assert (
+            determine_dedup_status("sha256:src_A", "sha256:content_A", learnings)
+            == "NEW"
+        )
 
     def test_empty_learnings_is_new(self) -> None:
         assert determine_dedup_status("sha256:src", "sha256:content", "") == "NEW"
@@ -373,7 +394,9 @@ class TestCrossRowDedupIntegration:
             "---\ntitle: Test\ndate: 2026-02-27\ntype: handoff\nsession_id: cross-row-1\n---\n\n"
             "## Decisions\n\n### Chose Python\n\n**Choice:** Python for new reasons.\n\n"
         )
-        uid = compute_source_uid("cross-row-1", "Decisions", "Chose Python", heading_ix=0)
+        uid = compute_source_uid(
+            "cross-row-1", "Decisions", "Chose Python", heading_ix=0
+        )
         candidate_hash = compute_content_hash("**Choice:** Python for new reasons.")
         # Entry A: same source, old content. Entry B: different source, same content.
         learnings = (
@@ -460,7 +483,9 @@ class TestExtractCandidates:
         )
         from handoff_runtime.distill import compute_content_hash, compute_source_uid
 
-        uid = compute_source_uid("test-session-123", "Decisions", "Chose Python", heading_ix=0)
+        uid = compute_source_uid(
+            "test-session-123", "Decisions", "Chose Python", heading_ix=0
+        )
         chash = compute_content_hash("**Choice:** Python.")
         learnings = (
             f'<!-- distill-meta {{"v": 1, "source_uid": "{uid}", '
@@ -469,7 +494,9 @@ class TestExtractCandidates:
         result = extract_candidates(str(handoff), learnings)
         assert result["candidates"][0]["dedup_status"] == "EXACT_DUP_SOURCE"
 
-    def test_heading_only_subsection_with_no_body_is_skipped(self, tmp_path: Path) -> None:
+    def test_heading_only_subsection_with_no_body_is_skipped(
+        self, tmp_path: Path
+    ) -> None:
         """A subsection with a heading but empty/whitespace body produces no candidate."""
         handoff = tmp_path / "test.md"
         handoff.write_text(
@@ -586,7 +613,9 @@ class TestDistillCLI:
         assert result["handoff_path"] == str(handoff)
         assert len(result["candidates"]) == 1
 
-    def test_project_root_defaults_to_newest_active_handoff(self, tmp_path: Path) -> None:
+    def test_project_root_defaults_to_newest_active_handoff(
+        self, tmp_path: Path
+    ) -> None:
         active = tmp_path / ".claude" / "handoffs"
         active.mkdir(parents=True)
         older = active / "2026-02-27_10-00_old.md"
@@ -600,7 +629,9 @@ class TestDistillCLI:
         assert result["handoff_path"] == str(newer)
         assert result["source_storage_location"] == "primary_active"
 
-    def test_project_root_explicit_path_reports_storage_provenance(self, tmp_path: Path) -> None:
+    def test_project_root_explicit_path_reports_storage_provenance(
+        self, tmp_path: Path
+    ) -> None:
         archive = tmp_path / ".claude" / "handoffs" / "archive"
         archive.mkdir(parents=True)
         handoff = archive / "2026-02-27_10-00_archived.md"
@@ -731,7 +762,9 @@ class TestEdgeCases:
         from handoff_runtime.distill import _extract_distill_metas_detailed
 
         # Regex requires {…} — use valid braces with invalid JSON inside
-        metas, warnings = _extract_distill_metas_detailed("<!-- distill-meta {broken json} -->")
+        metas, warnings = _extract_distill_metas_detailed(
+            "<!-- distill-meta {broken json} -->"
+        )
         assert len(metas) == 0
         assert len(warnings) == 1
         assert "malformed distill-meta skipped" in warnings[0]
@@ -761,7 +794,10 @@ class TestSourceUidDeterminism:
         )
         # Pin the exact digest. If this changes, all existing provenance
         # data in learnings.md is orphaned (dedup breaks silently).
-        assert uid == "sha256:dd731e5655b29e2d71dea5bfe2897cf9e4cb1db312a099bac373825bdaa5607c"
+        assert (
+            uid
+            == "sha256:dd731e5655b29e2d71dea5bfe2897cf9e4cb1db312a099bac373825bdaa5607c"
+        )
 
 
 class TestNoAutodropInvariant:
@@ -811,7 +847,9 @@ class TestUpdatedSource:
         )
         from handoff_runtime.distill import compute_source_uid
 
-        uid = compute_source_uid("update-test", "Decisions", "Chose Python", heading_ix=0)
+        uid = compute_source_uid(
+            "update-test", "Decisions", "Chose Python", heading_ix=0
+        )
         learnings = (
             f'<!-- distill-meta {{"v": 1, "source_uid": "{uid}", '
             f'"content_sha256": "sha256:old_hash"}} -->\n'
@@ -878,7 +916,9 @@ class TestIncludeSection:
         result_default = extract_candidates(str(handoff), "")
         sections = {c["source_section"] for c in result_default["candidates"]}
         assert "Context" not in sections
-        result_include = extract_candidates(str(handoff), "", extra_sections=("Context",))
+        result_include = extract_candidates(
+            str(handoff), "", extra_sections=("Context",)
+        )
         sections = {c["source_section"] for c in result_include["candidates"]}
         assert "Context" in sections
         assert len(result_include["candidates"]) == 2
@@ -958,7 +998,10 @@ class TestPathIndependence:
         path_b.write_text(content)
         result_a = extract_candidates(str(path_a), "")
         result_b = extract_candidates(str(path_b), "")
-        assert result_a["candidates"][0]["source_uid"] == result_b["candidates"][0]["source_uid"]
+        assert (
+            result_a["candidates"][0]["source_uid"]
+            == result_b["candidates"][0]["source_uid"]
+        )
 
 
 class TestPreambleMergeHashStability:
@@ -1013,7 +1056,9 @@ class TestPreambleMergeHashStability:
         # Second extraction — with learnings
         result2 = extract_candidates(str(handoff), learnings_with_meta)
         c2 = [
-            x for x in result2["candidates"] if x["subsection_heading"] == c["subsection_heading"]
+            x
+            for x in result2["candidates"]
+            if x["subsection_heading"] == c["subsection_heading"]
         ][0]
         assert c2["dedup_status"] == "EXACT_DUP_SOURCE", (
             "Preamble merge changed content hash! "

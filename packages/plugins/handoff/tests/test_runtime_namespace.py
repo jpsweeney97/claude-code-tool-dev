@@ -60,7 +60,9 @@ def _parse(path: Path) -> ast.Module:
 
 
 def test_runtime_module_inventory_is_explicit() -> None:
-    assert {p.name for p in RUNTIME_DIR.glob("*.py") if p.name != "__init__.py"} == RUNTIME_MODULES
+    assert {
+        p.name for p in RUNTIME_DIR.glob("*.py") if p.name != "__init__.py"
+    } == RUNTIME_MODULES
 
 
 def test_runtime_modules_do_not_import_scripts_namespace() -> None:

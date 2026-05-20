@@ -34,7 +34,8 @@ class TestGetProjectRoot:
 
     def test_git_not_found_falls_back_to_cwd(self) -> None:
         with patch(
-            "handoff_runtime.project_paths.subprocess.run", side_effect=FileNotFoundError
+            "handoff_runtime.project_paths.subprocess.run",
+            side_effect=FileNotFoundError,
         ):
             root, source = get_project_root()
             assert root == Path.cwd()
@@ -60,7 +61,8 @@ class TestGetProjectRoot:
 
     def test_exception_logs_to_stderr(self, capsys: pytest.CaptureFixture[str]) -> None:
         with patch(
-            "handoff_runtime.project_paths.subprocess.run", side_effect=FileNotFoundError
+            "handoff_runtime.project_paths.subprocess.run",
+            side_effect=FileNotFoundError,
         ):
             get_project_root()
         assert "Warning: git project detection failed" in capsys.readouterr().err

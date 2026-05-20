@@ -128,7 +128,9 @@ def main(argv: list[str] | None = None) -> int:
             {
                 "status": "error",
                 "envelopes": [],
-                "errors": [{"summary": "setup", "error": f"{type(exc).__name__}: {exc}"}],
+                "errors": [
+                    {"summary": "setup", "error": f"{type(exc).__name__}: {exc}"}
+                ],
             },
             sys.stdout,
         )
@@ -176,7 +178,10 @@ def main(argv: list[str] | None = None) -> int:
         created.append(str(path))
 
     if errors and created:
-        json.dump({"status": "partial_success", "envelopes": created, "errors": errors}, sys.stdout)
+        json.dump(
+            {"status": "partial_success", "envelopes": created, "errors": errors},
+            sys.stdout,
+        )
     elif errors:
         json.dump({"status": "error", "envelopes": [], "errors": errors}, sys.stdout)
     else:

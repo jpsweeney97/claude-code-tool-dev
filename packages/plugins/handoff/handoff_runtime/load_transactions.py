@@ -109,10 +109,14 @@ def _load_handoff_locked(
     transaction_id: str,
 ) -> LoadResult:
     layout = get_storage_layout(project_root)
-    transaction_path = layout.primary_state_dir / "transactions" / f"{transaction_id}.json"
+    transaction_path = (
+        layout.primary_state_dir / "transactions" / f"{transaction_id}.json"
+    )
     project = project_name or layout.project_root.name
     state_token = resume_token or uuid.uuid4().hex
-    intended_state_path = layout.primary_state_dir / f"handoff-{project}-{state_token}.json"
+    intended_state_path = (
+        layout.primary_state_dir / f"handoff-{project}-{state_token}.json"
+    )
     _write_transaction(
         transaction_path,
         transaction_id=transaction_id,
@@ -581,7 +585,9 @@ def _recover_consumed_legacy_active(
     registry = _read_registry(registry_path)
     key = {
         "source_root": "project_root",
-        "project_relative_source_path": source_path.relative_to(layout.project_root).as_posix(),
+        "project_relative_source_path": source_path.relative_to(
+            layout.project_root
+        ).as_posix(),
         "storage_location": StorageLocation.LEGACY_ACTIVE,
         "source_content_sha256": source_hash,
     }
@@ -632,7 +638,9 @@ def _recover_copied_legacy_archive(
     registry = _read_registry(registry_path)
     key = {
         "source_root": str(layout.project_root),
-        "project_relative_source_path": source_path.relative_to(layout.project_root).as_posix(),
+        "project_relative_source_path": source_path.relative_to(
+            layout.project_root
+        ).as_posix(),
         "storage_location": storage_location,
         "source_content_sha256": source_hash,
     }
@@ -686,7 +694,9 @@ def _acquire_lock(
     )
 
 
-def _select_candidate(project_root: Path, *, explicit_path: Path | None) -> HandoffCandidate:
+def _select_candidate(
+    project_root: Path, *, explicit_path: Path | None
+) -> HandoffCandidate:
     if explicit_path is not None:
         inventory = discover_handoff_inventory(
             project_root,
@@ -697,7 +707,9 @@ def _select_candidate(project_root: Path, *, explicit_path: Path | None) -> Hand
     inventory = discover_handoff_inventory(project_root, scan_mode="active-selection")
     candidates = eligible_active_candidates(inventory)
     if not candidates:
-        raise LoadTransactionError("load-handoff failed: no active handoff candidates. Got: []")
+        raise LoadTransactionError(
+            "load-handoff failed: no active handoff candidates. Got: []"
+        )
     return candidates[0]
 
 
@@ -750,7 +762,10 @@ def _copy_legacy_archive(
         if _registry_key(entry) != key:
             continue
         copied_path = Path(str(entry["copied_primary_archive_path"]))
-        if copied_path.exists() and _sha256_file(copied_path) == candidate.content_sha256:
+        if (
+            copied_path.exists()
+            and _sha256_file(copied_path) == candidate.content_sha256
+        ):
             return copied_path
         raise LoadTransactionError(
             "load-handoff failed: copied legacy archive registry entry is stale. "
@@ -811,7 +826,9 @@ def _copy_legacy_active(layout: StorageLayout, candidate: HandoffCandidate) -> P
         return consumed_archive_path
     layout.primary_archive_dir.mkdir(parents=True, exist_ok=True)
     archive_path = allocate_archive_path(candidate.path, layout.primary_archive_dir)
-    _copy_to_archive_atomic(candidate.path, archive_path, expected_hash=candidate.content_sha256)
+    _copy_to_archive_atomic(
+        candidate.path, archive_path, expected_hash=candidate.content_sha256
+    )
     return archive_path
 
 
@@ -916,19 +933,27 @@ def _read_registry(path: Path) -> dict[str, object]:
     return data
 
 
-def _legacy_archive_key(project_root: Path, candidate: HandoffCandidate) -> dict[str, str]:
+def _legacy_archive_key(
+    project_root: Path, candidate: HandoffCandidate
+) -> dict[str, str]:
     return {
         "source_root": str(project_root),
-        "project_relative_source_path": candidate.path.relative_to(project_root).as_posix(),
+        "project_relative_source_path": candidate.path.relative_to(
+            project_root
+        ).as_posix(),
         "storage_location": candidate.storage_location,
         "source_content_sha256": candidate.content_sha256 or "",
     }
 
 
-def _legacy_active_key(project_root: Path, candidate: HandoffCandidate) -> dict[str, str]:
+def _legacy_active_key(
+    project_root: Path, candidate: HandoffCandidate
+) -> dict[str, str]:
     return {
         "source_root": "project_root",
-        "project_relative_source_path": candidate.path.relative_to(project_root).as_posix(),
+        "project_relative_source_path": candidate.path.relative_to(
+            project_root
+        ).as_posix(),
         "storage_location": candidate.storage_location,
         "source_content_sha256": candidate.content_sha256 or "",
     }

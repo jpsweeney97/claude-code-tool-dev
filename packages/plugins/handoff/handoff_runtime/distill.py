@@ -133,7 +133,9 @@ def parse_subsections(content: str) -> list[Subsection]:
 
     for line in lines:
         stripped = line.rstrip()
-        if not inside_fence and (stripped.startswith("```") or stripped.startswith("~~~")):
+        if not inside_fence and (
+            stripped.startswith("```") or stripped.startswith("~~~")
+        ):
             inside_fence = True
             fence_marker = stripped[:3]
         elif inside_fence and stripped.startswith(fence_marker):
@@ -289,7 +291,9 @@ def make_distill_meta(
 _DISTILL_META_RE = re.compile(r"<!--\s*distill-meta\s+(\{.*?\})\s*-->")
 
 
-def _extract_distill_metas_detailed(learnings_content: str) -> tuple[list[dict], list[str]]:
+def _extract_distill_metas_detailed(
+    learnings_content: str,
+) -> tuple[list[dict], list[str]]:
     """Extract distill-meta comments, returning (metas, warnings).
 
     Pure variant — no side effects. Use in extract_candidates to
@@ -320,13 +324,17 @@ def _extract_distill_metas(learnings_content: str) -> list[dict]:
 
 def check_exact_dup_source(source_uid: str, learnings_content: str) -> bool:
     """Check if source_uid already exists in learnings.md distill-meta comments."""
-    return any(m.get("source_uid") == source_uid for m in _extract_distill_metas(learnings_content))
+    return any(
+        m.get("source_uid") == source_uid
+        for m in _extract_distill_metas(learnings_content)
+    )
 
 
 def check_exact_dup_content(content_hash: str, learnings_content: str) -> bool:
     """Check if content_hash already exists in learnings.md distill-meta comments."""
     return any(
-        m.get("content_sha256") == content_hash for m in _extract_distill_metas(learnings_content)
+        m.get("content_sha256") == content_hash
+        for m in _extract_distill_metas(learnings_content)
     )
 
 
@@ -368,7 +376,12 @@ def determine_dedup_status(
 
 
 # Sections to extract candidates from
-_DISTILL_SECTIONS: tuple[str, ...] = ("Decisions", "Learnings", "Codebase Knowledge", "Gotchas")
+_DISTILL_SECTIONS: tuple[str, ...] = (
+    "Decisions",
+    "Learnings",
+    "Codebase Knowledge",
+    "Gotchas",
+)
 
 
 def extract_signals(raw_markdown: str) -> dict[str, str]:
@@ -382,7 +395,9 @@ def extract_signals(raw_markdown: str) -> dict[str, str]:
     return signals
 
 
-def _make_anchor(handoff_filename: str, section_name: str, subsection_heading: str) -> str:
+def _make_anchor(
+    handoff_filename: str, section_name: str, subsection_heading: str
+) -> str:
     """Create a source anchor for provenance."""
     slug = re.sub(r"[^a-z0-9]+", "-", subsection_heading.lower()).strip("-")
     return f"{handoff_filename}#{section_name.lower()}/{slug}"
@@ -446,7 +461,11 @@ def extract_candidates(
 
         # Pre-pass: merge preamble (leading text before first ###) into
         # first headed subsection to avoid silent information loss.
-        if subsections and not subsections[0].heading and any(s.heading for s in subsections):
+        if (
+            subsections
+            and not subsections[0].heading
+            and any(s.heading for s in subsections)
+        ):
             preamble = subsections[0]
             if preamble.raw_markdown.strip():
                 for i, other in enumerate(subsections[1:], 1):
@@ -471,7 +490,9 @@ def extract_candidates(
             content_hash = compute_content_hash(sub.raw_markdown)
 
             # Determine dedup status (4-state matrix, per-record correlated)
-            dedup_status = determine_dedup_status(source_uid, content_hash, learnings_content)
+            dedup_status = determine_dedup_status(
+                source_uid, content_hash, learnings_content
+            )
 
             candidate: CandidateDict = {
                 "source_section": name,
@@ -486,7 +507,9 @@ def extract_candidates(
 
             # Add durability hint for Codebase Knowledge and Gotchas
             if name in ("Codebase Knowledge", "Gotchas"):
-                candidate["durability_hint"] = classify_durability(sub.heading, sub.raw_markdown)
+                candidate["durability_hint"] = classify_durability(
+                    sub.heading, sub.raw_markdown
+                )
 
             candidates.append(candidate)
 
@@ -544,9 +567,13 @@ def _attach_source_provenance(
 
 def main(argv: list[str] | None = None) -> str:
     """CLI entry point. Returns JSON string."""
-    parser = argparse.ArgumentParser(description="Extract knowledge candidates from a handoff")
+    parser = argparse.ArgumentParser(
+        description="Extract knowledge candidates from a handoff"
+    )
     parser.add_argument("handoff", nargs="?", help="Path to handoff markdown file")
-    parser.add_argument("--learnings", help="Path to learnings.md for dedup checking", default="")
+    parser.add_argument(
+        "--learnings", help="Path to learnings.md for dedup checking", default=""
+    )
     parser.add_argument("--project-root", type=Path, default=None)
     parser.add_argument(
         "--include-section",
@@ -558,7 +585,9 @@ def main(argv: list[str] | None = None) -> str:
 
     source_candidate: HandoffCandidate | None = None
     if args.project_root is not None or args.handoff is None:
-        project_root = args.project_root.resolve() if args.project_root else get_project_root()[0]
+        project_root = (
+            args.project_root.resolve() if args.project_root else get_project_root()[0]
+        )
         resolved_path, source_candidate, resolve_error = resolve_handoff_candidate(
             project_root,
             args.handoff,

@@ -231,7 +231,10 @@ def main(argv: list[str] | None = None) -> str:
                 }
             )
         legacy_warning = None
-        if any(result.get("storage_location", "").startswith("legacy_") for result in results):
+        if any(
+            result.get("storage_location", "").startswith("legacy_")
+            for result in results
+        ):
             legacy_warning = (
                 "Found handoffs at legacy location `docs/handoffs/`. "
                 "Post-cutover writes use `.claude/handoffs/`; legacy matches are "
@@ -267,7 +270,9 @@ def main(argv: list[str] | None = None) -> str:
 
     skipped_files: list[dict] = []
     try:
-        results = search_handoffs(handoffs_dir, args.query, regex=args.regex, skipped=skipped_files)
+        results = search_handoffs(
+            handoffs_dir, args.query, regex=args.regex, skipped=skipped_files
+        )
     except re.error as e:
         return json.dumps(
             {

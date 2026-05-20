@@ -50,7 +50,10 @@ def test_write_resume_state_uses_temp_file_before_final_rename(
     assert writes[0] != state_path
     assert writes[0].parent == state_path.parent
     assert not writes[0].exists()
-    assert json.loads(state_path.read_text(encoding="utf-8"))["archive_path"] == "/tmp/archive.md"
+    assert (
+        json.loads(state_path.read_text(encoding="utf-8"))["archive_path"]
+        == "/tmp/archive.md"
+    )
 
 
 def test_load_resume_state_rejects_multiple_pending_states(tmp_path: Path) -> None:
@@ -193,7 +196,9 @@ def test_migrated_legacy_marker_prevents_resume_chain_resurrection(
             raise FileNotFoundError("trash")
         return subprocess.CompletedProcess(command, 0, "", "")
 
-    monkeypatch.setattr(session_state.storage_primitives.subprocess, "run", _fail_for_legacy)
+    monkeypatch.setattr(
+        session_state.storage_primitives.subprocess, "run", _fail_for_legacy
+    )
     state = load_resume_state(state_dir, "demo")
     assert state is not None
     assert not legacy.exists()
@@ -242,7 +247,10 @@ def test_prune_old_state_files_logs_per_file_oserror(
 
     captured = capsys.readouterr()
     assert deleted == []
-    assert "state cleanup warning: ttl prune stat/delete failed: stat denied" in captured.err
+    assert (
+        "state cleanup warning: ttl prune stat/delete failed: stat denied"
+        in captured.err
+    )
     assert repr(str(legacy))[:100] in captured.err
 
 
@@ -500,8 +508,16 @@ def test_chain_state_recovery_inventory_cli_reports_state_identity_without_mutat
     tmp_path: Path,
 ) -> None:
     script = Path(__file__).parent.parent / "scripts" / "session_state.py"
-    primary = tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-token-a.json"
-    legacy = tmp_path / "docs" / "handoffs" / ".session-state" / "handoff-demo-token-b.json"
+    primary = (
+        tmp_path
+        / ".claude"
+        / "handoffs"
+        / ".session-state"
+        / "handoff-demo-token-a.json"
+    )
+    legacy = (
+        tmp_path / "docs" / "handoffs" / ".session-state" / "handoff-demo-token-b.json"
+    )
     residue = tmp_path / "docs" / "handoffs" / "handoff-demo"
     archive = tmp_path / ".claude" / "handoffs" / "archive" / "previous.md"
     primary.parent.mkdir(parents=True, exist_ok=True)
@@ -550,7 +566,8 @@ def test_chain_state_recovery_inventory_cli_reports_state_identity_without_mutat
     payload = json.loads(result.stdout)
     assert payload["project"] == "demo"
     by_path = {
-        candidate["project_relative_state_path"]: candidate for candidate in payload["candidates"]
+        candidate["project_relative_state_path"]: candidate
+        for candidate in payload["candidates"]
     }
     primary_row = by_path[".claude/handoffs/.session-state/handoff-demo-token-a.json"]
     legacy_row = by_path["docs/handoffs/.session-state/handoff-demo-token-b.json"]
@@ -568,12 +585,20 @@ def test_chain_state_recovery_inventory_cli_reports_state_identity_without_mutat
     assert residue_row["detected_format"] == "plain-state"
     assert residue_row["archive_path"] == str(archive)
     assert legacy.read_text(encoding="utf-8") == json.dumps(legacy_payload)
-    assert not (tmp_path / ".claude" / "handoffs" / ".session-state" / "markers").exists()
+    assert not (
+        tmp_path / ".claude" / "handoffs" / ".session-state" / "markers"
+    ).exists()
 
 
 def test_list_chain_state_cli_aliases_recovery_inventory(tmp_path: Path) -> None:
     script = Path(__file__).parent.parent / "scripts" / "session_state.py"
-    primary = tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-token-a.json"
+    primary = (
+        tmp_path
+        / ".claude"
+        / "handoffs"
+        / ".session-state"
+        / "handoff-demo-token-a.json"
+    )
     primary.parent.mkdir(parents=True, exist_ok=True)
     primary.write_text(
         json.dumps(
@@ -670,8 +695,16 @@ def test_read_chain_state_cli_rejects_primary_with_unresolved_legacy(
     tmp_path: Path,
 ) -> None:
     script = Path(__file__).parent.parent / "scripts" / "session_state.py"
-    primary = tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-token-a.json"
-    legacy = tmp_path / "docs" / "handoffs" / ".session-state" / "handoff-demo-token-b.json"
+    primary = (
+        tmp_path
+        / ".claude"
+        / "handoffs"
+        / ".session-state"
+        / "handoff-demo-token-a.json"
+    )
+    legacy = (
+        tmp_path / "docs" / "handoffs" / ".session-state" / "handoff-demo-token-b.json"
+    )
     primary.parent.mkdir(parents=True, exist_ok=True)
     legacy.parent.mkdir(parents=True, exist_ok=True)
     primary.write_text(
@@ -722,7 +755,9 @@ def test_read_chain_state_cli_rejects_primary_with_unresolved_legacy(
         "abandon-primary-chain-state",
         "abort",
     ]
-    assert sorted(candidate["storage_location"] for candidate in payload["candidates"]) == [
+    assert sorted(
+        candidate["storage_location"] for candidate in payload["candidates"]
+    ) == [
         "legacy_state",
         "primary_state",
     ]
@@ -733,8 +768,16 @@ def test_mark_chain_state_consumed_suppresses_unresolved_legacy_state(
     tmp_path: Path,
 ) -> None:
     script = Path(__file__).parent.parent / "scripts" / "session_state.py"
-    primary = tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-token-a.json"
-    legacy = tmp_path / "docs" / "handoffs" / ".session-state" / "handoff-demo-token-b.json"
+    primary = (
+        tmp_path
+        / ".claude"
+        / "handoffs"
+        / ".session-state"
+        / "handoff-demo-token-a.json"
+    )
+    legacy = (
+        tmp_path / "docs" / "handoffs" / ".session-state" / "handoff-demo-token-b.json"
+    )
     primary.parent.mkdir(parents=True, exist_ok=True)
     legacy.parent.mkdir(parents=True, exist_ok=True)
     primary.write_text(
@@ -848,7 +891,9 @@ def test_continue_chain_state_from_legacy_writes_primary_and_marks_source_consum
     tmp_path: Path,
 ) -> None:
     script = Path(__file__).parent.parent / "scripts" / "session_state.py"
-    legacy = tmp_path / "docs" / "handoffs" / ".session-state" / "handoff-demo-token-b.json"
+    legacy = (
+        tmp_path / "docs" / "handoffs" / ".session-state" / "handoff-demo-token-b.json"
+    )
     legacy.parent.mkdir(parents=True, exist_ok=True)
     legacy_payload = {
         "state_path": str(legacy),
@@ -886,7 +931,11 @@ def test_continue_chain_state_from_legacy_writes_primary_and_marks_source_consum
     transaction_path = Path(payload["transaction_path"])
     marker_path = Path(payload["marker_path"])
     assert primary_state_path == (
-        tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-token-b.json"
+        tmp_path
+        / ".claude"
+        / "handoffs"
+        / ".session-state"
+        / "handoff-demo-token-b.json"
     )
     assert transaction_path.exists()
     assert marker_path.exists()
@@ -926,8 +975,16 @@ def test_abandon_primary_chain_state_moves_exact_primary_and_unblocks_legacy(
     tmp_path: Path,
 ) -> None:
     script = Path(__file__).parent.parent / "scripts" / "session_state.py"
-    primary = tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-token-a.json"
-    legacy = tmp_path / "docs" / "handoffs" / ".session-state" / "handoff-demo-token-b.json"
+    primary = (
+        tmp_path
+        / ".claude"
+        / "handoffs"
+        / ".session-state"
+        / "handoff-demo-token-a.json"
+    )
+    legacy = (
+        tmp_path / "docs" / "handoffs" / ".session-state" / "handoff-demo-token-b.json"
+    )
     primary.parent.mkdir(parents=True, exist_ok=True)
     legacy.parent.mkdir(parents=True, exist_ok=True)
     primary_payload = {
@@ -1008,7 +1065,9 @@ def test_read_chain_state_cli_rejects_expired_legacy_state_with_inventory(
     tmp_path: Path,
 ) -> None:
     script = Path(__file__).parent.parent / "scripts" / "session_state.py"
-    legacy = tmp_path / "docs" / "handoffs" / ".session-state" / "handoff-demo-token-b.json"
+    legacy = (
+        tmp_path / "docs" / "handoffs" / ".session-state" / "handoff-demo-token-b.json"
+    )
     legacy.parent.mkdir(parents=True, exist_ok=True)
     legacy.write_text(
         json.dumps(
@@ -1059,7 +1118,13 @@ def test_consumed_legacy_state_marker_survives_copied_project_root(
     script = Path(__file__).parent.parent / "scripts" / "session_state.py"
     source_root = tmp_path / "source"
     copied_root = tmp_path / "copied"
-    legacy = source_root / "docs" / "handoffs" / ".session-state" / "handoff-demo-token-b.json"
+    legacy = (
+        source_root
+        / "docs"
+        / "handoffs"
+        / ".session-state"
+        / "handoff-demo-token-b.json"
+    )
     legacy.parent.mkdir(parents=True, exist_ok=True)
     legacy_payload = {
         "state_path": str(legacy),
@@ -1168,7 +1233,10 @@ def test_continue_chain_state_from_state_like_residue_mints_primary_token(
     assert continued.returncode == 0, continued.stderr
     payload = json.loads(continued.stdout)
     primary_state_path = Path(payload["state_path"])
-    assert primary_state_path.parent == tmp_path / ".claude" / "handoffs" / ".session-state"
+    assert (
+        primary_state_path.parent
+        == tmp_path / ".claude" / "handoffs" / ".session-state"
+    )
     assert primary_state_path.name.startswith("handoff-demo-")
     assert primary_state_path.suffix == ".json"
     primary_payload = json.loads(primary_state_path.read_text(encoding="utf-8"))
@@ -1205,7 +1273,13 @@ def test_continue_chain_state_from_state_like_residue_mints_primary_token(
 
 def test_read_chain_state_cli_reads_single_primary_state(tmp_path: Path) -> None:
     script = Path(__file__).parent.parent / "scripts" / "session_state.py"
-    primary = tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-token-a.json"
+    primary = (
+        tmp_path
+        / ".claude"
+        / "handoffs"
+        / ".session-state"
+        / "handoff-demo-token-a.json"
+    )
     primary.parent.mkdir(parents=True, exist_ok=True)
     primary.write_text(
         json.dumps(
@@ -1247,7 +1321,13 @@ def test_read_chain_state_cli_reads_single_primary_state(tmp_path: Path) -> None
 
 def test_read_chain_state_cli_field_state_outputs_json(tmp_path: Path) -> None:
     script = Path(__file__).parent.parent / "scripts" / "session_state.py"
-    primary = tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-token-a.json"
+    primary = (
+        tmp_path
+        / ".claude"
+        / "handoffs"
+        / ".session-state"
+        / "handoff-demo-token-a.json"
+    )
     primary.parent.mkdir(parents=True, exist_ok=True)
     primary.write_text(
         json.dumps(
@@ -1288,7 +1368,11 @@ def test_read_chain_state_cli_field_state_outputs_json(tmp_path: Path) -> None:
 
 
 def _residue_snapshot(root: Path, patterns: list[str]) -> set[str]:
-    return {str(match.relative_to(root)) for pattern in patterns for match in root.glob(pattern)}
+    return {
+        str(match.relative_to(root))
+        for pattern in patterns
+        for match in root.glob(pattern)
+    }
 
 
 def _plugin_residue_snapshot(plugin_root: Path) -> set[str]:
@@ -1314,7 +1398,9 @@ def _project_residue_snapshot(project_root: Path) -> set[str]:
 def test_state_shell_snippet_preserves_exit_2(tmp_path: Path) -> None:
     plugin_root = Path(__file__).parent.parent
     plugin_before = _plugin_residue_snapshot(plugin_root)
-    subprocess.run(["git", "init"], cwd=str(tmp_path), check=True, capture_output=True, text=True)
+    subprocess.run(
+        ["git", "init"], cwd=str(tmp_path), check=True, capture_output=True, text=True
+    )
     state_dir = tmp_path / "docs" / "handoffs" / ".session-state"
     state_dir.mkdir(parents=True)
     runtime_env = tmp_path / ".claude" / "plugin-runtimes" / "handoff"
@@ -1347,7 +1433,9 @@ esac
 def test_state_shell_snippet_skips_clear_when_absent(tmp_path: Path) -> None:
     plugin_root = Path(__file__).parent.parent
     plugin_before = _plugin_residue_snapshot(plugin_root)
-    subprocess.run(["git", "init"], cwd=str(tmp_path), check=True, capture_output=True, text=True)
+    subprocess.run(
+        ["git", "init"], cwd=str(tmp_path), check=True, capture_output=True, text=True
+    )
     state_dir = tmp_path / "docs" / "handoffs" / ".session-state"
     state_dir.mkdir(parents=True)
     runtime_env = tmp_path / ".claude" / "plugin-runtimes" / "handoff"
@@ -1390,7 +1478,9 @@ def test_list_resume_states_reports_corrupt_json(tmp_path: Path) -> None:
     state_dir.mkdir()
     (state_dir / "handoff-demo-bad.json").write_text("{bad", encoding="utf-8")
 
-    with pytest.raises(session_state.CorruptResumeStateError, match="resume state unreadable"):
+    with pytest.raises(
+        session_state.CorruptResumeStateError, match="resume state unreadable"
+    ):
         session_state.list_resume_states(state_dir, "demo")
 
 
@@ -1400,5 +1490,7 @@ def test_clear_resume_state_reports_corrupt_json(tmp_path: Path) -> None:
     state_path = state_dir / "handoff-demo-bad.json"
     state_path.write_text("{bad", encoding="utf-8")
 
-    with pytest.raises(session_state.CorruptResumeStateError, match="resume state unreadable"):
+    with pytest.raises(
+        session_state.CorruptResumeStateError, match="resume state unreadable"
+    ):
         session_state.clear_resume_state(state_dir, str(state_path))

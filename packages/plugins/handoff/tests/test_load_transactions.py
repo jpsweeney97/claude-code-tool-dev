@@ -22,8 +22,12 @@ from handoff_runtime.load_transactions import (
 
 
 def _git_init(path: Path) -> None:
-    subprocess.run(["git", "init"], cwd=path, check=True, capture_output=True, text=True)
-    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=path, check=True)
+    subprocess.run(
+        ["git", "init"], cwd=path, check=True, capture_output=True, text=True
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"], cwd=path, check=True
+    )
     subprocess.run(["git", "config", "user.name", "Test User"], cwd=path, check=True)
 
 
@@ -70,13 +74,21 @@ def _write_legacy_active_opt_in(project_root: Path, source: Path) -> Path:
     return manifest
 
 
-def test_primary_active_load_archives_source_and_writes_primary_state(tmp_path: Path) -> None:
+def test_primary_active_load_archives_source_and_writes_primary_state(
+    tmp_path: Path,
+) -> None:
     source = _handoff(tmp_path / ".claude" / "handoffs" / "2026-05-13_12-00_load.md")
 
     result = load_handoff(tmp_path, project_name="demo", resume_token="token-a")
 
     archive_path = tmp_path / ".claude" / "handoffs" / "archive" / source.name
-    state_path = tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-token-a.json"
+    state_path = (
+        tmp_path
+        / ".claude"
+        / "handoffs"
+        / ".session-state"
+        / "handoff-demo-token-a.json"
+    )
     assert result.archive_path == archive_path
     assert result.state_path == state_path
     assert not source.exists()
@@ -91,7 +103,9 @@ def test_primary_active_load_archives_source_and_writes_primary_state(tmp_path: 
     assert transaction["state_path"] == str(state_path)
 
 
-def test_explicit_primary_archive_load_writes_state_without_moving_archive(tmp_path: Path) -> None:
+def test_explicit_primary_archive_load_writes_state_without_moving_archive(
+    tmp_path: Path,
+) -> None:
     archive = _handoff(
         tmp_path / ".claude" / "handoffs" / "archive" / "2026-05-13_12-00_archived.md"
     )
@@ -118,13 +132,17 @@ def test_load_retry_recovers_primary_archive_after_state_write_failure(
         tmp_path / ".claude" / "handoffs" / "archive" / "2026-05-13_12-00_archived.md"
     )
     before = archive.read_text(encoding="utf-8")
-    state_path = tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-retry.json"
+    state_path = (
+        tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-retry.json"
+    )
     original_write_resume_state = load_transactions.write_resume_state
 
     def fail_write_resume_state(*args: object, **kwargs: object) -> Path:
         raise RuntimeError("state write failed")
 
-    monkeypatch.setattr(load_transactions, "write_resume_state", fail_write_resume_state)
+    monkeypatch.setattr(
+        load_transactions, "write_resume_state", fail_write_resume_state
+    )
     with pytest.raises(RuntimeError, match="state write failed"):
         load_transactions.load_handoff(
             tmp_path,
@@ -136,14 +154,20 @@ def test_load_retry_recovers_primary_archive_after_state_write_failure(
     assert archive.read_text(encoding="utf-8") == before
     assert not state_path.exists()
 
-    monkeypatch.setattr(load_transactions, "write_resume_state", original_write_resume_state)
+    monkeypatch.setattr(
+        load_transactions, "write_resume_state", original_write_resume_state
+    )
 
-    result = load_transactions.load_handoff(tmp_path, project_name="demo", resume_token="retry")
+    result = load_transactions.load_handoff(
+        tmp_path, project_name="demo", resume_token="retry"
+    )
 
     assert result.source_path == archive
     assert result.archive_path == archive
     assert result.state_path == state_path
-    assert json.loads(state_path.read_text(encoding="utf-8"))["archive_path"] == str(archive)
+    assert json.loads(state_path.read_text(encoding="utf-8"))["archive_path"] == str(
+        archive
+    )
     assert list_load_recovery_records(tmp_path) == []
 
 
@@ -151,7 +175,9 @@ def test_explicit_legacy_archive_load_copies_to_primary_archive_and_reuses_regis
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    legacy = _handoff(tmp_path / "docs" / "handoffs" / "archive" / "2026-05-13_12-00_legacy.md")
+    legacy = _handoff(
+        tmp_path / "docs" / "handoffs" / "archive" / "2026-05-13_12-00_legacy.md"
+    )
     copy_destinations: list[Path] = []
 
     def copy_spy(source: Path, destination: Path) -> Path:
@@ -160,24 +186,37 @@ def test_explicit_legacy_archive_load_copies_to_primary_archive_and_reuses_regis
 
     monkeypatch.setattr(load_transactions.shutil, "copy2", copy_spy)
 
-    first = load_handoff(tmp_path, project_name="demo", explicit_path=legacy, resume_token="one")
-    second = load_handoff(tmp_path, project_name="demo", explicit_path=legacy, resume_token="two")
+    first = load_handoff(
+        tmp_path, project_name="demo", explicit_path=legacy, resume_token="one"
+    )
+    second = load_handoff(
+        tmp_path, project_name="demo", explicit_path=legacy, resume_token="two"
+    )
 
     assert legacy.exists()
     assert first.archive_path == second.archive_path
-    assert first.archive_path == tmp_path / ".claude" / "handoffs" / "archive" / legacy.name
+    assert (
+        first.archive_path
+        == tmp_path / ".claude" / "handoffs" / "archive" / legacy.name
+    )
     first_state = json.loads(Path(first.state_path).read_text(encoding="utf-8"))
     second_state = json.loads(Path(second.state_path).read_text(encoding="utf-8"))
     assert first_state["archive_path"] == str(first.archive_path)
     assert second_state["archive_path"] == str(first.archive_path)
 
     registry_path = (
-        tmp_path / ".claude" / "handoffs" / ".session-state" / "copied-legacy-archives.json"
+        tmp_path
+        / ".claude"
+        / "handoffs"
+        / ".session-state"
+        / "copied-legacy-archives.json"
     )
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
     assert len(registry["entries"]) == 1
     assert registry["entries"][0]["storage_location"] == "legacy_archive"
-    assert registry["entries"][0]["copied_primary_archive_path"] == str(first.archive_path)
+    assert registry["entries"][0]["copied_primary_archive_path"] == str(
+        first.archive_path
+    )
     assert len(copy_destinations) == 1
     assert copy_destinations[0].parent == first.archive_path.parent
     assert copy_destinations[0] != first.archive_path
@@ -188,13 +227,17 @@ def test_legacy_archive_state_write_failure_does_not_record_copied_registry(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    legacy = _handoff(tmp_path / "docs" / "handoffs" / "archive" / "2026-05-13_12-00_legacy.md")
+    legacy = _handoff(
+        tmp_path / "docs" / "handoffs" / "archive" / "2026-05-13_12-00_legacy.md"
+    )
     archive = tmp_path / ".claude" / "handoffs" / "archive" / legacy.name
 
     def fail_write_resume_state(*args: object, **kwargs: object) -> Path:
         raise RuntimeError("state write failed")
 
-    monkeypatch.setattr(load_transactions, "write_resume_state", fail_write_resume_state)
+    monkeypatch.setattr(
+        load_transactions, "write_resume_state", fail_write_resume_state
+    )
 
     with pytest.raises(RuntimeError, match="state write failed"):
         load_transactions.load_handoff(
@@ -206,7 +249,11 @@ def test_legacy_archive_state_write_failure_does_not_record_copied_registry(
 
     assert archive.exists()
     assert not (
-        tmp_path / ".claude" / "handoffs" / ".session-state" / "copied-legacy-archives.json"
+        tmp_path
+        / ".claude"
+        / "handoffs"
+        / ".session-state"
+        / "copied-legacy-archives.json"
     ).exists()
 
 
@@ -214,10 +261,14 @@ def test_load_retry_recovers_legacy_archive_after_copied_registry_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    legacy = _handoff(tmp_path / "docs" / "handoffs" / "archive" / "2026-05-13_12-00_legacy.md")
+    legacy = _handoff(
+        tmp_path / "docs" / "handoffs" / "archive" / "2026-05-13_12-00_legacy.md"
+    )
     legacy_hash = _sha256(legacy)
     archive = tmp_path / ".claude" / "handoffs" / "archive" / legacy.name
-    state_path = tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-retry.json"
+    state_path = (
+        tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-retry.json"
+    )
     original_record = load_transactions._record_copied_legacy_archive
 
     def fail_record(*args: object, **kwargs: object) -> None:
@@ -236,19 +287,31 @@ def test_load_retry_recovers_legacy_archive_after_copied_registry_failure(
     assert archive.exists()
     assert state_path.exists()
     assert not (
-        tmp_path / ".claude" / "handoffs" / ".session-state" / "copied-legacy-archives.json"
+        tmp_path
+        / ".claude"
+        / "handoffs"
+        / ".session-state"
+        / "copied-legacy-archives.json"
     ).exists()
 
-    monkeypatch.setattr(load_transactions, "_record_copied_legacy_archive", original_record)
+    monkeypatch.setattr(
+        load_transactions, "_record_copied_legacy_archive", original_record
+    )
 
-    result = load_transactions.load_handoff(tmp_path, project_name="demo", resume_token="retry")
+    result = load_transactions.load_handoff(
+        tmp_path, project_name="demo", resume_token="retry"
+    )
 
     assert result.source_path == legacy
     assert result.archive_path == archive
     assert result.state_path == state_path
     registry = json.loads(
         (
-            tmp_path / ".claude" / "handoffs" / ".session-state" / "copied-legacy-archives.json"
+            tmp_path
+            / ".claude"
+            / "handoffs"
+            / ".session-state"
+            / "copied-legacy-archives.json"
         ).read_text(encoding="utf-8")
     )
     assert len(registry["entries"]) == 1
@@ -261,8 +324,12 @@ def test_load_retry_recovers_legacy_archive_after_copied_registry_failure(
     assert list_load_recovery_records(tmp_path) == []
 
 
-def test_explicit_previous_primary_hidden_archive_uses_copy_registry(tmp_path: Path) -> None:
-    hidden = _handoff(tmp_path / ".claude" / "handoffs" / ".archive" / "2026-05-13_12-00_hidden.md")
+def test_explicit_previous_primary_hidden_archive_uses_copy_registry(
+    tmp_path: Path,
+) -> None:
+    hidden = _handoff(
+        tmp_path / ".claude" / "handoffs" / ".archive" / "2026-05-13_12-00_hidden.md"
+    )
 
     result = load_handoff(
         tmp_path,
@@ -272,13 +339,22 @@ def test_explicit_previous_primary_hidden_archive_uses_copy_registry(tmp_path: P
     )
 
     assert hidden.exists()
-    assert result.archive_path == tmp_path / ".claude" / "handoffs" / "archive" / hidden.name
+    assert (
+        result.archive_path
+        == tmp_path / ".claude" / "handoffs" / "archive" / hidden.name
+    )
     registry = json.loads(
         (
-            tmp_path / ".claude" / "handoffs" / ".session-state" / "copied-legacy-archives.json"
+            tmp_path
+            / ".claude"
+            / "handoffs"
+            / ".session-state"
+            / "copied-legacy-archives.json"
         ).read_text(encoding="utf-8")
     )
-    assert registry["entries"][0]["storage_location"] == "previous_primary_hidden_archive"
+    assert (
+        registry["entries"][0]["storage_location"] == "previous_primary_hidden_archive"
+    )
 
 
 def test_legacy_active_load_copies_to_primary_archive_writes_state_and_consumes_source(
@@ -308,13 +384,19 @@ def test_legacy_active_load_copies_to_primary_archive_writes_state_and_consumes_
 
     registry = json.loads(
         (
-            tmp_path / ".claude" / "handoffs" / ".session-state" / "consumed-legacy-active.json"
+            tmp_path
+            / ".claude"
+            / "handoffs"
+            / ".session-state"
+            / "consumed-legacy-active.json"
         ).read_text(encoding="utf-8")
     )
     assert len(registry["entries"]) == 1
     entry = registry["entries"][0]
     assert entry["source_root"] == "project_root"
-    assert entry["project_relative_source_path"] == legacy.relative_to(tmp_path).as_posix()
+    assert (
+        entry["project_relative_source_path"] == legacy.relative_to(tmp_path).as_posix()
+    )
     assert entry["storage_location"] == "legacy_active"
     assert entry["source_content_sha256"] == legacy_hash
     assert entry["copied_primary_archive_path"] == str(archive_path)
@@ -350,7 +432,11 @@ def test_explicit_consumed_legacy_active_load_reuses_primary_archive(
 
     registry = json.loads(
         (
-            tmp_path / ".claude" / "handoffs" / ".session-state" / "consumed-legacy-active.json"
+            tmp_path
+            / ".claude"
+            / "handoffs"
+            / ".session-state"
+            / "consumed-legacy-active.json"
         ).read_text(encoding="utf-8")
     )
     assert len(registry["entries"]) == 1
@@ -359,7 +445,9 @@ def test_explicit_consumed_legacy_active_load_reuses_primary_archive(
 def test_tracked_primary_active_load_fails_before_mutation(tmp_path: Path) -> None:
     _git_init(tmp_path)
     source = _handoff(tmp_path / ".claude" / "handoffs" / "2026-05-13_12-00_tracked.md")
-    subprocess.run(["git", "add", str(source.relative_to(tmp_path))], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "add", str(source.relative_to(tmp_path))], cwd=tmp_path, check=True
+    )
     before = source.read_text(encoding="utf-8")
 
     with pytest.raises(TrackedRuntimeSourceError):
@@ -416,7 +504,9 @@ def test_load_lock_metadata_exists_during_mutation(
         resume_token: str | None,
         transaction_id: str,
     ) -> load_transactions.LoadResult:
-        lock = tmp_path / ".claude" / "handoffs" / ".session-state" / "locks" / "load.lock"
+        lock = (
+            tmp_path / ".claude" / "handoffs" / ".session-state" / "locks" / "load.lock"
+        )
         observed["lock_exists"] = lock.exists()
         observed["metadata"] = json.loads(lock.read_text(encoding="utf-8"))
         raise RuntimeError("stop after lock inspection")
@@ -424,7 +514,9 @@ def test_load_lock_metadata_exists_during_mutation(
     monkeypatch.setattr(load_transactions, "_load_handoff_locked", inspect_lock)
 
     with pytest.raises(RuntimeError, match="stop after lock inspection"):
-        load_transactions.load_handoff(tmp_path, project_name="demo", resume_token="lock")
+        load_transactions.load_handoff(
+            tmp_path, project_name="demo", resume_token="lock"
+        )
 
     assert observed["lock_exists"] is True
     assert observed["metadata"]["project"] == "demo"
@@ -440,7 +532,9 @@ def test_load_lock_metadata_exists_during_mutation(
     ).exists()
 
 
-def test_read_only_recovery_inventory_reports_pending_transactions(tmp_path: Path) -> None:
+def test_read_only_recovery_inventory_reports_pending_transactions(
+    tmp_path: Path,
+) -> None:
     transactions = tmp_path / ".claude" / "handoffs" / ".session-state" / "transactions"
     transactions.mkdir(parents=True)
     pending = transactions / "pending.json"
@@ -461,7 +555,9 @@ def test_read_only_recovery_inventory_reports_pending_transactions(tmp_path: Pat
 
     records = list_load_recovery_records(tmp_path)
 
-    assert records == [{"transaction_id": "a", "operation": "load", "status": "pending"}]
+    assert records == [
+        {"transaction_id": "a", "operation": "load", "status": "pending"}
+    ]
     assert pending.exists()
     assert completed.exists()
 
@@ -493,8 +589,12 @@ def test_load_transactions_cli_load_outputs_requested_field(tmp_path: Path) -> N
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == str(archive)
     assert archive.exists()
-    state_path = tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-cli.json"
-    assert json.loads(state_path.read_text(encoding="utf-8"))["archive_path"] == str(archive)
+    state_path = (
+        tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-cli.json"
+    )
+    assert json.loads(state_path.read_text(encoding="utf-8"))["archive_path"] == str(
+        archive
+    )
 
 
 def test_read_only_recovery_inventory_reports_archive_after_state_write_failure(
@@ -507,10 +607,14 @@ def test_read_only_recovery_inventory_reports_archive_after_state_write_failure(
     def fail_write_resume_state(*args: object, **kwargs: object) -> Path:
         raise RuntimeError("state write failed")
 
-    monkeypatch.setattr(load_transactions, "write_resume_state", fail_write_resume_state)
+    monkeypatch.setattr(
+        load_transactions, "write_resume_state", fail_write_resume_state
+    )
 
     with pytest.raises(RuntimeError, match="state write failed"):
-        load_transactions.load_handoff(tmp_path, project_name="demo", resume_token="token")
+        load_transactions.load_handoff(
+            tmp_path, project_name="demo", resume_token="token"
+        )
 
     assert not source.exists()
     assert archive.exists()
@@ -536,13 +640,21 @@ def test_load_retry_recovers_primary_active_after_state_write_failure(
     def fail_write_resume_state(*args: object, **kwargs: object) -> Path:
         raise RuntimeError("state write failed")
 
-    monkeypatch.setattr(load_transactions, "write_resume_state", fail_write_resume_state)
+    monkeypatch.setattr(
+        load_transactions, "write_resume_state", fail_write_resume_state
+    )
     with pytest.raises(RuntimeError, match="state write failed"):
-        load_transactions.load_handoff(tmp_path, project_name="demo", resume_token="retry")
+        load_transactions.load_handoff(
+            tmp_path, project_name="demo", resume_token="retry"
+        )
 
-    monkeypatch.setattr(load_transactions, "write_resume_state", original_write_resume_state)
+    monkeypatch.setattr(
+        load_transactions, "write_resume_state", original_write_resume_state
+    )
 
-    result = load_transactions.load_handoff(tmp_path, project_name="demo", resume_token="retry")
+    result = load_transactions.load_handoff(
+        tmp_path, project_name="demo", resume_token="retry"
+    )
 
     assert result.source_path == source
     assert result.archive_path == archive
@@ -566,7 +678,9 @@ def test_load_retry_recovers_legacy_active_after_consumed_registry_failure(
     legacy_hash = _sha256(legacy)
     _write_legacy_active_opt_in(tmp_path, legacy)
     archive = tmp_path / ".claude" / "handoffs" / "archive" / legacy.name
-    state_path = tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-retry.json"
+    state_path = (
+        tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-retry.json"
+    )
     original_consume = load_transactions._consume_legacy_active
 
     def fail_consume(*args: object, **kwargs: object) -> None:
@@ -574,25 +688,37 @@ def test_load_retry_recovers_legacy_active_after_consumed_registry_failure(
 
     monkeypatch.setattr(load_transactions, "_consume_legacy_active", fail_consume)
     with pytest.raises(RuntimeError, match="consumed registry failed"):
-        load_transactions.load_handoff(tmp_path, project_name="demo", resume_token="retry")
+        load_transactions.load_handoff(
+            tmp_path, project_name="demo", resume_token="retry"
+        )
 
     assert legacy.exists()
     assert archive.exists()
     assert state_path.exists()
     assert not (
-        tmp_path / ".claude" / "handoffs" / ".session-state" / "consumed-legacy-active.json"
+        tmp_path
+        / ".claude"
+        / "handoffs"
+        / ".session-state"
+        / "consumed-legacy-active.json"
     ).exists()
 
     monkeypatch.setattr(load_transactions, "_consume_legacy_active", original_consume)
 
-    result = load_transactions.load_handoff(tmp_path, project_name="demo", resume_token="retry")
+    result = load_transactions.load_handoff(
+        tmp_path, project_name="demo", resume_token="retry"
+    )
 
     assert result.source_path == legacy
     assert result.archive_path == archive
     assert result.state_path == state_path
     registry = json.loads(
         (
-            tmp_path / ".claude" / "handoffs" / ".session-state" / "consumed-legacy-active.json"
+            tmp_path
+            / ".claude"
+            / "handoffs"
+            / ".session-state"
+            / "consumed-legacy-active.json"
         ).read_text(encoding="utf-8")
     )
     assert len(registry["entries"]) == 1
@@ -615,7 +741,9 @@ def _seed_pending_load_transaction(
     resume_token: str = "retry",
     project: str = "demo",
 ) -> Path:
-    transactions_dir = tmp_path / ".claude" / "handoffs" / ".session-state" / "transactions"
+    transactions_dir = (
+        tmp_path / ".claude" / "handoffs" / ".session-state" / "transactions"
+    )
     transactions_dir.mkdir(parents=True, exist_ok=True)
     transaction_path = transactions_dir / f"{transaction_id}.json"
     state_path = (
@@ -747,7 +875,9 @@ def test_load_retry_raises_unrecoverable_for_primary_active_when_source_gone_and
 def test_load_retry_raises_ambiguous_for_primary_active_with_multiple_hash_matches(
     tmp_path: Path,
 ) -> None:
-    intended_source = tmp_path / ".claude" / "handoffs" / "2026-05-13_12-00_ambiguous.md"
+    intended_source = (
+        tmp_path / ".claude" / "handoffs" / "2026-05-13_12-00_ambiguous.md"
+    )
     archive_dir = tmp_path / ".claude" / "handoffs" / "archive"
     archive_dir.mkdir(parents=True, exist_ok=True)
     first = _handoff(archive_dir / "2026-05-13_12-00_ambiguous.md", title="Ambiguous")
@@ -797,7 +927,11 @@ def test_load_retry_abandons_legacy_active_without_registry_entry(
     completed = json.loads(Path(result.transaction_path).read_text(encoding="utf-8"))
     assert completed["status"] == "completed"
     registry_path = (
-        tmp_path / ".claude" / "handoffs" / ".session-state" / "consumed-legacy-active.json"
+        tmp_path
+        / ".claude"
+        / "handoffs"
+        / ".session-state"
+        / "consumed-legacy-active.json"
     )
     assert registry_path.exists()
     assert list_load_recovery_records(tmp_path) == []
@@ -834,7 +968,11 @@ def test_load_retry_abandons_legacy_archive_without_registry_entry(
     assert result.archive_path == archive
     assert result.transaction_path != str(pending_path)
     registry_path = (
-        tmp_path / ".claude" / "handoffs" / ".session-state" / "copied-legacy-archives.json"
+        tmp_path
+        / ".claude"
+        / "handoffs"
+        / ".session-state"
+        / "copied-legacy-archives.json"
     )
     assert registry_path.exists()
     final_records = list_load_recovery_records(tmp_path)
@@ -875,14 +1013,18 @@ def _stage_load_lock(tmp_path: Path, metadata: dict[str, object]) -> Path:
 
 def test_load_lock_blocks_within_timeout(tmp_path: Path) -> None:
     _handoff(tmp_path / ".claude" / "handoffs" / "2026-05-13_12-00_lock-test.md")
-    lock = _stage_load_lock(tmp_path, _valid_load_lock_metadata(created_at=datetime.now(UTC)))
+    lock = _stage_load_lock(
+        tmp_path, _valid_load_lock_metadata(created_at=datetime.now(UTC))
+    )
     with pytest.raises(LoadTransactionError, match="lock is already held"):
         load_handoff(tmp_path, project_name="demo")
     assert lock.exists()
 
 
 def test_load_lock_held_diagnostic_preserves_wrapper_message(tmp_path: Path) -> None:
-    lock = _stage_load_lock(tmp_path, _valid_load_lock_metadata(created_at=datetime.now(UTC)))
+    lock = _stage_load_lock(
+        tmp_path, _valid_load_lock_metadata(created_at=datetime.now(UTC))
+    )
     expected = f"load-handoff failed: project load lock is already held. Got: {str(lock)!r:.100}"
     with pytest.raises(LoadTransactionError) as exc_info:
         load_transactions._acquire_lock(
@@ -894,7 +1036,9 @@ def test_load_lock_held_diagnostic_preserves_wrapper_message(tmp_path: Path) -> 
     assert str(exc_info.value) == expected
 
 
-def test_load_lock_recovers_from_stale_lock_same_host_after_timeout(tmp_path: Path) -> None:
+def test_load_lock_recovers_from_stale_lock_same_host_after_timeout(
+    tmp_path: Path,
+) -> None:
     _handoff(tmp_path / ".claude" / "handoffs" / "2026-05-13_12-00_lock-test.md")
     stale_time = datetime.now(UTC) - timedelta(hours=2)
     _stage_load_lock(tmp_path, _valid_load_lock_metadata(created_at=stale_time))
@@ -928,7 +1072,11 @@ def test_load_lock_fails_closed_on_unparseable_metadata(tmp_path: Path) -> None:
             id="missing-hostname",
         ),
         pytest.param(
-            {"created_at": 12345, "timeout_seconds": 1800, "hostname": socket.gethostname()},
+            {
+                "created_at": 12345,
+                "timeout_seconds": 1800,
+                "hostname": socket.gethostname(),
+            },
             id="wrong-type-created_at",
         ),
         pytest.param(
@@ -940,11 +1088,19 @@ def test_load_lock_fails_closed_on_unparseable_metadata(tmp_path: Path) -> None:
             id="wrong-type-timeout_seconds",
         ),
         pytest.param(
-            {"created_at": "2026-01-01T00:00:00Z", "timeout_seconds": 1800, "hostname": 42},
+            {
+                "created_at": "2026-01-01T00:00:00Z",
+                "timeout_seconds": 1800,
+                "hostname": 42,
+            },
             id="wrong-type-hostname",
         ),
         pytest.param(
-            {"created_at": "not-a-date", "timeout_seconds": 1800, "hostname": socket.gethostname()},
+            {
+                "created_at": "not-a-date",
+                "timeout_seconds": 1800,
+                "hostname": socket.gethostname(),
+            },
             id="unparsable-created_at",
         ),
     ],
@@ -1022,7 +1178,9 @@ def test_load_lock_recovery_claim_present_fails_closed_with_live_hint(
         ),
         encoding="utf-8",
     )
-    with pytest.raises(LoadTransactionError, match="recovery claim file present") as exc_info:
+    with pytest.raises(
+        LoadTransactionError, match="recovery claim file present"
+    ) as exc_info:
         load_handoff(tmp_path, project_name="demo")
     assert "(live recoverer:" in str(exc_info.value)
     assert "trash" in str(exc_info.value)
@@ -1030,7 +1188,9 @@ def test_load_lock_recovery_claim_present_fails_closed_with_live_hint(
     assert claim_path.exists()
 
 
-def test_load_recovery_claim_diagnostic_preserves_wrapper_message(tmp_path: Path) -> None:
+def test_load_recovery_claim_diagnostic_preserves_wrapper_message(
+    tmp_path: Path,
+) -> None:
     lock = _stage_load_lock(
         tmp_path,
         _valid_load_lock_metadata(created_at=datetime.now(UTC) - timedelta(hours=2)),
@@ -1078,7 +1238,9 @@ def test_load_lock_recovery_claim_present_fails_closed_with_stale_hint(
         ),
         encoding="utf-8",
     )
-    with pytest.raises(LoadTransactionError, match="recovery claim file present") as exc_info:
+    with pytest.raises(
+        LoadTransactionError, match="recovery claim file present"
+    ) as exc_info:
         load_handoff(tmp_path, project_name="demo")
     assert "(likely stale:" in str(exc_info.value)
     assert "trash" in str(exc_info.value)
@@ -1092,7 +1254,9 @@ def test_load_lock_recovery_claim_unparseable_fails_closed(tmp_path: Path) -> No
     lock = _stage_load_lock(tmp_path, _valid_load_lock_metadata(created_at=stale_time))
     claim_path = lock.with_name(lock.name + ".recovery")
     claim_path.write_text("not-json", encoding="utf-8")
-    with pytest.raises(LoadTransactionError, match="recovery claim file present") as exc_info:
+    with pytest.raises(
+        LoadTransactionError, match="recovery claim file present"
+    ) as exc_info:
         load_handoff(tmp_path, project_name="demo")
     assert "(claim metadata unreadable)" in str(exc_info.value)
     assert "trash" in str(exc_info.value)
@@ -1115,7 +1279,9 @@ def test_load_lock_recovery_claim_malformed_fails_closed(tmp_path: Path) -> None
     assert claim_path.exists()
 
 
-def test_load_lock_recovery_claim_removed_then_operation_succeeds(tmp_path: Path) -> None:
+def test_load_lock_recovery_claim_removed_then_operation_succeeds(
+    tmp_path: Path,
+) -> None:
     _handoff(tmp_path / ".claude" / "handoffs" / "2026-05-13_12-00_lock-test.md")
     stale_time = datetime.now(UTC) - timedelta(hours=2)
     lock = _stage_load_lock(tmp_path, _valid_load_lock_metadata(created_at=stale_time))
@@ -1149,8 +1315,12 @@ def test_load_release_lock_preserves_session_state_dir(tmp_path: Path) -> None:
 
 
 def test_recover_pending_load_filters_by_project(tmp_path: Path) -> None:
-    source = _handoff(tmp_path / ".claude" / "handoffs" / "2026-05-13_12-00_filter-test.md")
-    transactions_dir = tmp_path / ".claude" / "handoffs" / ".session-state" / "transactions"
+    source = _handoff(
+        tmp_path / ".claude" / "handoffs" / "2026-05-13_12-00_filter-test.md"
+    )
+    transactions_dir = (
+        tmp_path / ".claude" / "handoffs" / ".session-state" / "transactions"
+    )
     transactions_dir.mkdir(parents=True, exist_ok=True)
     foreign_record = {
         "project": "other-project",
@@ -1159,7 +1329,9 @@ def test_recover_pending_load_filters_by_project(tmp_path: Path) -> None:
         "transaction_id": "foreign-tx",
         "storage_location": "primary_archive",
         "source_path": str(source),
-        "archive_path": str(tmp_path / ".claude" / "handoffs" / "archive" / source.name),
+        "archive_path": str(
+            tmp_path / ".claude" / "handoffs" / "archive" / source.name
+        ),
     }
     foreign_path = transactions_dir / "foreign.json"
     foreign_path.write_text(json.dumps(foreign_record), encoding="utf-8")
@@ -1174,7 +1346,9 @@ def test_load_lock_live_contention_with_subprocess(tmp_path: Path) -> None:
     _handoff(tmp_path / ".claude" / "handoffs" / "2026-05-13_12-00_contention-test.md")
     plugin_root = str(Path(__file__).resolve().parent.parent)
 
-    lock_path = tmp_path / ".claude" / "handoffs" / ".session-state" / "locks" / "load.lock"
+    lock_path = (
+        tmp_path / ".claude" / "handoffs" / ".session-state" / "locks" / "load.lock"
+    )
     lock_path_repr = repr(str(lock_path))
 
     ready_marker = tmp_path / "ready.marker"
@@ -1232,7 +1406,9 @@ except Exception as exc:
         text=True,
         cwd=plugin_root,
     )
-    assert result_b.returncode != 0, f"Process B should have failed. stdout={result_b.stdout}"
+    assert result_b.returncode != 0, (
+        f"Process B should have failed. stdout={result_b.stdout}"
+    )
     assert "lock is already held" in result_b.stderr, (
         f"Expected 'lock is already held' in stderr. stderr={result_b.stderr}"
     )
@@ -1258,13 +1434,19 @@ except Exception as exc:
 # ── Corruption fail-closed tests ────────────────────────────────────
 
 
-def test_recover_pending_load_fails_closed_on_corrupt_transaction(tmp_path: Path) -> None:
+def test_recover_pending_load_fails_closed_on_corrupt_transaction(
+    tmp_path: Path,
+) -> None:
     _handoff(tmp_path / ".claude" / "handoffs" / "2026-05-13_12-00_corrupt-test.md")
-    transactions_dir = tmp_path / ".claude" / "handoffs" / ".session-state" / "transactions"
+    transactions_dir = (
+        tmp_path / ".claude" / "handoffs" / ".session-state" / "transactions"
+    )
     transactions_dir.mkdir(parents=True, exist_ok=True)
     corrupt = transactions_dir / "garbage.json"
     corrupt.write_text("not-json{{{", encoding="utf-8")
-    with pytest.raises(LoadTransactionError, match="pending transaction record unreadable"):
+    with pytest.raises(
+        LoadTransactionError, match="pending transaction record unreadable"
+    ):
         load_handoff(tmp_path, project_name="demo")
 
 
@@ -1272,16 +1454,24 @@ def test_recover_pending_load_fails_closed_on_corrupt_foreign_transaction(
     tmp_path: Path,
 ) -> None:
     _handoff(tmp_path / ".claude" / "handoffs" / "2026-05-13_12-00_corrupt-foreign.md")
-    transactions_dir = tmp_path / ".claude" / "handoffs" / ".session-state" / "transactions"
+    transactions_dir = (
+        tmp_path / ".claude" / "handoffs" / ".session-state" / "transactions"
+    )
     transactions_dir.mkdir(parents=True, exist_ok=True)
     corrupt = transactions_dir / "foreign-corrupt.json"
     corrupt.write_text("not-json{{{", encoding="utf-8")
-    with pytest.raises(LoadTransactionError, match="pending transaction record unreadable"):
+    with pytest.raises(
+        LoadTransactionError, match="pending transaction record unreadable"
+    ):
         load_handoff(tmp_path, project_name="demo")
 
 
-def test_list_load_recovery_records_surfaces_corrupt_transaction(tmp_path: Path) -> None:
-    transactions_dir = tmp_path / ".claude" / "handoffs" / ".session-state" / "transactions"
+def test_list_load_recovery_records_surfaces_corrupt_transaction(
+    tmp_path: Path,
+) -> None:
+    transactions_dir = (
+        tmp_path / ".claude" / "handoffs" / ".session-state" / "transactions"
+    )
     transactions_dir.mkdir(parents=True, exist_ok=True)
     corrupt = transactions_dir / "garbage.json"
     corrupt.write_text("not-json{{{", encoding="utf-8")
@@ -1294,10 +1484,16 @@ def test_list_load_recovery_records_surfaces_corrupt_transaction(tmp_path: Path)
 
 def test_read_registry_reports_corrupt_json(tmp_path: Path) -> None:
     registry_path = (
-        tmp_path / ".claude" / "handoffs" / ".session-state" / "copied-legacy-archives.json"
+        tmp_path
+        / ".claude"
+        / "handoffs"
+        / ".session-state"
+        / "copied-legacy-archives.json"
     )
     registry_path.parent.mkdir(parents=True, exist_ok=True)
     registry_path.write_text("{bad", encoding="utf-8")
 
-    with pytest.raises(load_transactions.LoadTransactionError, match="registry unreadable"):
+    with pytest.raises(
+        load_transactions.LoadTransactionError, match="registry unreadable"
+    ):
         load_transactions._read_registry(registry_path)

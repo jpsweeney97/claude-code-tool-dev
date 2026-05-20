@@ -58,7 +58,9 @@ class TestParseSections:
         assert sections[1].heading == "## Decisions"
 
     def test_subsections_included_in_parent(self) -> None:
-        text = "## Decisions\n\n### Decision A\n\nChose A.\n\n### Decision B\n\nChose B.\n"
+        text = (
+            "## Decisions\n\n### Decision A\n\nChose A.\n\n### Decision B\n\nChose B.\n"
+        )
         sections = parse_sections(text)
         assert len(sections) == 1
         assert "Decision A" in sections[0].content
@@ -95,7 +97,9 @@ class TestParseSections:
         headings = [section.heading for section in sections]
         assert headings == ["## A", "## B"]
 
-    def test_parse_sections_does_not_close_backtick_fence_with_tilde_fence(self) -> None:
+    def test_parse_sections_does_not_close_backtick_fence_with_tilde_fence(
+        self,
+    ) -> None:
         text = "## A\n```\n~~~\n## inside\n```\n## B\nbody\n"
         sections = parse_sections(text)
         headings = [section.heading for section in sections]
