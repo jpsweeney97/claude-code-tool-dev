@@ -25,8 +25,12 @@ from handoff_runtime.storage_authority import (
 
 
 def _git_init(path: Path) -> None:
-    subprocess.run(["git", "init"], cwd=path, check=True, capture_output=True, text=True)
-    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=path, check=True)
+    subprocess.run(
+        ["git", "init"], cwd=path, check=True, capture_output=True, text=True
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"], cwd=path, check=True
+    )
     subprocess.run(["git", "config", "user.name", "Test User"], cwd=path, check=True)
 
 
@@ -124,10 +128,16 @@ def test_storage_authority_does_not_export_chain_state_facade() -> None:
         assert not hasattr(storage_authority, name)
 
 
-def test_active_selection_blocks_unproven_legacy_active_markdown(tmp_path: Path) -> None:
+def test_active_selection_blocks_unproven_legacy_active_markdown(
+    tmp_path: Path,
+) -> None:
     _git_init(tmp_path)
-    primary = _handoff(tmp_path / ".claude" / "handoffs" / "2026-05-13_12-00_primary.md", "Primary")
-    legacy = _handoff(tmp_path / "docs" / "handoffs" / "2026-05-13_12-01_legacy.md", "Legacy")
+    primary = _handoff(
+        tmp_path / ".claude" / "handoffs" / "2026-05-13_12-00_primary.md", "Primary"
+    )
+    legacy = _handoff(
+        tmp_path / "docs" / "handoffs" / "2026-05-13_12-01_legacy.md", "Legacy"
+    )
     legacy_archive = _handoff(
         tmp_path / "docs" / "handoffs" / "archive" / "2026-05-13_12-02_archive.md",
         "Archive",
@@ -140,7 +150,10 @@ def test_active_selection_blocks_unproven_legacy_active_markdown(tmp_path: Path)
     assert by_path[primary].selection_eligibility == SelectionEligibility.ELIGIBLE
     assert by_path[legacy].storage_location == StorageLocation.LEGACY_ACTIVE
     assert by_path[legacy].artifact_class == "policy-conflict-artifact"
-    assert by_path[legacy].selection_eligibility == SelectionEligibility.BLOCKED_POLICY_CONFLICT
+    assert (
+        by_path[legacy].selection_eligibility
+        == SelectionEligibility.BLOCKED_POLICY_CONFLICT
+    )
     assert by_path[legacy_archive].storage_location == StorageLocation.LEGACY_ARCHIVE
     assert (
         by_path[legacy_archive].selection_eligibility
@@ -148,37 +161,59 @@ def test_active_selection_blocks_unproven_legacy_active_markdown(tmp_path: Path)
     )
 
 
-def test_active_selection_accepts_exact_reviewed_legacy_active_opt_in(tmp_path: Path) -> None:
-    legacy = _handoff(tmp_path / "docs" / "handoffs" / "2026-05-13_12-01_legacy.md", "Legacy")
+def test_active_selection_accepts_exact_reviewed_legacy_active_opt_in(
+    tmp_path: Path,
+) -> None:
+    legacy = _handoff(
+        tmp_path / "docs" / "handoffs" / "2026-05-13_12-01_legacy.md", "Legacy"
+    )
     _write_legacy_active_opt_in(tmp_path, legacy)
 
     inventory = discover_handoff_inventory(tmp_path, scan_mode="active-selection")
 
-    candidate = next(candidate for candidate in inventory.candidates if candidate.path == legacy)
+    candidate = next(
+        candidate for candidate in inventory.candidates if candidate.path == legacy
+    )
     assert candidate.storage_location == StorageLocation.LEGACY_ACTIVE
     assert candidate.artifact_class == "reviewed-runtime-migration-opt-in"
     assert candidate.selection_eligibility == SelectionEligibility.ELIGIBLE
     assert eligible_active_candidates(inventory) == [candidate]
 
 
-def test_active_selection_blocks_legacy_active_opt_in_hash_mismatch(tmp_path: Path) -> None:
-    legacy = _handoff(tmp_path / "docs" / "handoffs" / "2026-05-13_12-01_legacy.md", "Legacy")
+def test_active_selection_blocks_legacy_active_opt_in_hash_mismatch(
+    tmp_path: Path,
+) -> None:
+    legacy = _handoff(
+        tmp_path / "docs" / "handoffs" / "2026-05-13_12-01_legacy.md", "Legacy"
+    )
     _write_legacy_active_opt_in(tmp_path, legacy, sha256="0" * 64)
 
     inventory = discover_handoff_inventory(tmp_path, scan_mode="active-selection")
 
-    candidate = next(candidate for candidate in inventory.candidates if candidate.path == legacy)
+    candidate = next(
+        candidate for candidate in inventory.candidates if candidate.path == legacy
+    )
     assert candidate.artifact_class == "policy-conflict-artifact"
-    assert candidate.selection_eligibility == SelectionEligibility.BLOCKED_POLICY_CONFLICT
+    assert (
+        candidate.selection_eligibility == SelectionEligibility.BLOCKED_POLICY_CONFLICT
+    )
     assert eligible_active_candidates(inventory) == []
 
 
 def test_active_selection_suppresses_consumed_legacy_active_by_stable_hash(
     tmp_path: Path,
 ) -> None:
-    legacy = _handoff(tmp_path / "docs" / "handoffs" / "2026-05-13_12-01_legacy.md", "Legacy")
+    legacy = _handoff(
+        tmp_path / "docs" / "handoffs" / "2026-05-13_12-01_legacy.md", "Legacy"
+    )
     _write_legacy_active_opt_in(tmp_path, legacy)
-    consumed = tmp_path / ".claude" / "handoffs" / ".session-state" / "consumed-legacy-active.json"
+    consumed = (
+        tmp_path
+        / ".claude"
+        / "handoffs"
+        / ".session-state"
+        / "consumed-legacy-active.json"
+    )
     consumed.parent.mkdir(parents=True, exist_ok=True)
     consumed.write_text(
         json.dumps(
@@ -186,7 +221,9 @@ def test_active_selection_suppresses_consumed_legacy_active_by_stable_hash(
                 "entries": [
                     {
                         "source_root": "project_root",
-                        "project_relative_source_path": legacy.relative_to(tmp_path).as_posix(),
+                        "project_relative_source_path": legacy.relative_to(
+                            tmp_path
+                        ).as_posix(),
                         "storage_location": "legacy_active",
                         "source_content_sha256": _sha256(legacy),
                     }
@@ -207,30 +244,47 @@ def test_active_selection_suppresses_consumed_legacy_active_by_stable_hash(
     )
     assert eligible_active_candidates(suppressed) == []
 
-    legacy.write_text(legacy.read_text(encoding="utf-8") + "\nChanged bytes.\n", encoding="utf-8")
+    legacy.write_text(
+        legacy.read_text(encoding="utf-8") + "\nChanged bytes.\n", encoding="utf-8"
+    )
     changed = discover_handoff_inventory(tmp_path, scan_mode="active-selection")
     changed_candidate = next(
         candidate for candidate in changed.candidates if candidate.path == legacy
     )
     assert changed_candidate.artifact_class == "policy-conflict-artifact"
-    assert changed_candidate.selection_eligibility == SelectionEligibility.BLOCKED_POLICY_CONFLICT
+    assert (
+        changed_candidate.selection_eligibility
+        == SelectionEligibility.BLOCKED_POLICY_CONFLICT
+    )
 
 
 def test_history_search_includes_archive_tiers_but_not_state(tmp_path: Path) -> None:
-    primary = _handoff(tmp_path / ".claude" / "handoffs" / "2026-05-13_12-00_primary.md", "Primary")
+    primary = _handoff(
+        tmp_path / ".claude" / "handoffs" / "2026-05-13_12-00_primary.md", "Primary"
+    )
     primary_archive = _handoff(
-        tmp_path / ".claude" / "handoffs" / "archive" / "2026-05-13_11-00_primary-archive.md",
+        tmp_path
+        / ".claude"
+        / "handoffs"
+        / "archive"
+        / "2026-05-13_11-00_primary-archive.md",
         "Primary Archive",
     )
     legacy_archive = _handoff(
-        tmp_path / "docs" / "handoffs" / "archive" / "2026-05-13_10-00_legacy-archive.md",
+        tmp_path
+        / "docs"
+        / "handoffs"
+        / "archive"
+        / "2026-05-13_10-00_legacy-archive.md",
         "Legacy Archive",
     )
     previous_hidden = _handoff(
         tmp_path / ".claude" / "handoffs" / ".archive" / "2026-05-13_09-00_hidden.md",
         "Hidden Archive",
     )
-    state = tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-token.json"
+    state = (
+        tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-token.json"
+    )
     state.parent.mkdir(parents=True)
     state.write_text("{}", encoding="utf-8")
 
@@ -250,17 +304,27 @@ def test_history_search_includes_archive_tiers_but_not_state(tmp_path: Path) -> 
 
 def test_tracked_primary_active_source_is_blocked(tmp_path: Path) -> None:
     _git_init(tmp_path)
-    primary = _handoff(tmp_path / ".claude" / "handoffs" / "2026-05-13_12-00_primary.md", "Primary")
-    subprocess.run(["git", "add", str(primary.relative_to(tmp_path))], cwd=tmp_path, check=True)
+    primary = _handoff(
+        tmp_path / ".claude" / "handoffs" / "2026-05-13_12-00_primary.md", "Primary"
+    )
+    subprocess.run(
+        ["git", "add", str(primary.relative_to(tmp_path))], cwd=tmp_path, check=True
+    )
 
     inventory = discover_handoff_inventory(tmp_path, scan_mode="active-selection")
 
-    candidate = next(candidate for candidate in inventory.candidates if candidate.path == primary)
+    candidate = next(
+        candidate for candidate in inventory.candidates if candidate.path == primary
+    )
     assert candidate.source_git_visibility == "tracked-conflict"
-    assert candidate.selection_eligibility == SelectionEligibility.BLOCKED_TRACKED_SOURCE
+    assert (
+        candidate.selection_eligibility == SelectionEligibility.BLOCKED_TRACKED_SOURCE
+    )
 
 
-def test_active_selection_orders_by_filename_timestamp_then_lexical_path(tmp_path: Path) -> None:
+def test_active_selection_orders_by_filename_timestamp_then_lexical_path(
+    tmp_path: Path,
+) -> None:
     older = _handoff(
         tmp_path / ".claude" / "handoffs" / "2026-05-13_10-00_older.md",
         "Older",
@@ -286,11 +350,19 @@ def test_active_selection_orders_by_filename_timestamp_then_lexical_path(tmp_pat
 def test_active_selection_reports_invalid_hidden_nested_and_state_diagnostics(
     tmp_path: Path,
 ) -> None:
-    invalid = _invalid_handoff(tmp_path / ".claude" / "handoffs" / "2026-05-13_12-00_invalid.md")
+    invalid = _invalid_handoff(
+        tmp_path / ".claude" / "handoffs" / "2026-05-13_12-00_invalid.md"
+    )
     hidden = _handoff(tmp_path / ".claude" / "handoffs" / ".hidden.md")
-    nested = _handoff(tmp_path / ".claude" / "handoffs" / "nested" / "2026-05-13_12-00_nested.md")
+    nested = _handoff(
+        tmp_path / ".claude" / "handoffs" / "nested" / "2026-05-13_12-00_nested.md"
+    )
     state_doc = _handoff(
-        tmp_path / ".claude" / "handoffs" / ".session-state" / "2026-05-13_12-00_state.md"
+        tmp_path
+        / ".claude"
+        / "handoffs"
+        / ".session-state"
+        / "2026-05-13_12-00_state.md"
     )
 
     inventory = discover_handoff_inventory(tmp_path, scan_mode="active-selection")
@@ -311,10 +383,14 @@ def test_history_search_keeps_no_frontmatter_archives_as_historical_profile(
 ) -> None:
     archive = tmp_path / ".claude" / "handoffs" / "archive" / "2026-05-13_12-00_old.md"
     archive.parent.mkdir(parents=True, exist_ok=True)
-    archive.write_text("## Older Handoff\n\nNo current frontmatter.\n", encoding="utf-8")
+    archive.write_text(
+        "## Older Handoff\n\nNo current frontmatter.\n", encoding="utf-8"
+    )
 
     inventory = discover_handoff_inventory(tmp_path, scan_mode="history-search")
-    candidate = next(candidate for candidate in inventory.candidates if candidate.path == archive)
+    candidate = next(
+        candidate for candidate in inventory.candidates if candidate.path == archive
+    )
 
     assert candidate.selection_eligibility == SelectionEligibility.ELIGIBLE
     assert candidate.document_profile == "historical_archive"
@@ -354,7 +430,11 @@ def test_explicit_path_classifies_supported_storage_locations(tmp_path: Path) ->
             tmp_path / ".claude" / "handoffs" / "2026-05-13_12-00_primary.md"
         ),
         StorageLocation.PRIMARY_ARCHIVE: _handoff(
-            tmp_path / ".claude" / "handoffs" / "archive" / "2026-05-13_12-00_primary.md"
+            tmp_path
+            / ".claude"
+            / "handoffs"
+            / "archive"
+            / "2026-05-13_12-00_primary.md"
         ),
         StorageLocation.LEGACY_ACTIVE: _handoff(
             tmp_path / "docs" / "handoffs" / "2026-05-13_12-00_legacy.md"
@@ -363,7 +443,11 @@ def test_explicit_path_classifies_supported_storage_locations(tmp_path: Path) ->
             tmp_path / "docs" / "handoffs" / "archive" / "2026-05-13_12-00_legacy.md"
         ),
         StorageLocation.PREVIOUS_PRIMARY_HIDDEN_ARCHIVE: _handoff(
-            tmp_path / ".claude" / "handoffs" / ".archive" / "2026-05-13_12-00_hidden.md"
+            tmp_path
+            / ".claude"
+            / "handoffs"
+            / ".archive"
+            / "2026-05-13_12-00_hidden.md"
         ),
     }
 
@@ -381,7 +465,9 @@ def test_explicit_path_classifies_supported_storage_locations(tmp_path: Path) ->
 def test_state_bridge_reports_primary_and_legacy_state_without_mutation(
     tmp_path: Path,
 ) -> None:
-    primary = tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-token.json"
+    primary = (
+        tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-token.json"
+    )
     legacy = tmp_path / "docs" / "handoffs" / ".session-state" / "handoff-demo"
     primary.parent.mkdir(parents=True, exist_ok=True)
     legacy.parent.mkdir(parents=True, exist_ok=True)
@@ -402,7 +488,13 @@ def test_state_bridge_reports_primary_and_legacy_state_without_mutation(
 def test_chain_state_recovery_inventory_reports_token_mismatch_as_invalid(
     tmp_path: Path,
 ) -> None:
-    state = tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-token-a.json"
+    state = (
+        tmp_path
+        / ".claude"
+        / "handoffs"
+        / ".session-state"
+        / "handoff-demo-token-a.json"
+    )
     state.parent.mkdir(parents=True, exist_ok=True)
     state.write_text(
         json.dumps(
@@ -425,7 +517,10 @@ def test_chain_state_recovery_inventory_reports_token_mismatch_as_invalid(
     )
     assert candidate["detected_format"] == "tokenized-json"
     assert candidate["validation_status"] == "invalid"
-    assert candidate["validation_error"] == "payload resume token does not match filename token"
+    assert (
+        candidate["validation_error"]
+        == "payload resume token does not match filename token"
+    )
 
 
 # ── Chain-state diagnostic guard tests ──────────────────────────────
@@ -444,7 +539,13 @@ def _seed_legacy_state(tmp_path: Path, *, project: str = "demo") -> tuple[Path, 
 
 def _seed_primary_state(tmp_path: Path, *, project: str = "demo") -> tuple[Path, str]:
     """Seed a valid primary chain-state file and return (path, sha256)."""
-    state = tmp_path / ".claude" / "handoffs" / ".session-state" / f"handoff-{project}-token-a.json"
+    state = (
+        tmp_path
+        / ".claude"
+        / "handoffs"
+        / ".session-state"
+        / f"handoff-{project}-token-a.json"
+    )
     state.parent.mkdir(parents=True, exist_ok=True)
     state.write_text(
         json.dumps(
@@ -452,7 +553,9 @@ def _seed_primary_state(tmp_path: Path, *, project: str = "demo") -> tuple[Path,
                 "state_path": str(state),
                 "project": project,
                 "resume_token": "token-a",
-                "archive_path": str(tmp_path / ".claude" / "handoffs" / "archive" / "old.md"),
+                "archive_path": str(
+                    tmp_path / ".claude" / "handoffs" / "archive" / "old.md"
+                ),
                 "created_at": "2026-05-13T16:00:00Z",
             }
         ),
@@ -472,7 +575,9 @@ def test_mark_chain_state_consumed_raises_payload_hash_mismatch(tmp_path: Path) 
             expected_payload_sha256="0" * 64,
             reason="test",
         )
-    assert exc_info.value.payload["error"]["code"] == "chain-state-payload-hash-mismatch"
+    assert (
+        exc_info.value.payload["error"]["code"] == "chain-state-payload-hash-mismatch"
+    )
 
 
 def test_continue_chain_state_raises_payload_hash_mismatch(tmp_path: Path) -> None:
@@ -485,10 +590,14 @@ def test_continue_chain_state_raises_payload_hash_mismatch(tmp_path: Path) -> No
             state_path=rel,
             expected_payload_sha256="0" * 64,
         )
-    assert exc_info.value.payload["error"]["code"] == "chain-state-payload-hash-mismatch"
+    assert (
+        exc_info.value.payload["error"]["code"] == "chain-state-payload-hash-mismatch"
+    )
 
 
-def test_abandon_primary_chain_state_raises_payload_hash_mismatch(tmp_path: Path) -> None:
+def test_abandon_primary_chain_state_raises_payload_hash_mismatch(
+    tmp_path: Path,
+) -> None:
     state, _sha = _seed_primary_state(tmp_path)
     rel = state.relative_to(tmp_path).as_posix()
     with pytest.raises(ChainStateDiagnosticError) as exc_info:
@@ -499,7 +608,9 @@ def test_abandon_primary_chain_state_raises_payload_hash_mismatch(tmp_path: Path
             expected_payload_sha256="0" * 64,
             reason="test",
         )
-    assert exc_info.value.payload["error"]["code"] == "chain-state-payload-hash-mismatch"
+    assert (
+        exc_info.value.payload["error"]["code"] == "chain-state-payload-hash-mismatch"
+    )
 
 
 def test_mark_chain_state_consumed_raises_primary_chain_state_not_consumable(
@@ -515,7 +626,9 @@ def test_mark_chain_state_consumed_raises_primary_chain_state_not_consumable(
             expected_payload_sha256=sha,
             reason="test",
         )
-    assert exc_info.value.payload["error"]["code"] == "primary-chain-state-not-consumable"
+    assert (
+        exc_info.value.payload["error"]["code"] == "primary-chain-state-not-consumable"
+    )
 
 
 def test_abandon_primary_chain_state_raises_chain_state_candidate_not_primary(
@@ -531,11 +644,19 @@ def test_abandon_primary_chain_state_raises_chain_state_candidate_not_primary(
             expected_payload_sha256=sha,
             reason="test",
         )
-    assert exc_info.value.payload["error"]["code"] == "chain-state-candidate-not-primary"
+    assert (
+        exc_info.value.payload["error"]["code"] == "chain-state-candidate-not-primary"
+    )
 
 
 def test_select_chain_state_candidate_raises_selector_ambiguous(tmp_path: Path) -> None:
-    state_a = tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-token-a.json"
+    state_a = (
+        tmp_path
+        / ".claude"
+        / "handoffs"
+        / ".session-state"
+        / "handoff-demo-token-a.json"
+    )
     state_a.parent.mkdir(parents=True, exist_ok=True)
     state_a.write_text(
         json.dumps(
@@ -543,20 +664,30 @@ def test_select_chain_state_candidate_raises_selector_ambiguous(tmp_path: Path) 
                 "state_path": str(state_a),
                 "project": "demo",
                 "resume_token": "token-a",
-                "archive_path": str(tmp_path / ".claude" / "handoffs" / "archive" / "old-a.md"),
+                "archive_path": str(
+                    tmp_path / ".claude" / "handoffs" / "archive" / "old-a.md"
+                ),
                 "created_at": "2026-05-13T16:00:00Z",
             }
         ),
         encoding="utf-8",
     )
-    state_b = tmp_path / ".claude" / "handoffs" / ".session-state" / "handoff-demo-token-b.json"
+    state_b = (
+        tmp_path
+        / ".claude"
+        / "handoffs"
+        / ".session-state"
+        / "handoff-demo-token-b.json"
+    )
     state_b.write_text(
         json.dumps(
             {
                 "state_path": str(state_b),
                 "project": "demo",
                 "resume_token": "token-b",
-                "archive_path": str(tmp_path / ".claude" / "handoffs" / "archive" / "old-b.md"),
+                "archive_path": str(
+                    tmp_path / ".claude" / "handoffs" / "archive" / "old-b.md"
+                ),
                 "created_at": "2026-05-13T16:01:00Z",
             }
         ),
@@ -579,36 +710,64 @@ def test_select_chain_state_candidate_raises_selector_ambiguous(tmp_path: Path) 
 def test_consumed_legacy_active_matches_fails_closed_on_corrupt_registry(
     tmp_path: Path,
 ) -> None:
-    legacy = _handoff(tmp_path / "docs" / "handoffs" / "2026-05-13_12-01_legacy.md", "Legacy")
+    legacy = _handoff(
+        tmp_path / "docs" / "handoffs" / "2026-05-13_12-01_legacy.md", "Legacy"
+    )
     _write_legacy_active_opt_in(tmp_path, legacy)
-    registry = tmp_path / ".claude" / "handoffs" / ".session-state" / "consumed-legacy-active.json"
+    registry = (
+        tmp_path
+        / ".claude"
+        / "handoffs"
+        / ".session-state"
+        / "consumed-legacy-active.json"
+    )
     registry.parent.mkdir(parents=True, exist_ok=True)
     registry.write_text("{truncated", encoding="utf-8")
 
     inventory = discover_handoff_inventory(tmp_path, scan_mode="active-selection")
-    candidate = next(candidate for candidate in inventory.candidates if candidate.path == legacy)
+    candidate = next(
+        candidate for candidate in inventory.candidates if candidate.path == legacy
+    )
     assert candidate.artifact_class == "consumed-legacy-active-registry-unreadable"
-    assert candidate.selection_eligibility == SelectionEligibility.BLOCKED_POLICY_CONFLICT
+    assert (
+        candidate.selection_eligibility == SelectionEligibility.BLOCKED_POLICY_CONFLICT
+    )
     assert candidate.skip_reason is not None
-    assert candidate.skip_reason.startswith("consumed legacy active registry unreadable")
+    assert candidate.skip_reason.startswith(
+        "consumed legacy active registry unreadable"
+    )
     assert "ValueError" in candidate.skip_reason
 
 
 def test_consumed_legacy_active_matches_fails_closed_on_malformed_registry(
     tmp_path: Path,
 ) -> None:
-    legacy = _handoff(tmp_path / "docs" / "handoffs" / "2026-05-13_12-01_legacy.md", "Legacy")
+    legacy = _handoff(
+        tmp_path / "docs" / "handoffs" / "2026-05-13_12-01_legacy.md", "Legacy"
+    )
     _write_legacy_active_opt_in(tmp_path, legacy)
-    registry = tmp_path / ".claude" / "handoffs" / ".session-state" / "consumed-legacy-active.json"
+    registry = (
+        tmp_path
+        / ".claude"
+        / "handoffs"
+        / ".session-state"
+        / "consumed-legacy-active.json"
+    )
     registry.parent.mkdir(parents=True, exist_ok=True)
     registry.write_text(json.dumps({"entries": "not-a-list"}), encoding="utf-8")
 
     inventory = discover_handoff_inventory(tmp_path, scan_mode="active-selection")
-    candidate = next(candidate for candidate in inventory.candidates if candidate.path == legacy)
+    candidate = next(
+        candidate for candidate in inventory.candidates if candidate.path == legacy
+    )
     assert candidate.artifact_class == "consumed-legacy-active-registry-unreadable"
-    assert candidate.selection_eligibility == SelectionEligibility.BLOCKED_POLICY_CONFLICT
+    assert (
+        candidate.selection_eligibility == SelectionEligibility.BLOCKED_POLICY_CONFLICT
+    )
     assert candidate.skip_reason is not None
-    assert candidate.skip_reason.startswith("consumed legacy active registry unreadable")
+    assert candidate.skip_reason.startswith(
+        "consumed legacy active registry unreadable"
+    )
     assert "entries field is not a list" in candidate.skip_reason
 
 
@@ -636,7 +795,9 @@ def test_read_json_object_fails_closed_on_corrupt_marker(tmp_path: Path) -> None
     assert exc_info.value.payload["error"]["code"] == "chain-state-marker-unreadable"
 
 
-def test_chain_state_recovery_inventory_degrades_on_corrupt_marker(tmp_path: Path) -> None:
+def test_chain_state_recovery_inventory_degrades_on_corrupt_marker(
+    tmp_path: Path,
+) -> None:
     state_dir = tmp_path / ".claude" / "handoffs" / ".session-state"
     state_dir.mkdir(parents=True)
     state_path = state_dir / "handoff-demo-token.json"
@@ -675,7 +836,13 @@ def test_active_inventory_degrades_on_corrupt_consumed_legacy_active_registry(
         "---\n\n## Goal\nbody\n",
         encoding="utf-8",
     )
-    registry = tmp_path / ".claude" / "handoffs" / ".session-state" / "consumed-legacy-active.json"
+    registry = (
+        tmp_path
+        / ".claude"
+        / "handoffs"
+        / ".session-state"
+        / "consumed-legacy-active.json"
+    )
     registry.parent.mkdir(parents=True)
     registry.write_text("{bad", encoding="utf-8")
 
@@ -685,12 +852,19 @@ def test_active_inventory_degrades_on_corrupt_consumed_legacy_active_registry(
     )
 
     candidates = [
-        candidate for candidate in inventory.candidates if candidate.path == legacy.resolve()
+        candidate
+        for candidate in inventory.candidates
+        if candidate.path == legacy.resolve()
     ]
     assert len(candidates) == 1
-    assert candidates[0].selection_eligibility == SelectionEligibility.BLOCKED_POLICY_CONFLICT
+    assert (
+        candidates[0].selection_eligibility
+        == SelectionEligibility.BLOCKED_POLICY_CONFLICT
+    )
     assert candidates[0].skip_reason is not None
-    assert candidates[0].skip_reason.startswith("consumed legacy active registry unreadable")
+    assert candidates[0].skip_reason.startswith(
+        "consumed legacy active registry unreadable"
+    )
     assert "ValueError" in candidates[0].skip_reason
 
 

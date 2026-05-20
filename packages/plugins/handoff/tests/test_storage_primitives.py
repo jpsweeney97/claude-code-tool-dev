@@ -54,8 +54,12 @@ def _valid_lock_metadata(
 
 
 def test_parse_created_at_normalizes_zulu_and_naive_values() -> None:
-    assert parse_created_at("2026-05-14T04:00:00Z") == datetime(2026, 5, 14, 4, 0, tzinfo=UTC)
-    assert parse_created_at("2026-05-14T04:00:00") == datetime(2026, 5, 14, 4, 0, tzinfo=UTC)
+    assert parse_created_at("2026-05-14T04:00:00Z") == datetime(
+        2026, 5, 14, 4, 0, tzinfo=UTC
+    )
+    assert parse_created_at("2026-05-14T04:00:00") == datetime(
+        2026, 5, 14, 4, 0, tzinfo=UTC
+    )
 
 
 def test_parse_created_at_rejects_invalid_values() -> None:
@@ -65,9 +69,13 @@ def test_parse_created_at_rejects_invalid_values() -> None:
 
 def test_lock_policy_rejects_empty_labels() -> None:
     with pytest.raises(ValueError, match="operation label must be non-empty"):
-        LockPolicy(operation_label="", lock_kind="helper lock", error_factory=HelperLockError)
+        LockPolicy(
+            operation_label="", lock_kind="helper lock", error_factory=HelperLockError
+        )
     with pytest.raises(ValueError, match="lock kind must be non-empty"):
-        LockPolicy(operation_label="helper-op", lock_kind="", error_factory=HelperLockError)
+        LockPolicy(
+            operation_label="helper-op", lock_kind="", error_factory=HelperLockError
+        )
 
 
 def test_delete_result_validates_cross_field_invariants(tmp_path: Path) -> None:
@@ -81,7 +89,9 @@ def test_delete_result_validates_cross_field_invariants(tmp_path: Path) -> None:
             path=path,
             error="unexpected",
         )
-    with pytest.raises(ValueError, match="already_absent action cannot carry mechanism"):
+    with pytest.raises(
+        ValueError, match="already_absent action cannot carry mechanism"
+    ):
         storage_primitives.DeleteResult(
             action="already_absent",
             mechanism="unlink",
@@ -99,7 +109,10 @@ def test_write_json_atomic_writes_json_and_creates_parent(tmp_path: Path) -> Non
 def test_sha256_file_variants(tmp_path: Path) -> None:
     path = tmp_path / "payload.txt"
     path.write_text("abc", encoding="utf-8")
-    assert sha256_file(path) == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    assert (
+        sha256_file(path)
+        == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    )
     assert sha256_file_or_none(path) == sha256_file(path)
     assert sha256_regular_file_or_none(path) == sha256_file(path)
     assert sha256_file_or_none(tmp_path / "missing.txt") is None
@@ -156,7 +169,9 @@ def test_acquire_lock_blocks_fresh_lock(tmp_path: Path) -> None:
         json.dumps(_valid_lock_metadata(created_at=datetime.now(UTC))),
         encoding="utf-8",
     )
-    with pytest.raises(HelperLockError, match="helper-op failed: helper lock is already held"):
+    with pytest.raises(
+        HelperLockError, match="helper-op failed: helper lock is already held"
+    ):
         acquire_lock(
             lock,
             project="demo",
@@ -257,7 +272,9 @@ def test_acquire_lock_fails_closed_on_foreign_host_stale_lock(tmp_path: Path) ->
         ),
         encoding="utf-8",
     )
-    with pytest.raises(HelperLockError, match="stale lock from another host") as exc_info:
+    with pytest.raises(
+        HelperLockError, match="stale lock from another host"
+    ) as exc_info:
         acquire_lock(
             lock,
             project="demo",
@@ -273,7 +290,9 @@ def test_acquire_lock_fails_closed_on_foreign_host_stale_lock(tmp_path: Path) ->
     "payload",
     [
         pytest.param(["not-a-dict"], id="non-dict"),
-        pytest.param({"created_at": datetime.now(UTC).isoformat()}, id="missing-fields"),
+        pytest.param(
+            {"created_at": datetime.now(UTC).isoformat()}, id="missing-fields"
+        ),
         pytest.param(
             {
                 "created_at": 12345,
@@ -306,7 +325,9 @@ def test_acquire_lock_fails_closed_on_existing_recovery_claim(tmp_path: Path) ->
     lock = _lock_path(tmp_path)
     lock.parent.mkdir(parents=True, exist_ok=True)
     lock.write_text(
-        json.dumps(_valid_lock_metadata(created_at=datetime.now(UTC) - timedelta(hours=2))),
+        json.dumps(
+            _valid_lock_metadata(created_at=datetime.now(UTC) - timedelta(hours=2))
+        ),
         encoding="utf-8",
     )
     claim = lock.with_name(lock.name + ".recovery")
@@ -321,7 +342,9 @@ def test_acquire_lock_fails_closed_on_existing_recovery_claim(tmp_path: Path) ->
         ),
         encoding="utf-8",
     )
-    with pytest.raises(HelperLockError, match="recovery claim file present") as exc_info:
+    with pytest.raises(
+        HelperLockError, match="recovery claim file present"
+    ) as exc_info:
         acquire_lock(
             lock,
             project="demo",
@@ -341,7 +364,9 @@ def test_acquire_lock_existing_claim_invalid_created_at_has_no_age_hint(
     lock = _lock_path(tmp_path)
     lock.parent.mkdir(parents=True, exist_ok=True)
     lock.write_text(
-        json.dumps(_valid_lock_metadata(created_at=datetime.now(UTC) - timedelta(hours=2))),
+        json.dumps(
+            _valid_lock_metadata(created_at=datetime.now(UTC) - timedelta(hours=2))
+        ),
         encoding="utf-8",
     )
     claim = lock.with_name(lock.name + ".recovery")
@@ -356,7 +381,9 @@ def test_acquire_lock_existing_claim_invalid_created_at_has_no_age_hint(
         ),
         encoding="utf-8",
     )
-    with pytest.raises(HelperLockError, match="recovery claim file present") as exc_info:
+    with pytest.raises(
+        HelperLockError, match="recovery claim file present"
+    ) as exc_info:
         acquire_lock(
             lock,
             project="demo",
@@ -474,7 +501,9 @@ def test_write_text_atomic_exclusive_exhausts_collision_budget(tmp_path: Path) -
         (tmp_path / f"envelope{suffix}.json").write_text("existing", encoding="utf-8")
 
     with pytest.raises(FileExistsError, match="collision budget exhausted"):
-        storage_primitives.write_text_atomic_exclusive(tmp_path / "envelope.json", "new")
+        storage_primitives.write_text_atomic_exclusive(
+            tmp_path / "envelope.json", "new"
+        )
 
 
 def test_safe_delete_uses_trash_when_available(

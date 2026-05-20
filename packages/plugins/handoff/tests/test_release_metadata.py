@@ -40,7 +40,9 @@ def test_versions_are_aligned() -> None:
     plugin_json = json.loads(
         (PLUGIN_ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")
     )
-    pyproject = tomllib.loads((PLUGIN_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    pyproject = tomllib.loads(
+        (PLUGIN_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    )
     assert plugin_json["version"] == EXPECTED_VERSION
     assert pyproject["project"]["version"] == EXPECTED_VERSION
 

@@ -36,9 +36,13 @@ class LockPolicy:
 
     def __post_init__(self) -> None:
         if not self.operation_label.strip():
-            raise ValueError("lock-policy init failed: operation label must be non-empty. Got: ''")
+            raise ValueError(
+                "lock-policy init failed: operation label must be non-empty. Got: ''"
+            )
         if not self.lock_kind.strip():
-            raise ValueError("lock-policy init failed: lock kind must be non-empty. Got: ''")
+            raise ValueError(
+                "lock-policy init failed: lock kind must be non-empty. Got: ''"
+            )
 
 
 DeleteAction = Literal["deleted", "already_absent", "failed"]
@@ -122,7 +126,9 @@ def read_json_object(
             f"read-json-object failed: JSON object unreadable. Got: {str(path)!r:.100}"
         ) from exc
     if not isinstance(payload, dict):
-        raise ValueError(f"read-json-object failed: JSON object malformed. Got: {str(path)!r:.100}")
+        raise ValueError(
+            f"read-json-object failed: JSON object malformed. Got: {str(path)!r:.100}"
+        )
     return payload
 
 
@@ -135,7 +141,9 @@ def registry_key(entry: dict[str, object]) -> dict[str, str]:
     """
     return {
         "source_root": str(entry.get("source_root", "")),
-        "project_relative_source_path": str(entry.get("project_relative_source_path", "")),
+        "project_relative_source_path": str(
+            entry.get("project_relative_source_path", "")
+        ),
         "storage_location": str(entry.get("storage_location", "")),
         "source_content_sha256": str(entry.get("source_content_sha256", "")),
     }

@@ -104,7 +104,9 @@ def build_inventory(
         *_rows_for_specs(PLUGIN_SPECS, root=resolved_plugin_root),
         *_rows_for_specs(REPO_SPECS, root=resolved_repo_root),
     ]
-    overall_status = "passed" if all(row["status"] == "passed" for row in rows) else "failed"
+    overall_status = (
+        "passed" if all(row["status"] == "passed" for row in rows) else "failed"
+    )
     return {
         "schema_version": SCHEMA_VERSION,
         "primary_storage_root": PRIMARY_STORAGE_ROOT,
@@ -114,7 +116,9 @@ def build_inventory(
     }
 
 
-def _rows_for_specs(specs: tuple[InventorySpec, ...], *, root: Path) -> list[dict[str, object]]:
+def _rows_for_specs(
+    specs: tuple[InventorySpec, ...], *, root: Path
+) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for spec in specs:
         path = root / spec.path
@@ -140,7 +144,9 @@ def _rows_for_specs(specs: tuple[InventorySpec, ...], *, root: Path) -> list[dic
             {
                 "path": spec.path,
                 "root": spec.root,
-                "status": "passed" if not required_missing and not forbidden_present else "failed",
+                "status": "passed"
+                if not required_missing and not forbidden_present
+                else "failed",
                 "required": list(spec.required),
                 "forbidden": list(spec.forbidden),
                 "required_missing": required_missing,
@@ -160,7 +166,9 @@ def check_inventory(current: dict[str, object], fixture_path: Path) -> None:
     """Fail when current inventory is invalid or the fixture has drifted."""
     if current["overall_status"] != "passed":
         failed = [row for row in current["rows"] if row["status"] != "passed"]
-        raise ValueError(f"storage_authority_inventory check failed: stale rows. Got: {failed!r}")
+        raise ValueError(
+            f"storage_authority_inventory check failed: stale rows. Got: {failed!r}"
+        )
     if not fixture_path.exists():
         raise ValueError(
             f"storage_authority_inventory check failed: fixture missing. Got: {str(fixture_path)!r}"

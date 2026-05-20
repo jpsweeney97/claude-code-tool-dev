@@ -323,13 +323,17 @@ class TestMainEmitsEnvelopes:
 
     def test_non_string_summary_cli_error(self, tmp_path: Path) -> None:
         """Non-string summary produces TypeError at CLI level."""
-        code, output = _run_main(json.dumps([{"summary": 42, "problem": "P"}]), tmp_path)
+        code, output = _run_main(
+            json.dumps([{"summary": 42, "problem": "P"}]), tmp_path
+        )
         assert code == 1
         assert "TypeError" in output["errors"][0]["error"]
 
     def test_empty_summary_cli_error(self, tmp_path: Path) -> None:
         """Whitespace-only summary produces ValueError at CLI level."""
-        code, output = _run_main(json.dumps([{"summary": "   ", "problem": "P"}]), tmp_path)
+        code, output = _run_main(
+            json.dumps([{"summary": "   ", "problem": "P"}]), tmp_path
+        )
         assert code == 1
         assert "ValueError" in output["errors"][0]["error"]
 

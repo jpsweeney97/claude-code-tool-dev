@@ -58,9 +58,14 @@ class SelectionEligibility(StrEnum):
     NOT_STATE_BRIDGE_INPUT = "not-state-bridge-input"
 
 
-FILENAME_TIMESTAMP_RE = re.compile(r"^(?P<timestamp>\d{4}-\d{2}-\d{2}_\d{2}-\d{2})_.+\.md$")
+FILENAME_TIMESTAMP_RE = re.compile(
+    r"^(?P<timestamp>\d{4}-\d{2}-\d{2}_\d{2}-\d{2})_.+\.md$"
+)
 LEGACY_ACTIVE_OPT_IN_MANIFEST = (
-    Path("docs") / "superpowers" / "plans" / "2026-05-13-handoff-storage-legacy-active-opt-ins.md"
+    Path("docs")
+    / "superpowers"
+    / "plans"
+    / "2026-05-13-handoff-storage-legacy-active-opt-ins.md"
 )
 
 
@@ -175,7 +180,9 @@ def eligible_active_candidates(inventory: HandoffInventory) -> list[HandoffCandi
         if candidate.selection_eligibility == SelectionEligibility.ELIGIBLE
         and candidate.filename_timestamp is not None
     ]
-    ordered = sorted(candidates, key=lambda candidate: _absolute_path_key(candidate.path))
+    ordered = sorted(
+        candidates, key=lambda candidate: _absolute_path_key(candidate.path)
+    )
     ordered = sorted(
         ordered,
         key=lambda candidate: _source_precedence(candidate.storage_location),
@@ -195,7 +202,9 @@ def eligible_history_candidates(inventory: HandoffInventory) -> list[HandoffCand
         for candidate in inventory.candidates
         if candidate.selection_eligibility == SelectionEligibility.ELIGIBLE
     ]
-    ordered = sorted(candidates, key=lambda candidate: _absolute_path_key(candidate.path))
+    ordered = sorted(
+        candidates, key=lambda candidate: _absolute_path_key(candidate.path)
+    )
     ordered = sorted(
         ordered,
         key=lambda candidate: _history_source_precedence(candidate.storage_location),
@@ -211,11 +220,15 @@ def eligible_history_candidates(inventory: HandoffInventory) -> list[HandoffCand
     return list(winners.values()) + passthrough
 
 
-def _dedup_candidates_by_path(candidates: list[HandoffCandidate]) -> list[HandoffCandidate]:
+def _dedup_candidates_by_path(
+    candidates: list[HandoffCandidate],
+) -> list[HandoffCandidate]:
     winners: dict[Path, HandoffCandidate] = {}
     for candidate in candidates:
         current = winners.get(candidate.path)
-        if current is None or _candidate_specificity(candidate) > _candidate_specificity(current):
+        if current is None or _candidate_specificity(
+            candidate
+        ) > _candidate_specificity(current):
             winners[candidate.path] = candidate
     return list(winners.values())
 
@@ -232,7 +245,9 @@ def _candidate_specificity(candidate: HandoffCandidate) -> int:
         StorageLocation.LEGACY_ACTIVE: 30,
         StorageLocation.UNKNOWN: 0,
     }[candidate.storage_location]
-    eligibility_bonus = 1 if candidate.selection_eligibility != SelectionEligibility.SKIPPED else 0
+    eligibility_bonus = (
+        1 if candidate.selection_eligibility != SelectionEligibility.SKIPPED else 0
+    )
     return location_specificity + eligibility_bonus
 
 
@@ -325,13 +340,17 @@ def _candidate_for_path(
             document_profile=document_profile,
             skip_reason=invalid_reason,
         )
-    artifact_class = _artifact_class(location=location, path=path, git_visibility=git_visibility)
+    artifact_class = _artifact_class(
+        location=location, path=path, git_visibility=git_visibility
+    )
     if (
         scan_mode == "active-selection"
         and location == StorageLocation.LEGACY_ACTIVE
         and content_sha256 is not None
     ):
-        consumed_status = _consumed_legacy_active_status(project_root, path, content_sha256)
+        consumed_status = _consumed_legacy_active_status(
+            project_root, path, content_sha256
+        )
         if consumed_status == "consumed":
             return HandoffCandidate(
                 path=path.resolve(),
@@ -451,7 +470,9 @@ def root_for_location(project_root: Path, location: StorageLocation) -> Path:
     return layout.project_root
 
 
-def _location_for_path(layout: _storage_layout.StorageLayout, path: Path) -> StorageLocation:
+def _location_for_path(
+    layout: _storage_layout.StorageLayout, path: Path
+) -> StorageLocation:
     resolved = path.resolve()
     roots = (
         (layout.primary_state_dir, StorageLocation.PRIMARY_STATE),
@@ -471,8 +492,13 @@ def _location_for_path(layout: _storage_layout.StorageLayout, path: Path) -> Sto
     return StorageLocation.UNKNOWN
 
 
-def _artifact_class(*, location: StorageLocation, path: Path, git_visibility: str) -> str:
-    if location == StorageLocation.PRIMARY_ACTIVE and git_visibility == "tracked-conflict":
+def _artifact_class(
+    *, location: StorageLocation, path: Path, git_visibility: str
+) -> str:
+    if (
+        location == StorageLocation.PRIMARY_ACTIVE
+        and git_visibility == "tracked-conflict"
+    ):
         return "tracked-primary-active-source"
     if location == StorageLocation.PRIMARY_ACTIVE:
         return "primary-active-handoff"
@@ -489,7 +515,9 @@ def _artifact_class(*, location: StorageLocation, path: Path, git_visibility: st
     if location == StorageLocation.STATE_LIKE_RESIDUE:
         return "state-like-residue"
     if location == StorageLocation.LEGACY_ACTIVE:
-        if git_visibility in {"ignored", "untracked"} and _looks_like_current_contract(path):
+        if git_visibility in {"ignored", "untracked"} and _looks_like_current_contract(
+            path
+        ):
             return "policy-conflict-artifact"
         if git_visibility == "tracked-conflict":
             return "tracked-durable-handoff-artifact"
@@ -510,7 +538,10 @@ def _eligibility(
                 SelectionEligibility.NOT_EXPLICIT_PATH_INPUT,
                 "explicit path is outside supported handoff storage roots",
             )
-        if location == StorageLocation.PRIMARY_ACTIVE and git_visibility == "tracked-conflict":
+        if (
+            location == StorageLocation.PRIMARY_ACTIVE
+            and git_visibility == "tracked-conflict"
+        ):
             return (
                 SelectionEligibility.BLOCKED_TRACKED_SOURCE,
                 "tracked primary runtime source must not be moved or suppressed",
@@ -616,14 +647,18 @@ def _state_skip_reason(root: Path, path: Path) -> str | None:
     return None
 
 
-def _invalid_reason(*, path: Path, location: StorageLocation, scan_mode: str) -> str | None:
+def _invalid_reason(
+    *, path: Path, location: StorageLocation, scan_mode: str
+) -> str | None:
     if location == StorageLocation.UNKNOWN:
         return None
     if location in {StorageLocation.PRIMARY_STATE, StorageLocation.LEGACY_STATE}:
         return None
     if scan_mode == "active-selection" and _filename_timestamp(path) is None:
         return "invalid_filename_timestamp"
-    if scan_mode in {"history-search", "explicit-path"} and _archive_history_location(location):
+    if scan_mode in {"history-search", "explicit-path"} and _archive_history_location(
+        location
+    ):
         return None
     if not _looks_like_current_contract(path):
         return "invalid_document"
@@ -671,12 +706,16 @@ def _absolute_path_key(path: Path) -> str:
     return str(path.resolve())
 
 
-def _document_profile(path: Path, *, location: StorageLocation, scan_mode: str) -> str | None:
+def _document_profile(
+    path: Path, *, location: StorageLocation, scan_mode: str
+) -> str | None:
     if location in {StorageLocation.PRIMARY_STATE, StorageLocation.LEGACY_STATE}:
         return "state"
     if _looks_like_current_contract(path):
         return "current_contract"
-    if scan_mode in {"history-search", "explicit-path"} and _archive_history_location(location):
+    if scan_mode in {"history-search", "explicit-path"} and _archive_history_location(
+        location
+    ):
         return "historical_archive"
     return None
 
@@ -688,7 +727,10 @@ def _reviewed_legacy_active_opt_in_matches(
 ) -> bool:
     manifest = project_root / LEGACY_ACTIVE_OPT_IN_MANIFEST
     for row in _read_markdown_table(manifest):
-        if _row_cell(row, "project_relative_path") != path.relative_to(project_root).as_posix():
+        if (
+            _row_cell(row, "project_relative_path")
+            != path.relative_to(project_root).as_posix()
+        ):
             continue
         if _row_cell(row, "raw_byte_sha256") != content_sha256:
             continue

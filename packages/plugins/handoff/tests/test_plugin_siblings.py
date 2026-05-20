@@ -29,7 +29,9 @@ def test_rejects_multiple_ticket_versions(tmp_path: Path) -> None:
     _make_plugin(handoff_root, "handoff")
     _make_plugin(tmp_path / "cache" / "turbo-mode" / "ticket" / "1.4.0", "ticket")
     _make_plugin(tmp_path / "cache" / "turbo-mode" / "ticket" / "1.5.0", "ticket")
-    with pytest.raises(RuntimeError, match="Expected exactly one installed ticket version"):
+    with pytest.raises(
+        RuntimeError, match="Expected exactly one installed ticket version"
+    ):
         find_sibling_plugin_root(handoff_root, "ticket")
 
 

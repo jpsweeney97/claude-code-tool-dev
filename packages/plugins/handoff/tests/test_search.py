@@ -125,10 +125,14 @@ class TestParseHandoff:
         assert result.sections[0].heading == "## Real Section"
         assert "Fake Section Inside Fence" in result.sections[0].content
 
-    def test_unclosed_frontmatter_treated_as_no_frontmatter(self, tmp_path: Path) -> None:
+    def test_unclosed_frontmatter_treated_as_no_frontmatter(
+        self, tmp_path: Path
+    ) -> None:
         """Opening --- with no closing --- is treated as no frontmatter."""
         handoff = tmp_path / "test.md"
-        handoff.write_text("---\ntitle: Broken\nno closing delimiter\n\n## Goal\n\nDo something.\n")
+        handoff.write_text(
+            "---\ntitle: Broken\nno closing delimiter\n\n## Goal\n\nDo something.\n"
+        )
         result = parse_handoff(handoff)
         assert result.frontmatter == {}
         assert len(result.sections) == 1
@@ -205,14 +209,18 @@ class TestSearchHandoffs:
     """Tests for search_handoffs — search logic."""
 
     def test_literal_match_case_insensitive(self, tmp_path: Path) -> None:
-        _make_handoff(tmp_path, "Test", "2026-02-25", "## Decisions\n\nWe chose Regular Merge.\n")
+        _make_handoff(
+            tmp_path, "Test", "2026-02-25", "## Decisions\n\nWe chose Regular Merge.\n"
+        )
         results = search_handoffs(tmp_path, "regular merge")
         assert len(results) == 1
         assert results[0]["section_heading"] == "## Decisions"
         assert "Regular Merge" in results[0]["section_content"]
 
     def test_regex_match(self, tmp_path: Path) -> None:
-        _make_handoff(tmp_path, "Test", "2026-02-25", "## Decisions\n\nChose option A over B.\n")
+        _make_handoff(
+            tmp_path, "Test", "2026-02-25", "## Decisions\n\nChose option A over B.\n"
+        )
         results = search_handoffs(tmp_path, r"option [AB]", regex=True)
         assert len(results) == 1
 
@@ -222,14 +230,20 @@ class TestSearchHandoffs:
         assert results == []
 
     def test_match_in_heading(self, tmp_path: Path) -> None:
-        _make_handoff(tmp_path, "Test", "2026-02-25", "## Codebase Knowledge\n\nSome details.\n")
+        _make_handoff(
+            tmp_path, "Test", "2026-02-25", "## Codebase Knowledge\n\nSome details.\n"
+        )
         results = search_handoffs(tmp_path, "codebase knowledge")
         assert len(results) == 1
         assert results[0]["section_heading"] == "## Codebase Knowledge"
 
     def test_multiple_files_sorted_by_date_descending(self, tmp_path: Path) -> None:
-        _make_handoff(tmp_path, "Old", "2026-01-01", "## Decisions\n\nDecision about merging.\n")
-        _make_handoff(tmp_path, "New", "2026-02-25", "## Decisions\n\nDecision about merging.\n")
+        _make_handoff(
+            tmp_path, "Old", "2026-01-01", "## Decisions\n\nDecision about merging.\n"
+        )
+        _make_handoff(
+            tmp_path, "New", "2026-02-25", "## Decisions\n\nDecision about merging.\n"
+        )
         results = search_handoffs(tmp_path, "merging")
         assert len(results) == 2
         assert results[0]["date"] == "2026-02-25"
@@ -249,7 +263,10 @@ class TestSearchHandoffs:
         archive = tmp_path / "archive"
         archive.mkdir()
         _make_handoff(
-            archive, "Archived", "2026-01-15", "## Decisions\n\nOld decision about caching.\n"
+            archive,
+            "Archived",
+            "2026-01-15",
+            "## Decisions\n\nOld decision about caching.\n",
         )
         results = search_handoffs(tmp_path, "caching")
         assert len(results) == 1
@@ -263,7 +280,9 @@ class TestSearchHandoffs:
 
     def test_regex_is_case_sensitive(self, tmp_path: Path) -> None:
         """Regex mode is case-sensitive (flags=0), unlike literal mode."""
-        _make_handoff(tmp_path, "Test", "2026-02-25", "## Decisions\n\nChose Regular Merge.\n")
+        _make_handoff(
+            tmp_path, "Test", "2026-02-25", "## Decisions\n\nChose Regular Merge.\n"
+        )
         # Literal: case-insensitive — matches
         assert len(search_handoffs(tmp_path, "regular merge")) == 1
         # Regex: case-sensitive — lowercase doesn't match titlecase
@@ -274,14 +293,19 @@ class TestSearchHandoffs:
     def test_literal_escapes_regex_metacharacters(self, tmp_path: Path) -> None:
         """Literal search escapes regex metacharacters via re.escape()."""
         _make_handoff(
-            tmp_path, "Test", "2026-02-25", "## Decisions\n\nChose option (A) over option (B).\n"
+            tmp_path,
+            "Test",
+            "2026-02-25",
+            "## Decisions\n\nChose option (A) over option (B).\n",
         )
         results = search_handoffs(tmp_path, "option (A)")
         assert len(results) == 1
 
     def test_unreadable_file_reported_in_skipped(self, tmp_path: Path) -> None:
         """Unreadable files are reported via skipped parameter, not silently dropped."""
-        _make_handoff(tmp_path, "Good", "2026-02-25", "## Goal\n\nSearchable content.\n")
+        _make_handoff(
+            tmp_path, "Good", "2026-02-25", "## Goal\n\nSearchable content.\n"
+        )
         bad_file = tmp_path / "2026-02-24_00-00_bad.md"
         bad_file.write_bytes(b"---\ntitle: Bad\n---\n\n## Goal\n\n\xff\xfe invalid\n")
 
@@ -314,7 +338,9 @@ class TestSkippedDefault:
         try:
             results = search_handoffs(tmp_path, "findme")
             assert isinstance(results, list)
-            assert len(results) == 1, f"Expected 1 result (good file only), got {len(results)}"
+            assert len(results) == 1, (
+                f"Expected 1 result (good file only), got {len(results)}"
+            )
         finally:
             bad_file.chmod(0o644)
 
@@ -335,7 +361,10 @@ class TestSearchCLI:
         archive = handoffs_dir / "archive"
         archive.mkdir()
         _make_handoff(
-            archive, "Old Session", "2026-01-15", "## Learnings\n\nPython parsing is fast enough.\n"
+            archive,
+            "Old Session",
+            "2026-01-15",
+            "## Learnings\n\nPython parsing is fast enough.\n",
         )
 
         output = search_main(["Python", "--handoffs-dir", str(handoffs_dir)])
@@ -364,17 +393,24 @@ class TestSearchCLI:
             "handoff_runtime.search.get_project_name", return_value=("test", "git")
         ):
             with patch(
-                "handoff_runtime.search.get_legacy_handoffs_dir", return_value=legacy_dir
+                "handoff_runtime.search.get_legacy_handoffs_dir",
+                return_value=legacy_dir,
             ):
-                output = search_main(["split roots", "--handoffs-dir", str(primary_dir)])
+                output = search_main(
+                    ["split roots", "--handoffs-dir", str(primary_dir)]
+                )
 
         result = json.loads(output)
         assert result["total_matches"] == 1
         assert result["results"][0]["archived"] is True
         assert "docs/handoffs" in result["legacy_warning"]
-        assert "next save will write to `docs/handoffs/`" not in result["legacy_warning"]
+        assert (
+            "next save will write to `docs/handoffs/`" not in result["legacy_warning"]
+        )
 
-    def test_project_root_uses_storage_authority_history_search(self, tmp_path: Path) -> None:
+    def test_project_root_uses_storage_authority_history_search(
+        self, tmp_path: Path
+    ) -> None:
         primary_dir = tmp_path / ".claude" / "handoffs"
         legacy_archive = tmp_path / "docs" / "handoffs" / "archive"
         primary_dir.mkdir(parents=True)
@@ -427,7 +463,8 @@ class TestSearchCLI:
         primary_dir.mkdir(parents=True)
 
         with patch(
-            "handoff_runtime.search.get_legacy_handoffs_dir", side_effect=OSError("boom")
+            "handoff_runtime.search.get_legacy_handoffs_dir",
+            side_effect=OSError("boom"),
         ):
             output = search_main(["anything", "--handoffs-dir", str(primary_dir)])
 
@@ -449,7 +486,9 @@ class TestSearchCLI:
         handoffs_dir = tmp_path / "handoffs"
         handoffs_dir.mkdir()
 
-        output = search_main(["[invalid", "--regex", "--handoffs-dir", str(handoffs_dir)])
+        output = search_main(
+            ["[invalid", "--regex", "--handoffs-dir", str(handoffs_dir)]
+        )
 
         result = json.loads(output)
         assert result["error"] is not None
@@ -459,10 +498,15 @@ class TestSearchCLI:
         handoffs_dir = tmp_path / "handoffs"
         handoffs_dir.mkdir()
         _make_handoff(
-            handoffs_dir, "Test", "2026-02-25", "## Decisions\n\nChose option-A over option-B.\n"
+            handoffs_dir,
+            "Test",
+            "2026-02-25",
+            "## Decisions\n\nChose option-A over option-B.\n",
         )
 
-        output = search_main([r"option-[AB]", "--regex", "--handoffs-dir", str(handoffs_dir)])
+        output = search_main(
+            [r"option-[AB]", "--regex", "--handoffs-dir", str(handoffs_dir)]
+        )
 
         result = json.loads(output)
         assert result["total_matches"] == 1

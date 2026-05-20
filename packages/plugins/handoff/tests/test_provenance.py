@@ -119,7 +119,9 @@ class TestReadProvenance:
             "source_type": "codex",
             "created_by": "defer-skill",
         }
-        result = read_provenance(provenance_yaml=yaml_data, body_text=TICKET_BODY_WITH_META)
+        result = read_provenance(
+            provenance_yaml=yaml_data, body_text=TICKET_BODY_WITH_META
+        )
         assert result["source_session"] == "aaaa-yaml-wins"
         assert result["source"] == "yaml"
 
@@ -163,7 +165,8 @@ class TestSessionMatch:
         from handoff_runtime.provenance import session_matches
 
         assert session_matches(
-            "5136e38e-efc5-403f-ad5e-49516f47884b", "5136e38e-efc5-403f-ad5e-49516f47884b"
+            "5136e38e-efc5-403f-ad5e-49516f47884b",
+            "5136e38e-efc5-403f-ad5e-49516f47884b",
         )
 
     def test_no_match(self) -> None:

@@ -378,7 +378,9 @@ class TestMatchOrphans:
         from handoff_runtime.triage import match_orphan_item
 
         # Create a ticket with a hyphenated handoff-style ID
-        handoff_ticket = TICKET_DEFERRED.replace("T-20260228-01", "handoff-quality-hook")
+        handoff_ticket = TICKET_DEFERRED.replace(
+            "T-20260228-01", "handoff-quality-hook"
+        )
         (tmp_path / "hqh.md").write_text(handoff_ticket)
         tickets = _load_all_tickets(tmp_path)
 
@@ -455,7 +457,9 @@ class TestGenerateReport:
         # HANDOFF_WITH_OPEN_QUESTIONS has 5 items (3 Open Questions + 2 Risks)
         # Session_id matches TICKET_WITH_PROVENANCE → all 5 items get uid_match
         # P2-8 fix: exact counts for deterministic fixture, not >= 1
-        assert counts["uid_match"] == 5, "All 5 items should uid_match via session correlation"
+        assert counts["uid_match"] == 5, (
+            "All 5 items should uid_match via session correlation"
+        )
         assert counts["id_ref"] == 0, "uid_match takes priority over id_ref"
         assert counts["manual_review"] == 0, "All items matched via uid_match"
         # P1-1: orphaned_items only contains manual_review items
@@ -507,7 +511,9 @@ class TestGenerateReport:
 
         assert len(report["orphaned_items"]) > 0
         assert "docs/handoffs" in report["legacy_warning"]
-        assert "next save will write to `docs/handoffs/`" not in report["legacy_warning"]
+        assert (
+            "next save will write to `docs/handoffs/`" not in report["legacy_warning"]
+        )
 
     def test_legacy_discovery_error_warns(
         self,
@@ -550,7 +556,9 @@ class TestGenerateReport:
         os.utime(old_file, (old_mtime, old_mtime))
 
         report = generate_report(tickets_dir, handoffs_dir)
-        assert len(report["orphaned_items"]) == 0, "Files older than 30 days should be excluded"
+        assert len(report["orphaned_items"]) == 0, (
+            "Files older than 30 days should be excluded"
+        )
 
     def test_skips_unreadable_handoff_with_warning(self, tmp_path: Path) -> None:
         """Unreadable handoff files must warn and not crash the report."""
@@ -607,12 +615,16 @@ class TestGenerateReport:
         primary_archive = primary / "archive"
         primary_archive.mkdir(parents=True)
         (primary / "2026-02-28_00-00_same.md").write_text(_current_handoff("Same"))
-        (primary_archive / "2026-02-28_00-00_same.md").write_text(_current_handoff("Same"))
+        (primary_archive / "2026-02-28_00-00_same.md").write_text(
+            _current_handoff("Same")
+        )
 
         report = generate_project_report(tickets_dir, tmp_path)
 
         assert len(report["orphaned_items"]) == 1
-        assert report["orphaned_items"][0]["item"]["storage_location"] == "primary_active"
+        assert (
+            report["orphaned_items"][0]["item"]["storage_location"] == "primary_active"
+        )
 
 
 class TestMain:
@@ -631,7 +643,9 @@ class TestMain:
         report = json.loads(output)
         assert report["open_tickets"][0]["id"] == "T-20260228-01"
 
-    def test_project_root_output_uses_storage_authority(self, tmp_path: Path, capsys) -> None:
+    def test_project_root_output_uses_storage_authority(
+        self, tmp_path: Path, capsys
+    ) -> None:
         from handoff_runtime.triage import main
 
         tickets_dir = tmp_path / "tickets"
@@ -645,7 +659,9 @@ class TestMain:
         report = json.loads(output)
 
         assert len(report["orphaned_items"]) == 1
-        assert report["orphaned_items"][0]["item"]["storage_location"] == "primary_active"
+        assert (
+            report["orphaned_items"][0]["item"]["storage_location"] == "primary_active"
+        )
 
 
 class TestEndToEnd:
@@ -659,7 +675,9 @@ class TestEndToEnd:
         tickets_dir.mkdir()
         (tickets_dir / "deferred.md").write_text(TICKET_DEFERRED)  # non-terminal, open
         (tickets_dir / "done.md").write_text(TICKET_DONE)  # terminal, filtered out
-        (tickets_dir / "legacy.md").write_text(TICKET_LEGACY_COMPLETE)  # terminal (complete→done)
+        (tickets_dir / "legacy.md").write_text(
+            TICKET_LEGACY_COMPLETE
+        )  # terminal (complete→done)
         (tickets_dir / "prov.md").write_text(TICKET_WITH_PROVENANCE)  # has provenance
 
         # Setup: handoffs directory
@@ -679,7 +697,9 @@ class TestEndToEnd:
         # Verify match counts
         counts = report["match_counts"]
         total_items = counts["uid_match"] + counts["id_ref"] + counts["manual_review"]
-        assert total_items == 5  # HANDOFF_WITH_OPEN_QUESTIONS has 3 Open Questions + 2 Risks
+        assert (
+            total_items == 5
+        )  # HANDOFF_WITH_OPEN_QUESTIONS has 3 Open Questions + 2 Risks
 
         # uid_match should be present (session_id matches TICKET_WITH_PROVENANCE)
         assert counts["uid_match"] > 0
@@ -728,7 +748,9 @@ Extract base class.
 
 - Base class created
 """
-        created_path = tickets_dir / "2026-02-28-T-20260228-01-auth-module-needs-refactoring.md"
+        created_path = (
+            tickets_dir / "2026-02-28-T-20260228-01-auth-module-needs-refactoring.md"
+        )
         created_path.write_text(ticket_text)
 
         # Step 2: Create a handoff with matching session_id
@@ -772,5 +794,6 @@ session_id: aaaa-bbbb-cccc-dddd-eeeeeeeeeeee
         assert parsed is not None
         assert parsed.frontmatter["id"] == "T-20260228-01"
         assert (
-            parsed.frontmatter["provenance"]["source_session"] == "aaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+            parsed.frontmatter["provenance"]["source_session"]
+            == "aaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
         )

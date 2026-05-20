@@ -141,7 +141,9 @@ class TestParseYamlFrontmatter:
     def test_minimal_fields(self) -> None:
         from handoff_runtime.ticket_parsing import parse_yaml_frontmatter
 
-        result = parse_yaml_frontmatter("id: T-20260228-01\ndate: 2026-02-28\nstatus: deferred")
+        result = parse_yaml_frontmatter(
+            "id: T-20260228-01\ndate: 2026-02-28\nstatus: deferred"
+        )
         assert result["id"] == "T-20260228-01"
         assert result["status"] == "deferred"
 
@@ -149,8 +151,12 @@ class TestParseYamlFrontmatter:
         """P0-3: yaml.safe_load converts unquoted dates to datetime.date objects."""
         from handoff_runtime.ticket_parsing import parse_yaml_frontmatter
 
-        result = parse_yaml_frontmatter("id: T-20260228-01\ndate: 2026-02-28\nstatus: deferred")
-        assert isinstance(result["date"], str), f"date must be str, got {type(result['date'])}"
+        result = parse_yaml_frontmatter(
+            "id: T-20260228-01\ndate: 2026-02-28\nstatus: deferred"
+        )
+        assert isinstance(result["date"], str), (
+            f"date must be str, got {type(result['date'])}"
+        )
         assert result["date"] == "2026-02-28"
 
     def test_list_fields_preserved(self) -> None:
@@ -193,14 +199,24 @@ class TestValidateSchema:
     def test_files_must_be_list(self) -> None:
         from handoff_runtime.ticket_parsing import validate_schema
 
-        data = {"id": "T-1", "date": "2026-02-28", "status": "open", "files": "not-a-list"}
+        data = {
+            "id": "T-1",
+            "date": "2026-02-28",
+            "status": "open",
+            "files": "not-a-list",
+        }
         errors = validate_schema(data)
         assert any("files" in e for e in errors)
 
     def test_provenance_must_be_dict(self) -> None:
         from handoff_runtime.ticket_parsing import validate_schema
 
-        data = {"id": "T-1", "date": "2026-02-28", "status": "open", "provenance": "bad"}
+        data = {
+            "id": "T-1",
+            "date": "2026-02-28",
+            "status": "open",
+            "provenance": "bad",
+        }
         errors = validate_schema(data)
         assert any("provenance" in e for e in errors)
 
@@ -316,7 +332,9 @@ class TestParseTicketWarnings:
         # Exactly 2 warnings: one from parse_yaml_frontmatter (YAML detail),
         # one from parse_ticket (file path context). This double-warning is
         # intentional — see parse_ticket implementation comment.
-        assert len(w) == 2, f"Expected exactly 2 warnings for malformed YAML, got {len(w)}"
+        assert len(w) == 2, (
+            f"Expected exactly 2 warnings for malformed YAML, got {len(w)}"
+        )
         yaml_warns = [x for x in w if "YAML parse error" in str(x.message)]
         path_warns = [x for x in w if "bad.md" in str(x.message)]
         assert len(yaml_warns) == 1, "Should include YAML error detail"

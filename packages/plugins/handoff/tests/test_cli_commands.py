@@ -23,7 +23,9 @@ def _run_shell(command: str, cwd: Path) -> subprocess.CompletedProcess[str]:
 
 
 def _init_repo(root: Path) -> None:
-    subprocess.run(["git", "init"], cwd=str(root), check=True, capture_output=True, text=True)
+    subprocess.run(
+        ["git", "init"], cwd=str(root), check=True, capture_output=True, text=True
+    )
 
 
 def _residue_snapshot(root: Path) -> set[str]:
@@ -139,7 +141,10 @@ def test_defer_pipeline_matches_ticket_guard_contract(tmp_path: Path) -> None:
                     "Emit one envelope and ingest it through the guarded Ticket "
                     "entrypoint."
                 ),
-                "acceptance_criteria": ["One ticket file exists", "Envelope moved to .processed"],
+                "acceptance_criteria": [
+                    "One ticket file exists",
+                    "Envelope moved to .processed",
+                ],
                 "priority": "medium",
                 "source_type": "ad-hoc",
                 "source_ref": "test",
@@ -165,7 +170,9 @@ JSON
     payload_path = tmp_path / ".claude" / "ticket-tmp" / "payload-ingest.json"
     payload_path.parent.mkdir(parents=True)
     payload_path.write_text(
-        json.dumps({"envelope_path": envelope_path, "tickets_dir": "docs/tickets"}, indent=2),
+        json.dumps(
+            {"envelope_path": envelope_path, "tickets_dir": "docs/tickets"}, indent=2
+        ),
         encoding="utf-8",
     )
 
@@ -195,7 +202,9 @@ JSON
         check=True,
     )
     ticket_root = resolver.stdout.strip()
-    literal_command = f"python3 {ticket_root}/scripts/ticket_engine_user.py ingest {payload_path}"
+    literal_command = (
+        f"python3 {ticket_root}/scripts/ticket_engine_user.py ingest {payload_path}"
+    )
 
     guard_result = subprocess.run(
         ["python3", f"{ticket_root}/hooks/ticket_engine_guard.py"],
@@ -212,7 +221,9 @@ JSON
         check=True,
     )
     guard_payload = json.loads(guard_result.stdout)
-    assert guard_payload["hookSpecificOutput"]["permissionDecision"] == "allow", guard_payload
+    assert guard_payload["hookSpecificOutput"]["permissionDecision"] == "allow", (
+        guard_payload
+    )
 
     injected = json.loads(payload_path.read_text(encoding="utf-8"))
     assert injected["hook_injected"] is True
@@ -232,6 +243,8 @@ JSON
     )
     assert ingest_result.returncode == 0, ingest_result.stdout + ingest_result.stderr
     assert list((tmp_path / "docs" / "tickets").glob("*.md"))
-    assert list((tmp_path / "docs" / "tickets" / ".envelopes" / ".processed").glob("*.json"))
+    assert list(
+        (tmp_path / "docs" / "tickets" / ".envelopes" / ".processed").glob("*.json")
+    )
     assert _residue_snapshot(PLUGIN_ROOT) == before
     assert runtime_env.exists()

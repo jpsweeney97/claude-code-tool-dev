@@ -100,7 +100,9 @@ def mark_chain_state_consumed(
 ) -> dict[str, object]:
     """Durably suppress one exact legacy/state-like chain-state candidate."""
     layout = get_storage_layout(project_root)
-    inventory = chain_state_recovery_inventory(layout.project_root, project_name=project_name)
+    inventory = chain_state_recovery_inventory(
+        layout.project_root, project_name=project_name
+    )
     candidate = _select_chain_state_candidate(
         inventory,
         selector=state_path,
@@ -133,7 +135,9 @@ def mark_chain_state_consumed(
         )
     marker_path = layout.primary_state_dir / "markers" / "chain-state-consumed.json"
     transaction_id = uuid.uuid4().hex
-    transaction_path = layout.primary_state_dir / "transactions" / f"{transaction_id}.json"
+    transaction_path = (
+        layout.primary_state_dir / "transactions" / f"{transaction_id}.json"
+    )
     marked_at = datetime.now(UTC).isoformat()
     stable_key = _chain_state_stable_key(candidate)
     marker = _read_json_object(marker_path)
@@ -141,7 +145,8 @@ def mark_chain_state_consumed(
     if not isinstance(entries, list):
         entries = []
     if not any(
-        isinstance(entry, dict) and entry.get("stable_key") == stable_key for entry in entries
+        isinstance(entry, dict) and entry.get("stable_key") == stable_key
+        for entry in entries
     ):
         entries.append(
             {
@@ -189,7 +194,9 @@ def continue_chain_state(
 ) -> dict[str, object]:
     """Continue from one exact legacy/state-like candidate into primary state."""
     layout = get_storage_layout(project_root)
-    inventory = chain_state_recovery_inventory(layout.project_root, project_name=project_name)
+    inventory = chain_state_recovery_inventory(
+        layout.project_root, project_name=project_name
+    )
     candidate = _select_chain_state_candidate(inventory, selector=state_path)
     if candidate["storage_location"] == StorageLocation.PRIMARY_STATE:
         return {
@@ -215,10 +222,14 @@ def continue_chain_state(
             )
         )
     resume_token = str(candidate["resume_token"] or uuid.uuid4().hex)
-    primary_state_path = layout.primary_state_dir / f"handoff-{project_name}-{resume_token}.json"
+    primary_state_path = (
+        layout.primary_state_dir / f"handoff-{project_name}-{resume_token}.json"
+    )
     marker_path = layout.primary_state_dir / "markers" / "chain-state-consumed.json"
     transaction_id = uuid.uuid4().hex
-    transaction_path = layout.primary_state_dir / "transactions" / f"{transaction_id}.json"
+    transaction_path = (
+        layout.primary_state_dir / "transactions" / f"{transaction_id}.json"
+    )
     now = datetime.now(UTC).isoformat()
     stable_key = _chain_state_stable_key(candidate)
     primary_payload = {
@@ -238,7 +249,8 @@ def continue_chain_state(
     if not isinstance(entries, list):
         entries = []
     if not any(
-        isinstance(entry, dict) and entry.get("stable_key") == stable_key for entry in entries
+        isinstance(entry, dict) and entry.get("stable_key") == stable_key
+        for entry in entries
     ):
         entries.append(
             {
@@ -289,7 +301,9 @@ def abandon_primary_chain_state(
 ) -> dict[str, object]:
     """Move one exact primary chain-state file out of active primary lookup."""
     layout = get_storage_layout(project_root)
-    inventory = chain_state_recovery_inventory(layout.project_root, project_name=project_name)
+    inventory = chain_state_recovery_inventory(
+        layout.project_root, project_name=project_name
+    )
     candidate = _select_chain_state_candidate(inventory, selector=state_path)
     if candidate["storage_location"] != StorageLocation.PRIMARY_STATE:
         raise ChainStateDiagnosticError(
@@ -323,7 +337,9 @@ def abandon_primary_chain_state(
         / "abandoned"
         / f"{source_path.name}.{expected_payload_sha256[:12]}.json"
     )
-    transaction_path = layout.primary_state_dir / "transactions" / f"{transaction_id}.json"
+    transaction_path = (
+        layout.primary_state_dir / "transactions" / f"{transaction_id}.json"
+    )
     abandoned_path.parent.mkdir(parents=True, exist_ok=True)
     os.replace(source_path, abandoned_path)
     transaction = {
@@ -357,11 +373,16 @@ def read_chain_state(
     """Read one unambiguous chain-state candidate or raise a recovery diagnostic."""
     inventory = chain_state_recovery_inventory(project_root, project_name=project_name)
     candidates = list(inventory["candidates"])
-    valid = [candidate for candidate in candidates if candidate["validation_status"] == "valid"]
+    valid = [
+        candidate
+        for candidate in candidates
+        if candidate["validation_status"] == "valid"
+    ]
     expired = [
         candidate
         for candidate in candidates
-        if candidate["validation_status"] == "expired" and candidate["marker_status"] != "consumed"
+        if candidate["validation_status"] == "expired"
+        and candidate["marker_status"] != "consumed"
     ]
     primary = [
         candidate
@@ -548,7 +569,9 @@ def _chain_state_record(
     project_name: str,
 ) -> dict[str, object]:
     detected_format = _chain_state_format(path)
-    parsed = _parse_chain_state(path, project_name=project_name, detected_format=detected_format)
+    parsed = _parse_chain_state(
+        path, project_name=project_name, detected_format=detected_format
+    )
     age_seconds = _age_seconds(path)
     parsed = _apply_chain_state_ttl(
         parsed,
@@ -558,7 +581,9 @@ def _chain_state_record(
     record = {
         "source_root": source_root,
         "storage_location": str(storage_location),
-        "project_relative_state_path": _project_relative_path(layout.project_root, path),
+        "project_relative_state_path": _project_relative_path(
+            layout.project_root, path
+        ),
         "lexical_path": str(path),
         "resolved_path": str(path.resolve()),
         "project": parsed["project"],
@@ -600,7 +625,10 @@ def _chain_state_marker_status(
     if not isinstance(entries, list):
         return "marker-unreadable"
     stable_key = _chain_state_stable_key(candidate)
-    if any(isinstance(entry, dict) and entry.get("stable_key") == stable_key for entry in entries):
+    if any(
+        isinstance(entry, dict) and entry.get("stable_key") == stable_key
+        for entry in entries
+    ):
         return "consumed"
     return "unmarked"
 
