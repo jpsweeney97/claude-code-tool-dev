@@ -174,6 +174,16 @@ def check_inventory(current: dict[str, object], fixture_path: Path) -> None:
 
 
 def main() -> int:
+    """CLI entry for storage-authority inventory ``--check``/``--write`` modes.
+
+    Note: ``python -m handoff_runtime.storage_authority_inventory`` does NOT
+    invoke this — ``handoff_runtime/`` modules are import-only by
+    architectural invariant (see
+    ``tests/test_runtime_namespace.py::test_runtime_modules_are_import_only``).
+    Use the canonical invocation documented in ``CONTRIBUTING.md`` under
+    "Regenerating the Storage-Authority Inventory Fixture": import ``main``
+    explicitly and ``raise SystemExit(main())``.
+    """
     parser = argparse.ArgumentParser()
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--write", action="store_true")
