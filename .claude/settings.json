@@ -1,5 +1,5 @@
 {
   "env": {
-    "GITFLOW_ALLOW_FILES": "**/docs/**,**/.review-workspace/**,**/.design-review-workspace/**,CHANGELOG.md,README.md,HANDBOOK.md,settings.json,plugin.json,.gitignore,**/.claude/notes/**,**/extensions/skills/**,**/extensions/agents/**,**/extensions/commands/**,**/tickets/**,**/CLAUDE.md,**/rules/**"
+    "GITFLOW_ALLOW_FILES": "**/docs/**,**/.review-workspace/**,**/.design-review-workspace/**,CHANGELOG.md,README.md,HANDBOOK.md,settings.json,plugin.json,.gitignore,**/.claude/notes/**,**/extensions/skills/**,**/extensions/agents/**,**/extensions/commands/**,**/tickets/**,**/CLAUDE.md,**/rules/**,**/.claude/**"
   }
 }
