@@ -616,32 +616,43 @@ INGESTION_VERSION bumps to force rebuild on first startup."
 
 This phase is one cohesive commit because the type changes cascade across `canary.ts`, `index-cache.ts`, `loader.ts`, `lifecycle.ts`, and `status.ts` together. Breaking it apart leaves the code in a non-buildable state between commits.
 
-> **Design risk (H1 — acknowledge, optionally mitigate):** the fallback baseline freezes
-> whenever `fallback_segment_drift` warns (it advances only on a clean load). For the *up*
-> direction this means sustained benign growth of unmapped slugs — the exact scenario
-> motivating this PR (docs add slugs faster than `SECTION_TO_CATEGORY` is updated) — never
-> advances the baseline, so the delta accumulates across loads and can eventually trip the
-> `fallback_segment_collapse` FAIL gate. That is the same "benign growth → rejection" class
-> as the original `taxonomy_collapse`, moved from a static ratio to an accumulating delta.
-> The plan already computes the more robust signal `fallbackSectionRatio` (fallback ÷ total —
-> proportional growth does not inflate it) but gates on the frozen-baseline delta instead.
-> **Resolved — (a), with (b) as a documented escape hatch.** Cadence math makes the residual risk
-> acceptable: the motivating growth is ~24 unmapped slugs accumulated over ~9 weeks (≈2–3/week) while the
-> content TTL is 24h, so a normal fetch surfaces 0–1 new unmapped sections — far below `WARN_ABS = 5`. The
-> fallback baseline therefore advances on nearly every load (the `lastHealthyFallbackSectionCount` ternary
-> at ≈ lines 935–937 freezes only when `hasFallbackDrift` is true) and the canary stays silent in normal
-> operation; a FAIL needs a *pathological single-cycle burst* (≥5 absolute **and** ≥1.5×), and even then it
-> only *warns* first. (Magnitudes are from this PR's premise, not re-measured against the docs git history
-> — treat as directional.)
+> **Design risk (H1 — resolved (a), with (b) as a documented escape hatch).** The fallback
+> baseline advances to the current `fallbackSectionCount` on every accepted load *until*
+> `fallback_segment_drift` warns; once a WARN fires the baseline freezes at the last healthy
+> value (the `lastHealthyFallbackSectionCount` ternary in Task 4.3's policy-state advancement
+> block freezes only when `hasFallbackDrift` is true). So there are two regimes, not one:
+>
+> - **Below-WARN growth (normal operation):** every load advances the baseline, so slow drift
+>   is *tracked, never accumulated* — the canary stays silent.
+> - **After a WARN (frozen baseline):** subsequent growth is measured against the frozen value,
+>   so deltas accumulate across loads. A `fallback_segment_collapse` FAIL is therefore reachable
+>   two ways — a single load that jumps ≥20 sections **and** ≥3.0× over baseline, *or* sustained
+>   post-WARN growth that accumulates to those thresholds. (FAIL is **not** limited to a single
+>   large burst. An earlier draft mislabeled the *WARN* thresholds (≥5 ∧ ≥1.5×) as the FAIL
+>   condition; the actual FAIL gate is ≥20 ∧ ≥3.0×.) This is the same "benign growth → rejection"
+>   class as the original `taxonomy_collapse`, but moved from a static ratio to a movement-gated
+>   accumulating delta that only bites *after* the canary has already warned.
+>
+> **Why (a) is acceptable:** in normal operation a WARN rarely fires, so the freeze-then-accumulate
+> regime is rarely entered. The motivating growth is ~24 unmapped slugs over ~9 weeks (≈2–3/week)
+> against a 24h content TTL. **Caveat (directional, not re-measured):** that cadence is a slug/segment
+> rate, but `WARN_ABS = 5` gates on `fallbackSectionCount` (sections, not slugs) and one new slug can
+> attach to several sections — so a single batchy slug *could* contribute ≥5 sections in one fetch and
+> trip WARN even when the slug rate looks low. The residual risk is therefore a batch upstream release,
+> which is exactly what (b) covers.
 >
 > **(b) is the escape hatch:** if `fallback_segment_drift` warns fire more than rarely in production — e.g.
-> upstream ships docs in big batches (a relaunch dumping 30 slugs in one fetch) — flip the two advancement
-> ternaries (≈ lines 928–941) to advance-on-warn and bump `CANARY_VERSION`. A *persistent* warn is the
-> explicit trigger to take v2 Option C (remove the fallback canary entirely).
+> upstream ships docs in big batches (a relaunch dumping 30 slugs / many sections in one fetch) — flip the
+> two advancement ternaries in Task 4.3's `nextPolicyState` block to advance-on-warn and bump
+> `CANARY_VERSION`. A *persistent* `fallback_segment_drift` warn (warns on consecutive loads without
+> resolving) is the explicit trigger to (i) investigate whether `SECTION_TO_CATEGORY` needs updating, and
+> (ii) if drift keeps recurring, take v2 Option C (remove the fallback canary entirely).
 >
 > **(c) is rejected:** gating on a static `fallbackSectionRatio` threshold reintroduces the same
 > static-ratio fragility class as the original `taxonomy_collapse` bug this PR exists to remove. The
 > delta-with-baseline design is strictly better *because* it gates on movement, not absolute share.
+> (`fallbackSectionRatio` is still computed and stored in `metrics` for observability — it is simply
+> not gated on.)
 
 ### Task 4.1: Update canary types — drop taxonomy_*, add fallback_segment_*
 
@@ -888,8 +899,32 @@ export function evaluateCanaries(input: EvaluateCanariesInput): CanaryEvaluation
       { sectionCount, minSectionCount }, metrics, policyState);
   }
 
-  // --- Fallback-segment delta canary (official mode only, requires baseline) ---
-  // Both absolute AND relative criteria must be met. Missing baseline → never reject.
+  // --- Fallback-segment delta canary (official mode only) ---
+  // Positive baseline: both absolute AND relative criteria must be met.
+  // Zero baseline: the multiplier is null (no divide-by-zero), so the relative gate is
+  //   inapplicable — gate on the absolute count alone (Blocker 1). Without this branch a
+  //   0→many jump (e.g. a SECTION_TO_CATEGORY wipe landing a full-shape corpus as
+  //   all-uncategorized) slips BOTH the FAIL and WARN gates below and then advances the
+  //   baseline to the bad count, laundering the regression into trusted state.
+  // Null baseline (first run): never reject — distinct from 0, do not conflate.
+  if (
+    trustMode === 'official' &&
+    baselineFallback === 0 &&
+    fallbackSectionCount >= FALLBACK_DELTA_FAIL_ABS
+  ) {
+    return reject('fallback_segment_collapse',
+      `Fallback section count jumped from 0 to ${fallbackSectionCount} ` +
+      `(prior healthy load had no uncategorized sections) — possible loader regression`,
+      {
+        fallbackSectionCount,
+        baselineFallback,
+        fallbackSectionDelta,
+        fallbackSectionMultiplier,
+        fallbackSegmentCount,
+      },
+      metrics, policyState);
+  }
+
   if (
     trustMode === 'official' &&
     fallbackSectionDelta !== null &&
@@ -932,6 +967,28 @@ export function evaluateCanaries(input: EvaluateCanariesInput): CanaryEvaluation
     fallbackSectionMultiplier !== null &&
     fallbackSectionDelta >= FALLBACK_DELTA_WARN_ABS &&
     fallbackSectionMultiplier >= 1 + FALLBACK_DELTA_WARN_REL
+  ) {
+    warnings.push({
+      code: 'fallback_segment_drift',
+      severity: 'warn',
+      details: {
+        fallbackSectionCount,
+        baselineFallback,
+        fallbackSectionDelta,
+        fallbackSectionMultiplier,
+        sampleSegments: diagnostics.unmappedSegments.slice(0, 10).map(([seg]) => seg),
+      },
+    });
+  }
+
+  // Zero-baseline fallback drift warning (official mode): the relative WARN gate above
+  // can't fire when baselineFallback === 0 (multiplier is null), so gate on absolute alone.
+  // The zero-baseline FAIL gate already returned early, so reaching here means
+  // fallbackSectionCount < FALLBACK_DELTA_FAIL_ABS.
+  if (
+    trustMode === 'official' &&
+    baselineFallback === 0 &&
+    fallbackSectionCount >= FALLBACK_DELTA_WARN_ABS
   ) {
     warnings.push({
       code: 'fallback_segment_drift',
@@ -1309,7 +1366,7 @@ Replace with:
         } : null;
 ```
 
-- [ ] **Step 3: Update Path 2 diagnostics passing**
+- [ ] **Step 3: Update Path 2 diagnostics passing (explicit mapping required)**
 
 In Path 2 (around line 245):
 
@@ -1317,7 +1374,7 @@ In Path 2 (around line 245):
         const cachedDiagnostics: CorpusDiagnostics = parsed!.diagnostics;
 ```
 
-This works as-is once the schema matches, but TypeScript may complain because `parsed!.diagnostics` now has different fields. Confirm by running `tsc`. If TS complains, explicitly map:
+**Replace this whole-object passthrough with the explicit field mapping below — do NOT leave the passthrough in place "if `tsc` is happy."** Runtime *safety* does not depend on this edit: the version gate runs before any load path (`compatMatch` requires `parsed.version === INDEX_FORMAT_VERSION`, lifecycle.ts ≈199–206), so after the `INDEX_FORMAT_VERSION 4→5` bump (Task 4.4) a pre-v5 cache carrying the old field names can never reach Path 2, and the updated Zod `DiagnosticsBlockSchema` is a second guard at the parse step. The mapping is mandatory for *readability and coupling*: an explicit field list documents the post-rename shape at the call site so a future reader does not re-open the "does this passthrough still typecheck?" question, and anyone who later hand-edits the schema sees the dependency at the use site. Replace with:
 
 ```typescript
         const cachedDiagnostics: CorpusDiagnostics = {
@@ -1440,10 +1497,12 @@ For every match, delete the enclosing `it(...)` block.
 
 - [ ] **Step 3: Add tests for fallback_segment_collapse rejection**
 
-These assert outcomes under the CORRECTED gates (WARN = `delta ≥ 5 ∧ multiplier ≥ 1.5`;
-FAIL = `delta ≥ 20 ∧ multiplier ≥ 3.0`, where multiplier = new/old). Reconciled truth
-table — all six pass against the `>= 1 + REL` comparison from Task 4.3; **no test
-assertion changes are needed, only the Task 4.3 code fix**:
+These assert outcomes under the CORRECTED gates. For a **positive** baseline: WARN =
+`delta ≥ 5 ∧ multiplier ≥ 1.5`; FAIL = `delta ≥ 20 ∧ multiplier ≥ 3.0` (multiplier = new/old).
+For a **zero** baseline the multiplier is null, so the absolute-only branch applies (Blocker 1):
+WARN = `count ≥ 5`, FAIL = `count ≥ 20`. For a **null** baseline (first run): never reject.
+Reconciled truth table — the first six rows pass against the `>= 1 + REL` comparison from Task 4.3
+(the C1 fix, no assertion changes); the last three exercise the zero-baseline branch added for Blocker 1:
 
 | Test | baseline | new | delta | mult | WARN? | FAIL? | decision | drift warn |
 |---|---|---|---|---|---|---|---|---|
@@ -1453,6 +1512,9 @@ assertion changes are needed, only the Task 4.3 code fix**:
 | shrinks / same | 10 | 8 | −2 | 0.8 | no | no | accept | no |
 | advances baseline (no warn) | 10 | 8 | −2 | 0.8 | no | no | accept (base→8) | no |
 | today's real data | 18 | 24 | 6 | 1.33 | no (1.33 < 1.5) | no | accept | no |
+| zero-baseline quiet (Blocker 1) | 0 | 3 | 3 | — (null) | no | no | accept (base→3) | no |
+| zero-baseline WARN (Blocker 1) | 0 | 5 | 5 | — (null) | yes | no | accept (base frozen 0) | yes |
+| zero-baseline FAIL (Blocker 1) | 0 | 20 | 20 | — (null) | — | yes | reject | — |
 
 The "today" row is the C1 regression guard: under the old `>= REL` comparison the
 multiplier gate was `1.33 ≥ 0.50` (true) → it warned → the test's `toBe(false)` failed.
@@ -1563,6 +1625,55 @@ describe('fallback_segment_collapse (delta canary)', () => {
     // → no warn, accept
     expect(result.decision).toBe('accept');
     expect(result.warnings.some(w => w.code === 'fallback_segment_drift')).toBe(false);
+  });
+
+  // --- Zero-baseline branch (Blocker 1): the multiplier is null at baseline 0, so the
+  //     relative gates can't fire; the absolute-only branch must catch a 0→many wipe. ---
+
+  it('zero baseline, small growth: accepts quietly and advances the baseline (0→3)', () => {
+    const result = evaluateCanaries({
+      trustMode: 'official',
+      diagnostics: { ...baseDiag, fallbackSectionCount: 3 },
+      policyState: {
+        lastHealthySectionCount: 140, lastHealthyObservedAt: 0,
+        lastHealthyFallbackSectionCount: 0, lastHealthyFallbackObservedAt: 0,
+      },
+      now: 7,
+    });
+    expect(result.decision).toBe('accept');
+    expect(result.warnings.some(w => w.code === 'fallback_segment_drift')).toBe(false);
+    // Below WARN_ABS, no drift → baseline advances to the new (still-healthy) count.
+    expect(result.nextPolicyState.lastHealthyFallbackSectionCount).toBe(3);
+  });
+
+  it('zero baseline, WARN_ABS reached: warns and freezes the baseline at 0 (0→5)', () => {
+    const result = evaluateCanaries({
+      trustMode: 'official',
+      diagnostics: { ...baseDiag, fallbackSectionCount: 5 },
+      policyState: {
+        lastHealthySectionCount: 140, lastHealthyObservedAt: 0,
+        lastHealthyFallbackSectionCount: 0, lastHealthyFallbackObservedAt: 0,
+      },
+      now: 7,
+    });
+    expect(result.decision).toBe('accept');
+    expect(result.warnings.some(w => w.code === 'fallback_segment_drift')).toBe(true);
+    // Drift warned → baseline must NOT advance to the suspect count.
+    expect(result.nextPolicyState.lastHealthyFallbackSectionCount).toBe(0);
+  });
+
+  it('zero baseline, FAIL_ABS reached: rejects a 0→many wipe (0→20)', () => {
+    const result = evaluateCanaries({
+      trustMode: 'official',
+      diagnostics: { ...baseDiag, fallbackSectionCount: 20 },
+      policyState: {
+        lastHealthySectionCount: 140, lastHealthyObservedAt: 0,
+        lastHealthyFallbackSectionCount: 0, lastHealthyFallbackObservedAt: 0,
+      },
+      now: 7,
+    });
+    expect(result.decision).toBe('reject');
+    expect(result.rejection?.code).toBe('fallback_segment_collapse');
   });
 });
 ```
@@ -1684,7 +1795,9 @@ This phase has no commits unless issues are found. Its purpose is to confirm the
 
 - [ ] **Step 1: Clean dist and rebuild**
 
-Run: `cd <pkg> && rm -rf dist && npx tsc`
+Run: `cd <pkg> && trash dist && npx tsc`
+
+(Use `trash`, not `rm -rf` — repo hard rule. This still gives a clean rebuild: `.tsbuildinfo` lives in `dist/`, so trashing the dir clears the incremental cache too.)
 
 Expected: 0 errors.
 
@@ -1779,8 +1892,8 @@ gh pr create --title "fix(claude-code-docs): replace brittle taxonomy canary wit
 - Drops `taxonomy_collapse` rejection + `taxonomy_drift` warning (the canary that was rejecting today's upstream because `overviewSectionCount/sectionCount = 29/141 = 20.6%` just over the 20% threshold)
 - Adds `fallback_segment_collapse` rejection + `fallback_segment_drift` warning, both gated on absolute AND relative increase from a baseline persisted in `PolicyStateBlock`
 - Changes `deriveCategory` fallback from `'overview'` to `'uncategorized'` so unmapped slugs don't dilute a legitimate explicit category
-- Centralizes `MIN_SECTION_COUNT` env parsing in `config.ts`; canary is now the sole authority on the minimum-section floor
-- Removes the loader's pre-canary section-count gate (and the now-orphan `ContentValidationError` class)
+- Centralizes the duplicate `MIN_SECTION_COUNT` env parse in `config.ts`; the canary owns the tunable **index** floor, while the loader keeps a fixed `CACHE_WRITE_MIN_SECTIONS` guard over the **content cache** (B1)
+- Keeps `ContentValidationError` and the loader's throw-before-`writeCache` — it guards the content cache against truncated fetches and routes to stale-cache fallback, a protection distinct from the canary (which only guards the served index)
 - Fixes `AGENTS.md` doc drift ("Four version constants" → "Five")
 - Version bumps: `INDEX_FORMAT_VERSION 4→5`, `CANARY_VERSION 1→2`, `INGESTION_VERSION 5→6`. All three invalidate cached indexes on first startup — full rebuild is the correct behavior for a corpus-shape change.
 
@@ -1986,6 +2099,14 @@ One thing to watch: in Task 4.3 the canary code computes `fallbackSectionRatio` 
 - **SF-2:** Task 4.6 Step 1 claimed the field-name grep matches "THREE places" incl. Path 2 (line 245); it matches two (Path 1, Path 4) — Path 2 is a whole-object passthrough that names no field. Reworded to "two matches; three sites need attention; Path 2 handled in Step 3."
 - **N-1 (noted, not changed):** `allowZero: true` at Task 2.1 is redundant with `{ min: 0 }` *today* (config.ts:40-44 — `0 < 0` is false, so 0 passes anyway), but it robustly encodes "0 = disable" against a future `min` increase, so it stays (Future-Proof over Minimal).
 - **One finding beyond the review:** the File-Structure table (line 25) named the PolicyState field `lastHealthyFallbackSegmentCount`, while the code and all 18 other plan sites use `lastHealthyFallbackSectionCount`. Corrected to `Section`.
+
+**7. Post-adversarial-Codex-dialogue (2026-05-28).** An adversarial `/dialogue` review (posture `adversarial`, 6 turns, Codex-ratified, zero residual uncertainties) found two execution blockers and three non-blocking corrections that the prior self-review and implementation review both missed. All five verified against source and fixed in-place:
+
+- **Blocker — zero-baseline canary bypass:** when `lastHealthyFallbackSectionCount === 0`, `fallbackSectionMultiplier` is null (its guard requires baseline `> 0`), so BOTH the FAIL and WARN gates — each carrying a `fallbackSectionMultiplier !== null` conjunct — skipped, and policy advancement then wrote the bad count as the new healthy baseline. A `SECTION_TO_CATEGORY` wipe (0→many uncategorized) would be silently laundered into trusted state, untested. Task 4.3 now has a strict `baselineFallback === 0` absolute-only branch (FAIL at `count ≥ FAIL_ABS`, WARN at `count ≥ WARN_ABS`) placed before the positive-baseline gates, preserving `=== null` first-run acceptance (not a falsy check — `0` and `null` must stay distinct). Task 4.8 adds 0→3 / 0→5 / 0→20 tests and three truth-table rows. (The Infinity-multiplier shortcut was explicitly rejected: `fallbackSectionMultiplier` is `z.number().nullable()`, so a persisted `Infinity` round-trips to `null` and re-creates the bypass on cache reload.)
+- **Blocker — Phase 5 `rm -rf dist`:** violated the repo's hard `rm`/`rm -rf` prohibition (and clears `.tsbuildinfo`, so not a no-op). Task 5.1 Step 1 now uses `trash dist`.
+- **H1 prose:** the freeze-on-warn paragraph contradicted itself ("never advances" vs "advances on nearly every load"), claimed FAIL needs a "single-cycle burst" despite admitting accumulation-to-FAIL, and mislabeled the WARN thresholds (≥5 ∧ ≥1.5×) as the FAIL condition (actual FAIL is ≥20 ∧ ≥3.0×). Rewritten to two explicit regimes, threshold labels corrected, stale line refs replaced with symbolic anchors, the slug-vs-section cadence caveat stated, and persistent drift made an investigation trigger.
+- **PR body:** still said "canary is now the sole authority" and "Removes … the now-orphan `ContentValidationError` class" — contradicting the B1 resolution (Task 2.3 keeps both). Rewritten to match.
+- **Path 2 (non-blocking, clarity):** Task 4.6 Step 3 made the explicit field mapping mandatory rather than "if `tsc` complains." Runtime safety is already guaranteed by the version gate preceding all load paths (a v4 cache can't reach Path 2 after the 4→5 bump); the mapping is required for readability.
 
 ---
 
