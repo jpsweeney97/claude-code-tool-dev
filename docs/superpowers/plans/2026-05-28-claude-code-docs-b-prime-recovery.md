@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Restore claude-code-docs MCP server to working state by replacing the brittle `taxonomy_collapse` / `taxonomy_drift` canaries with a loader-regression delta canary, renaming the dishonest `fallbackOverviewCount` metric, changing the unmapped-URL fallback from `'overview'` to `'uncategorized'`, deduping the three independent `MIN_SECTION_COUNT` floors into one authoritative path, and fixing the `AGENTS.md` version-constant doc drift.
+**Goal:** Restore claude-code-docs MCP server to working state by replacing the brittle `taxonomy_collapse` / `taxonomy_drift` canaries with a loader-regression delta canary, renaming the dishonest `fallbackOverviewCount` metric, changing the unmapped-URL fallback from `'overview'` to `'uncategorized'`, deduping the duplicated `MIN_SECTION_COUNT` env parse into a single config-owned source (the loader keeps a fixed cache-write guard; the canary owns the tunable index floor — B1), and fixing the `AGENTS.md` version-constant doc drift.
 
 **Architecture:** Reframe the canary's job from "is our static category ontology still complete?" (S1, ontology coverage — what the broken `taxonomy_collapse` measured) to "did this load suddenly classify much more content as fallback than the last healthy load?" (S2, loader-regression smoke). Keep `category` as a soft enrichment field on chunks; defer full removal as a v2 cleanup pending an external-consumer audit.
 
@@ -22,11 +22,11 @@
 | `src/canary.ts` | Drop `taxonomy_collapse` rejection + `taxonomy_drift` warning; add `fallback_segment_drift` warning + `fallback_segment_collapse` rejection; replace metric set; consume `minSectionCount` from input; thread new `PolicyState` fields |
 | `src/frontmatter.ts` | Change `deriveCategory` fallback from `'overview'` to `'uncategorized'` |
 | `src/categories.ts` | Add `'uncategorized'` to `KNOWN_CATEGORIES` |
-| `src/index-cache.ts` | `INDEX_FORMAT_VERSION 4→5`, `CANARY_VERSION 1→2`, `INGESTION_VERSION 5→6`; `DiagnosticsBlock` loses `overviewSectionCount` + `fallbackOverviewCount`, gains `fallbackSegmentCount`; `PolicyStateBlock` gains `lastHealthyFallbackSegmentCount` + `lastHealthyFallbackObservedAt`; `WarningSchema` enum + `CanaryMetricsSchema` updated |
-| `src/lifecycle.ts` | Update all `DiagnosticsBlock` reconstructions (Path 1 hit, Path 2 replay, **Path 4 provenance refresh**) for new field set; thread new `PolicyState` fields |
+| `src/index-cache.ts` | `INDEX_FORMAT_VERSION 4→5`, `CANARY_VERSION 1→2`, `INGESTION_VERSION 5→6`; `DiagnosticsBlock` loses `overviewSectionCount` + `fallbackOverviewCount`, gains `fallbackSegmentCount`; `PolicyStateBlock` gains `lastHealthyFallbackSectionCount` + `lastHealthyFallbackObservedAt`; `WarningSchema` enum + `CanaryMetricsSchema` updated |
+| `src/lifecycle.ts` | Update `DiagnosticsBlock` field set in the two reconstruction sites (Path 1 hit, **Path 4 provenance refresh**); Path 2 replay passes the object through unchanged; thread new `PolicyState` fields |
 | `src/status.ts` | `StatusWarningCodeSchema`: drop `'taxonomy_drift'`, add `'fallback_segment_drift'` |
 | `tests/canary.test.ts` | Delete tests for `taxonomy_collapse`/`taxonomy_drift`; add tests for delta canary |
-| `tests/loader.test.ts` | Drop `ContentValidationError` section-count tests; update diagnostic field assertions |
+| `tests/loader.test.ts` | Rewrite the truncation test to the fixed `CACHE_WRITE_MIN_SECTIONS` floor (B1 keeps the guard); update diagnostic field assertions |
 | `tests/frontmatter.test.ts` | Update fallback assertion `'overview'` → `'uncategorized'` |
 | `tests/categories.test.ts` | Verify `'uncategorized'` in `KNOWN_CATEGORIES` |
 | `tests/index-cache.test.ts` | Update serialization round-trip for new schema |
@@ -297,29 +297,55 @@ Run: `cd <pkg> && npx vitest run tests/canary.test.ts -t "minSectionCount"`
 
 Expected: 2 passing tests; no regressions in the other canary tests.
 
-### Task 2.3: Remove loader's pre-canary section gate
+### Task 2.3: Replace loader's env-driven section gate with a fixed cache-write guard (B1)
 
 **Files:**
-- Modify: `<pkg>/src/loader.ts:19-46` (delete DEFAULT_MIN_SECTION_COUNT, getMinSectionCount, ContentValidationError class)
-- Modify: `<pkg>/src/loader.ts:225-232` (remove section-count throw in fetchAndParse)
-- Modify: `<pkg>/src/loader.ts:240-249` (remove ContentValidationError from expected-error union)
-- Modify: `<pkg>/src/lifecycle.ts` (find any caller that imports `ContentValidationError` or `getMinSectionCount` and remove)
-- Modify: `<pkg>/tests/loader.test.ts` (delete or rewrite the "throws when fetched content has fewer than minimum sections" test)
+- Modify: `<pkg>/src/loader.ts:19-46` (delete `DEFAULT_MIN_SECTION_COUNT` + `getMinSectionCount`; **keep** the `ContentValidationError` class; add a fixed `CACHE_WRITE_MIN_SECTIONS` const)
+- Modify: `<pkg>/src/loader.ts:225-232` (re-gate the truncation throw on the fixed const instead of `getMinSectionCount()`)
+- Modify: `<pkg>/src/loader.ts:240-249` (**no change** — `ContentValidationError` stays in the expected-error union; see Step 4)
+- Modify: `<pkg>/src/lifecycle.ts` (remove any `getMinSectionCount` import; **keep** any `ContentValidationError` import — the class stays)
+- Modify: `<pkg>/tests/loader.test.ts` (rewrite the truncation test to drive the fixed floor instead of an env value)
+
+> **Resolved (B1) — keep the guard (Option G).** The original Task 2.3 removed the throw entirely
+> ("the canary is the sole authority on minimum section count"). Reading `loader.ts` shows that conflates
+> two protections: the throw fires *before* `writeCache` (loader.ts:226-232 → :235), so it guards the
+> *content cache* (`llms-full.txt`) from being overwritten by truncated content; the canary guards only
+> the *served index*. Remove the throw and a single truncated fetch poisons the content cache — on the next
+> load the server rebuilds from the truncated copy, the canary rejects the index, and the server is stuck
+> with no valid index until a good fetch eventually succeeds. That is the exact "stuck on bad cached
+> content" failure this recovery PR exists to undo. So: delete the duplicated *env parse* (dedup goal met
+> — one parse, in `config.ts`), but keep a fixed-floor cache-write guard.
+>
+> **Shape: fixed const, not threaded.** `loadFn` is constructor-injected (lifecycle.ts:180, 466); threading
+> `minSectionCount` into it would change the injected signature and risk rippling to every test that fakes
+> or asserts `loadFn`. The fixed const keeps the change inside `loader.ts`. One behavior delta to accept:
+> the cache-write floor is no longer env-tunable (fixed at 40); `MIN_SECTION_COUNT` now tunes only the
+> canary/index floor (Task 2.4). Edge case: an `unsafe`-mode private mirror with <40 sections can no longer
+> lower this guard — acceptable for a recovery PR (note it in the PR body). If full env-tunability is
+> needed later, thread `config.minSectionCount` through `loadFromOfficial` / `fetchAndParse` and pass
+> `this.minSectionCount` at the two `loadFn` call sites, defaulting to 40 when undefined.
 
 - [ ] **Step 1: Locate callers of the symbols being removed**
 
 Run:
 ```bash
-cd <pkg> && grep -rn "ContentValidationError\|getMinSectionCount\|DEFAULT_MIN_SECTION_COUNT" src/ tests/
+cd <pkg> && grep -rn "getMinSectionCount\|DEFAULT_MIN_SECTION_COUNT" src/ tests/
 ```
 
-Record every match — every one must be either deleted or rewritten in subsequent steps.
+Record every match — each must be deleted or rewritten below. `ContentValidationError` is deliberately **not** in this grep: the class, its throw, and its place in the expected-error union all stay — that is the B1 guard.
 
-- [ ] **Step 2: Delete the loader-side env parsing and gate**
+- [ ] **Step 2: Delete the env parsing; add the fixed floor; keep the error class**
 
-In `<pkg>/src/loader.ts`, delete lines 19-46 (the `DEFAULT_MIN_SECTION_COUNT` const, `getMinSectionCount` function, and `ContentValidationError` class).
+In `<pkg>/src/loader.ts`, delete the `DEFAULT_MIN_SECTION_COUNT` const and the `getMinSectionCount` function (the env machinery). **Keep** the `ContentValidationError` class. Add a fixed floor constant near the top of the file:
 
-- [ ] **Step 3: Delete the throw in fetchAndParse**
+```typescript
+/** Absolute floor below which fetched content is treated as truncated and must NOT overwrite the
+ *  content cache (B1). Fixed, not env-tunable: MIN_SECTION_COUNT tunes only the canary/index floor
+ *  (Task 2.4). The official corpus is ~141 sections, so 40 is a wide truncation margin. */
+const CACHE_WRITE_MIN_SECTIONS = 40;
+```
+
+- [ ] **Step 3: Re-gate the throw in fetchAndParse**
 
 In `<pkg>/src/loader.ts`, find this block (around line 225-232):
 
@@ -337,31 +363,27 @@ In `<pkg>/src/loader.ts`, find this block (around line 225-232):
     }
 ```
 
-Replace with:
+Replace with (keep the throw; swap the env lookup for the fixed const):
 
 ```typescript
     const { content } = await fetchOfficialDocs(url);
     const sections = parseSections(content);
+
+    // Refuse to overwrite the content cache with truncated content (B1). Fixed floor; the canary
+    // owns the tunable index floor (Task 2.4). The throw fires BEFORE writeCache, so the good cache survives.
+    if (sections.length < CACHE_WRITE_MIN_SECTIONS) {
+      throw new ContentValidationError(
+        `Fetched content has only ${sections.length} sections (minimum: ${CACHE_WRITE_MIN_SECTIONS}). ` +
+          'Content may be truncated or incomplete.',
+      );
+    }
 ```
 
-(The canary will now be the sole authority on minimum section count.)
+`ContentValidationError` is still an expected error (Step 4), so a truncated fetch is caught and the load falls back to the last-good cache (loader.ts:257-277) — today's self-healing behavior, preserved.
 
-> **Behavior-change note (B1 — decide before executing):** the removed throw fired
-> *before* `writeCache` (loader.ts:235), so truncated upstream content was rejected
-> *before* it overwrote the good content cache (`llms-full.txt`). After removal, truncated
-> content is written to the cache and rejected only downstream by the canary — which guards
-> the *served index* but not the *content cache*. On the next load the cache starts from the
-> truncated copy until a good fetch succeeds. The old gate and the canary protect different
-> things; "canary is sole authority" conflates them.
->
-> **Recommended:** keep a minimal pre-`writeCache` guard that refuses to overwrite the cache
-> with content below an absolute floor (e.g. the existing default 40) while still deleting the
-> separate `ContentValidationError` / `getMinSectionCount` env machinery. Alternative: accept
-> the regression and record the rationale here and in the PR "Out of scope". Do not leave it silent.
+- [ ] **Step 4: Confirm `ContentValidationError` stays in the expected-error union**
 
-- [ ] **Step 4: Remove ContentValidationError from the expected-error union**
-
-In `<pkg>/src/loader.ts`, find the `isExpected` block in the `catch` (around line 240-249):
+In `<pkg>/src/loader.ts`, the `catch` block (around line 241-246) lists `ContentValidationError` as an expected error, and a branch a few lines below logs it. **Leave both unchanged** — they are what routes the truncation throw to the stale-cache fallback instead of crashing the load. (The original Task 2.3 removed this; Option G keeps it.)
 
 ```typescript
     const isExpected =
@@ -372,21 +394,9 @@ In `<pkg>/src/loader.ts`, find the `isExpected` block in the `catch` (around lin
       err instanceof ContentValidationError;
 ```
 
-Replace with:
-
-```typescript
-    const isExpected =
-      err instanceof FetchHttpError ||
-      err instanceof FetchNetworkError ||
-      err instanceof FetchResponseTooLargeError ||
-      err instanceof FetchTimeoutError;
-```
-
-Also remove the `instanceof ContentValidationError` branch and its `console.error` call a few lines below.
-
 - [ ] **Step 5: Update tests/loader.test.ts**
 
-Delete any test asserting `ContentValidationError` or `getMinSectionCount` behavior. The minimum-section-count behavior is now tested at the canary level (Task 2.2) and end-to-end in Phase 5.
+Rewrite (don't delete) the truncation test: it previously set `MIN_SECTION_COUNT` via env and asserted the throw. The floor is now the fixed `CACHE_WRITE_MIN_SECTIONS` (40), so drive it with a fetched corpus of <40 sections and assert (a) `ContentValidationError` is thrown before any cache write, and (b) the load falls back to a prior good cache when one exists. Delete only assertions tied to the removed `getMinSectionCount` / env-tunability. The canary-level index floor is tested separately at Task 2.2 and end-to-end in Phase 5.
 
 - [ ] **Step 6: Run type check**
 
@@ -447,7 +457,7 @@ git add packages/mcp-servers/claude-code-docs/src/config.ts \
         packages/mcp-servers/claude-code-docs/tests/config.test.ts \
         packages/mcp-servers/claude-code-docs/tests/canary.test.ts \
         packages/mcp-servers/claude-code-docs/tests/loader.test.ts
-git commit -m "refactor(claude-code-docs): centralize MIN_SECTION_COUNT in config; canary is sole floor authority"
+git commit -m "refactor(claude-code-docs): centralize MIN_SECTION_COUNT env parse in config; canary owns index floor, loader keeps fixed cache-write guard"
 ```
 
 ---
@@ -479,7 +489,14 @@ describe('KNOWN_CATEGORIES: uncategorized fallback', () => {
 Also update the EXISTING assertions in the same file so they survive Step 3 (they pass now but break the moment `'uncategorized'` is added — this is the C2/D3 gap that made Phase 3 commit a red suite):
 
 - `tests/categories.test.ts`: bump `expect(KNOWN_CATEGORIES.size).toBe(27)` → `toBe(28)`, add `'uncategorized'` to the `expected` array, and retitle `it('contains all 27 canonical categories', …)` → 28.
-- Count-reference drift (fix in this commit for one source of truth): `src/categories.ts:5` comment ("27 categories" → 28); `AGENTS.md` Search-Tool-Parameters row ("One of 26 categories" → 28 + note `'uncategorized'`); package `CLAUDE.md` (`categories.ts` module-map row "26 canonical categories" and the `category` param "One of 26 categories or 5 aliases"). This also resolves the pre-existing 26-vs-27 drift.
+- Count-reference drift (fix in this commit for one source of truth). Five lines move `26`/`27` → `28`:
+  - `src/categories.ts:5` comment ("27 categories" → 28)
+  - `AGENTS.md:11` Search-Tool-Parameters row ("One of 26 categories" → 28 + note `'uncategorized'`)
+  - `AGENTS.md:47` `categories.ts` module-map row ("26 canonical categories" → "28 canonical categories")
+  - `CLAUDE.md:11` `category` param ("One of 26 categories or 5 aliases" → 28)
+  - `CLAUDE.md:47` `categories.ts` module-map row ("26 canonical categories" → "28 canonical categories")
+
+  Leave the golden-queries rows (`AGENTS.md:86`, `CLAUDE.md:93`, "35 queries, 26 categories") **unchanged** — that 26 is a *coverage* count (golden queries exercise 26 canonical categories; `changelog` has none), not a canonical-count, so it stays 26 even at 28 canonical. This also resolves the pre-existing 26-vs-27 drift. (SF-1: the first correction pass fixed `AGENTS.md:11` but omitted `AGENTS.md:47` — both `CLAUDE.md` rows were fixed, only one of AGENTS.md's two.)
 
 - [ ] **Step 2: Run, verify FAIL**
 
@@ -503,6 +520,14 @@ In `<pkg>/src/categories.ts`, add `'uncategorized'` to the `KNOWN_CATEGORIES` Se
 Run: `cd <pkg> && npx vitest run tests/categories.test.ts`
 
 Expected: all tests pass — including (a) the referential-integrity test (line 100) that asserts every `SECTION_TO_CATEGORY` value is in `KNOWN_CATEGORIES` (additive, unaffected), and (b) the size/`expected`-array assertions updated in Step 1 (now 28).
+
+Then run the doc-count completeness check:
+
+```bash
+cd <pkg> && grep -rn "26 canonical\|One of 26" AGENTS.md CLAUDE.md
+```
+
+Expected: **zero** matches. Both patterns target only the canonical-count lines (`AGENTS.md:11/:47`, `CLAUDE.md:11/:47`); the golden-queries "26 categories" coverage lines match neither pattern, so they're correctly excluded. A nonzero result means a count-reference site was missed — this is the check that would have caught SF-1.
 
 ### Task 3.2: Change deriveCategory fallback
 
@@ -600,9 +625,23 @@ This phase is one cohesive commit because the type changes cascade across `canar
 > as the original `taxonomy_collapse`, moved from a static ratio to an accumulating delta.
 > The plan already computes the more robust signal `fallbackSectionRatio` (fallback ÷ total —
 > proportional growth does not inflate it) but gates on the frozen-baseline delta instead.
-> Decide explicitly: (a) accept the residual risk (slow growth advances fine; only a ≥1.5×
-> burst freezes), (b) advance the baseline even on warn (loses slow-leak detection), or
-> (c) gate on `fallbackSectionRatio` rather than the delta. Left as (a) unless changed.
+> **Resolved — (a), with (b) as a documented escape hatch.** Cadence math makes the residual risk
+> acceptable: the motivating growth is ~24 unmapped slugs accumulated over ~9 weeks (≈2–3/week) while the
+> content TTL is 24h, so a normal fetch surfaces 0–1 new unmapped sections — far below `WARN_ABS = 5`. The
+> fallback baseline therefore advances on nearly every load (the `lastHealthyFallbackSectionCount` ternary
+> at ≈ lines 935–937 freezes only when `hasFallbackDrift` is true) and the canary stays silent in normal
+> operation; a FAIL needs a *pathological single-cycle burst* (≥5 absolute **and** ≥1.5×), and even then it
+> only *warns* first. (Magnitudes are from this PR's premise, not re-measured against the docs git history
+> — treat as directional.)
+>
+> **(b) is the escape hatch:** if `fallback_segment_drift` warns fire more than rarely in production — e.g.
+> upstream ships docs in big batches (a relaunch dumping 30 slugs in one fetch) — flip the two advancement
+> ternaries (≈ lines 928–941) to advance-on-warn and bump `CANARY_VERSION`. A *persistent* warn is the
+> explicit trigger to take v2 Option C (remove the fallback canary entirely).
+>
+> **(c) is rejected:** gating on a static `fallbackSectionRatio` threshold reintroduces the same
+> static-ratio fragility class as the original `taxonomy_collapse` bug this PR exists to remove. The
+> delta-with-baseline design is strictly better *because* it gates on movement, not absolute share.
 
 ### Task 4.1: Update canary types — drop taxonomy_*, add fallback_segment_*
 
@@ -1238,7 +1277,7 @@ Run:
 cd <pkg> && grep -n "overviewSectionCount\|fallbackOverviewCount" src/lifecycle.ts
 ```
 
-Expected: matches in THREE places — Path 1 / Full Hit (≈ lines 233-234), **Path 4 / Provenance Refresh (≈ lines 322-323)**, and the Path 2 / Canary Replay direct assignment (≈ line 245). All three must be updated; the `tsc` gate in Step 5 will catch any miss. Path 4 is the site the original plan and self-review omitted (D1).
+Expected: **two** matches — Path 1 / Full Hit (≈ lines 233-234) and **Path 4 / Provenance Refresh (≈ lines 322-323)**. Path 2 / Canary Replay (≈ line 245) is `const cachedDiagnostics: CorpusDiagnostics = parsed!.diagnostics;` — a whole-object passthrough that names no individual field, so it does **not** appear in this grep; it is handled separately in Step 3. So three load paths need attention but only two contain the old identifiers. The `tsc` gate in Step 5 catches any miss. Path 4 is the site the original plan and self-review omitted (D1). (SF-2: the first correction pass said this grep matches "THREE places" — it matches two.)
 
 - [ ] **Step 2: Update Path 1 diagnostics reconstruction**
 
@@ -1914,7 +1953,7 @@ This section is my (the plan author's) own check against the spec. It is not par
 | Change `deriveCategory` fallback `'overview'` → `'uncategorized'` | Task 3.1 + Task 3.2 |
 | Update `RejectionCode`, `WarningCode`, `WarningSchema`, `StatusWarningCodeSchema` | Task 4.1 + Task 4.4 + Task 4.7 |
 | Bump `INDEX_FORMAT_VERSION`, `CANARY_VERSION`, `INGESTION_VERSION` | Task 3.3 (INGESTION) + Task 4.4 (INDEX_FORMAT + CANARY) |
-| Centralize triple `MIN_SECTION_COUNT` | Phase 2 (entire phase) |
+| Centralize `MIN_SECTION_COUNT` env parse; loader keeps a fixed cache-write guard (B1) | Phase 2 (entire phase) |
 | Fix `AGENTS.md` "Four" → "Five" doc drift | Task 1.1 |
 | Defer Option C with audit gates | V2 plan section |
 
@@ -1935,11 +1974,18 @@ One thing to watch: in Task 4.3 the canary code computes `fallbackSectionRatio` 
 
 - **C1 (Critical):** the relative gate compared the new/old multiplier directly against the relative-increase fraction (`>= REL`), making the gate inert and failing the "today's real data" test. Fixed to `>= 1 + REL` in Task 4.3; constants documented as relative-increase fractions in Task 4.2; reconciled truth table added to Task 4.8 Step 3. No test assertion changed — only the code.
 - **C2/D3:** Task 3.1 now updates the existing `KNOWN_CATEGORIES.size` (27 → 28), the `expected` array, the test title, and the 26-vs-27 count drift across `categories.ts` / `AGENTS.md` / `CLAUDE.md`. Phase 3 now ends green.
-- **D1:** Task 4.6 adds Step 3b for the Path 4 / Provenance Refresh reconstruction (lines 318-326) — there are THREE reconstruction sites, not the "Path 1 hit and Path 2 replay" this self-review previously claimed.
+- **D1:** Task 4.6 adds Step 3b for the Path 4 / Provenance Refresh reconstruction (lines 318-326). Three load paths touch diagnostics (Path 1 + Path 4 reconstruct field-by-field; Path 2 passes the object through), but only Path 1 and Path 4 name the old fields — the original plan and self-review omitted Path 4.
 - **D2:** Task 4.8 Step 1 now rewrites the `canary.test.ts` shared helpers, import block, threshold-constant test, and `overviewRatio` assertions, and carries the Task 2.2 override tests forward — none of which compiled under the Phase 4 type changes.
-- **B1:** Task 2.3 flags the content-cache-integrity regression from removing the pre-`writeCache` gate; guard-vs-accept is a decision to make before executing.
+- **B1 (resolved):** Task 2.3 now *keeps* a fixed-floor cache-write guard (Option G) rather than removing the gate — reading `loader.ts:226-232 → :235` confirmed the throw fires before `writeCache`, so removal would poison the content cache. Only the duplicated env parse is deleted; `ContentValidationError` and the throw stay (re-gated on a fixed `CACHE_WRITE_MIN_SECTIONS = 40`). The cache-write floor is no longer env-tunable — a documented, accepted delta.
 - **B2:** Task 1.1 now quotes `AGENTS.md:65` verbatim (bold + backticks + trailing sentence).
-- **H1 (open):** the Phase 4 intro documents the freeze-on-warn + delta-accumulation residual risk and the `fallbackSectionRatio` alternative; left as "accept" unless changed.
+- **H1 (resolved — (a)):** the Phase 4 intro resolves to (a) accept freeze-on-warn (cadence math: ~0–1 new unmapped slugs per 24h fetch vs `WARN_ABS = 5`), with (b) advance-on-warn as the documented escape hatch and a persistent warn as the v2 Option C trigger; (c) static-ratio gating is rejected as the original bug's fragility class.
+
+**6. Post-review-of-corrections (2026-05-28).** An implementation review of the correction commit (`9396e2d7`) found two residual gaps in the correction pass itself — both verified against source and fixed in-place:
+
+- **SF-1:** the D3 count-reference fix listed `AGENTS.md:11` but omitted `AGENTS.md:47` (the `categories.ts` module-map row, also "26 canonical categories"). Task 3.1 now enumerates all five `26`/`27 → 28` sites and adds a closing `grep -rn "26 canonical\|One of 26"` completeness check (expects zero; the golden-queries "26 categories" coverage lines correctly don't match).
+- **SF-2:** Task 4.6 Step 1 claimed the field-name grep matches "THREE places" incl. Path 2 (line 245); it matches two (Path 1, Path 4) — Path 2 is a whole-object passthrough that names no field. Reworded to "two matches; three sites need attention; Path 2 handled in Step 3."
+- **N-1 (noted, not changed):** `allowZero: true` at Task 2.1 is redundant with `{ min: 0 }` *today* (config.ts:40-44 — `0 < 0` is false, so 0 passes anyway), but it robustly encodes "0 = disable" against a future `min` increase, so it stays (Future-Proof over Minimal).
+- **One finding beyond the review:** the File-Structure table (line 25) named the PolicyState field `lastHealthyFallbackSegmentCount`, while the code and all 18 other plan sites use `lastHealthyFallbackSectionCount`. Corrected to `Section`.
 
 ---
 
