@@ -34,7 +34,7 @@ export const CHUNKER_VERSION = 1;
  * - tokenizer.ts → TOKENIZER_VERSION
  * - chunker.ts → CHUNKER_VERSION
  */
-export const INGESTION_VERSION = 5;
+export const INGESTION_VERSION = 6;
 
 /**
  * Bump when canary policy interpretation or threshold constants change:

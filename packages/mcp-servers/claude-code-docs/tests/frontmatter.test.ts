@@ -140,14 +140,14 @@ describe('deriveCategory', () => {
     expect(deriveCategory('https://code.claude.com/docs/pt-br/skills')).toBe('skills');
   });
 
-  it('returns overview for URL with no content path', () => {
-    expect(deriveCategory('https://code.claude.com/')).toBe('overview');
-    expect(deriveCategory('https://code.claude.com/docs/en/')).toBe('overview');
+  it('returns uncategorized for URL with no content path', () => {
+    expect(deriveCategory('https://code.claude.com/')).toBe('uncategorized');
+    expect(deriveCategory('https://code.claude.com/docs/en/')).toBe('uncategorized');
   });
 
-  it('returns overview for unknown URL sections', () => {
-    // Unknown sections default to overview, not the first segment
-    expect(deriveCategory('https://example.com/custom/page')).toBe('overview');
+  it('returns uncategorized for unknown URL sections', () => {
+    // Unknown sections default to uncategorized, not the first segment
+    expect(deriveCategory('https://example.com/custom/page')).toBe('uncategorized');
   });
 
   // New tests for SECTION_TO_CATEGORY mapping
@@ -159,10 +159,10 @@ describe('deriveCategory', () => {
     expect(deriveCategory('https://code.claude.com/docs/en/github-actions')).toBe('ci-cd');
   });
 
-  it('returns overview for unmapped URL sections', () => {
-    // Unknown sections default to 'overview' not 'general'
-    expect(deriveCategory('https://code.claude.com/docs/en/unknown-page')).toBe('overview');
-    expect(deriveCategory('https://code.claude.com/docs/en/some-new-page')).toBe('overview');
+  it('returns uncategorized for unmapped URL sections', () => {
+    // Unknown sections default to 'uncategorized' not 'general'
+    expect(deriveCategory('https://code.claude.com/docs/en/unknown-page')).toBe('uncategorized');
+    expect(deriveCategory('https://code.claude.com/docs/en/some-new-page')).toBe('uncategorized');
   });
 });
 

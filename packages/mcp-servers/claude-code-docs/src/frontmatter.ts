@@ -178,7 +178,7 @@ export function formatMetadataHeader(fm: Frontmatter): string {
  * For URLs (e.g., 'https://code.claude.com/docs/en/hooks/overview'):
  * - Extracts content path segments after /docs/{lang}/
  * - Uses SECTION_TO_CATEGORY mapping to find canonical category
- * - Falls back to 'overview' for unmapped sections
+ * - Falls back to 'uncategorized' for unmapped sections
  *
  * For file paths (e.g., 'hooks/overview.md'):
  * - Returns the first directory segment
@@ -191,8 +191,9 @@ export function deriveCategory(path: string): string {
       const category = SECTION_TO_CATEGORY[seg];
       if (category) return category;
     }
-    // Default unmapped sections to 'overview' — ensures searchability
-    return 'overview';
+    // Default unmapped URLs to 'uncategorized' — keeps the explicit 'overview' category
+    // semantically distinct from "we don't recognize this slug yet"
+    return 'uncategorized';
   }
 
   // Original logic for file paths

@@ -813,10 +813,12 @@ describe('LoadResult diagnostics', () => {
   });
 
   it('counts overview sections correctly', async () => {
-    // 'https://code.claude.com/docs/en/some-unknown-thing' maps to 'overview' (unmapped)
+    // 'https://code.claude.com/docs/en/some-unknown-thing' now maps to 'uncategorized' (unmapped)
+    // 'https://code.claude.com/docs/en/overview' maps to 'overview' (explicit SECTION_TO_CATEGORY entry)
     // 'https://code.claude.com/docs/en/hooks' maps to 'hooks' (mapped)
     // Pad with known-category (hooks) URLs so padding doesn't inflate overviewSectionCount
     const primary = [
+      { title: 'Overview', url: 'https://code.claude.com/docs/en/overview', body: 'Overview docs' },
       { title: 'Hooks', url: 'https://code.claude.com/docs/en/hooks', body: 'Hook docs' },
       { title: 'Unknown', url: 'https://code.claude.com/docs/en/some-unknown-thing', body: 'Unknown docs' },
     ];
@@ -828,7 +830,8 @@ describe('LoadResult diagnostics', () => {
     const cachePath = path.join(tempDir, 'cache.txt');
     const result = await loadFromOfficial('https://example.com/docs', cachePath);
 
-    // 'some-unknown-thing' should map to 'overview'; padding uses hooks URLs → category 'hooks'
+    // 'overview' URL explicitly maps to 'overview'; 'some-unknown-thing' maps to 'uncategorized' (not overview);
+    // padding uses hooks URLs → category 'hooks'
     expect(result.diagnostics.overviewSectionCount).toBe(1);
   });
 
