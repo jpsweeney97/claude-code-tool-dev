@@ -805,18 +805,20 @@ describe('LoadResult diagnostics', () => {
     expect(d.sourceAnchoredCount).toBe(40);
     expect(d.nonEmptySectionCount).toBe(40);
     expect(d.sectionCount).toBe(40);
-    expect(d.overviewSectionCount).toBeGreaterThanOrEqual(0);
+    expect(d.fallbackSectionCount).toBeGreaterThanOrEqual(0);
     expect(Array.isArray(d.unmappedSegments)).toBe(true);
 
     // diagnostics does NOT have parseWarningCount (that comes from lifecycle)
     expect(d).not.toHaveProperty('parseWarningCount');
   });
 
-  it('counts overview sections correctly', async () => {
-    // 'https://code.claude.com/docs/en/some-unknown-thing' now maps to 'uncategorized' (unmapped)
-    // 'https://code.claude.com/docs/en/overview' maps to 'overview' (explicit SECTION_TO_CATEGORY entry)
-    // 'https://code.claude.com/docs/en/hooks' maps to 'hooks' (mapped)
-    // Pad with known-category (hooks) URLs so padding doesn't inflate overviewSectionCount
+  it('counts fallback sections correctly', async () => {
+    // The loader now computes fallbackSectionCount: sections where deriveCategory
+    // returns 'uncategorized' (no URL segment matched in SECTION_TO_CATEGORY).
+    // - 'https://code.claude.com/docs/en/some-unknown-thing' → 'uncategorized' (unmapped)
+    // - 'https://code.claude.com/docs/en/overview' → 'overview' (explicitly mapped)
+    // - 'https://code.claude.com/docs/en/hooks' → 'hooks' (mapped)
+    // Pad with known-category (hooks) URLs to avoid inflating fallbackSectionCount.
     const primary = [
       { title: 'Overview', url: 'https://code.claude.com/docs/en/overview', body: 'Overview docs' },
       { title: 'Hooks', url: 'https://code.claude.com/docs/en/hooks', body: 'Hook docs' },
@@ -830,9 +832,9 @@ describe('LoadResult diagnostics', () => {
     const cachePath = path.join(tempDir, 'cache.txt');
     const result = await loadFromOfficial('https://example.com/docs', cachePath);
 
-    // 'overview' URL explicitly maps to 'overview'; 'some-unknown-thing' maps to 'uncategorized' (not overview);
-    // padding uses hooks URLs → category 'hooks'
-    expect(result.diagnostics.overviewSectionCount).toBe(1);
+    // Only 'some-unknown-thing' is uncategorized; 'overview' and 'hooks' are mapped,
+    // padding uses hooks URLs → category 'hooks', no fallback.
+    expect(result.diagnostics.fallbackSectionCount).toBe(1);
   });
 
   it('returns unmappedSegments sorted by count desc then name asc', async () => {

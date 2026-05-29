@@ -2,12 +2,27 @@ import type { TrustMode } from './trust.js';
 
 // --- Threshold constants (code constants, not env vars) ---
 
-export const TAXONOMY_DRIFT_WARN_THRESHOLD = { minSections: 3, minRatio: 0.05 };
-export const TAXONOMY_DRIFT_FAIL_THRESHOLD = 0.20;
+// --- Section count drift (unchanged from prior canary) ---
 export const SECTION_COUNT_DRIFT_WARN_THRESHOLD = 0.20;
 export const SECTION_COUNT_DRIFT_FAIL_THRESHOLD = 0.50;
 export const OFFICIAL_MIN_SECTION_COUNT = 40;
 export const UNSAFE_MIN_SECTION_COUNT = 3;
+
+// --- Fallback-segment delta canary (replaces taxonomy_collapse / taxonomy_drift) ---
+// Catches loader/normalization regressions where a full-shape corpus is loaded but
+// suddenly many more sections fall to 'uncategorized'. Requires absolute AND relative
+// increase from the last healthy baseline. Missing baseline = warn-only, never reject.
+//
+// UNITS: the *_REL constants are relative-INCREASE fractions, not multipliers.
+// The gate compares the new/old multiplier against (1 + REL):
+//   WARN_REL 0.50 → multiplier ≥ 1.5 → "+50% over baseline"
+//   FAIL_REL 2.0  → multiplier ≥ 3.0 → "+200% over baseline (3x)"
+// Do NOT compare the multiplier directly against REL (that was the C1 defect:
+// `multiplier >= 0.50` is true for almost every load, making the gate inert).
+export const FALLBACK_DELTA_WARN_ABS = 5;        // at least 5 more uncategorized sections than baseline
+export const FALLBACK_DELTA_WARN_REL = 0.50;     // at least +50% over baseline (multiplier ≥ 1.5)
+export const FALLBACK_DELTA_FAIL_ABS = 20;       // at least 20 more uncategorized sections than baseline
+export const FALLBACK_DELTA_FAIL_REL = 2.0;      // at least 3x baseline / +200% (multiplier ≥ 3.0)
 
 // --- Types ---
 
@@ -15,8 +30,10 @@ export interface LoaderDiagnostics {
   sourceAnchoredCount: number;
   nonEmptySectionCount: number;
   sectionCount: number;
-  overviewSectionCount: number;
-  fallbackOverviewCount: number;
+  /** Count of sections whose URL has NO segment mapped in SECTION_TO_CATEGORY (i.e. deriveCategory returned 'uncategorized'). Section-level count, not segment-distinct count. */
+  fallbackSectionCount: number;
+  /** Count of DISTINCT unmapped URL segments encountered in this load. Used as a secondary signal — segment churn vs section churn. */
+  fallbackSegmentCount: number;
   unmappedSegments: Array<[segment: string, count: number]>;
 }
 
@@ -27,9 +44,12 @@ export interface CorpusDiagnostics extends LoaderDiagnostics {
 export interface PolicyState {
   lastHealthySectionCount: number | null;
   lastHealthyObservedAt: number | null;
+  /** Baseline for fallback delta canary. Section count that produced 'uncategorized' on the last accepted load. */
+  lastHealthyFallbackSectionCount: number | null;
+  lastHealthyFallbackObservedAt: number | null;
 }
 
-export type WarningCode = 'taxonomy_drift' | 'parse_issues' | 'section_count_drift';
+export type WarningCode = 'fallback_segment_drift' | 'parse_issues' | 'section_count_drift';
 
 export interface CorpusWarning {
   code: WarningCode;
@@ -41,7 +61,7 @@ export type RejectionCode =
   | 'no_source_markers'
   | 'min_section_count'
   | 'section_count_collapse'
-  | 'taxonomy_collapse';
+  | 'fallback_segment_collapse';
 
 export interface CanaryRejection {
   code: RejectionCode;
@@ -50,9 +70,14 @@ export interface CanaryRejection {
 }
 
 export interface CanaryMetrics {
-  overviewRatio: number;
+  /** Sections classified as 'uncategorized' as a fraction of total. Replaces the broken overviewRatio. */
+  fallbackSectionRatio: number;
   baselineSectionCount: number | null;
   sectionCountDropRatio: number | null;
+  /** Absolute change in fallback section count from last healthy baseline. */
+  fallbackSectionDelta: number | null;
+  /** Multiplicative change in fallback section count from last healthy baseline. */
+  fallbackSectionMultiplier: number | null;
 }
 
 export interface CanaryEvaluation {
@@ -101,78 +126,120 @@ function reject(
 
 export function evaluateCanaries(input: EvaluateCanariesInput): CanaryEvaluation {
   const { trustMode, diagnostics, policyState, now } = input;
-  const { sourceAnchoredCount, sectionCount, overviewSectionCount, fallbackOverviewCount, parseWarningCount } = diagnostics;
+  const {
+    sourceAnchoredCount,
+    sectionCount,
+    fallbackSectionCount,
+    fallbackSegmentCount,
+    parseWarningCount,
+  } = diagnostics;
 
   const minSectionCount =
     input.minSectionCount !== undefined
       ? input.minSectionCount
       : trustMode === 'official' ? OFFICIAL_MIN_SECTION_COUNT : UNSAFE_MIN_SECTION_COUNT;
-  const overviewRatio = sectionCount > 0 ? overviewSectionCount / sectionCount : 0;
-  const fallbackOverviewRatio = sectionCount > 0 ? fallbackOverviewCount / sectionCount : 0;
+
   const baselineSectionCount = policyState.lastHealthySectionCount;
   const sectionCountDropRatio =
     baselineSectionCount !== null && baselineSectionCount > 0
       ? (baselineSectionCount - sectionCount) / baselineSectionCount
       : null;
 
-  const metrics: CanaryMetrics = { overviewRatio, baselineSectionCount, sectionCountDropRatio };
+  const fallbackSectionRatio = sectionCount > 0 ? fallbackSectionCount / sectionCount : 0;
+
+  const baselineFallback = policyState.lastHealthyFallbackSectionCount;
+  const fallbackSectionDelta = baselineFallback !== null ? fallbackSectionCount - baselineFallback : null;
+  // Multiplier is new/old (e.g. 1.5 means fallback is 1.5x baseline == +50%). The
+  // relative gates below compare against (1 + REL) so REL reads as a relative-increase
+  // fraction. See the UNITS note on the FALLBACK_DELTA_* constants.
+  const fallbackSectionMultiplier =
+    baselineFallback !== null && baselineFallback > 0
+      ? fallbackSectionCount / baselineFallback
+      : null;
+
+  const metrics: CanaryMetrics = {
+    fallbackSectionRatio,
+    baselineSectionCount,
+    sectionCountDropRatio,
+    fallbackSectionDelta,
+    fallbackSectionMultiplier,
+  };
 
   // --- Structural canaries (both modes) ---
 
   if (sourceAnchoredCount === 0) {
-    return reject(
-      'no_source_markers',
-      'No Source: markers found in corpus',
-      { sourceAnchoredCount },
-      metrics,
-      policyState,
-    );
+    return reject('no_source_markers', 'No Source: markers found in corpus',
+      { sourceAnchoredCount }, metrics, policyState);
   }
 
-  // --- Section count drift (official mode only, requires baseline) ---
+  // --- Section count collapse (official mode, requires baseline) ---
   // Check before min_section_count so collapse takes precedence over absolute floor.
-
   if (
     trustMode === 'official' &&
     sectionCountDropRatio !== null &&
     sectionCountDropRatio >= SECTION_COUNT_DRIFT_FAIL_THRESHOLD
   ) {
-    return reject(
-      'section_count_collapse',
+    return reject('section_count_collapse',
       `Section count dropped ${(sectionCountDropRatio * 100).toFixed(0)}% from baseline ${baselineSectionCount}`,
       { sectionCount, baselineSectionCount, dropRatio: sectionCountDropRatio },
-      metrics,
-      policyState,
-    );
+      metrics, policyState);
   }
 
   if (sectionCount < minSectionCount) {
-    return reject(
-      'min_section_count',
+    return reject('min_section_count',
       `Section count ${sectionCount} below minimum ${minSectionCount}`,
-      { sectionCount, minSectionCount },
-      metrics,
-      policyState,
-    );
+      { sectionCount, minSectionCount }, metrics, policyState);
   }
 
-  // --- Taxonomy drift (official mode only) ---
+  // --- Fallback-segment delta canary (official mode only) ---
+  // Positive baseline: both absolute AND relative criteria must be met.
+  // Zero baseline: the multiplier is null (no divide-by-zero), so the relative gate is
+  //   inapplicable — gate on the absolute count alone (Blocker 1). Without this branch a
+  //   0→many jump (e.g. a SECTION_TO_CATEGORY wipe landing a full-shape corpus as
+  //   all-uncategorized) slips BOTH the FAIL and WARN gates below and then advances the
+  //   baseline to the bad count, laundering the regression into trusted state.
+  // Null baseline (first run): never reject — distinct from 0, do not conflate.
+  if (
+    trustMode === 'official' &&
+    baselineFallback === 0 &&
+    fallbackSectionCount >= FALLBACK_DELTA_FAIL_ABS
+  ) {
+    return reject('fallback_segment_collapse',
+      `Fallback section count jumped from 0 to ${fallbackSectionCount} ` +
+      `(prior healthy load had no uncategorized sections) — possible loader regression`,
+      {
+        fallbackSectionCount,
+        baselineFallback,
+        fallbackSectionDelta,
+        fallbackSectionMultiplier,
+        fallbackSegmentCount,
+      },
+      metrics, policyState);
+  }
 
-  if (trustMode === 'official' && overviewRatio >= TAXONOMY_DRIFT_FAIL_THRESHOLD) {
-    return reject(
-      'taxonomy_collapse',
-      `Overview share ${(overviewRatio * 100).toFixed(0)}% exceeds ${(TAXONOMY_DRIFT_FAIL_THRESHOLD * 100).toFixed(0)}% threshold`,
-      { overviewSectionCount, sectionCount, overviewRatio },
-      metrics,
-      policyState,
-    );
+  if (
+    trustMode === 'official' &&
+    fallbackSectionDelta !== null &&
+    fallbackSectionMultiplier !== null &&
+    fallbackSectionDelta >= FALLBACK_DELTA_FAIL_ABS &&
+    fallbackSectionMultiplier >= 1 + FALLBACK_DELTA_FAIL_REL
+  ) {
+    return reject('fallback_segment_collapse',
+      `Fallback section count jumped from ${baselineFallback} to ${fallbackSectionCount} ` +
+      `(+${fallbackSectionDelta}, ${fallbackSectionMultiplier.toFixed(1)}x) — possible loader regression`,
+      {
+        fallbackSectionCount,
+        baselineFallback,
+        fallbackSectionDelta,
+        fallbackSectionMultiplier,
+        fallbackSegmentCount,
+      },
+      metrics, policyState);
   }
 
   // --- Accepted: collect warnings ---
-
   const warnings: CorpusWarning[] = [];
 
-  // Section count drift warning (official mode only)
   if (
     trustMode === 'official' &&
     sectionCountDropRatio !== null &&
@@ -185,30 +252,49 @@ export function evaluateCanaries(input: EvaluateCanariesInput): CanaryEvaluation
     });
   }
 
-  // Taxonomy drift warning (official mode only)
-  // Driven by fallbackOverviewCount (sections that defaulted to overview because no
-  // mapping exists), not overviewSectionCount (which includes explicitly-mapped overview pages).
-  if (trustMode === 'official') {
-    const warnMinSections = TAXONOMY_DRIFT_WARN_THRESHOLD.minSections;
-    const warnMinRatio = TAXONOMY_DRIFT_WARN_THRESHOLD.minRatio;
-    const warnThreshold = Math.max(warnMinSections, Math.ceil(sectionCount * warnMinRatio));
-
-    if (fallbackOverviewCount >= warnThreshold) {
-      warnings.push({
-        code: 'taxonomy_drift',
-        severity: 'warn',
-        details: {
-          unmapped_section_count: fallbackOverviewCount,
-          unmapped_ratio: fallbackOverviewRatio,
-          sample_segments: diagnostics.unmappedSegments
-            .slice(0, 10)
-            .map(([seg]) => seg),
-        },
-      });
-    }
+  // Fallback-segment drift warning (official mode only)
+  if (
+    trustMode === 'official' &&
+    fallbackSectionDelta !== null &&
+    fallbackSectionMultiplier !== null &&
+    fallbackSectionDelta >= FALLBACK_DELTA_WARN_ABS &&
+    fallbackSectionMultiplier >= 1 + FALLBACK_DELTA_WARN_REL
+  ) {
+    warnings.push({
+      code: 'fallback_segment_drift',
+      severity: 'warn',
+      details: {
+        fallbackSectionCount,
+        baselineFallback,
+        fallbackSectionDelta,
+        fallbackSectionMultiplier,
+        sampleSegments: diagnostics.unmappedSegments.slice(0, 10).map(([seg]) => seg),
+      },
+    });
   }
 
-  // Parse issues (both modes)
+  // Zero-baseline fallback drift warning (official mode): the relative WARN gate above
+  // can't fire when baselineFallback === 0 (multiplier is null), so gate on absolute alone.
+  // The zero-baseline FAIL gate already returned early, so reaching here means
+  // fallbackSectionCount < FALLBACK_DELTA_FAIL_ABS.
+  if (
+    trustMode === 'official' &&
+    baselineFallback === 0 &&
+    fallbackSectionCount >= FALLBACK_DELTA_WARN_ABS
+  ) {
+    warnings.push({
+      code: 'fallback_segment_drift',
+      severity: 'warn',
+      details: {
+        fallbackSectionCount,
+        baselineFallback,
+        fallbackSectionDelta,
+        fallbackSectionMultiplier,
+        sampleSegments: diagnostics.unmappedSegments.slice(0, 10).map(([seg]) => seg),
+      },
+    });
+  }
+
   if (parseWarningCount > 0) {
     warnings.push({
       code: 'parse_issues',
@@ -218,18 +304,28 @@ export function evaluateCanaries(input: EvaluateCanariesInput): CanaryEvaluation
   }
 
   // --- Policy state advancement ---
-
+  // Advance section-count baseline only when section_count_drift did not warn.
+  // Advance fallback baseline only when fallback_segment_drift did not warn.
   const hasSectionCountDrift = warnings.some(w => w.code === 'section_count_drift');
-  let nextPolicyState: PolicyState;
+  const hasFallbackDrift = warnings.some(w => w.code === 'fallback_segment_drift');
 
+  let nextPolicyState: PolicyState;
   if (trustMode === 'unsafe') {
-    nextPolicyState = policyState;
-  } else if (hasSectionCountDrift) {
     nextPolicyState = policyState;
   } else {
     nextPolicyState = {
-      lastHealthySectionCount: sectionCount,
-      lastHealthyObservedAt: now,
+      lastHealthySectionCount: hasSectionCountDrift
+        ? policyState.lastHealthySectionCount
+        : sectionCount,
+      lastHealthyObservedAt: hasSectionCountDrift
+        ? policyState.lastHealthyObservedAt
+        : now,
+      lastHealthyFallbackSectionCount: hasFallbackDrift
+        ? policyState.lastHealthyFallbackSectionCount
+        : fallbackSectionCount,
+      lastHealthyFallbackObservedAt: hasFallbackDrift
+        ? policyState.lastHealthyFallbackObservedAt
+        : now,
     };
   }
 

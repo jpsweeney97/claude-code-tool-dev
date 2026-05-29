@@ -13,7 +13,7 @@ import type {
  * additions/removals/renames, Zod schema changes). Existing cached indexes
  * are rebuilt on first startup after a bump.
  */
-export const INDEX_FORMAT_VERSION = 4;
+export const INDEX_FORMAT_VERSION = 5;
 
 export const TOKENIZER_VERSION = 2; // Bumped: added Porter stemming with CamelCase protection
 export const CHUNKER_VERSION = 1;
@@ -40,13 +40,13 @@ export const INGESTION_VERSION = 6;
  * Bump when canary policy interpretation or threshold constants change:
  * - canary.ts threshold constants (drift warn/fail, min section counts)
  * - canary.ts evaluateCanaries logic (acceptance/rejection criteria)
- * - Metric computation changes (overviewRatio, sectionCountDropRatio)
+ * - Metric computation changes (fallbackSectionRatio, sectionCountDropRatio, fallbackSectionDelta, fallbackSectionMultiplier)
  *
  * NOT included (separately versioned):
  * - Diagnostic field additions → INGESTION_VERSION
  * - Serialized layout changes → INDEX_FORMAT_VERSION
  */
-export const CANARY_VERSION = 1;
+export const CANARY_VERSION = 2;
 
 // ---- Five-block types ----
 
@@ -62,8 +62,8 @@ export interface DiagnosticsBlock {
   sourceAnchoredCount: number;
   nonEmptySectionCount: number;
   sectionCount: number;
-  overviewSectionCount: number;
-  fallbackOverviewCount: number;
+  fallbackSectionCount: number;
+  fallbackSegmentCount: number;
   unmappedSegments: Array<[string, number]>;
   parseWarningCount: number;
 }
@@ -77,6 +77,8 @@ export interface IndexBlock {
 export interface PolicyStateBlock {
   lastHealthySectionCount: number | null;
   lastHealthyObservedAt: number | null;
+  lastHealthyFallbackSectionCount: number | null;
+  lastHealthyFallbackObservedAt: number | null;
 }
 
 export interface EvaluationBlock {
@@ -175,8 +177,8 @@ const DiagnosticsBlockSchema = z.object({
   sourceAnchoredCount: z.number(),
   nonEmptySectionCount: z.number(),
   sectionCount: z.number(),
-  overviewSectionCount: z.number(),
-  fallbackOverviewCount: z.number(),
+  fallbackSectionCount: z.number(),
+  fallbackSegmentCount: z.number(),
   unmappedSegments: z.array(z.tuple([z.string(), z.number()])),
   parseWarningCount: z.number(),
 });
@@ -190,18 +192,22 @@ const IndexBlockSchema = z.object({
 const PolicyStateBlockSchema = z.object({
   lastHealthySectionCount: z.number().nullable(),
   lastHealthyObservedAt: z.number().nullable(),
+  lastHealthyFallbackSectionCount: z.number().nullable(),
+  lastHealthyFallbackObservedAt: z.number().nullable(),
 });
 
 const WarningSchema = z.object({
-  code: z.enum(['taxonomy_drift', 'parse_issues', 'section_count_drift']),
+  code: z.enum(['fallback_segment_drift', 'parse_issues', 'section_count_drift']),
   severity: z.enum(['info', 'warn', 'error']),
   details: z.record(z.unknown()),
 });
 
 const CanaryMetricsSchema = z.object({
-  overviewRatio: z.number(),
+  fallbackSectionRatio: z.number(),
   baselineSectionCount: z.number().nullable(),
   sectionCountDropRatio: z.number().nullable(),
+  fallbackSectionDelta: z.number().nullable(),
+  fallbackSectionMultiplier: z.number().nullable(),
 });
 
 const EvaluationBlockSchema = z.object({
@@ -271,8 +277,8 @@ export function serializeIndex(
       sourceAnchoredCount: context.diagnostics.sourceAnchoredCount,
       nonEmptySectionCount: context.diagnostics.nonEmptySectionCount,
       sectionCount: context.diagnostics.sectionCount,
-      overviewSectionCount: context.diagnostics.overviewSectionCount,
-      fallbackOverviewCount: context.diagnostics.fallbackOverviewCount,
+      fallbackSectionCount: context.diagnostics.fallbackSectionCount,
+      fallbackSegmentCount: context.diagnostics.fallbackSegmentCount,
       unmappedSegments: context.diagnostics.unmappedSegments,
       parseWarningCount: context.diagnostics.parseWarningCount,
     },
@@ -286,6 +292,8 @@ export function serializeIndex(
     policyState: {
       lastHealthySectionCount: context.policyState.lastHealthySectionCount,
       lastHealthyObservedAt: context.policyState.lastHealthyObservedAt,
+      lastHealthyFallbackSectionCount: context.policyState.lastHealthyFallbackSectionCount,
+      lastHealthyFallbackObservedAt: context.policyState.lastHealthyFallbackObservedAt,
     },
 
     evaluation: {

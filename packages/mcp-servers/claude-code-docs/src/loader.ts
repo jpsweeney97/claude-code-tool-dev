@@ -123,10 +123,11 @@ export async function loadFromOfficial(
   // Parse diagnostics: count only Source:-anchored sections (exclude preamble pseudo-section)
   const sourceAnchoredCount = sections.filter(s => s.sourceUrl !== '').length;
 
-  // Count overview sections (sections where deriveCategory returns 'overview')
-  const overviewSectionCount = sections.filter(s => {
+  // Count fallback sections (sections where deriveCategory returns 'uncategorized' —
+  // i.e. no URL segment was mapped). This is what the fallback-delta canary watches.
+  const fallbackSectionCount = sections.filter(s => {
     const sourceKey = s.sourceUrl || s.title || '';
-    return deriveCategory(sourceKey) === 'overview';
+    return deriveCategory(sourceKey) === 'uncategorized';
   }).length;
 
   console.error(
@@ -165,8 +166,8 @@ export async function loadFromOfficial(
       sourceAnchoredCount,
       nonEmptySectionCount: filtered.length,
       sectionCount: sections.length,
-      overviewSectionCount,
-      fallbackOverviewCount: sortedUnmapped.length,
+      fallbackSectionCount,
+      fallbackSegmentCount: sortedUnmapped.length,
       unmappedSegments: sortedUnmapped,
     },
     files: filtered.map((s) => {

@@ -44,6 +44,8 @@ export interface ServerStateDeps {
 const DEFAULT_POLICY_STATE: PolicyState = {
   lastHealthySectionCount: null,
   lastHealthyObservedAt: null,
+  lastHealthyFallbackSectionCount: null,
+  lastHealthyFallbackObservedAt: null,
 };
 
 export class ServerState {
@@ -233,8 +235,8 @@ export class ServerState {
           sourceAnchoredCount: parsed!.diagnostics.sourceAnchoredCount,
           nonEmptySectionCount: parsed!.diagnostics.nonEmptySectionCount,
           sectionCount: parsed!.diagnostics.sectionCount,
-          overviewSectionCount: parsed!.diagnostics.overviewSectionCount,
-          fallbackOverviewCount: parsed!.diagnostics.fallbackOverviewCount,
+          fallbackSectionCount: parsed!.diagnostics.fallbackSectionCount,
+          fallbackSegmentCount: parsed!.diagnostics.fallbackSegmentCount,
           unmappedSegments: parsed!.diagnostics.unmappedSegments,
           parseWarningCount: parsed!.diagnostics.parseWarningCount,
         } : null;
@@ -245,7 +247,15 @@ export class ServerState {
       // --- Path 2: Canary Replay ---
       if (contentMatch && !canaryMatch) {
         // Re-evaluate canaries with persisted diagnostics
-        const cachedDiagnostics: CorpusDiagnostics = parsed!.diagnostics;
+        const cachedDiagnostics: CorpusDiagnostics = {
+          sourceAnchoredCount: parsed!.diagnostics.sourceAnchoredCount,
+          nonEmptySectionCount: parsed!.diagnostics.nonEmptySectionCount,
+          sectionCount: parsed!.diagnostics.sectionCount,
+          fallbackSectionCount: parsed!.diagnostics.fallbackSectionCount,
+          fallbackSegmentCount: parsed!.diagnostics.fallbackSegmentCount,
+          unmappedSegments: parsed!.diagnostics.unmappedSegments,
+          parseWarningCount: parsed!.diagnostics.parseWarningCount,
+        };
         const evalResult = this.deps.evaluateCanariesFn({
           trustMode: this.trustMode,
           diagnostics: cachedDiagnostics,
@@ -323,8 +333,8 @@ export class ServerState {
           sourceAnchoredCount: parsed!.diagnostics.sourceAnchoredCount,
           nonEmptySectionCount: parsed!.diagnostics.nonEmptySectionCount,
           sectionCount: parsed!.diagnostics.sectionCount,
-          overviewSectionCount: parsed!.diagnostics.overviewSectionCount,
-          fallbackOverviewCount: parsed!.diagnostics.fallbackOverviewCount,
+          fallbackSectionCount: parsed!.diagnostics.fallbackSectionCount,
+          fallbackSegmentCount: parsed!.diagnostics.fallbackSegmentCount,
           unmappedSegments: parsed!.diagnostics.unmappedSegments,
           parseWarningCount: parsed!.diagnostics.parseWarningCount,
         } : null;
