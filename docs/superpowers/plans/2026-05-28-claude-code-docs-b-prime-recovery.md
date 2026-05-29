@@ -422,15 +422,27 @@ Run: `cd <pkg> && grep -n "evaluateCanariesFn\|evaluateCanaries(" src/`
 
 Expected: matches in `lifecycle.ts` (Path 2 canary replay around line 246, plus the rebuild path).
 
-- [ ] **Step 2: Thread minSectionCount through ServerState constructor**
+- [ ] **Step 2: Thread minSectionCount through ServerState via its deps object**
 
-In `<pkg>/src/lifecycle.ts`, locate the `ServerState` class constructor. Add a new private field and constructor argument:
+`ServerState`'s only constructor is `constructor(deps: ServerStateDeps)` (lifecycle.ts:66) — it takes a single deps object, and `index.ts` already constructs it that way (`docsUrl`, `trustMode`, `retryIntervalMs` all arrive via deps). Use the **deps route**; do NOT add a positional constructor argument — that changes the constructor arity and ripples to every `new ServerState({...})` test (DR-3, the original "new parameter or via deps" wording left this to chance; pinned in the readiness review).
+
+1. Add the field to the `ServerStateDeps` interface (lifecycle.ts:25-41), alongside the existing optional `docsUrl?` / `trustMode?`:
 
 ```typescript
-private readonly minSectionCount?: number;
+  minSectionCount?: number;
 ```
 
-In the constructor, accept it from a new parameter or via `deps`. The simplest path is to add `minSectionCount?: number` to whatever options/deps object the class already takes.
+2. Add a private readonly field to the class body (near lifecycle.ts:60-64, beside the other `private readonly` fields):
+
+```typescript
+  private readonly minSectionCount?: number;
+```
+
+3. Assign it in the constructor body (near lifecycle.ts:67-70, beside `this.docsUrl = deps.docsUrl ?? …`):
+
+```typescript
+    this.minSectionCount = deps.minSectionCount;
+```
 
 - [ ] **Step 3: Pass minSectionCount into every evaluateCanaries call inside lifecycle.ts**
 
@@ -532,14 +544,24 @@ Expected: **zero** matches. Both patterns target only the canonical-count lines 
 ### Task 3.2: Change deriveCategory fallback
 
 **Files:**
-- Modify: `<pkg>/src/frontmatter.ts:187-201` (deriveCategory function)
-- Modify: `<pkg>/tests/frontmatter.test.ts` (update fallback assertions)
+- Modify: `<pkg>/src/frontmatter.ts:180-201` (deriveCategory function — note the docstring at line 181 also names the fallback)
+- Modify: `<pkg>/tests/frontmatter.test.ts` (update fallback assertions AND the test titles/comments that hardcode 'overview')
 
 - [ ] **Step 1: Update existing test expectations**
 
 Run: `cd <pkg> && grep -n "'overview'" tests/frontmatter.test.ts`
 
 For every test that asserts `deriveCategory` returns `'overview'` as a fallback (NOT for a URL where `overview` is the actual mapped segment), update the expected value to `'uncategorized'`.
+
+All five matches are fallback assertions (none is a URL where `overview` is a mapped segment), so flip every `.toBe('overview')` → `.toBe('uncategorized')` at lines 144, 145, 150, 164, 165.
+
+Then update the test TITLES and inline comments that hardcode "overview" — otherwise each test asserts `'uncategorized'` while its title still claims "returns overview", a lie the suite would carry forward (DR-1, caught in the readiness review):
+
+- line 143: `it('returns overview for URL with no content path', …)` → `…returns uncategorized for URL with no content path…`
+- line 148: `it('returns overview for unknown URL sections', …)` → `…returns uncategorized for unknown URL sections…`
+- line 149: comment `// Unknown sections default to overview, not the first segment` → `…default to uncategorized…`
+- line 162: `it('returns overview for unmapped URL sections', …)` → `…returns uncategorized for unmapped URL sections…`
+- line 163: comment `// Unknown sections default to 'overview' not 'general'` → `…default to 'uncategorized' not 'general'`
 
 - [ ] **Step 2: Run, verify FAIL**
 
@@ -563,6 +585,22 @@ Replace with:
     // semantically distinct from "we don't recognize this slug yet"
     return 'uncategorized';
 ```
+
+- [ ] **Step 3b: Update the deriveCategory docstring (it also names the fallback)**
+
+The function docstring at `<pkg>/src/frontmatter.ts:181` still describes the old fallback, so it goes stale the moment Step 3 lands (DR-2, caught in the readiness review). Update it so the docstring and the code agree.
+
+Old (line 181):
+```typescript
+ * - Falls back to 'overview' for unmapped sections
+```
+
+New:
+```typescript
+ * - Falls back to 'uncategorized' for unmapped sections
+```
+
+(Line 185's ` * - Falls back to 'general'` belongs to the file-path branch — leave it unchanged; that branch still returns `'general'` at line 200.)
 
 - [ ] **Step 4: Run, verify PASS**
 
@@ -2107,6 +2145,14 @@ One thing to watch: in Task 4.3 the canary code computes `fallbackSectionRatio` 
 - **H1 prose:** the freeze-on-warn paragraph contradicted itself ("never advances" vs "advances on nearly every load"), claimed FAIL needs a "single-cycle burst" despite admitting accumulation-to-FAIL, and mislabeled the WARN thresholds (≥5 ∧ ≥1.5×) as the FAIL condition (actual FAIL is ≥20 ∧ ≥3.0×). Rewritten to two explicit regimes, threshold labels corrected, stale line refs replaced with symbolic anchors, the slug-vs-section cadence caveat stated, and persistent drift made an investigation trigger.
 - **PR body:** still said "canary is now the sole authority" and "Removes … the now-orphan `ContentValidationError` class" — contradicting the B1 resolution (Task 2.3 keeps both). Rewritten to match.
 - **Path 2 (non-blocking, clarity):** Task 4.6 Step 3 made the explicit field mapping mandatory rather than "if `tsc` complains." Runtime safety is already guaranteed by the version gate preceding all load paths (a v4 cache can't reach Path 2 after the 4→5 bump); the mapping is required for readability.
+
+**8. Post-readiness-review (2026-05-29).** A readiness review verified every quoted "Old" block against live source (all matched verbatim; the feared `parseOptionalInt` `allowZero` excess-property blocker does not exist — the options type already declares `allowZero?: boolean`). It surfaced three non-blocking scope gaps, all patched in-place above:
+
+- **DR-1:** Task 3.2 Step 1 said "update fallback assertions only," leaving three `frontmatter.test.ts` test titles (lines 143, 148, 162) and two comments (149, 163) asserting `'uncategorized'` under an "returns overview" title. Step 1 now enumerates the five `.toBe` flips AND the title/comment fixes.
+- **DR-2:** Task 3.2 changed the inline comment + `return` at frontmatter.ts:194-195 but not the function docstring at line 181 (`Falls back to 'overview' for unmapped sections`), which would go stale. Added Step 3b with the verbatim docstring swap. (Line 185's `'general'` fallback is the file-path branch — correctly left unchanged.)
+- **DR-3:** Task 2.4 Step 2 offered "a new parameter or via deps," but `ServerState`'s sole constructor is `constructor(deps: ServerStateDeps)` — a positional arg would change arity and break every `new ServerState({...})` call site. Rewritten to pin the deps-field route with the three concrete edits (interface field, private readonly field, constructor assignment).
+
+A separate logistics item (not a plan-content defect): the corrected plan lived only on `docs/b-prime-plan-corrections`, never on `main`, so Phase 0's "worktree off `main`" would have started from a baseline lacking this plan. Resolved by merging the docs branch to `main` before execution.
 
 ---
 
