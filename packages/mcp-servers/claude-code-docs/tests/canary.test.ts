@@ -384,6 +384,44 @@ describe('fallback_segment_collapse (delta canary)', () => {
     expect(result.decision).toBe('accept');
   });
 
+  it('first run with notable fallback warns for visibility and still establishes the baseline', () => {
+    // P1: a null baseline must not SILENTLY bless a first-load fallback count. We can't
+    // reject (no prior healthy load to compare against, and the real corpus legitimately
+    // carries ~25 uncategorized sections), but the first run must surface a
+    // fallback_segment_drift warn AND establish the baseline so the canary becomes active.
+    const result = evaluateCanaries({
+      trustMode: 'official',
+      diagnostics: { ...baseDiag, fallbackSectionCount: 50 },
+      policyState: {
+        lastHealthySectionCount: null, lastHealthyObservedAt: null,
+        lastHealthyFallbackSectionCount: null, lastHealthyFallbackObservedAt: null,
+      },
+      now: 99,
+    });
+    expect(result.decision).toBe('accept');
+    expect(result.warnings.some(w => w.code === 'fallback_segment_drift')).toBe(true);
+    // Establishment must survive the first-run warn (no freeze deadlock).
+    expect(result.nextPolicyState.lastHealthyFallbackSectionCount).toBe(50);
+    expect(result.nextPolicyState.lastHealthyFallbackObservedAt).toBe(99);
+  });
+
+  it('first run with no notable fallback stays quiet (no warn noise) and establishes baseline', () => {
+    // The first-run visibility warn is gated on the absolute WARN threshold, so a clean
+    // first load with few/no uncategorized sections does not emit spurious warnings.
+    const result = evaluateCanaries({
+      trustMode: 'official',
+      diagnostics: { ...baseDiag, fallbackSectionCount: 2 },
+      policyState: {
+        lastHealthySectionCount: null, lastHealthyObservedAt: null,
+        lastHealthyFallbackSectionCount: null, lastHealthyFallbackObservedAt: null,
+      },
+      now: 99,
+    });
+    expect(result.decision).toBe('accept');
+    expect(result.warnings.some(w => w.code === 'fallback_segment_drift')).toBe(false);
+    expect(result.nextPolicyState.lastHealthyFallbackSectionCount).toBe(2);
+  });
+
   it('rejects when fallback jumps absolutely AND relatively past thresholds', () => {
     const result = evaluateCanaries({
       trustMode: 'official',

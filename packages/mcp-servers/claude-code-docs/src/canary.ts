@@ -295,6 +295,30 @@ export function evaluateCanaries(input: EvaluateCanariesInput): CanaryEvaluation
     });
   }
 
+  // First-run fallback drift warning (official mode): on a null baseline there is no prior
+  // healthy load to compare against, so we never reject — but the count is about to become
+  // the trusted baseline below, so it must not be blessed SILENTLY. Surface a warn once the
+  // count crosses the absolute WARN threshold, making a first-load classification regression
+  // visible instead of laundered into trusted state. Absolute-count gate only (no ratio —
+  // ratio gating on a fixed threshold was the original canary's fragility class).
+  if (
+    trustMode === 'official' &&
+    baselineFallback === null &&
+    fallbackSectionCount >= FALLBACK_DELTA_WARN_ABS
+  ) {
+    warnings.push({
+      code: 'fallback_segment_drift',
+      severity: 'warn',
+      details: {
+        fallbackSectionCount,
+        baselineFallback,
+        fallbackSectionDelta,
+        fallbackSectionMultiplier,
+        sampleSegments: diagnostics.unmappedSegments.slice(0, 10).map(([seg]) => seg),
+      },
+    });
+  }
+
   if (parseWarningCount > 0) {
     warnings.push({
       code: 'parse_issues',
@@ -320,10 +344,14 @@ export function evaluateCanaries(input: EvaluateCanariesInput): CanaryEvaluation
       lastHealthyObservedAt: hasSectionCountDrift
         ? policyState.lastHealthyObservedAt
         : now,
-      lastHealthyFallbackSectionCount: hasFallbackDrift
+      // Freeze the fallback baseline on a drift warn ONLY when an established (non-null)
+      // baseline exists. A null baseline (first run) must still establish even though the
+      // first-run warn fired above — otherwise it would freeze at null forever and the
+      // delta canary would never activate.
+      lastHealthyFallbackSectionCount: (baselineFallback !== null && hasFallbackDrift)
         ? policyState.lastHealthyFallbackSectionCount
         : fallbackSectionCount,
-      lastHealthyFallbackObservedAt: hasFallbackDrift
+      lastHealthyFallbackObservedAt: (baselineFallback !== null && hasFallbackDrift)
         ? policyState.lastHealthyFallbackObservedAt
         : now,
     };
