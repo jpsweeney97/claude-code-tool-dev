@@ -62,7 +62,7 @@ loadFromOfficial (fetch + parse docs)
 ### Key Design Patterns
 
 - **Constructor injection** in `ServerState` — all I/O functions injected, enabling test isolation without mocks
-- **Four version constants** gate cache validity: `INDEX_FORMAT_VERSION`, `TOKENIZER_VERSION`, `CHUNKER_VERSION`, `INGESTION_VERSION`. Bump the relevant constant when changing a subsystem.
+- **Five version constants** gate cache validity: `INDEX_FORMAT_VERSION`, `TOKENIZER_VERSION`, `CHUNKER_VERSION`, `INGESTION_VERSION`, `CANARY_VERSION`. Bump the relevant constant when changing a subsystem.
 - **Two-cache architecture**: content cache (TTL-based, raw HTTP response) and index cache (version-based, serialized BM25 index) invalidate independently
 - **Chunking hierarchy**: H2 → H3 → paragraph → hard split with overlap. Each level cascades when chunks exceed size limits.
 
