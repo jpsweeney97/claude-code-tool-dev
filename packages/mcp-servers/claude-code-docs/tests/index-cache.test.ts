@@ -72,6 +72,7 @@ function makeSerializeContext(overrides?: Partial<SerializeContext>): SerializeC
         fallbackSectionDelta: null,
         fallbackSectionMultiplier: null,
       },
+      minSectionCount: 40,
     },
     ...overrides,
   };
@@ -253,6 +254,9 @@ describe('SerializedIndex v5 schema', () => {
     expect(parsed!.corpus.contentHash).toBe('rt-hash');
     expect(parsed!.diagnostics.sectionCount).toBe(55);
     expect(parsed!.evaluation.canaryVersion).toBe(CANARY_VERSION);
+    // P2: the persisted floor must survive serialize→parse (Zod strips unknown keys, so this
+    // proves minSectionCount is in the schema, not silently dropped).
+    expect(parsed!.evaluation.minSectionCount).toBe(40);
     expect(parsed!.compatibility.tokenizer).toBe(TOKENIZER_VERSION);
   });
 
@@ -334,6 +338,7 @@ describe('SerializedIndex v5 schema', () => {
           fallbackSectionDelta: null,
           fallbackSectionMultiplier: null,
         },
+        minSectionCount: null,
       },
     });
     const serialized = serializeIndex(index, 'hash', ctx);

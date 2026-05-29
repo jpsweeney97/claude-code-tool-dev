@@ -208,7 +208,14 @@ export class ServerState {
         parsed.compatibility?.ingestion === INGESTION_VERSION;
 
       const contentMatch = compatMatch && parsed!.corpus?.contentHash === contentHash;
-      const canaryMatch = contentMatch && parsed!.evaluation?.canaryVersion === CANARY_VERSION;
+      // A changed effective floor must re-evaluate rather than reuse the cached accept (P2):
+      // the canary decision depends on minSectionCount, so it is part of cache compatibility.
+      const minSectionCountMatch =
+        (parsed?.evaluation?.minSectionCount ?? null) === (this.minSectionCount ?? null);
+      const canaryMatch =
+        contentMatch &&
+        parsed!.evaluation?.canaryVersion === CANARY_VERSION &&
+        minSectionCountMatch;
 
       // Determine provenance comparison
       const cachedProvenance: CorpusProvenance | null = parsed?.corpus
@@ -302,6 +309,7 @@ export class ServerState {
               canaryVersion: CANARY_VERSION,
               warnings: evalResult.warnings,
               metrics: evalResult.metrics,
+              minSectionCount: this.minSectionCount ?? null,
             },
             indexCreatedAt: parsed!.index.createdAt,
           });
@@ -352,6 +360,9 @@ export class ServerState {
               canaryVersion: CANARY_VERSION,
               warnings: parsed!.evaluation.warnings,
               metrics: parsed!.evaluation.metrics,
+              // Provenance refresh keeps the cached decision (canaryMatch held, so the floor
+              // is unchanged); preserve the floor it was evaluated under.
+              minSectionCount: parsed!.evaluation.minSectionCount ?? null,
             },
             indexCreatedAt: parsed!.index.createdAt,
           });
@@ -450,6 +461,7 @@ export class ServerState {
           canaryVersion: CANARY_VERSION,
           warnings: evalResult.warnings,
           metrics: evalResult.metrics,
+          minSectionCount: this.minSectionCount ?? null,
         },
       });
       await this.deps.writeCacheFn(indexCachePath, serialized);

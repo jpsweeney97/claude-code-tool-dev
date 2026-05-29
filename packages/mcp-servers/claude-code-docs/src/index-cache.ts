@@ -85,6 +85,14 @@ export interface EvaluationBlock {
   canaryVersion: number;
   warnings: CorpusWarning[];
   metrics: CanaryMetrics;
+  /**
+   * Effective canary index floor (MIN_SECTION_COUNT) the cached decision was evaluated
+   * under; null = the trust-mode default was used. Part of cache compatibility: a changed
+   * floor must re-evaluate rather than reuse this accept. Optional for backward compatibility
+   * — a cache lacking it is treated as an unknown floor (compared as null), so any explicit
+   * floor on restart triggers a conservative re-evaluation. New writes always populate it.
+   */
+  minSectionCount?: number | null;
 }
 
 export interface CompatibilityBlock {
@@ -144,6 +152,7 @@ export interface SerializeContext {
     canaryVersion: number;
     warnings: CorpusWarning[];
     metrics: CanaryMetrics;
+    minSectionCount: number | null;
   };
   /** Preserved index build time. Omit to use Date.now() (fresh rebuild). */
   indexCreatedAt?: number;
@@ -214,6 +223,7 @@ const EvaluationBlockSchema = z.object({
   canaryVersion: z.number(),
   warnings: z.array(WarningSchema),
   metrics: CanaryMetricsSchema,
+  minSectionCount: z.number().nullable().optional(),
 });
 
 const CompatibilityBlockSchema = z.object({
@@ -300,6 +310,7 @@ export function serializeIndex(
       canaryVersion: context.evaluation.canaryVersion,
       warnings: context.evaluation.warnings,
       metrics: context.evaluation.metrics,
+      minSectionCount: context.evaluation.minSectionCount,
     },
 
     compatibility: {

@@ -428,6 +428,55 @@ describe('ServerState', () => {
       });
     });
 
+    describe('MIN_SECTION_COUNT cache compatibility (P2)', () => {
+      it('re-evaluates (Path 2) when the effective minSectionCount differs from the cached evaluation', async () => {
+        // P2: minSectionCount feeds the canary decision but was absent from the compatibility
+        // check, so tightening the floor on restart reused the cached accept (Path 1) and
+        // served an under-floor corpus. A floor change must drop to canary replay.
+        const mockIndex = makeMockIndex();
+        const snapshot = makeFullCacheSnapshot({
+          evaluation: {
+            canaryVersion: CANARY_VERSION, // versions match → full hit but for the floor change
+            minSectionCount: 0,            // cache written with the floor disabled
+            warnings: [],
+            metrics: { fallbackSectionRatio: 0, baselineSectionCount: null, sectionCountDropRatio: null, fallbackSectionDelta: null, fallbackSectionMultiplier: null },
+          },
+        });
+
+        const deps = makeDeps({
+          parseSerializedIndexFn: vi.fn().mockReturnValue(snapshot),
+          deserializeIndexFn: vi.fn().mockReturnValue(mockIndex),
+          minSectionCount: 100, // restarted with a stricter floor
+        });
+        const state = new ServerState(deps);
+
+        await state.ensureIndex();
+
+        expect(deps.evaluateCanariesFn).toHaveBeenCalledOnce();
+      });
+
+      it('still takes Path 1 (full hit) when the effective minSectionCount matches the cached evaluation', async () => {
+        const snapshot = makeFullCacheSnapshot({
+          evaluation: {
+            canaryVersion: CANARY_VERSION,
+            minSectionCount: 40,
+            warnings: [],
+            metrics: { fallbackSectionRatio: 0, baselineSectionCount: null, sectionCountDropRatio: null, fallbackSectionDelta: null, fallbackSectionMultiplier: null },
+          },
+        });
+
+        const deps = makeDeps({
+          parseSerializedIndexFn: vi.fn().mockReturnValue(snapshot),
+          minSectionCount: 40,
+        });
+        const state = new ServerState(deps);
+
+        await state.ensureIndex();
+
+        expect(deps.evaluateCanariesFn).not.toHaveBeenCalled();
+      });
+    });
+
     describe('Path 3: Rebuild', () => {
       it('builds fresh index when compatibility versions mismatch', async () => {
         const snapshot = makeFullCacheSnapshot({
