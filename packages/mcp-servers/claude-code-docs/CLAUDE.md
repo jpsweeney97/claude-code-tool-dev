@@ -8,7 +8,7 @@ BM25-based search server for Claude Code documentation. Fetches docs from `https
 |-----------|------|----------|---------|-------------|
 | `query` | string | yes | — | Max 500 chars, trimmed |
 | `limit` | integer | no | `5` | 1–20 |
-| `category` | string | no | — | One of 28 categories or 5 aliases (see `categories.ts`) |
+| `category` | string | no | — | One of 28 categories or 5 aliases (see `categories.ts`); `'uncategorized'` is the fallback for unrecognized URL slugs |
 
 ## Commands
 
@@ -70,7 +70,7 @@ loadFromOfficial (fetch + parse docs)
 - **Chunking hierarchy**: H2 → H3 → paragraph → hard split with overlap. Each level cascades when chunks exceed size limits.
 - **Five-block serialized index structure**: `corpus` (content hash + provenance), `diagnostics` (canary evaluation inputs), `index` (build timestamp + counts), `policyState` (baseline tracking), `evaluation` (canary pass/fail + CANARY_VERSION) + top-level `compatibility` block (all version constants). BM25 data (chunks, docFrequency, invertedIndex) lives at the top level outside the named blocks.
 - **Four cache load paths**: (1) full hit — all versions match and canary passes; (2) canary replay — versions match but canary re-evaluated (threshold changed); (3) rebuild — version mismatch, fetch fresh; (4) provenance refresh — provenance improved (better source kind or newer), re-persist corpus block
-- **Trust modes**: `official` pins the source URL to `code.claude.com` and enables full canary evaluation (taxonomy + relative-drift checks); `unsafe` accepts any HTTPS URL and runs structural canaries only (count + size checks)
+- **Trust modes**: `official` pins the source URL to `code.claude.com` and enables full canary evaluation (fallback-segment delta + relative-drift checks); `unsafe` accepts any HTTPS URL and runs structural canaries only (count + size checks)
 - **`CANARY_VERSION`** in the evaluation block — bump when changing canary thresholds or adding/removing canary checks. Changing only the diagnostic computation (not thresholds) bumps `INGESTION_VERSION` instead.
 
 ### Cache Paths
@@ -121,7 +121,7 @@ Tests mirror source 1:1 (`src/foo.ts` → `tests/foo.test.ts`). Additional test 
   - Without the correct bump, stale cached indexes will be served.
 - **BM25 params are query-time only**: `k1`, `b`, `headingBoost`, `headingMinCoverage`, `snippetMaxLength` in `BM25_CONFIG` do not affect the stored index. No cache invalidation needed when changing them.
 - **Zod strips unknown keys by default**: When adding fields to serialized structures, update both the TypeScript interface and the Zod schema in `index-cache.ts`.
-- **Unsafe mode is an escape hatch, not multi-corpus support**: In `unsafe` mode, taxonomy and relative-drift canary checks are disabled. The server accepts any HTTPS source URL but cannot verify corpus authenticity against expected Claude Code doc structure. Use only for local testing or private mirrors.
+- **Unsafe mode is an escape hatch, not multi-corpus support**: In `unsafe` mode, fallback-segment delta and relative-drift canary checks are disabled. The server accepts any HTTPS source URL but cannot verify corpus authenticity against expected Claude Code doc structure. Use only for local testing or private mirrors.
 - **Provenance refresh triggers a full rebuild**: When `DOCS_TRUST_MODE` or `DOCS_URL` changes between runs, the cached index is invalidated even if all version constants match — the policy change is a cache miss by design.
 
 ## Auto-Build
