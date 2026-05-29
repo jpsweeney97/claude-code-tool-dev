@@ -16,24 +16,10 @@ import { deriveCategory, getUnmappedSegments } from './frontmatter.js';
 import type { SourceKind, CorpusProvenance } from './trust.js';
 import type { LoaderDiagnostics } from './canary.js';
 
-/**
- * Default minimum number of sections required for content to be considered valid.
- * Prevents caching truncated or incomplete documentation.
- * Current full docs have ~50 sections; 40 provides margin for minor changes.
- * Override with MIN_SECTION_COUNT env var for testing (set to 0 to disable).
- */
-const DEFAULT_MIN_SECTION_COUNT = 40;
-
-export function getMinSectionCount(): number {
-  const raw = process.env.MIN_SECTION_COUNT?.trim();
-  if (raw !== undefined && raw.length > 0) {
-    const val = parseInt(raw, 10);
-    if (Number.isFinite(val) && val >= 0) {
-      return val;
-    }
-  }
-  return DEFAULT_MIN_SECTION_COUNT;
-}
+/** Absolute floor below which fetched content is treated as truncated and must NOT overwrite the
+ *  content cache (B1). Fixed, not env-tunable: MIN_SECTION_COUNT tunes only the canary/index floor
+ *  (Task 2.4). The official corpus is ~141 sections, so 40 is a wide truncation margin. */
+const CACHE_WRITE_MIN_SECTIONS = 40;
 
 /**
  * Error thrown when fetched content fails validation checks.
@@ -222,11 +208,11 @@ async function fetchAndParse(
     const { content } = await fetchOfficialDocs(url);
     const sections = parseSections(content);
 
-    // Validate section count to detect truncated content
-    const minSections = getMinSectionCount();
-    if (minSections > 0 && sections.length < minSections) {
+    // Refuse to overwrite the content cache with truncated content (B1). Fixed floor; the canary
+    // owns the tunable index floor (Task 2.4). The throw fires BEFORE writeCache, so the good cache survives.
+    if (sections.length < CACHE_WRITE_MIN_SECTIONS) {
       throw new ContentValidationError(
-        `Fetched content has only ${sections.length} sections (minimum: ${minSections}). ` +
+        `Fetched content has only ${sections.length} sections (minimum: ${CACHE_WRITE_MIN_SECTIONS}). ` +
           'Content may be truncated or incomplete.',
       );
     }

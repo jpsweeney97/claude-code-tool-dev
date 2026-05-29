@@ -300,6 +300,46 @@ describe('evaluateCanaries — official mode', () => {
   });
 });
 
+describe('evaluateCanaries — minSectionCount override', () => {
+  it('respects minSectionCount override from input', () => {
+    const result = evaluateCanaries({
+      trustMode: 'official',
+      diagnostics: {
+        sourceAnchoredCount: 10,
+        nonEmptySectionCount: 10,
+        sectionCount: 10,
+        overviewSectionCount: 0,
+        fallbackOverviewCount: 0,
+        unmappedSegments: [],
+        parseWarningCount: 0,
+      },
+      policyState: { lastHealthySectionCount: null, lastHealthyObservedAt: null },
+      now: 1,
+      minSectionCount: 5,
+    });
+    expect(result.decision).toBe('accept'); // 10 >= 5 (override) even though default would be 40
+  });
+
+  it('respects minSectionCount = 0 (floor disabled)', () => {
+    const result = evaluateCanaries({
+      trustMode: 'official',
+      diagnostics: {
+        sourceAnchoredCount: 1,
+        nonEmptySectionCount: 1,
+        sectionCount: 1,
+        overviewSectionCount: 0,
+        fallbackOverviewCount: 0,
+        unmappedSegments: [],
+        parseWarningCount: 0,
+      },
+      policyState: { lastHealthySectionCount: null, lastHealthyObservedAt: null },
+      now: 1,
+      minSectionCount: 0,
+    });
+    expect(result.decision).toBe('accept');
+  });
+});
+
 describe('evaluateCanaries — unsafe mode', () => {
   it('rejects when sourceAnchoredCount is 0', () => {
     const result = evaluateCanaries({

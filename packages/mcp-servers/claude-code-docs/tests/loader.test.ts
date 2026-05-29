@@ -6,24 +6,36 @@ import * as os from 'os';
 
 let parseFrontmatter: typeof import('../src/frontmatter.js').parseFrontmatter;
 
+/**
+ * Build mock content with at least minCount sections, using a base URL prefix.
+ * The content cache write guard requires ≥40 sections (CACHE_WRITE_MIN_SECTIONS).
+ * Use this to build test fixtures that pass the guard so tests focus on other behavior.
+ */
+function buildLargeMockContent(
+  primarySections: Array<{ title: string; url: string; body: string }>,
+  padTo = 40,
+  padUrlBase = 'https://code.claude.com/docs/en/pad',
+): string {
+  const sections = [...primarySections];
+  while (sections.length < padTo) {
+    const i = sections.length;
+    sections.push({ title: `Pad Section ${i}`, url: `${padUrlBase}-${i}`, body: `Padding content ${i}` });
+  }
+  return sections
+    .map(s => `# ${s.title}\nSource: ${s.url}\n\n${s.body}`)
+    .join('\n---\n');
+}
+
 describe('fetchAndParse with TTL', () => {
   let tempDir: string;
-  let originalMinSectionCount: string | undefined;
 
   beforeEach(async () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'loader-ttl-test-'));
-    originalMinSectionCount = process.env.MIN_SECTION_COUNT;
-    process.env.MIN_SECTION_COUNT = '0';
     vi.resetModules();
     vi.stubGlobal('fetch', vi.fn());
   });
 
   afterEach(async () => {
-    if (originalMinSectionCount === undefined) {
-      delete process.env.MIN_SECTION_COUNT;
-    } else {
-      process.env.MIN_SECTION_COUNT = originalMinSectionCount;
-    }
     vi.unstubAllGlobals();
     await fs.rm(tempDir, { recursive: true, force: true });
   });
@@ -77,39 +89,24 @@ Stale hooks content`;
 
 describe('loadFromOfficial', () => {
   let tempDir: string;
-  let originalMinSectionCount: string | undefined;
 
   beforeEach(async () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'loader-official-test-'));
-    // Disable section count validation for unit tests with small mock data
-    originalMinSectionCount = process.env.MIN_SECTION_COUNT;
-    process.env.MIN_SECTION_COUNT = '0';
-    vi.resetModules(); // Reset modules so loader picks up new env
+    vi.resetModules();
     vi.stubGlobal('fetch', vi.fn());
     ({ parseFrontmatter } = await import('../src/frontmatter.js'));
   });
 
   afterEach(async () => {
-    // Restore original env
-    if (originalMinSectionCount === undefined) {
-      delete process.env.MIN_SECTION_COUNT;
-    } else {
-      process.env.MIN_SECTION_COUNT = originalMinSectionCount;
-    }
     vi.unstubAllGlobals();
     await fs.rm(tempDir, { recursive: true, force: true });
   });
 
   it('fetches, parses, and returns all sections (no filtering)', async () => {
-    const mockContent = `# Hooks Guide
-Source: https://code.claude.com/docs/en/hooks
-
-Hooks content here
----
-# Quickstart
-Source: https://code.claude.com/docs/en/quickstart
-
-Getting started content`;
+    const mockContent = buildLargeMockContent([
+      { title: 'Hooks Guide', url: 'https://code.claude.com/docs/en/hooks', body: 'Hooks content here' },
+      { title: 'Quickstart', url: 'https://code.claude.com/docs/en/quickstart', body: 'Getting started content' },
+    ]);
 
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -124,8 +121,7 @@ Getting started content`;
     const cachePath = path.join(tempDir, 'cache.txt');
     const { files, contentHash } = await loadFromOfficial('https://example.com/docs', cachePath);
 
-    // Now expects 2 files (both hooks AND quickstart), not 1
-    expect(files).toHaveLength(2);
+    // Expects at least 2 real sections (plus padding to meet the fixed cache-write floor of 40)
     expect(files.some(f => f.path.includes('hooks'))).toBe(true);
     expect(files.some(f => f.path.includes('quickstart'))).toBe(true);
     expect(contentHash).toMatch(/^[a-f0-9]{64}$/);
@@ -153,10 +149,10 @@ Skills content`;
   });
 
   it('injects synthetic frontmatter with topic, id, and category', async () => {
-    const mockContent = `# Hooks Guide
-Source: https://code.claude.com/docs/en/hooks
-
-Hooks content here`;
+    // Use buildLargeMockContent to meet the fixed cache-write floor (CACHE_WRITE_MIN_SECTIONS = 40)
+    const mockContent = buildLargeMockContent([
+      { title: 'Hooks Guide', url: 'https://code.claude.com/docs/en/hooks', body: 'Hooks content here' },
+    ]);
 
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -170,20 +166,21 @@ Hooks content here`;
     const cachePath = path.join(tempDir, 'cache.txt');
     const { files } = await loadFromOfficial('https://example.com/docs', cachePath);
 
-    expect(files).toHaveLength(1);
+    const hooksFile = files.find(f => f.path.includes('hooks'));
+    expect(hooksFile).toBeDefined();
 
     // Content should start with synthetic frontmatter
-    expect(files[0].content).toMatch(/^---\n/);
-    expect(files[0].content).toContain('topic:');
-    expect(files[0].content).toContain('id:');
-    expect(files[0].content).toContain('category:');
+    expect(hooksFile!.content).toMatch(/^---\n/);
+    expect(hooksFile!.content).toContain('topic:');
+    expect(hooksFile!.content).toContain('id:');
+    expect(hooksFile!.content).toContain('category:');
   });
 
   it('synthetic frontmatter is parseable by parseFrontmatter', async () => {
-    const mockContent = `# Hooks Guide
-Source: https://code.claude.com/docs/en/hooks
-
-Hooks content here`;
+    // Use buildLargeMockContent to meet the fixed cache-write floor (CACHE_WRITE_MIN_SECTIONS = 40)
+    const mockContent = buildLargeMockContent([
+      { title: 'Hooks Guide', url: 'https://code.claude.com/docs/en/hooks', body: 'Hooks content here' },
+    ]);
 
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -197,8 +194,10 @@ Hooks content here`;
     const cachePath = path.join(tempDir, 'cache.txt');
     const { files } = await loadFromOfficial('https://example.com/docs', cachePath);
 
-    // Parse the synthetic frontmatter
-    const { frontmatter, body, warnings } = parseFrontmatter(files[0].content, files[0].path);
+    // The hooks section is the first primary section; parse its synthetic frontmatter
+    const hooksFile = files.find(f => f.path.includes('hooks') && !f.path.includes('pad'));
+    expect(hooksFile).toBeDefined();
+    const { frontmatter, body, warnings } = parseFrontmatter(hooksFile!.content, hooksFile!.path);
 
     expect(warnings).toHaveLength(0);
     expect(frontmatter.topic).toBe('Hooks Guide');
@@ -208,10 +207,10 @@ Hooks content here`;
   });
 
   it('handles titles with special characters in synthetic frontmatter', async () => {
-    const mockContent = `# Hooks: The "Complete" Guide
-Source: https://code.claude.com/docs/en/hooks
-
-Content`;
+    // Use buildLargeMockContent to meet the fixed cache-write floor (CACHE_WRITE_MIN_SECTIONS = 40)
+    const mockContent = buildLargeMockContent([
+      { title: 'Hooks: The "Complete" Guide', url: 'https://code.claude.com/docs/en/hooks', body: 'Content' },
+    ]);
 
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -226,22 +225,20 @@ Content`;
     const { files } = await loadFromOfficial('https://example.com/docs', cachePath);
 
     // Parse should succeed even with special characters
-    const { frontmatter, warnings } = parseFrontmatter(files[0].content, files[0].path);
+    const hooksFile = files.find(f => f.path.includes('hooks') && !f.path.includes('pad'));
+    expect(hooksFile).toBeDefined();
+    const { frontmatter, warnings } = parseFrontmatter(hooksFile!.content, hooksFile!.path);
 
     expect(warnings).toHaveLength(0);
     expect(frontmatter.topic).toBe('Hooks: The "Complete" Guide');
   });
 
   it('logs parse diagnostics to stderr', async () => {
-    const mockContent = `# Hooks Guide
-Source: https://code.claude.com/docs/en/hooks
-
-Hooks content here
----
-# Quickstart
-Source: https://code.claude.com/docs/en/quickstart
-
-Getting started content`;
+    // Use buildLargeMockContent to meet the fixed cache-write floor (CACHE_WRITE_MIN_SECTIONS = 40)
+    const mockContent = buildLargeMockContent([
+      { title: 'Hooks Guide', url: 'https://code.claude.com/docs/en/hooks', body: 'Hooks content here' },
+      { title: 'Quickstart', url: 'https://code.claude.com/docs/en/quickstart', body: 'Getting started content' },
+    ]);
 
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -265,10 +262,10 @@ Getting started content`;
   });
 
   it('derives correct category for nested URL paths', async () => {
-    const mockContent = `# Input Schema
-Source: https://code.claude.com/docs/en/hooks/input-schema
-
-Schema details`;
+    // Use buildLargeMockContent to meet the fixed cache-write floor (CACHE_WRITE_MIN_SECTIONS = 40)
+    const mockContent = buildLargeMockContent([
+      { title: 'Input Schema', url: 'https://code.claude.com/docs/en/hooks/input-schema', body: 'Schema details' },
+    ]);
 
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -282,7 +279,9 @@ Schema details`;
     const cachePath = path.join(tempDir, 'cache.txt');
     const { files } = await loadFromOfficial('https://example.com/docs', cachePath);
 
-    const { frontmatter } = parseFrontmatter(files[0].content, files[0].path);
+    const inputSchemaFile = files.find(f => f.path.includes('hooks/input-schema'));
+    expect(inputSchemaFile).toBeDefined();
+    const { frontmatter } = parseFrontmatter(inputSchemaFile!.content, inputSchemaFile!.path);
 
     expect(frontmatter.category).toBe('hooks');
     expect(frontmatter.id).toBe('hooks-input-schema');
@@ -290,62 +289,34 @@ Schema details`;
 });
 
 describe('content validation', () => {
+  // The cache-write guard uses a fixed floor: CACHE_WRITE_MIN_SECTIONS = 40.
+  // It is not env-tunable. These tests verify the fixed-floor behavior.
   let tempDir: string;
-  let originalMinSectionCount: string | undefined;
 
   beforeEach(async () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'loader-validation-test-'));
-    originalMinSectionCount = process.env.MIN_SECTION_COUNT;
     vi.resetModules();
     vi.stubGlobal('fetch', vi.fn());
   });
 
   afterEach(async () => {
-    if (originalMinSectionCount === undefined) {
-      delete process.env.MIN_SECTION_COUNT;
-    } else {
-      process.env.MIN_SECTION_COUNT = originalMinSectionCount;
-    }
     vi.unstubAllGlobals();
     await fs.rm(tempDir, { recursive: true, force: true });
   });
 
-  it('rejects content with fewer sections than minimum and falls back to cache', async () => {
-    // Set minimum to 5 sections
-    process.env.MIN_SECTION_COUNT = '5';
-    vi.resetModules();
-
-    // Cached content with enough sections
-    const cachedContent = `# Section 1
-Source: https://example.com/1
-
-Content 1
-
-# Section 2
-Source: https://example.com/2
-
-Content 2
-
-# Section 3
-Source: https://example.com/3
-
-Content 3
-
-# Section 4
-Source: https://example.com/4
-
-Content 4
-
-# Section 5
-Source: https://example.com/5
-
-Content 5`;
+  it('rejects content below the fixed 40-section floor and falls back to cache', async () => {
+    // Cached content with 40 sections (meets the floor)
+    const cachedContent = buildLargeMockContent(
+      [{ title: 'Good Section', url: 'https://code.claude.com/docs/en/hooks', body: 'Good content' }],
+      40,
+      'https://code.claude.com/docs/en/cached',
+    );
 
     const cachePath = path.join(tempDir, 'cache.txt');
     await fs.mkdir(path.dirname(cachePath), { recursive: true });
     await fs.writeFile(cachePath, cachedContent);
 
-    // Fetched content with only 2 sections (below minimum)
+    // Fetched content with only 2 sections (below the fixed floor of 40)
     const truncatedContent = `# Section A
 Source: https://example.com/a
 
@@ -367,14 +338,12 @@ Content B`;
     const { loadFromOfficial } = await import('../src/loader.js');
     const { files } = await loadFromOfficial('https://example.com/docs', cachePath, true);
 
-    // Should fall back to cached content (5 sections), not truncated (2 sections)
-    expect(files).toHaveLength(5);
+    // Should fall back to cached content (40 sections), not truncated (2 sections)
+    expect(files).toHaveLength(40);
   });
 
-  it('throws when content is truncated and no cache exists', async () => {
-    process.env.MIN_SECTION_COUNT = '5';
-    vi.resetModules();
-
+  it('throws ContentValidationError when content is below floor and no cache exists', async () => {
+    // Only 1 section — below the fixed floor of 40
     const truncatedContent = `# Only One
 Source: https://example.com/one
 
@@ -395,24 +364,34 @@ Content`;
       .rejects.toThrow(ContentValidationError);
   });
 
-  it('accepts content when section count meets minimum', async () => {
-    process.env.MIN_SECTION_COUNT = '3';
-    vi.resetModules();
+  it('rejects content at exactly floor minus one (39 sections) when no cache exists', async () => {
+    // 39 sections — one below the fixed floor of 40 — pins the off-by-one boundary
+    const truncatedContent = buildLargeMockContent(
+      [{ title: 'Section 1', url: 'https://code.claude.com/docs/en/section-1', body: 'Content' }],
+      39,
+    );
 
-    const validContent = `# Section 1
-Source: https://example.com/1
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'text/plain' }),
+      text: () => Promise.resolve(truncatedContent),
+    });
+    vi.stubGlobal('fetch', mockFetch);
 
-Content 1
+    const { loadFromOfficial, ContentValidationError } = await import('../src/loader.js');
+    const cachePath = path.join(tempDir, 'nonexistent-cache.txt');
 
-# Section 2
-Source: https://example.com/2
+    await expect(loadFromOfficial('https://example.com/docs', cachePath, true))
+      .rejects.toThrow(ContentValidationError);
+  });
 
-Content 2
-
-# Section 3
-Source: https://example.com/3
-
-Content 3`;
+  it('accepts content at exactly the fixed floor (40 sections)', async () => {
+    // Build content with exactly 40 sections
+    const validContent = buildLargeMockContent(
+      [{ title: 'Section 1', url: 'https://code.claude.com/docs/en/section-1', body: 'Content' }],
+      40,
+    );
 
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -426,31 +405,36 @@ Content 3`;
     const cachePath = path.join(tempDir, 'cache.txt');
     const { files } = await loadFromOfficial('https://example.com/docs', cachePath, true);
 
-    expect(files).toHaveLength(3);
+    expect(files).toHaveLength(40);
   });
 
-  it('skips validation when MIN_SECTION_COUNT is 0', async () => {
-    process.env.MIN_SECTION_COUNT = '0';
-    vi.resetModules();
+  it('ContentValidationError fires BEFORE cache write (cache stays good)', async () => {
+    // Pre-existing cache with 40 good sections
+    const cachedContent = buildLargeMockContent(
+      [{ title: 'Good', url: 'https://code.claude.com/docs/en/good', body: 'Good' }],
+      40,
+    );
+    const cachePath = path.join(tempDir, 'cache.txt');
+    await fs.writeFile(cachePath, cachedContent);
+    const cacheStatBefore = await fs.stat(cachePath);
 
-    const singleSection = `# Only One
-Source: https://example.com/one
-
-Content`;
-
-    const mockFetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
+    // Truncated fetch (1 section) → should throw and NOT overwrite the cache
+    const truncated = `# One\nSource: https://example.com/one\n\nContent`;
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true, status: 200,
       headers: new Headers({ 'content-type': 'text/plain' }),
-      text: () => Promise.resolve(singleSection),
-    });
-    vi.stubGlobal('fetch', mockFetch);
+      text: () => Promise.resolve(truncated),
+    }));
 
     const { loadFromOfficial } = await import('../src/loader.js');
-    const cachePath = path.join(tempDir, 'cache.txt');
+    // With good stale cache available, loader falls back (not throws)
     const { files } = await loadFromOfficial('https://example.com/docs', cachePath, true);
 
-    expect(files).toHaveLength(1);
+    // Good cache should still be served
+    expect(files).toHaveLength(40);
+    // Cache file should not have been overwritten (mtime unchanged)
+    const cacheStatAfter = await fs.stat(cachePath);
+    expect(cacheStatAfter.mtimeMs).toBe(cacheStatBefore.mtimeMs);
   });
 });
 
@@ -461,13 +445,11 @@ describe('fetchAndParse error discrimination', () => {
   beforeEach(async () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'loader-error-test-'));
     originalMaxResponseBytes = process.env.MAX_RESPONSE_BYTES;
-    process.env.MIN_SECTION_COUNT = '0';
     vi.resetModules();
     vi.stubGlobal('fetch', vi.fn());
   });
 
   afterEach(async () => {
-    delete process.env.MIN_SECTION_COUNT;
     if (originalMaxResponseBytes === undefined) {
       delete process.env.MAX_RESPONSE_BYTES;
     } else {
@@ -568,7 +550,6 @@ describe('stale cache handling (B7)', () => {
   let tempDir: string;
   let originalMaxStale: string | undefined;
   let originalCacheTtl: string | undefined;
-  let originalMinSectionCount: string | undefined;
 
   const cachedContent = `# Stale Section
 Source: https://code.claude.com/docs/en/hooks
@@ -579,8 +560,6 @@ Stale hooks content`;
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'loader-stale-b7-'));
     originalMaxStale = process.env.DOCS_CACHE_MAX_STALE_MS;
     originalCacheTtl = process.env.CACHE_TTL_MS;
-    originalMinSectionCount = process.env.MIN_SECTION_COUNT;
-    process.env.MIN_SECTION_COUNT = '0';
     // Force stale path: 1ms TTL means any cache is stale (D4)
     process.env.CACHE_TTL_MS = '1';
     vi.resetModules();
@@ -597,11 +576,6 @@ Stale hooks content`;
       delete process.env.CACHE_TTL_MS;
     } else {
       process.env.CACHE_TTL_MS = originalCacheTtl;
-    }
-    if (originalMinSectionCount === undefined) {
-      delete process.env.MIN_SECTION_COUNT;
-    } else {
-      process.env.MIN_SECTION_COUNT = originalMinSectionCount;
     }
     vi.unstubAllGlobals();
     await fs.rm(tempDir, { recursive: true, force: true });
@@ -722,28 +696,21 @@ function mockFetchOk(content: string) {
 
 describe('LoadResult provenance', () => {
   let tempDir: string;
-  let originalMinSectionCount: string | undefined;
 
   beforeEach(async () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'loader-provenance-'));
-    originalMinSectionCount = process.env.MIN_SECTION_COUNT;
-    process.env.MIN_SECTION_COUNT = '0';
     vi.resetModules();
     vi.stubGlobal('fetch', vi.fn());
   });
 
   afterEach(async () => {
-    if (originalMinSectionCount === undefined) {
-      delete process.env.MIN_SECTION_COUNT;
-    } else {
-      process.env.MIN_SECTION_COUNT = originalMinSectionCount;
-    }
     vi.unstubAllGlobals();
     await fs.rm(tempDir, { recursive: true, force: true });
   });
 
   it('returns sourceKind=fetched on successful live fetch', async () => {
-    const content = buildMockContent([
+    // Use buildLargeMockContent to meet the fixed cache-write floor (CACHE_WRITE_MIN_SECTIONS = 40)
+    const content = buildLargeMockContent([
       { title: 'Hooks', url: 'https://code.claude.com/docs/en/hooks', body: 'Hook docs' },
     ]);
 
@@ -806,32 +773,26 @@ describe('LoadResult provenance', () => {
 
 describe('LoadResult diagnostics', () => {
   let tempDir: string;
-  let originalMinSectionCount: string | undefined;
 
   beforeEach(async () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'loader-diagnostics-'));
-    originalMinSectionCount = process.env.MIN_SECTION_COUNT;
-    process.env.MIN_SECTION_COUNT = '0';
     vi.resetModules();
     vi.stubGlobal('fetch', vi.fn());
   });
 
   afterEach(async () => {
-    if (originalMinSectionCount === undefined) {
-      delete process.env.MIN_SECTION_COUNT;
-    } else {
-      process.env.MIN_SECTION_COUNT = originalMinSectionCount;
-    }
     vi.unstubAllGlobals();
     await fs.rm(tempDir, { recursive: true, force: true });
   });
 
   it('includes structural diagnostic counts', async () => {
-    const content = buildMockContent([
+    // Use buildLargeMockContent to meet the fixed cache-write floor (CACHE_WRITE_MIN_SECTIONS = 40)
+    const primarySections = [
       { title: 'Hooks', url: 'https://code.claude.com/docs/en/hooks', body: 'Hook docs' },
       { title: 'Skills', url: 'https://code.claude.com/docs/en/skills', body: 'Skills docs' },
       { title: 'Quickstart', url: 'https://code.claude.com/docs/en/quickstart', body: 'Getting started' },
-    ]);
+    ];
+    const content = buildLargeMockContent(primarySections);
 
     vi.stubGlobal('fetch', mockFetchOk(content));
 
@@ -840,9 +801,10 @@ describe('LoadResult diagnostics', () => {
     const result = await loadFromOfficial('https://example.com/docs', cachePath);
 
     const d = result.diagnostics;
-    expect(d.sourceAnchoredCount).toBe(3);
-    expect(d.nonEmptySectionCount).toBe(3);
-    expect(d.sectionCount).toBe(3);
+    // 3 primary + 37 padding = 40 total (buildLargeMockContent pads to 40)
+    expect(d.sourceAnchoredCount).toBe(40);
+    expect(d.nonEmptySectionCount).toBe(40);
+    expect(d.sectionCount).toBe(40);
     expect(d.overviewSectionCount).toBeGreaterThanOrEqual(0);
     expect(Array.isArray(d.unmappedSegments)).toBe(true);
 
@@ -853,10 +815,12 @@ describe('LoadResult diagnostics', () => {
   it('counts overview sections correctly', async () => {
     // 'https://code.claude.com/docs/en/some-unknown-thing' maps to 'overview' (unmapped)
     // 'https://code.claude.com/docs/en/hooks' maps to 'hooks' (mapped)
-    const content = buildMockContent([
+    // Pad with known-category (hooks) URLs so padding doesn't inflate overviewSectionCount
+    const primary = [
       { title: 'Hooks', url: 'https://code.claude.com/docs/en/hooks', body: 'Hook docs' },
       { title: 'Unknown', url: 'https://code.claude.com/docs/en/some-unknown-thing', body: 'Unknown docs' },
-    ]);
+    ];
+    const content = buildLargeMockContent(primary, 40, 'https://code.claude.com/docs/en/hooks/pad');
 
     vi.stubGlobal('fetch', mockFetchOk(content));
 
@@ -864,13 +828,14 @@ describe('LoadResult diagnostics', () => {
     const cachePath = path.join(tempDir, 'cache.txt');
     const result = await loadFromOfficial('https://example.com/docs', cachePath);
 
-    // 'some-unknown-thing' should map to 'overview'
+    // 'some-unknown-thing' should map to 'overview'; padding uses hooks URLs → category 'hooks'
     expect(result.diagnostics.overviewSectionCount).toBe(1);
   });
 
   it('returns unmappedSegments sorted by count desc then name asc', async () => {
     // Build content where multiple sections have unmapped URLs
-    const content = buildMockContent([
+    // Use buildLargeMockContent to meet the fixed cache-write floor (CACHE_WRITE_MIN_SECTIONS = 40)
+    const content = buildLargeMockContent([
       { title: 'A', url: 'https://code.claude.com/docs/en/zzz-unknown', body: 'A' },
       { title: 'B', url: 'https://code.claude.com/docs/en/zzz-unknown', body: 'B' },
       { title: 'C', url: 'https://code.claude.com/docs/en/aaa-unknown', body: 'C' },

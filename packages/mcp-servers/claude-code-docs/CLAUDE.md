@@ -105,7 +105,7 @@ Tests mirror source 1:1 (`src/foo.ts` → `tests/foo.test.ts`). Additional test 
 | `RETRY_INTERVAL_MS` | `60000` | Retry interval after fetch failure |
 | `CACHE_TTL_MS` | `86400000` (24h) | Content cache TTL |
 | `DOCS_CACHE_MAX_STALE_MS` | `0` (disabled) | Hard limit on stale content cache age. Set to enable (e.g. `604800000` for 7d). |
-| `MIN_SECTION_COUNT` | `40` | Minimum sections in fetched content. Rejects truncated docs. Set to `0` to disable. |
+| `MIN_SECTION_COUNT` | (unset) | Override for the canary's index floor. Unset → canary uses its trust-mode default (official: 40, unsafe: 3). Set to `0` to disable the index floor. Does NOT affect the content-cache write guard, which is fixed at 40 (`CACHE_WRITE_MIN_SECTIONS`). |
 | `MAX_INDEX_CACHE_BYTES` | `52428800` (50 MB) | Hard limit on serialized index size before write |
 | `INTEGRATION` | (unset) | Set to `1` to run `integration.test.ts` against live `code.claude.com` |
 

@@ -38,6 +38,7 @@ export interface ServerStateDeps {
   retryIntervalMs?: number;
   docsUrl?: string;
   trustMode?: TrustMode;
+  minSectionCount?: number;
 }
 
 const DEFAULT_POLICY_STATE: PolicyState = {
@@ -62,12 +63,14 @@ export class ServerState {
   private readonly deps: ServerStateDeps;
   private readonly docsUrl: string;
   private readonly timer: () => number;
+  private readonly minSectionCount?: number;
 
   constructor(deps: ServerStateDeps) {
     this.deps = deps;
     this.timer = deps.timerFn ?? Date.now;
     this.docsUrl = deps.docsUrl ?? 'https://code.claude.com/docs/llms-full.txt';
     this.trustMode = deps.trustMode ?? 'official';
+    this.minSectionCount = deps.minSectionCount;
 
     const retryMs = deps.retryIntervalMs ?? 60000;
     this.effectiveRetryInterval =
@@ -248,6 +251,7 @@ export class ServerState {
           diagnostics: cachedDiagnostics,
           policyState: oldPolicyState,
           now: this.timer(),
+          minSectionCount: this.minSectionCount,
         });
 
         if (evalResult.decision === 'reject') {
@@ -397,6 +401,7 @@ export class ServerState {
       diagnostics: corpusDiagnostics,
       policyState: oldPolicyState,
       now: this.timer(),
+      minSectionCount: this.minSectionCount,
     });
 
     if (evalResult.decision === 'reject') {

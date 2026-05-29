@@ -68,6 +68,8 @@ export interface EvaluateCanariesInput {
   diagnostics: CorpusDiagnostics;
   policyState: PolicyState;
   now: number;
+  /** Override floor. Undefined → use OFFICIAL_MIN_SECTION_COUNT / UNSAFE_MIN_SECTION_COUNT per trust mode. 0 → no floor. */
+  minSectionCount?: number;
 }
 
 export class CanaryRejectionError extends Error {
@@ -101,7 +103,10 @@ export function evaluateCanaries(input: EvaluateCanariesInput): CanaryEvaluation
   const { trustMode, diagnostics, policyState, now } = input;
   const { sourceAnchoredCount, sectionCount, overviewSectionCount, fallbackOverviewCount, parseWarningCount } = diagnostics;
 
-  const minSectionCount = trustMode === 'official' ? OFFICIAL_MIN_SECTION_COUNT : UNSAFE_MIN_SECTION_COUNT;
+  const minSectionCount =
+    input.minSectionCount !== undefined
+      ? input.minSectionCount
+      : trustMode === 'official' ? OFFICIAL_MIN_SECTION_COUNT : UNSAFE_MIN_SECTION_COUNT;
   const overviewRatio = sectionCount > 0 ? overviewSectionCount / sectionCount : 0;
   const fallbackOverviewRatio = sectionCount > 0 ? fallbackOverviewCount / sectionCount : 0;
   const baselineSectionCount = policyState.lastHealthySectionCount;

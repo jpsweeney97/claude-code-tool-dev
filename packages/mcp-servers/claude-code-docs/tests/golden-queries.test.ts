@@ -461,11 +461,50 @@ Each release includes new features, bug fixes, and performance improvements. Che
 ## Version history
 
 Browse the full version history to find when specific features were added or bugs were fixed in Claude Code.
+---
+# Additional Reference 1
+Source: https://code.claude.com/docs/en/reference/pad-1
+
+Padding section to meet the fixed content-cache write floor (CACHE_WRITE_MIN_SECTIONS = 40).
+---
+# Additional Reference 2
+Source: https://code.claude.com/docs/en/reference/pad-2
+
+Padding section to meet the fixed content-cache write floor.
+---
+# Additional Reference 3
+Source: https://code.claude.com/docs/en/reference/pad-3
+
+Padding section to meet the fixed content-cache write floor.
+---
+# Additional Reference 4
+Source: https://code.claude.com/docs/en/reference/pad-4
+
+Padding section to meet the fixed content-cache write floor.
+---
+# Additional Reference 5
+Source: https://code.claude.com/docs/en/reference/pad-5
+
+Padding section to meet the fixed content-cache write floor.
+---
+# Additional Reference 6
+Source: https://code.claude.com/docs/en/reference/pad-6
+
+Padding section to meet the fixed content-cache write floor.
+---
+# Additional Reference 7
+Source: https://code.claude.com/docs/en/reference/pad-7
+
+Padding section to meet the fixed content-cache write floor.
+---
+# Additional Reference 8
+Source: https://code.claude.com/docs/en/reference/pad-8
+
+Padding section to meet the fixed content-cache write floor.
 `;
 
 describe('golden queries (URL-based)', () => {
   let index: ReturnType<typeof buildBM25Index>;
-  let originalMinSectionCount: string | undefined;
   let tempDir: string;
 
   beforeAll(async () => {
@@ -474,9 +513,6 @@ describe('golden queries (URL-based)', () => {
     // cached docs at ~/Library/Caches/claude-code-docs/llms-full.txt
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'golden-queries-test-'));
 
-    // Disable section count validation for test with small mock data
-    originalMinSectionCount = process.env.MIN_SECTION_COUNT;
-    process.env.MIN_SECTION_COUNT = '0';
     vi.resetModules();
 
     // Mock fetch to return our test content
@@ -505,12 +541,6 @@ describe('golden queries (URL-based)', () => {
   });
 
   afterAll(async () => {
-    // Restore original env
-    if (originalMinSectionCount === undefined) {
-      delete process.env.MIN_SECTION_COUNT;
-    } else {
-      process.env.MIN_SECTION_COUNT = originalMinSectionCount;
-    }
     vi.unstubAllGlobals();
 
     // Clean up temp directory
