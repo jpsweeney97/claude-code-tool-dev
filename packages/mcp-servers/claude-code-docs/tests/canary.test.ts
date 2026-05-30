@@ -450,6 +450,39 @@ describe('fallback_segment_collapse (delta canary)', () => {
     expect(result.warnings.some(w => w.code === 'fallback_segment_drift')).toBe(true);
   });
 
+  it('FAIL relative boundary: multiplier compared against 1+FAIL_REL=3.0, not FAIL_REL=2.0', () => {
+    // Both inputs hold the absolute delta at/above FAIL_ABS (20) so the relative gate is the
+    // sole discriminator — isolating the multiplier-units guard at the FAIL boundary the same
+    // way the WARN cases isolate it at 1.5. If the gate ever regressed to comparing the
+    // multiplier directly against FAIL_REL (2.0), the 2.8x 'accept' case would wrongly reject.
+    //
+    // At-threshold: baseline 10, new 30 → delta +20 (== FAIL_ABS), mult 3.0 (== 1+FAIL_REL) → reject.
+    const atThreshold = evaluateCanaries({
+      trustMode: 'official',
+      diagnostics: { ...baseDiag, fallbackSectionCount: 30 },
+      policyState: {
+        lastHealthySectionCount: 140, lastHealthyObservedAt: 0,
+        lastHealthyFallbackSectionCount: 10, lastHealthyFallbackObservedAt: 0,
+      },
+      now: 1,
+    });
+    expect(atThreshold.decision).toBe('reject');
+    expect(atThreshold.rejection?.code).toBe('fallback_segment_collapse');
+
+    // Just-below: baseline 10, new 28 → delta +18 (< FAIL_ABS 20) AND mult 2.8 (< 3.0) → accept.
+    // mult 2.8 is >= FAIL_REL 2.0, so a direct multiplier>=FAIL_REL comparison would mis-reject here.
+    const justBelow = evaluateCanaries({
+      trustMode: 'official',
+      diagnostics: { ...baseDiag, fallbackSectionCount: 28 },
+      policyState: {
+        lastHealthySectionCount: 140, lastHealthyObservedAt: 0,
+        lastHealthyFallbackSectionCount: 10, lastHealthyFallbackObservedAt: 0,
+      },
+      now: 1,
+    });
+    expect(justBelow.decision).toBe('accept');
+  });
+
   it('does not warn when fallback shrinks or stays same', () => {
     const result = evaluateCanaries({
       trustMode: 'official',
@@ -550,5 +583,41 @@ describe('fallback_segment_collapse (delta canary)', () => {
     });
     expect(result.decision).toBe('reject');
     expect(result.rejection?.code).toBe('fallback_segment_collapse');
+  });
+
+  it('freeze-then-accumulate: a WARN freezes the baseline, then a later load crosses FAIL relative to the FROZEN value', () => {
+    // Sequenced regime the existing single-shot tests never exercise: drift is gradual.
+    // Load 1 warns (freezes the fallback baseline at 6); load 2 — fed the frozen state —
+    // crosses FAIL against the FROZEN 6, not against load 1's suspect count.
+    //
+    // Load 1: baseline 6, new 12 → delta +6 (≥ WARN_ABS 5, < FAIL_ABS 20),
+    //         mult 2.0 (≥ 1+WARN_REL 1.5, < 1+FAIL_REL 3.0) → warn, accept, FREEZE at 6.
+    const warned = evaluateCanaries({
+      trustMode: 'official',
+      diagnostics: { ...baseDiag, fallbackSectionCount: 12 },
+      policyState: {
+        lastHealthySectionCount: 140, lastHealthyObservedAt: 0,
+        lastHealthyFallbackSectionCount: 6, lastHealthyFallbackObservedAt: 0,
+      },
+      now: 100,
+    });
+    expect(warned.decision).toBe('accept');
+    expect(warned.warnings.some(w => w.code === 'fallback_segment_drift')).toBe(true);
+    // The drift warn must have FROZEN the baseline at 6 (not advanced it to the suspect 12).
+    expect(warned.nextPolicyState.lastHealthyFallbackSectionCount).toBe(6);
+    expect(warned.nextPolicyState.lastHealthyFallbackObservedAt).toBe(0);
+
+    // Load 2: feed the frozen state back, now with 30 uncategorized sections.
+    //   delta vs FROZEN 6 = +24 (≥ FAIL_ABS 20), mult 30/6 = 5.0 (≥ 1+FAIL_REL 3.0) → reject.
+    // The freeze is load-bearing: had the baseline advanced to 12 on load 1,
+    //   delta would be 30−12 = 18 (< FAIL_ABS 20) and load 2 would NOT reject.
+    const rejected = evaluateCanaries({
+      trustMode: 'official',
+      diagnostics: { ...baseDiag, fallbackSectionCount: 30 },
+      policyState: warned.nextPolicyState,
+      now: 200,
+    });
+    expect(rejected.decision).toBe('reject');
+    expect(rejected.rejection?.code).toBe('fallback_segment_collapse');
   });
 });

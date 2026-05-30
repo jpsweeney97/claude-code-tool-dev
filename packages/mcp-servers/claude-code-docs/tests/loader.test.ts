@@ -838,13 +838,18 @@ describe('LoadResult diagnostics', () => {
   });
 
   it('returns unmappedSegments sorted by count desc then name asc', async () => {
-    // Build content where multiple sections have unmapped URLs
-    // Use buildLargeMockContent to meet the fixed cache-write floor (CACHE_WRITE_MIN_SECTIONS = 40)
-    const content = buildLargeMockContent([
-      { title: 'A', url: 'https://code.claude.com/docs/en/zzz-unknown', body: 'A' },
-      { title: 'B', url: 'https://code.claude.com/docs/en/zzz-unknown', body: 'B' },
-      { title: 'C', url: 'https://code.claude.com/docs/en/aaa-unknown', body: 'C' },
-    ]);
+    // Pad with a KNOWN-category base ('hooks') so the padding sections never land in
+    // unmappedSegments — only the two intended unknown segments are unmapped. This lets
+    // the ordering assertion be exact and UNCONDITIONAL (no length guard).
+    const content = buildLargeMockContent(
+      [
+        { title: 'A', url: 'https://code.claude.com/docs/en/zzz-unknown', body: 'A' },
+        { title: 'B', url: 'https://code.claude.com/docs/en/zzz-unknown', body: 'B' },
+        { title: 'C', url: 'https://code.claude.com/docs/en/aaa-unknown', body: 'C' },
+      ],
+      40,
+      'https://code.claude.com/docs/en/hooks/pad',
+    );
 
     vi.stubGlobal('fetch', mockFetchOk(content));
 
@@ -853,9 +858,9 @@ describe('LoadResult diagnostics', () => {
     const result = await loadFromOfficial('https://example.com/docs', cachePath);
 
     const segs = result.diagnostics.unmappedSegments;
-    // zzz-unknown appears 2x, aaa-unknown 1x → zzz first by count
-    if (segs.length >= 2) {
-      expect(segs[0][1]).toBeGreaterThanOrEqual(segs[1][1]); // count desc
-    }
+    // zzz-unknown appears 2x, aaa-unknown 1x → zzz first by count, aaa second.
+    expect(segs).toHaveLength(2);
+    expect(segs[0]).toEqual(['zzz-unknown', 2]); // count desc
+    expect(segs[1]).toEqual(['aaa-unknown', 1]); // then name asc
   });
 });
