@@ -210,7 +210,7 @@ export function deriveCategory(path: string): string {
  * are expected page slugs, not missing categories.
  *
  * Returns non-empty only when NO segment maps, meaning deriveCategory would
- * fall back to 'overview'. Uses Object.hasOwn to avoid prototype-chain
+ * fall back to 'uncategorized'. Uses Object.hasOwn to avoid prototype-chain
  * false positives. Pure function — no side effects.
  */
 export function getUnmappedSegments(sourceUrl: string): string[] {

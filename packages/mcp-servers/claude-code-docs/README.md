@@ -39,11 +39,11 @@ Environment variables:
 | Variable | Default | Purpose | Constraints / Behavior |
 | --- | --- | --- | --- |
 | `DOCS_URL` | `https://code.claude.com/docs/llms-full.txt` | Source documentation URL. | Validated on startup; must be a valid `https` URL. |
-| `DOCS_TRUST_MODE` | `official` | Trust mode controlling source validation and canary policy. | `official`: pins source to `code.claude.com`, full canary evaluation (taxonomy + relative-drift checks). `unsafe`: accepts any HTTPS URL, structural canaries only (count + size checks). Use `unsafe` only for local testing or private mirrors. |
+| `DOCS_TRUST_MODE` | `official` | Trust mode controlling source validation and canary policy. | `official`: pins source to `code.claude.com`, full canary evaluation (fallback-segment delta + relative-drift checks). `unsafe`: accepts any HTTPS URL, structural canaries only (count + size checks). Use `unsafe` only for local testing or private mirrors. |
 | `RETRY_INTERVAL_MS` | `60000` | Retry backoff for failed index loads. | Validated on startup; must be an integer between `1000` and `600000`. |
 | `CACHE_TTL_MS` | `86400000` | Content cache freshness window in milliseconds. | Integer >=0. `0` means the cache is never considered fresh (fetch each load); values > 1 year are capped. |
 | `DOCS_CACHE_MAX_STALE_MS` | `0` | Maximum allowed age for stale cache fallback. | Validated on startup; must be an integer >=0. `0` disables the limit. |
-| `MIN_SECTION_COUNT` | `40` | Minimum parsed sections required to accept fetched content. | Integer >=0. `0` disables validation. If below the minimum, fetch is rejected and stale cache may be used. |
+| `MIN_SECTION_COUNT` | (unset) | Override for the canary's index floor. | Integer >=0. Unset → canary uses its trust-mode default (official: 40, unsafe: 3). `0` disables the index floor. Does NOT affect the content-cache write guard, which is fixed at 40 (`CACHE_WRITE_MIN_SECTIONS`) and is NOT env-disableable. |
 | `MAX_INDEX_CACHE_BYTES` | `52428800` | Max serialized index size in bytes before writing cache. | Validated on startup; must be an integer >0. If exceeded, index cache write is skipped (server keeps in-memory index). |
 | `MAX_RESPONSE_BYTES` | `10485760` | Max HTTP response size in bytes. | Integer >0. If declared or streamed size exceeds, fetch fails and falls back to stale cache when available. |
 | `FETCH_TIMEOUT_MS` | `30000` | HTTP fetch timeout in milliseconds. | Integer >=0. `0` results in immediate timeout. |
@@ -74,7 +74,7 @@ Parameters:
 | `category` | string | no | - | Canonical categories or aliases (see below). |
 
 Canonical categories:
-`hooks`, `skills`, `commands`, `agents`, `plugins`, `plugin-marketplaces`, `mcp`, `channels`, `settings`, `memory`, `overview`, `getting-started`, `cli`, `best-practices`, `interactive`, `security`, `providers`, `ide`, `ci-cd`, `automation`, `desktop`, `integrations`, `config`, `operations`, `troubleshooting`, `changelog`
+`hooks`, `skills`, `commands`, `agents`, `plugins`, `plugin-marketplaces`, `mcp`, `channels`, `settings`, `memory`, `overview`, `getting-started`, `cli`, `best-practices`, `interactive`, `security`, `providers`, `ide`, `ci-cd`, `automation`, `agent-sdk`, `desktop`, `integrations`, `config`, `operations`, `troubleshooting`, `changelog`, `uncategorized`
 
 Aliases:
 `subagents` -> `agents`, `sub-agents` -> `agents`, `slash-commands` -> `commands`, `claude-md` -> `memory`, `configuration` -> `config`
@@ -122,7 +122,7 @@ Return shape:
 | `corpus_obtained_at` | string or null | ISO timestamp when corpus content was obtained. Null if no corpus loaded. |
 | `last_load_attempt_at` | string or null | ISO timestamp of the most recent load attempt. Null if never attempted. |
 | `last_load_error` | string or null | Error message from the most recent failed load. Null if last load succeeded. |
-| `warning_codes` | string[] | Active warning codes: `taxonomy_drift`, `parse_issues`, `section_count_drift`, `stale_corpus`. |
+| `warning_codes` | string[] | Active warning codes: `fallback_segment_drift`, `parse_issues`, `section_count_drift`, `stale_corpus`. |
 | `is_loading` | boolean | Whether a load/reload is currently in progress. |
 
 ### `dump_index_metadata`
