@@ -244,7 +244,7 @@ cd packages/mcp-servers/claude-code-docs && sed -n '212,214p' src/frontmatter.ts
 
 **Severity:** nit
 
-> **DECISION REQUIRED.** This overrides a deliberate freeze in the predecessor B-prime plan. A maintainer should confirm the override before mechanically editing.
+> **DECISION — RESOLVED 2026-05-30 (owner-confirmed).** The override (26 → 27) is confirmed by the repo owner. Verified semantic: `KNOWN_CATEGORIES` = 28; golden queries exercise 27 — all canonical categories except the synthetic `uncategorized` fallback (which correctly has no query). The prior "26 / changelog has none" rationale was empirically false (changelog AND agent-sdk are both exercised). Applied + pushed to PR #130.
 
 **Files:**
 - `packages/mcp-servers/claude-code-docs/AGENTS.md` (golden-queries row, line ~86)
@@ -375,7 +375,7 @@ rg -n "H1 rationale" packages/mcp-servers/claude-code-docs/src/canary.ts && cd p
 
 **Severity:** low
 
-> **DECISION REQUIRED.** A human must choose whether the documented "policy change = cache miss" behavior is the intended contract (fix the code — Option i) or aspirational (correct the doc — Option ii). **RECOMMEND Option (i).**
+> **DECISION — RESOLVED 2026-05-30.** Option (i) chosen and implemented (commit `7d5b8f4e`): a `policyMatch` conjunct was added to the cache-hit predicate so a trust-mode/`docsUrl` change forces a rebuild. Field paths verified (`ServerState.trustMode`/`docsUrl`; `corpus.trustMode`/`docsUrl` persisted + schema-validated). TDD: regression tests failed pre-fix, pass post-fix. Pushed to PR #130.
 
 **Files:**
 - `packages/mcp-servers/claude-code-docs/src/lifecycle.ts` (the `contentMatch` / `minSectionCountMatch` block, lines ~210-214)
@@ -449,7 +449,7 @@ rg -n "Trust-mode / source-URL change is NOT a cache miss" packages/mcp-servers/
 
 **Severity:** low
 
-> **DECISION REQUIRED.** A human should confirm the asymmetry is intended-and-documented rather than a latent bug worth unifying. **RECOMMEND Option (B)** — the inline comment, which preserves the gate's intentional pre-filter basis.
+> **DECISION — RESOLVED 2026-05-30.** Option (B) chosen and implemented (commit `a22ef08b`): an inline comment documents the intentional pre-filter (gate input) vs post-filter (observability) population asymmetry; no gate-input change, no `INGESTION_VERSION` bump. Pushed to PR #130.
 
 **Files:**
 - `packages/mcp-servers/claude-code-docs/src/loader.ts` (the `fallbackSectionCount` computation + its comment, lines ~126-131)
@@ -880,10 +880,12 @@ grep -q '27 categories' AGENTS.md && grep -q '27 categories' CLAUDE.md
 
 ---
 
-## Open Questions
+## Resolution Log
 
-- **A7 vs B-prime freeze:** The recommended A7 edit (26 → 27) overrides a deliberate freeze in the predecessor B-prime plan. The override is well-founded — the freeze rationale ("changelog has none") is verified false against `golden-queries.test.ts` (changelog AND agent-sdk are both exercised; distinct count = 27) — but it should be confirmed by whoever owns the golden-queries coverage definition before the doc rows and the plan note change.
-- **B2 contract intent:** A maintainer must decide whether "policy change = cache miss" is the intended trust-boundary contract (Option i, fix code) or an aspirational doc claim (Option ii, correct the doc). Recommended (i). Before implementing (i), verify the exact field names `this.trustMode` / `this.docsUrl` on `ServerState` and `corpus.trustMode` / `corpus.docsUrl` on the parsed schema at the edit site; the packet asserts these are persisted in the `index-cache.ts` corpus block but the property path was not re-confirmed line-by-line in this plan.
-- **B3 asymmetry intent:** A maintainer should confirm the pre/post-filter population asymmetry is intended-and-documented (Option B, recommended) rather than a latent bug worth unifying (Option A, which would change a live gate input and force an `INGESTION_VERSION` bump).
-- **C1 freeze field names:** The C1 test asserts `result.nextPolicyState.lastHealthyFallbackSectionCount` / `.lastHealthyFallbackObservedAt`. Confirm those exact names on the evaluation result before committing; if the freeze fields differ, align the assertions.
+All decision items are RESOLVED and shipped to PR #130; no open questions remain.
+
+- **A7 (owner-confirmed 2026-05-30):** 26 → 27. Golden queries exercise all 27 canonical categories except the synthetic `uncategorized` fallback (`KNOWN_CATEGORIES` = 28, minus `uncategorized`); the prior "changelog has none" freeze rationale was empirically false (changelog AND agent-sdk are both exercised). Doc rows (AGENTS.md:86 / CLAUDE.md:93) + the B-prime freeze note corrected.
+- **B2 (Option i, commit `7d5b8f4e`):** trust-mode/`docsUrl` change is now a cache miss; `ServerState.trustMode`/`docsUrl` and `corpus.trustMode`/`docsUrl` field paths verified; TDD regression tests added (failed pre-fix, pass post-fix).
+- **B3 (Option B, commit `a22ef08b`):** pre/post-filter fallback-count population asymmetry documented inline; no gate-input change, no `INGESTION_VERSION` bump.
+- **C1 freeze field names:** confirmed — `nextPolicyState.lastHealthyFallbackSectionCount` / `.lastHealthyFallbackObservedAt` exist on the evaluation result and the test passes.
 - **No line-number conflicts found:** Where a packet cited a line number, the exact quoted current text was located at HEAD and matched (README ~42/46/77/125; AGENTS.md ~86/100; CLAUDE.md ~93; `frontmatter.ts` ~213; `status.ts:14`; `canary.ts` ~220-262/304-320; `lifecycle.ts` ~210-214; `loader.ts` ~126-171; test anchors at `canary.test.ts:439/541`, `loader.test.ts:14-18/827/840`, `bm25.test.ts:148/190`). The only count discrepancy (26 vs 27 golden-queries categories) is resolved in favor of the verified live count (27) under Task A7.
