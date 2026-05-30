@@ -38,11 +38,14 @@ export interface ServerStateDeps {
   retryIntervalMs?: number;
   docsUrl?: string;
   trustMode?: TrustMode;
+  minSectionCount?: number;
 }
 
 const DEFAULT_POLICY_STATE: PolicyState = {
   lastHealthySectionCount: null,
   lastHealthyObservedAt: null,
+  lastHealthyFallbackSectionCount: null,
+  lastHealthyFallbackObservedAt: null,
 };
 
 export class ServerState {
@@ -62,12 +65,14 @@ export class ServerState {
   private readonly deps: ServerStateDeps;
   private readonly docsUrl: string;
   private readonly timer: () => number;
+  private readonly minSectionCount?: number;
 
   constructor(deps: ServerStateDeps) {
     this.deps = deps;
     this.timer = deps.timerFn ?? Date.now;
     this.docsUrl = deps.docsUrl ?? 'https://code.claude.com/docs/llms-full.txt';
     this.trustMode = deps.trustMode ?? 'official';
+    this.minSectionCount = deps.minSectionCount;
 
     const retryMs = deps.retryIntervalMs ?? 60000;
     this.effectiveRetryInterval =
@@ -202,8 +207,23 @@ export class ServerState {
         parsed.compatibility?.chunker === CHUNKER_VERSION &&
         parsed.compatibility?.ingestion === INGESTION_VERSION;
 
-      const contentMatch = compatMatch && parsed!.corpus?.contentHash === contentHash;
-      const canaryMatch = contentMatch && parsed!.evaluation?.canaryVersion === CANARY_VERSION;
+      // A trust-mode or source-URL change alters which canaries run (official runs the
+      // fallback-segment + relative-drift checks; unsafe runs none) and which floor default
+      // applies, so a cached accept from one policy must not be reused under another even when
+      // the corpus bytes match. Treat a policy change as a cache miss (forces rebuild).
+      const policyMatch =
+        parsed?.corpus?.trustMode === this.trustMode &&
+        parsed?.corpus?.docsUrl === this.docsUrl;
+      const contentMatch =
+        compatMatch && policyMatch && parsed!.corpus?.contentHash === contentHash;
+      // A changed effective floor must re-evaluate rather than reuse the cached accept (P2):
+      // the canary decision depends on minSectionCount, so it is part of cache compatibility.
+      const minSectionCountMatch =
+        (parsed?.evaluation?.minSectionCount ?? null) === (this.minSectionCount ?? null);
+      const canaryMatch =
+        contentMatch &&
+        parsed!.evaluation?.canaryVersion === CANARY_VERSION &&
+        minSectionCountMatch;
 
       // Determine provenance comparison
       const cachedProvenance: CorpusProvenance | null = parsed?.corpus
@@ -230,8 +250,8 @@ export class ServerState {
           sourceAnchoredCount: parsed!.diagnostics.sourceAnchoredCount,
           nonEmptySectionCount: parsed!.diagnostics.nonEmptySectionCount,
           sectionCount: parsed!.diagnostics.sectionCount,
-          overviewSectionCount: parsed!.diagnostics.overviewSectionCount,
-          fallbackOverviewCount: parsed!.diagnostics.fallbackOverviewCount,
+          fallbackSectionCount: parsed!.diagnostics.fallbackSectionCount,
+          fallbackSegmentCount: parsed!.diagnostics.fallbackSegmentCount,
           unmappedSegments: parsed!.diagnostics.unmappedSegments,
           parseWarningCount: parsed!.diagnostics.parseWarningCount,
         } : null;
@@ -242,12 +262,21 @@ export class ServerState {
       // --- Path 2: Canary Replay ---
       if (contentMatch && !canaryMatch) {
         // Re-evaluate canaries with persisted diagnostics
-        const cachedDiagnostics: CorpusDiagnostics = parsed!.diagnostics;
+        const cachedDiagnostics: CorpusDiagnostics = {
+          sourceAnchoredCount: parsed!.diagnostics.sourceAnchoredCount,
+          nonEmptySectionCount: parsed!.diagnostics.nonEmptySectionCount,
+          sectionCount: parsed!.diagnostics.sectionCount,
+          fallbackSectionCount: parsed!.diagnostics.fallbackSectionCount,
+          fallbackSegmentCount: parsed!.diagnostics.fallbackSegmentCount,
+          unmappedSegments: parsed!.diagnostics.unmappedSegments,
+          parseWarningCount: parsed!.diagnostics.parseWarningCount,
+        };
         const evalResult = this.deps.evaluateCanariesFn({
           trustMode: this.trustMode,
           diagnostics: cachedDiagnostics,
           policyState: oldPolicyState,
           now: this.timer(),
+          minSectionCount: this.minSectionCount,
         });
 
         if (evalResult.decision === 'reject') {
@@ -288,6 +317,7 @@ export class ServerState {
               canaryVersion: CANARY_VERSION,
               warnings: evalResult.warnings,
               metrics: evalResult.metrics,
+              minSectionCount: this.minSectionCount ?? null,
             },
             indexCreatedAt: parsed!.index.createdAt,
           });
@@ -319,8 +349,8 @@ export class ServerState {
           sourceAnchoredCount: parsed!.diagnostics.sourceAnchoredCount,
           nonEmptySectionCount: parsed!.diagnostics.nonEmptySectionCount,
           sectionCount: parsed!.diagnostics.sectionCount,
-          overviewSectionCount: parsed!.diagnostics.overviewSectionCount,
-          fallbackOverviewCount: parsed!.diagnostics.fallbackOverviewCount,
+          fallbackSectionCount: parsed!.diagnostics.fallbackSectionCount,
+          fallbackSegmentCount: parsed!.diagnostics.fallbackSegmentCount,
           unmappedSegments: parsed!.diagnostics.unmappedSegments,
           parseWarningCount: parsed!.diagnostics.parseWarningCount,
         } : null;
@@ -338,6 +368,9 @@ export class ServerState {
               canaryVersion: CANARY_VERSION,
               warnings: parsed!.evaluation.warnings,
               metrics: parsed!.evaluation.metrics,
+              // Provenance refresh keeps the cached decision (canaryMatch held, so the floor
+              // is unchanged); preserve the floor it was evaluated under.
+              minSectionCount: parsed!.evaluation.minSectionCount ?? null,
             },
             indexCreatedAt: parsed!.index.createdAt,
           });
@@ -397,6 +430,7 @@ export class ServerState {
       diagnostics: corpusDiagnostics,
       policyState: oldPolicyState,
       now: this.timer(),
+      minSectionCount: this.minSectionCount,
     });
 
     if (evalResult.decision === 'reject') {
@@ -435,6 +469,7 @@ export class ServerState {
           canaryVersion: CANARY_VERSION,
           warnings: evalResult.warnings,
           metrics: evalResult.metrics,
+          minSectionCount: this.minSectionCount ?? null,
         },
       });
       await this.deps.writeCacheFn(indexCachePath, serialized);

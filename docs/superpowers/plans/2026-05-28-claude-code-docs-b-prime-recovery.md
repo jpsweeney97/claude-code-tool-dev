@@ -508,7 +508,7 @@ Also update the EXISTING assertions in the same file so they survive Step 3 (the
   - `CLAUDE.md:11` `category` param ("One of 26 categories or 5 aliases" → 28)
   - `CLAUDE.md:47` `categories.ts` module-map row ("26 canonical categories" → "28 canonical categories")
 
-  Leave the golden-queries rows (`AGENTS.md:86`, `CLAUDE.md:93`, "35 queries, 26 categories") **unchanged** — that 26 is a *coverage* count (golden queries exercise 26 canonical categories; `changelog` has none), not a canonical-count, so it stays 26 even at 28 canonical. This also resolves the pre-existing 26-vs-27 drift. (SF-1: the first correction pass fixed `AGENTS.md:11` but omitted `AGENTS.md:47` — both `CLAUDE.md` rows were fixed, only one of AGENTS.md's two.)
+  The golden-queries rows (`AGENTS.md:86`, `CLAUDE.md:93`) report a *coverage* count — the number of distinct `expectedTopCategory` values the queries exercise — not the canonical-category count, so it does not move with the 26→28 canonical change. **Corrected by the 2026-05-30 PR #130 review follow-up (Task A7): the live distinct-`expectedTopCategory` count is 27, not 26.** The original "26 / `changelog` has none" rationale was factually wrong — `golden-queries.test.ts` exercises both `changelog` and `agent-sdk` — so both rows now read "35 queries, 27 categories". (SF-1: the first correction pass fixed `AGENTS.md:11` but omitted `AGENTS.md:47` — both `CLAUDE.md` rows were fixed, only one of AGENTS.md's two.)
 
 - [ ] **Step 2: Run, verify FAIL**
 

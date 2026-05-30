@@ -16,24 +16,17 @@ import { deriveCategory, getUnmappedSegments } from './frontmatter.js';
 import type { SourceKind, CorpusProvenance } from './trust.js';
 import type { LoaderDiagnostics } from './canary.js';
 
-/**
- * Default minimum number of sections required for content to be considered valid.
- * Prevents caching truncated or incomplete documentation.
- * Current full docs have ~50 sections; 40 provides margin for minor changes.
- * Override with MIN_SECTION_COUNT env var for testing (set to 0 to disable).
- */
-const DEFAULT_MIN_SECTION_COUNT = 40;
-
-export function getMinSectionCount(): number {
-  const raw = process.env.MIN_SECTION_COUNT?.trim();
-  if (raw !== undefined && raw.length > 0) {
-    const val = parseInt(raw, 10);
-    if (Number.isFinite(val) && val >= 0) {
-      return val;
-    }
-  }
-  return DEFAULT_MIN_SECTION_COUNT;
-}
+/** Absolute floor below which fetched content is treated as truncated and must NOT overwrite the
+ *  content cache (B1). Fixed, not env-tunable: MIN_SECTION_COUNT tunes only the canary/index floor
+ *  (Task 2.4). The official corpus is ~141 sections, so 40 is a wide truncation margin.
+ *
+ *  Consequence (intentional): this guard is unconditional and runs BEFORE the canary, in BOTH
+ *  trust modes. A fresh fetch of fewer than 40 sections is rejected here, so the canary's lower
+ *  unsafe floor (UNSAFE_MIN_SECTION_COUNT=3) and a MIN_SECTION_COUNT=0 override apply only to
+ *  cached/replayed content — never to a fresh fetch. A small `unsafe` mirror must therefore seed a
+ *  cache first; it cannot bootstrap from a sub-40 fresh fetch. Lowering this floor to admit small
+ *  fresh fetches would reopen the truncated-overwrite hole B1 exists to close. */
+const CACHE_WRITE_MIN_SECTIONS = 40;
 
 /**
  * Error thrown when fetched content fails validation checks.
@@ -137,10 +130,20 @@ export async function loadFromOfficial(
   // Parse diagnostics: count only Source:-anchored sections (exclude preamble pseudo-section)
   const sourceAnchoredCount = sections.filter(s => s.sourceUrl !== '').length;
 
-  // Count overview sections (sections where deriveCategory returns 'overview')
-  const overviewSectionCount = sections.filter(s => {
+  // Count fallback sections (sections where deriveCategory returns 'uncategorized' —
+  // i.e. no URL segment was mapped). This is what the fallback-delta canary watches.
+  //
+  // NOTE — intentional population asymmetry: fallbackSectionCount is computed over the
+  // PRE-filter `sections` array (matching sectionCount = sections.length, the value the
+  // canary thresholds compare against), whereas fallbackSegmentCount / unmappedSegments
+  // below are derived from the POST-filter `filtered` set (and skip empty-sourceUrl
+  // preamble). The two are observability diagnostics over different populations; the
+  // canary gates (fallback_segment_collapse FAIL, fallback_segment_drift WARN) read
+  // fallbackSectionCount ONLY, so the asymmetry has no gate impact. Keep the gate input
+  // on the same pre-filter basis as sectionCount.
+  const fallbackSectionCount = sections.filter(s => {
     const sourceKey = s.sourceUrl || s.title || '';
-    return deriveCategory(sourceKey) === 'overview';
+    return deriveCategory(sourceKey) === 'uncategorized';
   }).length;
 
   console.error(
@@ -179,8 +182,8 @@ export async function loadFromOfficial(
       sourceAnchoredCount,
       nonEmptySectionCount: filtered.length,
       sectionCount: sections.length,
-      overviewSectionCount,
-      fallbackOverviewCount: sortedUnmapped.length,
+      fallbackSectionCount,
+      fallbackSegmentCount: sortedUnmapped.length,
       unmappedSegments: sortedUnmapped,
     },
     files: filtered.map((s) => {
@@ -222,11 +225,11 @@ async function fetchAndParse(
     const { content } = await fetchOfficialDocs(url);
     const sections = parseSections(content);
 
-    // Validate section count to detect truncated content
-    const minSections = getMinSectionCount();
-    if (minSections > 0 && sections.length < minSections) {
+    // Refuse to overwrite the content cache with truncated content (B1). Fixed floor; the canary
+    // owns the tunable index floor (Task 2.4). The throw fires BEFORE writeCache, so the good cache survives.
+    if (sections.length < CACHE_WRITE_MIN_SECTIONS) {
       throw new ContentValidationError(
-        `Fetched content has only ${sections.length} sections (minimum: ${minSections}). ` +
+        `Fetched content has only ${sections.length} sections (minimum: ${CACHE_WRITE_MIN_SECTIONS}). ` +
           'Content may be truncated or incomplete.',
       );
     }

@@ -65,6 +65,27 @@ describe('loadConfig', () => {
   });
 });
 
+describe('loadConfig: MIN_SECTION_COUNT', () => {
+  it('returns minSectionCount when env is set', () => {
+    const config = loadConfig({ MIN_SECTION_COUNT: '25' } as NodeJS.ProcessEnv);
+    expect(config.minSectionCount).toBe(25);
+  });
+
+  it('returns undefined when env is unset', () => {
+    const config = loadConfig({} as NodeJS.ProcessEnv);
+    expect(config.minSectionCount).toBeUndefined();
+  });
+
+  it('accepts 0 (disable floor)', () => {
+    const config = loadConfig({ MIN_SECTION_COUNT: '0' } as NodeJS.ProcessEnv);
+    expect(config.minSectionCount).toBe(0);
+  });
+
+  it('rejects negative values', () => {
+    expect(() => loadConfig({ MIN_SECTION_COUNT: '-1' } as NodeJS.ProcessEnv)).toThrow();
+  });
+});
+
 describe('trust mode', () => {
   it('defaults to official mode', () => {
     const config = loadConfig(makeEnv());

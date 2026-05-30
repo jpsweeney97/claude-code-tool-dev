@@ -196,6 +196,27 @@ describe('search with category filtering', () => {
     const results = search(index, 'hooks', 5, 'skills');
     expect(results).toHaveLength(0);
   });
+
+  it('filters by the literal \'uncategorized\' fallback category', () => {
+    // deriveCategory returns 'uncategorized' for URLs with no segment in SECTION_TO_CATEGORY
+    // (categories.ts). A chunk carrying that category must be both searchable unfiltered and
+    // selectable via category: 'uncategorized'.
+    const chunks = [
+      makeChunkWithCategory('uncat-1', 'orphan hooks content', ['orphan', 'hook', 'content'], 'uncategorized'),
+      makeChunkWithCategory('hooks-1', 'mapped hooks content', ['mapped', 'hook', 'content'], 'hooks'),
+    ];
+    const index = buildBM25Index(chunks);
+
+    // Unfiltered: the uncategorized chunk is returned alongside the mapped one.
+    const unfiltered = search(index, 'hooks', 5);
+    expect(unfiltered.map(r => r.chunk_id).sort()).toEqual(['hooks-1', 'uncat-1']);
+
+    // Filtered by the literal 'uncategorized' category: only the uncategorized chunk.
+    const filtered = search(index, 'hooks', 5, 'uncategorized');
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].chunk_id).toBe('uncat-1');
+    expect(filtered[0].category).toBe('uncategorized');
+  });
 });
 
 describe('search using inverted index', () => {

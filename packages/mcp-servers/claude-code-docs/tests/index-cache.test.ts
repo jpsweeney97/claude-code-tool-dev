@@ -51,23 +51,28 @@ function makeSerializeContext(overrides?: Partial<SerializeContext>): SerializeC
       sourceAnchoredCount: 10,
       nonEmptySectionCount: 50,
       sectionCount: 55,
-      overviewSectionCount: 2,
-      fallbackOverviewCount: 0,
+      fallbackSectionCount: 2,
+      fallbackSegmentCount: 0,
       unmappedSegments: [],
       parseWarningCount: 0,
     },
     policyState: {
       lastHealthySectionCount: 55,
       lastHealthyObservedAt: Date.now() - 86400000,
+      lastHealthyFallbackSectionCount: null,
+      lastHealthyFallbackObservedAt: null,
     },
     evaluation: {
       canaryVersion: CANARY_VERSION,
       warnings: [],
       metrics: {
-        overviewRatio: 0.036,
+        fallbackSectionRatio: 0.036,
         baselineSectionCount: 55,
         sectionCountDropRatio: 0,
+        fallbackSectionDelta: null,
+        fallbackSectionMultiplier: null,
       },
+      minSectionCount: 40,
     },
     ...overrides,
   };
@@ -160,7 +165,7 @@ describe('index serialization', () => {
   });
 });
 
-describe('SerializedIndex v4 schema', () => {
+describe('SerializedIndex v5 schema', () => {
   it('exports CANARY_VERSION', () => {
     expect(CANARY_VERSION).toBeGreaterThan(0);
   });
@@ -202,7 +207,7 @@ describe('SerializedIndex v4 schema', () => {
     // evaluation block
     expect(serialized.evaluation.canaryVersion).toBe(CANARY_VERSION);
     expect(serialized.evaluation.warnings).toEqual([]);
-    expect(serialized.evaluation.metrics.overviewRatio).toBeCloseTo(0.036);
+    expect(serialized.evaluation.metrics.fallbackSectionRatio).toBeCloseTo(0.036);
 
     // compatibility block
     expect(serialized.compatibility.tokenizer).toBe(TOKENIZER_VERSION);
@@ -249,6 +254,9 @@ describe('SerializedIndex v4 schema', () => {
     expect(parsed!.corpus.contentHash).toBe('rt-hash');
     expect(parsed!.diagnostics.sectionCount).toBe(55);
     expect(parsed!.evaluation.canaryVersion).toBe(CANARY_VERSION);
+    // P2: the persisted floor must survive serialize→parse (Zod strips unknown keys, so this
+    // proves minSectionCount is in the schema, not silently dropped).
+    expect(parsed!.evaluation.minSectionCount).toBe(40);
     expect(parsed!.compatibility.tokenizer).toBe(TOKENIZER_VERSION);
   });
 
@@ -291,6 +299,8 @@ describe('SerializedIndex v4 schema', () => {
       policyState: {
         lastHealthySectionCount: null,
         lastHealthyObservedAt: null,
+        lastHealthyFallbackSectionCount: null,
+        lastHealthyFallbackObservedAt: null,
       },
     });
     const serialized = serializeIndex(index, 'hash', ctx);
@@ -299,6 +309,8 @@ describe('SerializedIndex v4 schema', () => {
     expect(parsed).not.toBeNull();
     expect(parsed!.policyState.lastHealthySectionCount).toBeNull();
     expect(parsed!.policyState.lastHealthyObservedAt).toBeNull();
+    expect(parsed!.policyState.lastHealthyFallbackSectionCount).toBeNull();
+    expect(parsed!.policyState.lastHealthyFallbackObservedAt).toBeNull();
   });
 
   it('preserves evaluation warnings through round-trip', () => {
@@ -309,9 +321,9 @@ describe('SerializedIndex v4 schema', () => {
         canaryVersion: CANARY_VERSION,
         warnings: [
           {
-            code: 'taxonomy_drift',
+            code: 'fallback_segment_drift',
             severity: 'warn',
-            details: { unmapped_section_count: 5 },
+            details: { fallbackSectionCount: 5 },
           },
           {
             code: 'parse_issues',
@@ -320,10 +332,13 @@ describe('SerializedIndex v4 schema', () => {
           },
         ],
         metrics: {
-          overviewRatio: 0.1,
+          fallbackSectionRatio: 0.1,
           baselineSectionCount: 50,
           sectionCountDropRatio: 0.05,
+          fallbackSectionDelta: null,
+          fallbackSectionMultiplier: null,
         },
+        minSectionCount: null,
       },
     });
     const serialized = serializeIndex(index, 'hash', ctx);
@@ -331,7 +346,7 @@ describe('SerializedIndex v4 schema', () => {
 
     expect(parsed).not.toBeNull();
     expect(parsed!.evaluation.warnings).toHaveLength(2);
-    expect(parsed!.evaluation.warnings[0].code).toBe('taxonomy_drift');
+    expect(parsed!.evaluation.warnings[0].code).toBe('fallback_segment_drift');
     expect(parsed!.evaluation.warnings[1].code).toBe('parse_issues');
     expect(parsed!.evaluation.metrics.sectionCountDropRatio).toBeCloseTo(0.05);
   });

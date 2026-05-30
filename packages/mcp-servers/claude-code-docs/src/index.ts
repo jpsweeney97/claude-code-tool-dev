@@ -37,6 +37,7 @@ async function main() {
     docsUrl: config.docsUrl,
     retryIntervalMs: config.retryIntervalMs,
     trustMode: config.trustMode,
+    minSectionCount: config.minSectionCount,
   });
 
   const server = new McpServer({

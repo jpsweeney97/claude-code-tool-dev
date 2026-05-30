@@ -2,7 +2,7 @@
 
 /**
  * Canonical list of all documentation categories.
- * These are the 27 categories used for categorizing all Claude Code docs.
+ * These are the 28 categories used for categorizing all Claude Code docs.
  */
 export const KNOWN_CATEGORIES = new Set([
   // Extension categories (10)
@@ -16,7 +16,7 @@ export const KNOWN_CATEGORIES = new Set([
   'channels',
   'settings',
   'memory',
-  // General categories (17)
+  // General categories (18)
   'overview',
   'getting-started',
   'cli',
@@ -34,6 +34,7 @@ export const KNOWN_CATEGORIES = new Set([
   'operations',
   'troubleshooting',
   'changelog',
+  'uncategorized',  // fallback for URLs with no segment in SECTION_TO_CATEGORY
 ]);
 
 /**

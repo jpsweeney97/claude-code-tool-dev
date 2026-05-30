@@ -42,8 +42,8 @@ const DEFAULT_LOADER_DIAGNOSTICS: CorpusDiagnostics = {
   sourceAnchoredCount: 50,
   nonEmptySectionCount: 50,
   sectionCount: 50,
-  overviewSectionCount: 0,
-  fallbackOverviewCount: 0,
+  fallbackSectionCount: 0,
+  fallbackSegmentCount: 0,
   unmappedSegments: [],
   parseWarningCount: 0,
 };
@@ -53,8 +53,8 @@ function makeAcceptEvaluation(policyState?: PolicyState): CanaryEvaluation {
     decision: 'accept',
     rejection: null,
     warnings: [],
-    metrics: { overviewRatio: 0, baselineSectionCount: null, sectionCountDropRatio: null },
-    nextPolicyState: policyState ?? { lastHealthySectionCount: 50, lastHealthyObservedAt: 1000 },
+    metrics: { fallbackSectionRatio: 0, baselineSectionCount: null, sectionCountDropRatio: null, fallbackSectionDelta: null, fallbackSectionMultiplier: null },
+    nextPolicyState: policyState ?? { lastHealthySectionCount: 50, lastHealthyObservedAt: 1000, lastHealthyFallbackSectionCount: null, lastHealthyFallbackObservedAt: null },
   };
 }
 
@@ -63,8 +63,8 @@ function makeRejectEvaluation(): CanaryEvaluation {
     decision: 'reject',
     rejection: { code: 'no_source_markers', reason: 'No Source: markers found', details: {} },
     warnings: [],
-    metrics: { overviewRatio: 0, baselineSectionCount: null, sectionCountDropRatio: null },
-    nextPolicyState: { lastHealthySectionCount: null, lastHealthyObservedAt: null },
+    metrics: { fallbackSectionRatio: 0, baselineSectionCount: null, sectionCountDropRatio: null, fallbackSectionDelta: null, fallbackSectionMultiplier: null },
+    nextPolicyState: { lastHealthySectionCount: null, lastHealthyObservedAt: null, lastHealthyFallbackSectionCount: null, lastHealthyFallbackObservedAt: null },
   };
 }
 
@@ -83,8 +83,8 @@ function makeFullCacheSnapshot(overrides: Partial<SerializedIndex> = {}): Serial
       sourceAnchoredCount: 50,
       nonEmptySectionCount: 50,
       sectionCount: 50,
-      overviewSectionCount: 0,
-      fallbackOverviewCount: 0,
+      fallbackSectionCount: 0,
+      fallbackSegmentCount: 0,
       unmappedSegments: [],
       parseWarningCount: 0,
     },
@@ -96,11 +96,13 @@ function makeFullCacheSnapshot(overrides: Partial<SerializedIndex> = {}): Serial
     policyState: {
       lastHealthySectionCount: 50,
       lastHealthyObservedAt: 1000,
+      lastHealthyFallbackSectionCount: null,
+      lastHealthyFallbackObservedAt: null,
     },
     evaluation: {
       canaryVersion: CANARY_VERSION,
       warnings: [],
-      metrics: { overviewRatio: 0, baselineSectionCount: null, sectionCountDropRatio: null },
+      metrics: { fallbackSectionRatio: 0, baselineSectionCount: null, sectionCountDropRatio: null, fallbackSectionDelta: null, fallbackSectionMultiplier: null },
     },
     compatibility: {
       tokenizer: TOKENIZER_VERSION,
@@ -325,7 +327,7 @@ describe('ServerState', () => {
 
       it('preserves policyState from cache on full hit', async () => {
         const snapshot = makeFullCacheSnapshot({
-          policyState: { lastHealthySectionCount: 42, lastHealthyObservedAt: 500 },
+          policyState: { lastHealthySectionCount: 42, lastHealthyObservedAt: 500, lastHealthyFallbackSectionCount: null, lastHealthyFallbackObservedAt: null },
         });
 
         const deps = makeDeps({
@@ -338,7 +340,43 @@ describe('ServerState', () => {
         expect(state.getPolicyState()).toEqual({
           lastHealthySectionCount: 42,
           lastHealthyObservedAt: 500,
+          lastHealthyFallbackSectionCount: null,
+          lastHealthyFallbackObservedAt: null,
         });
+      });
+
+      it('does NOT full-hit a cached accept when trust mode changed (B2)', async () => {
+        // Cache was written under official trust mode; ServerState now runs unsafe. Even with
+        // identical contentHash and MIN_SECTION_COUNT unset, the policy change selects different
+        // canaries and floor defaults, so the official-mode accept must NOT be reused — rebuild instead.
+        const snapshot = makeFullCacheSnapshot(); // corpus.trustMode = 'official'
+        const deps = makeDeps({
+          trustMode: 'unsafe',
+          parseSerializedIndexFn: vi.fn().mockReturnValue(snapshot),
+        });
+        const state = new ServerState(deps);
+
+        await state.ensureIndex();
+
+        // Policy mismatch → cache miss → Path 3 rebuild, not a deserialize full hit.
+        expect(deps.buildIndexFn).toHaveBeenCalledOnce();
+        expect(deps.evaluateCanariesFn).toHaveBeenCalledOnce();
+        expect(deps.deserializeIndexFn).not.toHaveBeenCalled();
+      });
+
+      it('does NOT full-hit a cached accept when docsUrl changed (B2)', async () => {
+        // Cache was written for one source URL; ServerState now points at another.
+        const snapshot = makeFullCacheSnapshot(); // corpus.docsUrl = 'https://test.example.com/docs'
+        const deps = makeDeps({
+          docsUrl: 'https://test.example.com/docs/v2',
+          parseSerializedIndexFn: vi.fn().mockReturnValue(snapshot),
+        });
+        const state = new ServerState(deps);
+
+        await state.ensureIndex();
+
+        expect(deps.buildIndexFn).toHaveBeenCalledOnce();
+        expect(deps.deserializeIndexFn).not.toHaveBeenCalled();
       });
     });
 
@@ -349,7 +387,7 @@ describe('ServerState', () => {
           evaluation: {
             canaryVersion: CANARY_VERSION - 1, // old canary version
             warnings: [],
-            metrics: { overviewRatio: 0, baselineSectionCount: null, sectionCountDropRatio: null },
+            metrics: { fallbackSectionRatio: 0, baselineSectionCount: null, sectionCountDropRatio: null, fallbackSectionDelta: null, fallbackSectionMultiplier: null },
           },
         });
 
@@ -374,7 +412,7 @@ describe('ServerState', () => {
           evaluation: {
             canaryVersion: CANARY_VERSION - 1, // triggers replay
             warnings: [],
-            metrics: { overviewRatio: 0, baselineSectionCount: null, sectionCountDropRatio: null },
+            metrics: { fallbackSectionRatio: 0, baselineSectionCount: null, sectionCountDropRatio: null, fallbackSectionDelta: null, fallbackSectionMultiplier: null },
           },
         });
 
@@ -395,15 +433,15 @@ describe('ServerState', () => {
 
       it('carries forward policyState through canary replay', async () => {
         const snapshot = makeFullCacheSnapshot({
-          policyState: { lastHealthySectionCount: 42, lastHealthyObservedAt: 500 },
+          policyState: { lastHealthySectionCount: 42, lastHealthyObservedAt: 500, lastHealthyFallbackSectionCount: null, lastHealthyFallbackObservedAt: null },
           evaluation: {
             canaryVersion: CANARY_VERSION - 1,
             warnings: [],
-            metrics: { overviewRatio: 0, baselineSectionCount: null, sectionCountDropRatio: null },
+            metrics: { fallbackSectionRatio: 0, baselineSectionCount: null, sectionCountDropRatio: null, fallbackSectionDelta: null, fallbackSectionMultiplier: null },
           },
         });
 
-        const evalResult = makeAcceptEvaluation({ lastHealthySectionCount: 50, lastHealthyObservedAt: 1000 });
+        const evalResult = makeAcceptEvaluation({ lastHealthySectionCount: 50, lastHealthyObservedAt: 1000, lastHealthyFallbackSectionCount: null, lastHealthyFallbackObservedAt: null });
         const deps = makeDeps({
           parseSerializedIndexFn: vi.fn().mockReturnValue(snapshot),
           evaluateCanariesFn: vi.fn().mockReturnValue(evalResult),
@@ -415,12 +453,61 @@ describe('ServerState', () => {
         // evaluateCanariesFn receives the old policyState from cache
         expect(deps.evaluateCanariesFn).toHaveBeenCalledWith(
           expect.objectContaining({
-            policyState: { lastHealthySectionCount: 42, lastHealthyObservedAt: 500 },
+            policyState: { lastHealthySectionCount: 42, lastHealthyObservedAt: 500, lastHealthyFallbackSectionCount: null, lastHealthyFallbackObservedAt: null },
           }),
         );
 
         // ServerState adopts the nextPolicyState from evaluation
-        expect(state.getPolicyState()).toEqual({ lastHealthySectionCount: 50, lastHealthyObservedAt: 1000 });
+        expect(state.getPolicyState()).toEqual({ lastHealthySectionCount: 50, lastHealthyObservedAt: 1000, lastHealthyFallbackSectionCount: null, lastHealthyFallbackObservedAt: null });
+      });
+    });
+
+    describe('MIN_SECTION_COUNT cache compatibility (P2)', () => {
+      it('re-evaluates (Path 2) when the effective minSectionCount differs from the cached evaluation', async () => {
+        // P2: minSectionCount feeds the canary decision but was absent from the compatibility
+        // check, so tightening the floor on restart reused the cached accept (Path 1) and
+        // served an under-floor corpus. A floor change must drop to canary replay.
+        const mockIndex = makeMockIndex();
+        const snapshot = makeFullCacheSnapshot({
+          evaluation: {
+            canaryVersion: CANARY_VERSION, // versions match → full hit but for the floor change
+            minSectionCount: 0,            // cache written with the floor disabled
+            warnings: [],
+            metrics: { fallbackSectionRatio: 0, baselineSectionCount: null, sectionCountDropRatio: null, fallbackSectionDelta: null, fallbackSectionMultiplier: null },
+          },
+        });
+
+        const deps = makeDeps({
+          parseSerializedIndexFn: vi.fn().mockReturnValue(snapshot),
+          deserializeIndexFn: vi.fn().mockReturnValue(mockIndex),
+          minSectionCount: 100, // restarted with a stricter floor
+        });
+        const state = new ServerState(deps);
+
+        await state.ensureIndex();
+
+        expect(deps.evaluateCanariesFn).toHaveBeenCalledOnce();
+      });
+
+      it('still takes Path 1 (full hit) when the effective minSectionCount matches the cached evaluation', async () => {
+        const snapshot = makeFullCacheSnapshot({
+          evaluation: {
+            canaryVersion: CANARY_VERSION,
+            minSectionCount: 40,
+            warnings: [],
+            metrics: { fallbackSectionRatio: 0, baselineSectionCount: null, sectionCountDropRatio: null, fallbackSectionDelta: null, fallbackSectionMultiplier: null },
+          },
+        });
+
+        const deps = makeDeps({
+          parseSerializedIndexFn: vi.fn().mockReturnValue(snapshot),
+          minSectionCount: 40,
+        });
+        const state = new ServerState(deps);
+
+        await state.ensureIndex();
+
+        expect(deps.evaluateCanariesFn).not.toHaveBeenCalled();
       });
     });
 
@@ -485,7 +572,7 @@ describe('ServerState', () => {
 
       it('carries forward policyState from cache on rebuild', async () => {
         const snapshot = makeFullCacheSnapshot({
-          policyState: { lastHealthySectionCount: 42, lastHealthyObservedAt: 500 },
+          policyState: { lastHealthySectionCount: 42, lastHealthyObservedAt: 500, lastHealthyFallbackSectionCount: null, lastHealthyFallbackObservedAt: null },
           compatibility: {
             tokenizer: TOKENIZER_VERSION + 1, // force rebuild
             chunker: CHUNKER_VERSION,
@@ -503,7 +590,7 @@ describe('ServerState', () => {
         // The evaluateCanariesFn receives the old policyState from cache
         expect(deps.evaluateCanariesFn).toHaveBeenCalledWith(
           expect.objectContaining({
-            policyState: { lastHealthySectionCount: 42, lastHealthyObservedAt: 500 },
+            policyState: { lastHealthySectionCount: 42, lastHealthyObservedAt: 500, lastHealthyFallbackSectionCount: null, lastHealthyFallbackObservedAt: null },
           }),
         );
       });
@@ -643,7 +730,7 @@ describe('ServerState', () => {
           evaluation: {
             canaryVersion: CANARY_VERSION - 1, // old canary — needs replay
             warnings: [],
-            metrics: { overviewRatio: 0, baselineSectionCount: null, sectionCountDropRatio: null },
+            metrics: { fallbackSectionRatio: 0, baselineSectionCount: null, sectionCountDropRatio: null, fallbackSectionDelta: null, fallbackSectionMultiplier: null },
           },
         });
 
@@ -680,7 +767,7 @@ describe('ServerState', () => {
           evaluation: {
             canaryVersion: CANARY_VERSION - 1, // old canary
             warnings: [],
-            metrics: { overviewRatio: 0, baselineSectionCount: null, sectionCountDropRatio: null },
+            metrics: { fallbackSectionRatio: 0, baselineSectionCount: null, sectionCountDropRatio: null, fallbackSectionDelta: null, fallbackSectionMultiplier: null },
           },
         });
 
@@ -722,7 +809,7 @@ describe('ServerState', () => {
           evaluation: {
             canaryVersion: CANARY_VERSION - 1,
             warnings: [],
-            metrics: { overviewRatio: 0, baselineSectionCount: null, sectionCountDropRatio: null },
+            metrics: { fallbackSectionRatio: 0, baselineSectionCount: null, sectionCountDropRatio: null, fallbackSectionDelta: null, fallbackSectionMultiplier: null },
           },
         });
 
@@ -752,7 +839,7 @@ describe('ServerState', () => {
           evaluation: {
             canaryVersion: CANARY_VERSION - 1,
             warnings: [],
-            metrics: { overviewRatio: 0, baselineSectionCount: null, sectionCountDropRatio: null },
+            metrics: { fallbackSectionRatio: 0, baselineSectionCount: null, sectionCountDropRatio: null, fallbackSectionDelta: null, fallbackSectionMultiplier: null },
           },
         });
 
@@ -787,7 +874,7 @@ describe('ServerState', () => {
           evaluation: {
             canaryVersion: CANARY_VERSION - 1,
             warnings: [],
-            metrics: { overviewRatio: 0, baselineSectionCount: null, sectionCountDropRatio: null },
+            metrics: { fallbackSectionRatio: 0, baselineSectionCount: null, sectionCountDropRatio: null, fallbackSectionDelta: null, fallbackSectionMultiplier: null },
           },
         });
 
@@ -1125,6 +1212,8 @@ describe('ServerState', () => {
       const evalResult = makeAcceptEvaluation({
         lastHealthySectionCount: 42,
         lastHealthyObservedAt: 1000,
+        lastHealthyFallbackSectionCount: null,
+        lastHealthyFallbackObservedAt: null,
       });
 
       const deps = makeDeps({
@@ -1137,6 +1226,8 @@ describe('ServerState', () => {
       expect(state.getPolicyState()).toEqual({
         lastHealthySectionCount: 42,
         lastHealthyObservedAt: 1000,
+        lastHealthyFallbackSectionCount: null,
+        lastHealthyFallbackObservedAt: null,
       });
 
       // Reload preserves policyState (no clearCacheFn call, and in-memory state survives)
@@ -1144,6 +1235,8 @@ describe('ServerState', () => {
       expect(state.getPolicyState()).toEqual({
         lastHealthySectionCount: 42,
         lastHealthyObservedAt: 1000,
+        lastHealthyFallbackSectionCount: null,
+        lastHealthyFallbackObservedAt: null,
       });
     });
 
@@ -1201,6 +1294,8 @@ describe('ServerState', () => {
       expect(state.getPolicyState()).toEqual({
         lastHealthySectionCount: null,
         lastHealthyObservedAt: null,
+        lastHealthyFallbackSectionCount: null,
+        lastHealthyFallbackObservedAt: null,
       });
     });
 

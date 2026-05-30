@@ -12,7 +12,7 @@ export const TrustModeSchema = z.enum(['official', 'unsafe']);
 export const SourceKindSchema = z.enum(['fetched', 'cached', 'stale-fallback', 'bundled-snapshot']);
 
 export const StatusWarningCodeSchema = z.enum([
-  'taxonomy_drift',
+  'fallback_segment_drift',
   'parse_issues',
   'section_count_drift',
   'stale_corpus',

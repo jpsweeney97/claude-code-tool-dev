@@ -10,6 +10,8 @@ export interface AppConfig {
   docsUrl: string;
   retryIntervalMs: number;
   trustMode: TrustMode;
+  /** Override for the canary's minimum-section-count floor. Undefined → canary uses its default per trust mode. 0 → floor disabled. */
+  minSectionCount?: number;
 }
 
 function formatInput(input: unknown): string {
@@ -114,7 +116,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   // Validate additional env vars consumed in lower layers.
   parseOptionalInt(env, 'CACHE_TTL_MS', { min: 0 });
   parseOptionalInt(env, 'DOCS_CACHE_MAX_STALE_MS', { min: 0 });
-  parseOptionalInt(env, 'MIN_SECTION_COUNT', { min: 0 });
+  const minSectionCount = parseOptionalInt(env, 'MIN_SECTION_COUNT', { min: 0, allowZero: true });
   parseOptionalInt(env, 'MAX_INDEX_CACHE_BYTES', { min: 1 });
   parseOptionalInt(env, 'MAX_RESPONSE_BYTES', { min: 1 });
   parseOptionalInt(env, 'FETCH_TIMEOUT_MS', { min: 0 });
@@ -124,5 +126,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     docsUrl,
     retryIntervalMs,
     trustMode,
+    minSectionCount,
   };
 }

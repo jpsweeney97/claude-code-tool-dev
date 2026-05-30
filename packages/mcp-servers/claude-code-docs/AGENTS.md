@@ -8,7 +8,7 @@ BM25-based search server for Claude Code documentation. Fetches docs from `https
 |-----------|------|----------|---------|-------------|
 | `query` | string | yes | — | Max 500 chars, trimmed |
 | `limit` | integer | no | `5` | 1–20 |
-| `category` | string | no | — | One of 26 categories or 5 aliases (see `categories.ts`) |
+| `category` | string | no | — | One of 28 categories or 5 aliases (see `categories.ts`); `'uncategorized'` is the fallback for unrecognized URL slugs |
 
 ## Commands
 
@@ -44,7 +44,7 @@ loadFromOfficial (fetch + parse docs)
 | `bm25.ts` | BM25 scoring, heading boost, snippet extraction |
 | `index-cache.ts` | Serialization, version constants, Zod schemas |
 | `tokenizer.ts` | Porter stemmer + CamelCase splitting |
-| `categories.ts` | 26 canonical categories, URL-to-category mapping, 5 aliases (`subagents`→`agents`, `sub-agents`→`agents`, `slash-commands`→`commands`, `claude-md`→`memory`, `configuration`→`config`) |
+| `categories.ts` | 28 canonical categories, URL-to-category mapping, 5 aliases (`subagents`→`agents`, `sub-agents`→`agents`, `slash-commands`→`commands`, `claude-md`→`memory`, `configuration`→`config`) |
 | `types.ts` | `Chunk`, `SearchResult`, `MarkdownFile`, `ParsedSection` interfaces |
 | `cache.ts` | Filesystem cache read/write for index persistence |
 | `parser.ts` | Parses `llms-full.txt` into `ParsedSection[]` via Source-line splitting |
@@ -62,7 +62,7 @@ loadFromOfficial (fetch + parse docs)
 ### Key Design Patterns
 
 - **Constructor injection** in `ServerState` — all I/O functions injected, enabling test isolation without mocks
-- **Four version constants** gate cache validity: `INDEX_FORMAT_VERSION`, `TOKENIZER_VERSION`, `CHUNKER_VERSION`, `INGESTION_VERSION`. Bump the relevant constant when changing a subsystem.
+- **Five version constants** gate cache validity: `INDEX_FORMAT_VERSION`, `TOKENIZER_VERSION`, `CHUNKER_VERSION`, `INGESTION_VERSION`, `CANARY_VERSION`. Bump the relevant constant when changing a subsystem.
 - **Two-cache architecture**: content cache (TTL-based, raw HTTP response) and index cache (version-based, serialized BM25 index) invalidate independently
 - **Chunking hierarchy**: H2 → H3 → paragraph → hard split with overlap. Each level cascades when chunks exceed size limits.
 
@@ -83,7 +83,7 @@ Tests mirror source 1:1 (`src/foo.ts` → `tests/foo.test.ts`). Additional test 
 
 | Test | Purpose |
 |------|---------|
-| `golden-queries.test.ts` | Multi-category query coverage (35 queries, 26 categories) — validates search quality |
+| `golden-queries.test.ts` | Multi-category query coverage (35 queries, 27 categories) — validates search quality |
 | `integration.test.ts` | End-to-end pipeline assessment (skipped by default — run with `INTEGRATION=1`) |
 | `corpus-validation.test.ts` | Validates chunking invariants across full corpus (requires content cache) |
 | `cache.mock.test.ts` | Cache behavior with mocked filesystem |
@@ -97,7 +97,7 @@ Tests mirror source 1:1 (`src/foo.ts` → `tests/foo.test.ts`). Additional test 
 | `RETRY_INTERVAL_MS` | `60000` | Retry interval after fetch failure |
 | `CACHE_TTL_MS` | `86400000` (24h) | Content cache TTL |
 | `DOCS_CACHE_MAX_STALE_MS` | `0` (disabled) | Hard limit on stale content cache age. Set to enable (e.g. `604800000` for 7d). |
-| `MIN_SECTION_COUNT` | `40` | Minimum sections in fetched content. Rejects truncated docs. Set to `0` to disable. |
+| `MIN_SECTION_COUNT` | (unset) | Override for the canary's index floor. Unset → canary uses its trust-mode default (official: 40, unsafe: 3). Set to `0` to disable the index floor. Does NOT affect the content-cache write guard, which is fixed at 40 (`CACHE_WRITE_MIN_SECTIONS`). |
 | `MAX_INDEX_CACHE_BYTES` | `52428800` (50 MB) | Hard limit on serialized index size before write |
 | `INTEGRATION` | (unset) | Set to `1` to run `integration.test.ts` against live `code.claude.com` |
 

@@ -3,19 +3,19 @@ import { describe, it, expect } from 'vitest';
 import { KNOWN_CATEGORIES, SECTION_TO_CATEGORY, CATEGORY_ALIASES } from '../src/categories.js';
 
 describe('KNOWN_CATEGORIES', () => {
-  it('contains all 27 canonical categories', () => {
+  it('contains all 28 canonical categories', () => {
     const expected = [
       // Extension categories (10)
       'hooks', 'skills', 'commands', 'agents', 'plugins',
       'plugin-marketplaces', 'mcp', 'channels', 'settings', 'memory',
-      // General categories (17)
+      // General categories (18)
       'overview', 'getting-started', 'cli', 'best-practices',
       'interactive', 'security', 'providers', 'ide', 'ci-cd',
       'automation', 'agent-sdk', 'desktop', 'integrations', 'config',
-      'operations', 'troubleshooting', 'changelog',
+      'operations', 'troubleshooting', 'changelog', 'uncategorized',
     ];
 
-    expect(KNOWN_CATEGORIES.size).toBe(27);
+    expect(KNOWN_CATEGORIES.size).toBe(28);
     for (const cat of expected) {
       expect(KNOWN_CATEGORIES.has(cat)).toBe(true);
     }
@@ -114,5 +114,11 @@ describe('CATEGORY_ALIASES', () => {
     expect(CATEGORY_ALIASES['slash-commands']).toBe('commands');
     expect(CATEGORY_ALIASES['claude-md']).toBe('memory');
     expect(CATEGORY_ALIASES['configuration']).toBe('config');
+  });
+});
+
+describe('KNOWN_CATEGORIES: uncategorized fallback', () => {
+  it("includes 'uncategorized' for fallback classification", () => {
+    expect(KNOWN_CATEGORIES.has('uncategorized')).toBe(true);
   });
 });

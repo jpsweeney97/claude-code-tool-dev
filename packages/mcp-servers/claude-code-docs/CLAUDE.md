@@ -8,7 +8,7 @@ BM25-based search server for Claude Code documentation. Fetches docs from `https
 |-----------|------|----------|---------|-------------|
 | `query` | string | yes | — | Max 500 chars, trimmed |
 | `limit` | integer | no | `5` | 1–20 |
-| `category` | string | no | — | One of 26 categories or 5 aliases (see `categories.ts`) |
+| `category` | string | no | — | One of 28 categories or 5 aliases (see `categories.ts`); `'uncategorized'` is the fallback for unrecognized URL slugs |
 
 ## Commands
 
@@ -44,7 +44,7 @@ loadFromOfficial (fetch + parse docs)
 | `bm25.ts` | BM25 scoring, heading boost, snippet extraction |
 | `index-cache.ts` | Serialization, version constants, Zod schemas |
 | `tokenizer.ts` | Porter stemmer + CamelCase splitting |
-| `categories.ts` | 26 canonical categories, URL-to-category mapping, 5 aliases (`subagents`→`agents`, `sub-agents`→`agents`, `slash-commands`→`commands`, `claude-md`→`memory`, `configuration`→`config`) |
+| `categories.ts` | 28 canonical categories, URL-to-category mapping, 5 aliases (`subagents`→`agents`, `sub-agents`→`agents`, `slash-commands`→`commands`, `claude-md`→`memory`, `configuration`→`config`) |
 | `types.ts` | `Chunk`, `SearchResult`, `MarkdownFile`, `ParsedSection` interfaces |
 | `cache.ts` | Filesystem cache read/write for index persistence |
 | `parser.ts` | Parses `llms-full.txt` into `ParsedSection[]` via Source-line splitting |
@@ -70,7 +70,7 @@ loadFromOfficial (fetch + parse docs)
 - **Chunking hierarchy**: H2 → H3 → paragraph → hard split with overlap. Each level cascades when chunks exceed size limits.
 - **Five-block serialized index structure**: `corpus` (content hash + provenance), `diagnostics` (canary evaluation inputs), `index` (build timestamp + counts), `policyState` (baseline tracking), `evaluation` (canary pass/fail + CANARY_VERSION) + top-level `compatibility` block (all version constants). BM25 data (chunks, docFrequency, invertedIndex) lives at the top level outside the named blocks.
 - **Four cache load paths**: (1) full hit — all versions match and canary passes; (2) canary replay — versions match but canary re-evaluated (threshold changed); (3) rebuild — version mismatch, fetch fresh; (4) provenance refresh — provenance improved (better source kind or newer), re-persist corpus block
-- **Trust modes**: `official` pins the source URL to `code.claude.com` and enables full canary evaluation (taxonomy + relative-drift checks); `unsafe` accepts any HTTPS URL and runs structural canaries only (count + size checks)
+- **Trust modes**: `official` pins the source URL to `code.claude.com` and enables full canary evaluation (fallback-segment delta + relative-drift checks); `unsafe` accepts any HTTPS URL and runs structural canaries only (count + size checks)
 - **`CANARY_VERSION`** in the evaluation block — bump when changing canary thresholds or adding/removing canary checks. Changing only the diagnostic computation (not thresholds) bumps `INGESTION_VERSION` instead.
 
 ### Cache Paths
@@ -90,7 +90,7 @@ Tests mirror source 1:1 (`src/foo.ts` → `tests/foo.test.ts`). Additional test 
 
 | Test | Purpose |
 |------|---------|
-| `golden-queries.test.ts` | Multi-category query coverage (35 queries, 26 categories) — validates search quality |
+| `golden-queries.test.ts` | Multi-category query coverage (35 queries, 27 categories) — validates search quality |
 | `integration.test.ts` | End-to-end pipeline assessment (skipped by default — run with `INTEGRATION=1`) |
 | `corpus-validation.test.ts` | Validates chunking invariants across full corpus (requires content cache) |
 | `cache.mock.test.ts` | Cache behavior with mocked filesystem |
@@ -105,7 +105,7 @@ Tests mirror source 1:1 (`src/foo.ts` → `tests/foo.test.ts`). Additional test 
 | `RETRY_INTERVAL_MS` | `60000` | Retry interval after fetch failure |
 | `CACHE_TTL_MS` | `86400000` (24h) | Content cache TTL |
 | `DOCS_CACHE_MAX_STALE_MS` | `0` (disabled) | Hard limit on stale content cache age. Set to enable (e.g. `604800000` for 7d). |
-| `MIN_SECTION_COUNT` | `40` | Minimum sections in fetched content. Rejects truncated docs. Set to `0` to disable. |
+| `MIN_SECTION_COUNT` | (unset) | Override for the canary's index floor. Unset → canary uses its trust-mode default (official: 40, unsafe: 3). Set to `0` to disable the index floor. Does NOT affect the content-cache write guard, which is fixed at 40 (`CACHE_WRITE_MIN_SECTIONS`) and rejects sub-40 **fresh fetches** in both trust modes before the canary runs — so this override (and the unsafe floor of 3) apply only to cached/replayed content. |
 | `MAX_INDEX_CACHE_BYTES` | `52428800` (50 MB) | Hard limit on serialized index size before write |
 | `INTEGRATION` | (unset) | Set to `1` to run `integration.test.ts` against live `code.claude.com` |
 
@@ -121,7 +121,7 @@ Tests mirror source 1:1 (`src/foo.ts` → `tests/foo.test.ts`). Additional test 
   - Without the correct bump, stale cached indexes will be served.
 - **BM25 params are query-time only**: `k1`, `b`, `headingBoost`, `headingMinCoverage`, `snippetMaxLength` in `BM25_CONFIG` do not affect the stored index. No cache invalidation needed when changing them.
 - **Zod strips unknown keys by default**: When adding fields to serialized structures, update both the TypeScript interface and the Zod schema in `index-cache.ts`.
-- **Unsafe mode is an escape hatch, not multi-corpus support**: In `unsafe` mode, taxonomy and relative-drift canary checks are disabled. The server accepts any HTTPS source URL but cannot verify corpus authenticity against expected Claude Code doc structure. Use only for local testing or private mirrors.
+- **Unsafe mode is an escape hatch, not multi-corpus support**: In `unsafe` mode, fallback-segment delta and relative-drift canary checks are disabled. The server accepts any HTTPS source URL but cannot verify corpus authenticity against expected Claude Code doc structure. Use only for local testing or private mirrors. A small mirror (under 40 sections) cannot bootstrap from a fresh fetch — the fixed `CACHE_WRITE_MIN_SECTIONS=40` content-write guard rejects it before the canary's lower unsafe floor applies; seed a content cache first.
 - **Provenance refresh triggers a full rebuild**: When `DOCS_TRUST_MODE` or `DOCS_URL` changes between runs, the cached index is invalidated even if all version constants match — the policy change is a cache miss by design.
 
 ## Auto-Build
