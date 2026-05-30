@@ -344,6 +344,40 @@ describe('ServerState', () => {
           lastHealthyFallbackObservedAt: null,
         });
       });
+
+      it('does NOT full-hit a cached accept when trust mode changed (B2)', async () => {
+        // Cache was written under official trust mode; ServerState now runs unsafe. Even with
+        // identical contentHash and MIN_SECTION_COUNT unset, the policy change selects different
+        // canaries and floor defaults, so the official-mode accept must NOT be reused — rebuild instead.
+        const snapshot = makeFullCacheSnapshot(); // corpus.trustMode = 'official'
+        const deps = makeDeps({
+          trustMode: 'unsafe',
+          parseSerializedIndexFn: vi.fn().mockReturnValue(snapshot),
+        });
+        const state = new ServerState(deps);
+
+        await state.ensureIndex();
+
+        // Policy mismatch → cache miss → Path 3 rebuild, not a deserialize full hit.
+        expect(deps.buildIndexFn).toHaveBeenCalledOnce();
+        expect(deps.evaluateCanariesFn).toHaveBeenCalledOnce();
+        expect(deps.deserializeIndexFn).not.toHaveBeenCalled();
+      });
+
+      it('does NOT full-hit a cached accept when docsUrl changed (B2)', async () => {
+        // Cache was written for one source URL; ServerState now points at another.
+        const snapshot = makeFullCacheSnapshot(); // corpus.docsUrl = 'https://test.example.com/docs'
+        const deps = makeDeps({
+          docsUrl: 'https://test.example.com/docs/v2',
+          parseSerializedIndexFn: vi.fn().mockReturnValue(snapshot),
+        });
+        const state = new ServerState(deps);
+
+        await state.ensureIndex();
+
+        expect(deps.buildIndexFn).toHaveBeenCalledOnce();
+        expect(deps.deserializeIndexFn).not.toHaveBeenCalled();
+      });
     });
 
     describe('Path 2: Canary Replay', () => {

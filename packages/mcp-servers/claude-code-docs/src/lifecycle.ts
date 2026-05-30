@@ -207,7 +207,15 @@ export class ServerState {
         parsed.compatibility?.chunker === CHUNKER_VERSION &&
         parsed.compatibility?.ingestion === INGESTION_VERSION;
 
-      const contentMatch = compatMatch && parsed!.corpus?.contentHash === contentHash;
+      // A trust-mode or source-URL change alters which canaries run (official runs the
+      // fallback-segment + relative-drift checks; unsafe runs none) and which floor default
+      // applies, so a cached accept from one policy must not be reused under another even when
+      // the corpus bytes match. Treat a policy change as a cache miss (forces rebuild).
+      const policyMatch =
+        parsed?.corpus?.trustMode === this.trustMode &&
+        parsed?.corpus?.docsUrl === this.docsUrl;
+      const contentMatch =
+        compatMatch && policyMatch && parsed!.corpus?.contentHash === contentHash;
       // A changed effective floor must re-evaluate rather than reuse the cached accept (P2):
       // the canary decision depends on minSectionCount, so it is part of cache compatibility.
       const minSectionCountMatch =
