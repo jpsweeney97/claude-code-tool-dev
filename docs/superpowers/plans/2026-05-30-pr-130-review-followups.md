@@ -295,17 +295,23 @@ cd packages/mcp-servers/claude-code-docs && test "$(grep -o "expectedTopCategory
 1. **"warnings []" (empty) on the isolated live boot.** This is inconsistent with the first-run warn path. `canary.ts:304-320` emits a `fallback_segment_drift` warn when `trustMode === 'official' && baselineFallback === null && fallbackSectionCount >= FALLBACK_DELTA_WARN_ABS`, and `FALLBACK_DELTA_WARN_ABS = 5` (`canary.ts:22`). A genuine first boot against the live ~25-fallback corpus has a null baseline and ≥5 fallback sections, so it MUST emit `fallback_segment_drift` — i.e. warnings cannot be `[]`. (This is the explicit P1 fix landed in `6b1625f6` "warn and establish baseline on first canary run"; a clean cold boot should warn, not stay silent.)
 2. **"572 passed" is stale** relative to HEAD (`8dbb0c4`). Do not re-derive the number statically — a grep of `it()`/`test()` literals undercounts because some cases are loop-generated, so it will not match the runtime total.
 
-**Recommended remediation (for the human to perform on GitHub):**
-- [ ] Re-run the isolated live boot at HEAD and capture the ACTUAL `warning_codes` (expected to include `fallback_segment_drift` on a cold baseline).
-- [ ] Run `cd packages/mcp-servers/claude-code-docs && npx vitest run` and capture the real total.
-- [ ] Edit the PR #130 body to replace the "warnings []" line with the observed first-run warnings, and update the passed-count to the freshly observed number.
+**Remediation — COMPLETED 2026-05-30 (empirical, GitHub body edited).**
 
-**Verification (evidence-capture only — no commit):**
-```bash
-cd packages/mcp-servers/claude-code-docs && npx vitest run 2>&1 | tail -5   # capture true passed-count at HEAD; then run the isolated live boot to capture actual first-run warning_codes (expect fallback_segment_drift)
-```
+Isolated live boots (fresh `XDG_CACHE_HOME`, 142-section corpus) captured the exact `get_status` output:
 
-**Commit message:** n/a — A8 is an external GitHub PR-body edit (no repo commit); evidence-capture only.
+| Boot | Path | `source_kind` | `get_status.warning_codes` |
+|---|---|---|---|
+| A — cold first run (empty cache) | rebuild | `fetched` | `["fallback_segment_drift"]` |
+| B — warm reboot, same corpus | provenance-refresh (full-hit class) | `cached` | `["fallback_segment_drift"]` (replayed) |
+| C — re-eval vs established baseline (`MIN_SECTION_COUNT=40` → canary replay) | replay | `cached` | `[]` |
+
+Boot A: `decision: accept`, `sectionCount: 142`, `fallbackSectionCount: 25`, baseline established at 25.
+
+**Correction to the original derivation:** the first-run warn is **persisted into the cached evaluation block and replayed on every full-hit / provenance-refresh reboot** (Boot B) — it does NOT clear by simply rebooting on the same corpus. It clears (`[]`) only when the canary **re-evaluates** against the established baseline of 25 (Boot C: delta 0 → no warn), i.e. on a canary replay or a corpus-change rebuild. So `warning_codes: []` is not the first-run state; `["fallback_segment_drift"]` is, by design.
+
+Applied to the PR #130 body (`gh pr edit 130`): the "warnings `[]`" live-boot bullet was replaced with the empirical wording above, and the test count `572 → 581` (the follow-up commits A1–A7/B1–B3/C1–C4 added 5 tests; they were pushed into this PR's branch).
+
+**Commit message:** n/a — the GitHub PR-body edit produces no repo commit; this plan note records that it was done.
 
 ---
 
