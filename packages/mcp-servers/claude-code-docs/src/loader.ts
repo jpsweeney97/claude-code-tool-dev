@@ -18,7 +18,14 @@ import type { LoaderDiagnostics } from './canary.js';
 
 /** Absolute floor below which fetched content is treated as truncated and must NOT overwrite the
  *  content cache (B1). Fixed, not env-tunable: MIN_SECTION_COUNT tunes only the canary/index floor
- *  (Task 2.4). The official corpus is ~141 sections, so 40 is a wide truncation margin. */
+ *  (Task 2.4). The official corpus is ~141 sections, so 40 is a wide truncation margin.
+ *
+ *  Consequence (intentional): this guard is unconditional and runs BEFORE the canary, in BOTH
+ *  trust modes. A fresh fetch of fewer than 40 sections is rejected here, so the canary's lower
+ *  unsafe floor (UNSAFE_MIN_SECTION_COUNT=3) and a MIN_SECTION_COUNT=0 override apply only to
+ *  cached/replayed content — never to a fresh fetch. A small `unsafe` mirror must therefore seed a
+ *  cache first; it cannot bootstrap from a sub-40 fresh fetch. Lowering this floor to admit small
+ *  fresh fetches would reopen the truncated-overwrite hole B1 exists to close. */
 const CACHE_WRITE_MIN_SECTIONS = 40;
 
 /**

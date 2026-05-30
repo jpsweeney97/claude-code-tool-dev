@@ -6,6 +6,9 @@ import type { TrustMode } from './trust.js';
 export const SECTION_COUNT_DRIFT_WARN_THRESHOLD = 0.20;
 export const SECTION_COUNT_DRIFT_FAIL_THRESHOLD = 0.50;
 export const OFFICIAL_MIN_SECTION_COUNT = 40;
+// Reachable for cached/replayed content only. A fresh fetch below the loader's fixed
+// CACHE_WRITE_MIN_SECTIONS (40) is rejected before the canary runs, in both trust modes — so this
+// lower unsafe floor never applies to a fresh unsafe fetch (a small mirror must seed a cache first).
 export const UNSAFE_MIN_SECTION_COUNT = 3;
 
 // --- Fallback-segment delta canary (replaces taxonomy_collapse / taxonomy_drift) ---

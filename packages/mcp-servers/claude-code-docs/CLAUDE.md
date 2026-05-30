@@ -105,7 +105,7 @@ Tests mirror source 1:1 (`src/foo.ts` → `tests/foo.test.ts`). Additional test 
 | `RETRY_INTERVAL_MS` | `60000` | Retry interval after fetch failure |
 | `CACHE_TTL_MS` | `86400000` (24h) | Content cache TTL |
 | `DOCS_CACHE_MAX_STALE_MS` | `0` (disabled) | Hard limit on stale content cache age. Set to enable (e.g. `604800000` for 7d). |
-| `MIN_SECTION_COUNT` | (unset) | Override for the canary's index floor. Unset → canary uses its trust-mode default (official: 40, unsafe: 3). Set to `0` to disable the index floor. Does NOT affect the content-cache write guard, which is fixed at 40 (`CACHE_WRITE_MIN_SECTIONS`). |
+| `MIN_SECTION_COUNT` | (unset) | Override for the canary's index floor. Unset → canary uses its trust-mode default (official: 40, unsafe: 3). Set to `0` to disable the index floor. Does NOT affect the content-cache write guard, which is fixed at 40 (`CACHE_WRITE_MIN_SECTIONS`) and rejects sub-40 **fresh fetches** in both trust modes before the canary runs — so this override (and the unsafe floor of 3) apply only to cached/replayed content. |
 | `MAX_INDEX_CACHE_BYTES` | `52428800` (50 MB) | Hard limit on serialized index size before write |
 | `INTEGRATION` | (unset) | Set to `1` to run `integration.test.ts` against live `code.claude.com` |
 
@@ -121,7 +121,7 @@ Tests mirror source 1:1 (`src/foo.ts` → `tests/foo.test.ts`). Additional test 
   - Without the correct bump, stale cached indexes will be served.
 - **BM25 params are query-time only**: `k1`, `b`, `headingBoost`, `headingMinCoverage`, `snippetMaxLength` in `BM25_CONFIG` do not affect the stored index. No cache invalidation needed when changing them.
 - **Zod strips unknown keys by default**: When adding fields to serialized structures, update both the TypeScript interface and the Zod schema in `index-cache.ts`.
-- **Unsafe mode is an escape hatch, not multi-corpus support**: In `unsafe` mode, fallback-segment delta and relative-drift canary checks are disabled. The server accepts any HTTPS source URL but cannot verify corpus authenticity against expected Claude Code doc structure. Use only for local testing or private mirrors.
+- **Unsafe mode is an escape hatch, not multi-corpus support**: In `unsafe` mode, fallback-segment delta and relative-drift canary checks are disabled. The server accepts any HTTPS source URL but cannot verify corpus authenticity against expected Claude Code doc structure. Use only for local testing or private mirrors. A small mirror (under 40 sections) cannot bootstrap from a fresh fetch — the fixed `CACHE_WRITE_MIN_SECTIONS=40` content-write guard rejects it before the canary's lower unsafe floor applies; seed a content cache first.
 - **Provenance refresh triggers a full rebuild**: When `DOCS_TRUST_MODE` or `DOCS_URL` changes between runs, the cached index is invalidated even if all version constants match — the policy change is a cache miss by design.
 
 ## Auto-Build
