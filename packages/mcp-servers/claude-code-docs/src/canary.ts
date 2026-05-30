@@ -217,6 +217,14 @@ export function evaluateCanaries(input: EvaluateCanariesInput): CanaryEvaluation
       metrics, policyState);
   }
 
+  // Positive-baseline FAIL is AND-semantics (delta >= FAIL_ABS AND multiplier >= 1 + FAIL_REL),
+  // so a large-absolute-but-sub-3x regression (e.g. baseline 30 -> 55: +25 sections but only 1.8x)
+  // only WARNs and serves the degraded index. This is intentional movement-gating, not a static
+  // share threshold (the original taxonomy_collapse fragility class). Accepted under the
+  // B-prime plan H1 rationale: a hard-absolute FAIL branch would reintroduce benign-growth
+  // rejection. If post-WARN growth becomes routine, take H1 escape hatch (b) — flip the
+  // advancement ternaries to advance-on-warn and bump CANARY_VERSION. See
+  // docs/superpowers/plans/2026-05-28-claude-code-docs-b-prime-recovery.md (H1).
   if (
     trustMode === 'official' &&
     fallbackSectionDelta !== null &&

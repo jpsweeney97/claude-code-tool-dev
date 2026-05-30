@@ -125,6 +125,15 @@ export async function loadFromOfficial(
 
   // Count fallback sections (sections where deriveCategory returns 'uncategorized' —
   // i.e. no URL segment was mapped). This is what the fallback-delta canary watches.
+  //
+  // NOTE — intentional population asymmetry: fallbackSectionCount is computed over the
+  // PRE-filter `sections` array (matching sectionCount = sections.length, the value the
+  // canary thresholds compare against), whereas fallbackSegmentCount / unmappedSegments
+  // below are derived from the POST-filter `filtered` set (and skip empty-sourceUrl
+  // preamble). The two are observability diagnostics over different populations; the
+  // canary gates (fallback_segment_collapse FAIL, fallback_segment_drift WARN) read
+  // fallbackSectionCount ONLY, so the asymmetry has no gate impact. Keep the gate input
+  // on the same pre-filter basis as sectionCount.
   const fallbackSectionCount = sections.filter(s => {
     const sourceKey = s.sourceUrl || s.title || '';
     return deriveCategory(sourceKey) === 'uncategorized';
