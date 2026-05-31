@@ -1987,7 +1987,13 @@ This section describes the follow-up PR that would take the dialogue's deferred 
 
 Only when ALL of these conditions hold:
 
-1. The B-prime PR has been merged and running in production for at least 7 days with no `fallback_segment_*` warnings or rejections.
+1. The B-prime PR has been merged and running in production for at least 7 days with no fallback-segment **drift that re-fires against an established baseline** and no `fallback_segment_collapse` rejections.
+
+   > **Gate clarification (verified 2026-05-30).** Read literally, "no `fallback_segment_*` warnings" is never satisfiable and would block V2 forever. A first boot establishes the fallback baseline and, when `fallbackSectionCount ≥ FALLBACK_DELTA_WARN_ABS (5)`, emits a one-time `fallback_segment_drift` warn **by design** (the null-baseline first-run branch in `canary.ts` — it must not bless a fresh count silently). That warning is then **replayed, not re-evaluated**, on every Full-Hit reboot (Path 1) and identical-content re-fetch (Path 4 / provenance refresh), so `get_status` keeps showing `["fallback_segment_drift"]` until the next *genuine upstream content change* routes through a rebuild (Path 3) and re-evaluates `delta = 0 → no warn → []`. The warning is therefore content-driven, not time-driven: a 7-day clock or a reboot does not clear it; an upstream docs change does.
+   >
+   > So this gate means: **no drift warn that survives a Path 2/3 re-evaluation against an established baseline**, and no `fallback_segment_collapse` rejection. The expected first-run warn — and its sticky replay until the next content change — do **not** fail this gate. A *new* `fallback_segment_drift` that appears on a content change (i.e. `fallbackSectionCount` jumped ≥5 and ≥1.5× over the established baseline) **does** — that is the real "drift is recurring" signal that should defer V2 or trigger a `SECTION_TO_CATEGORY` update.
+   >
+   > Confirmed by an isolated end-to-end harness (real `evaluateCanaries` / `serializeIndex` / `parseSerializedIndex` driving a real `ServerState`): first boot establishes baseline 25 and warns; identical-content reload replays the warn (Path 4); a content change re-evaluates and clears it (Path 3, `delta 0`). Live production `get_status` at the time showed the expected sticky `["fallback_segment_drift"]` with `last_load_error: null` — serving normally throughout.
 2. The audit below confirms zero external consumers of the `category` field outside the package's own tests.
 3. Operator explicitly approves the schema reduction (it's another `INDEX_FORMAT_VERSION` bump + full rebuild).
 
