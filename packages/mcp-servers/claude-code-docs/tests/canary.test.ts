@@ -9,8 +9,6 @@ import {
 import type {
   CorpusDiagnostics,
   PolicyState,
-  CanaryEvaluation,
-  CorpusWarning,
 } from '../src/canary.js';
 
 describe('canary threshold constants', () => {

@@ -1333,7 +1333,7 @@ describe('ServerState', () => {
 
     it('getTrustMode defaults to official', () => {
       const deps = makeDeps();
-      delete (deps as Record<string, unknown>).trustMode;
+      delete deps.trustMode;
       const state = new ServerState(deps);
       expect(state.getTrustMode()).toBe('official');
     });

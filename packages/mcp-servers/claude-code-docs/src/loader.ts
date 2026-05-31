@@ -1,6 +1,5 @@
 // src/loader.ts
 import { createHash } from 'crypto';
-import * as path from 'path';
 import type { MarkdownFile, ParsedSection } from './types.js';
 import {
   fetchOfficialDocs,

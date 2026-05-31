@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildBM25Index, search, extractSnippet, headingBoostMultiplier, type BM25Index } from '../src/bm25.js';
+import { buildBM25Index, search, extractSnippet, headingBoostMultiplier } from '../src/bm25.js';
 import type { Chunk } from '../src/types.js';
 import { computeTermFreqs } from '../src/chunk-helpers.js';
 import { tokenize } from '../src/tokenizer.js';
