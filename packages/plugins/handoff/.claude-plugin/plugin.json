@@ -1,10 +1,8 @@
 {
   "name": "handoff",
   "version": "2.0.0",
-  "description": "Session handoff, resume, and deferred work tracking for context continuity",
-  "author": {
-    "name": "JP"
-  },
+  "description": "Skill-only session continuity with Markdown handoffs",
+  "author": { "name": "JP" },
   "license": "MIT",
-  "keywords": ["handoff", "session", "context", "continuity", "defer", "triage", "tickets"]
+  "keywords": ["handoff", "session", "context", "continuity", "markdown", "search"]
 }
