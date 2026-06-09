@@ -1,8 +1,0 @@
-{
-  "name": "handoff",
-  "version": "2.0.0",
-  "description": "Skill-only session continuity with Markdown handoffs",
-  "author": { "name": "JP" },
-  "license": "MIT",
-  "keywords": ["handoff", "session", "context", "continuity", "markdown", "search"]
-}
