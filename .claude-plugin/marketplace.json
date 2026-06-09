@@ -5,6 +5,7 @@
     { "name": "handoff", "source": "./packages/plugins/handoff" },
     { "name": "context-metrics", "source": "./packages/plugins/context-metrics" },
     { "name": "ticket", "source": "./packages/plugins/ticket" },
-    { "name": "superspec", "source": "./packages/plugins/superspec" }
+    { "name": "superspec", "source": "./packages/plugins/superspec" },
+    { "name": "review-family", "source": "./packages/plugins/review-family" }
   ]
 }
