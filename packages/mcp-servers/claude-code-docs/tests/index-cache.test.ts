@@ -330,6 +330,11 @@ describe('SerializedIndex v5 schema', () => {
             severity: 'warn',
             details: { count: 3 },
           },
+          {
+            code: 'fallback_ratio_high',
+            severity: 'warn',
+            details: { fallbackSectionCount: 40, sectionCount: 165, threshold: 0.10 },
+          },
         ],
         metrics: {
           fallbackSectionRatio: 0.1,
@@ -345,9 +350,10 @@ describe('SerializedIndex v5 schema', () => {
     const parsed = parseSerializedIndex(serialized);
 
     expect(parsed).not.toBeNull();
-    expect(parsed!.evaluation.warnings).toHaveLength(2);
+    expect(parsed!.evaluation.warnings).toHaveLength(3);
     expect(parsed!.evaluation.warnings[0].code).toBe('fallback_segment_drift');
     expect(parsed!.evaluation.warnings[1].code).toBe('parse_issues');
+    expect(parsed!.evaluation.warnings[2].code).toBe('fallback_ratio_high');
     expect(parsed!.evaluation.metrics.sectionCountDropRatio).toBeCloseTo(0.05);
   });
 });

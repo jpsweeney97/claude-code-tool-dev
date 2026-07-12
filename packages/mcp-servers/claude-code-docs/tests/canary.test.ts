@@ -5,6 +5,7 @@ import {
   SECTION_COUNT_DRIFT_FAIL_THRESHOLD,
   OFFICIAL_MIN_SECTION_COUNT,
   UNSAFE_MIN_SECTION_COUNT,
+  FALLBACK_RATIO_WARN_THRESHOLD,
 } from '../src/canary.js';
 import type {
   CorpusDiagnostics,
@@ -20,6 +21,10 @@ describe('canary threshold constants', () => {
   it('has per-mode minimum section counts', () => {
     expect(OFFICIAL_MIN_SECTION_COUNT).toBe(40);
     expect(UNSAFE_MIN_SECTION_COUNT).toBe(3);
+  });
+
+  it('has an absolute fallback-ratio warn threshold', () => {
+    expect(FALLBACK_RATIO_WARN_THRESHOLD).toBe(0.10);
   });
 });
 
@@ -617,5 +622,97 @@ describe('fallback_segment_collapse (delta canary)', () => {
     });
     expect(rejected.decision).toBe('reject');
     expect(rejected.rejection?.code).toBe('fallback_segment_collapse');
+  });
+});
+
+describe('fallback_ratio_high (absolute ratio tripwire)', () => {
+  const baseDiag = {
+    sourceAnchoredCount: 165,
+    nonEmptySectionCount: 165,
+    sectionCount: 165,
+    fallbackSegmentCount: 1,
+    unmappedSegments: [['some-new-family', 2]] as Array<[string, number]>,
+    parseWarningCount: 0,
+  };
+
+  it('warns on the 2026-07 real-world shape (40/165 ≈ 24%) even with a stable baseline', () => {
+    // This is the exact silent-drift scenario that motivated the check: the delta
+    // gates see no movement (baseline == current), yet a quarter of the corpus is
+    // uncategorized.
+    const result = evaluateCanaries({
+      trustMode: 'official',
+      diagnostics: { ...baseDiag, fallbackSectionCount: 40 },
+      policyState: establishedPolicyState(165, 40),
+      now: NOW,
+    });
+    expect(result.decision).toBe('accept');
+    expect(result.warnings.some(w => w.code === 'fallback_segment_drift')).toBe(false);
+    const warn = result.warnings.find(w => w.code === 'fallback_ratio_high');
+    expect(warn).toBeDefined();
+    expect(warn!.severity).toBe('warn');
+    expect(warn!.details).toMatchObject({
+      fallbackSectionCount: 40,
+      sectionCount: 165,
+      threshold: FALLBACK_RATIO_WARN_THRESHOLD,
+    });
+  });
+
+  it('fires at the threshold boundary (>=) and stays silent just below', () => {
+    const atThreshold = evaluateCanaries({
+      trustMode: 'official',
+      diagnostics: { ...baseDiag, sectionCount: 50, nonEmptySectionCount: 50, sourceAnchoredCount: 50, fallbackSectionCount: 5 },
+      policyState: establishedPolicyState(50, 5),
+      now: NOW,
+    });
+    expect(atThreshold.warnings.some(w => w.code === 'fallback_ratio_high')).toBe(true);
+
+    const below = evaluateCanaries({
+      trustMode: 'official',
+      diagnostics: { ...baseDiag, sectionCount: 50, nonEmptySectionCount: 50, sourceAnchoredCount: 50, fallbackSectionCount: 4 },
+      policyState: establishedPolicyState(50, 4),
+      now: NOW,
+    });
+    expect(below.warnings.some(w => w.code === 'fallback_ratio_high')).toBe(false);
+  });
+
+  it('never fires in unsafe mode', () => {
+    const result = evaluateCanaries({
+      trustMode: 'unsafe',
+      diagnostics: { ...baseDiag, fallbackSectionCount: 40 },
+      policyState: emptyPolicyState(),
+      now: NOW,
+    });
+    expect(result.decision).toBe('accept');
+    expect(result.warnings.some(w => w.code === 'fallback_ratio_high')).toBe(false);
+  });
+
+  it('does not block fallback-baseline advancement', () => {
+    // Ratio warn fires (40/165), but delta is small (+2 < WARN_ABS 5) so there is
+    // no drift warn — the baseline must still advance. Freezing on a standing
+    // condition would deadlock advancement while the ratio stays high.
+    const result = evaluateCanaries({
+      trustMode: 'official',
+      diagnostics: { ...baseDiag, fallbackSectionCount: 40 },
+      policyState: establishedPolicyState(165, 38),
+      now: NOW,
+    });
+    expect(result.warnings.some(w => w.code === 'fallback_ratio_high')).toBe(true);
+    expect(result.nextPolicyState.lastHealthyFallbackSectionCount).toBe(40);
+    expect(result.nextPolicyState.lastHealthyFallbackObservedAt).toBe(NOW);
+  });
+
+  it('coexists with fallback_segment_drift when both conditions hold', () => {
+    // baseline 12 → 20 of 165: ratio 0.121 ≥ 0.10; delta +8 ≥ WARN_ABS 5 and
+    // mult 1.67 ≥ 1.5 (drift warn) but below FAIL gates → accept with both warnings.
+    const result = evaluateCanaries({
+      trustMode: 'official',
+      diagnostics: { ...baseDiag, fallbackSectionCount: 20 },
+      policyState: establishedPolicyState(165, 12),
+      now: NOW,
+    });
+    expect(result.decision).toBe('accept');
+    const codes = result.warnings.map(w => w.code);
+    expect(codes).toContain('fallback_segment_drift');
+    expect(codes).toContain('fallback_ratio_high');
   });
 });

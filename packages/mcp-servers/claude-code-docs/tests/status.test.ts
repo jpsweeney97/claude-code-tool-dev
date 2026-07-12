@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import {
   buildRuntimeStatus,
   projectSearchMeta,
+  RuntimeStatusSchema,
   type RuntimeStatusInput,
   type RuntimeStatus,
 } from '../src/status.js';
@@ -78,6 +79,20 @@ describe('buildRuntimeStatus', () => {
     });
 
     expect(status.warning_codes).toEqual(['parse_issues', 'stale_corpus']);
+  });
+
+  it('passes fallback_ratio_high through warning_codes and the status schema', () => {
+    const status = buildRuntimeStatus({
+      ...BASE_INPUT,
+      warningCodes: ['fallback_ratio_high'],
+    });
+    expect(status.warning_codes).toContain('fallback_ratio_high');
+    // buildRuntimeStatus performs no validation — RuntimeStatusSchema is enforced at
+    // the MCP layer (index.ts registers it as get_status's outputSchema), and tsc
+    // does not cover tests/. Parse here so a missed or regressed
+    // StatusWarningCodeSchema entry fails this test instead of breaking get_status
+    // at runtime whenever the ratio warning is active.
+    expect(() => RuntimeStatusSchema.parse(status)).not.toThrow();
   });
 
   it('does not append stale_corpus when sourceKind is fetched', () => {

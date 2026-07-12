@@ -27,6 +27,16 @@ export const FALLBACK_DELTA_WARN_REL = 0.50;     // at least +50% over baseline 
 export const FALLBACK_DELTA_FAIL_ABS = 20;       // at least 20 more uncategorized sections than baseline
 export const FALLBACK_DELTA_FAIL_REL = 2.0;      // at least 3x baseline / +200% (multiplier ≥ 3.0)
 
+// --- Absolute fallback-ratio tripwire (warn-only) ---
+// The delta/multiplier gates above only catch movement relative to the last accepted
+// baseline. Slow accretion (each load under WARN_ABS/WARN_REL) is absorbed into the
+// baseline and becomes permanently invisible — by 2026-07 the real corpus reached
+// 40/165 uncategorized sections (24%) with zero warnings. This gate is the standing
+// tripwire: it fires on the absolute share regardless of baseline history. Warn-only
+// by design — a static share threshold must never reject (that fragility class is why
+// the original taxonomy canary was replaced); rejection stays owned by the movement gates.
+export const FALLBACK_RATIO_WARN_THRESHOLD = 0.10;
+
 // --- Types ---
 
 export interface LoaderDiagnostics {
@@ -52,7 +62,11 @@ export interface PolicyState {
   lastHealthyFallbackObservedAt: number | null;
 }
 
-export type WarningCode = 'fallback_segment_drift' | 'parse_issues' | 'section_count_drift';
+export type WarningCode =
+  | 'fallback_segment_drift'
+  | 'fallback_ratio_high'
+  | 'parse_issues'
+  | 'section_count_drift';
 
 export interface CorpusWarning {
   code: WarningCode;
@@ -325,6 +339,28 @@ export function evaluateCanaries(input: EvaluateCanariesInput): CanaryEvaluation
         baselineFallback,
         fallbackSectionDelta,
         fallbackSectionMultiplier,
+        sampleSegments: diagnostics.unmappedSegments.slice(0, 10).map(([seg]) => seg),
+      },
+    });
+  }
+
+  // Absolute fallback-ratio tripwire (official mode only): fires on the standing share
+  // of uncategorized sections, independent of baseline history. Deliberately excluded
+  // from the policy-state advancement below — freezing the baseline on a standing
+  // condition would deadlock advancement while the ratio stays high and distort the
+  // delta gates' reference point.
+  if (
+    trustMode === 'official' &&
+    fallbackSectionRatio >= FALLBACK_RATIO_WARN_THRESHOLD
+  ) {
+    warnings.push({
+      code: 'fallback_ratio_high',
+      severity: 'warn',
+      details: {
+        fallbackSectionCount,
+        sectionCount,
+        fallbackSectionRatio,
+        threshold: FALLBACK_RATIO_WARN_THRESHOLD,
         sampleSegments: diagnostics.unmappedSegments.slice(0, 10).map(([seg]) => seg),
       },
     });

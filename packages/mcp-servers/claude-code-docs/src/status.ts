@@ -13,6 +13,7 @@ export const SourceKindSchema = z.enum(['fetched', 'cached', 'stale-fallback', '
 
 export const StatusWarningCodeSchema = z.enum([
   'fallback_segment_drift',
+  'fallback_ratio_high',
   'parse_issues',
   'section_count_drift',
   'stale_corpus',

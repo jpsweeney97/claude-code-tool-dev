@@ -46,7 +46,7 @@ export const INGESTION_VERSION = 7;
  * - Diagnostic field additions → INGESTION_VERSION
  * - Serialized layout changes → INDEX_FORMAT_VERSION
  */
-export const CANARY_VERSION = 2;
+export const CANARY_VERSION = 3;
 
 // ---- Five-block types ----
 
@@ -206,7 +206,7 @@ const PolicyStateBlockSchema = z.object({
 });
 
 const WarningSchema = z.object({
-  code: z.enum(['fallback_segment_drift', 'parse_issues', 'section_count_drift']),
+  code: z.enum(['fallback_segment_drift', 'fallback_ratio_high', 'parse_issues', 'section_count_drift']),
   severity: z.enum(['info', 'warn', 'error']),
   details: z.record(z.unknown()),
 });
