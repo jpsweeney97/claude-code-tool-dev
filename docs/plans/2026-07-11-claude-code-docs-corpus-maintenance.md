@@ -14,6 +14,15 @@ The upstream corpus (`https://code.claude.com/docs/llms-full.txt`) grew from 142
 
 This plan fixes all three. It is a maintenance pass, not a redesign.
 
+### Amendments from adversarial review (2026-07-11)
+
+A `/review-reviewer` adjudication of the pre-implementation review confirmed four changes, folded into the tasks below:
+
+1. **Production-equivalent live index (R1):** the live golden-query suite must index sections through the same transform production uses — `loadFromOfficial` enriches each section with synthetic `topic`/`id`/`category` frontmatter that feeds searchable metadata tokens and the page-title heading boost (`chunker.ts` `getMetadataTerms`/`headingTokens`; the parser excludes the `# Title` line from section content, so without the frontmatter the boost is lost entirely). Task 4.0 extracts `sectionToMarkdownFile()` from `loader.ts`; Task 4.3 reuses it. Pure refactor — no version bump.
+2. **`fallback_ratio_high` serialization round-trip (R3):** Task 3.1 extends `tests/index-cache.test.ts` — a missed or later-regressed `WarningSchema` enum entry compiles clean and surfaces only as the server rejecting its own index cache on every startup.
+3. **AGENTS.md resync (R2.a):** `AGENTS.md` is a stale, strictly-older copy of this package's `CLAUDE.md` (verified by diff: no unique content). Task 5.3 resyncs it wholesale. This is a factual sync of an existing first-party contract — not a charter-gated event (nothing is authored or retired); no decision-ledger entry.
+4. **Explicit corpus contract for the live suite (R4, narrowed):** the suite honors `CACHE_PATH` like production and fails — rather than passes — when the content cache is older than 7 days. Existence-based skip stays (matches the `corpus-validation.test.ts` convention, which is out of scope here).
+
 ### Settled design decisions (do not relitigate)
 
 - New category is named **`gateways`** (plural, matching `providers`/`plugins`/`integrations` convention; the overview page slug is literally `gateways`). Alias `gateway` → `gateways`.
@@ -43,15 +52,19 @@ This plan fixes all three. It is a maintenance pass, not a redesign.
 | `src/canary.ts` | modify | `FALLBACK_RATIO_WARN_THRESHOLD`, `fallback_ratio_high` warning code + emission |
 | `src/index-cache.ts` | modify | `INGESTION_VERSION` 6→7, `CANARY_VERSION` 2→3, `WarningSchema` enum |
 | `src/status.ts` | modify | `StatusWarningCodeSchema` enum |
+| `src/loader.ts` | modify | extract `sectionToMarkdownFile()` — pure refactor, no behavior change, no version bump |
+| `tests/loader.test.ts` | modify | unit test pinning the transform's frontmatter-enriched output |
+| `tests/index-cache.test.ts` | modify | `fallback_ratio_high` warning round-trip |
 | `tests/categories.test.ts` | modify | 29-count, new mappings, alias, resolver tests |
 | `tests/frontmatter.test.ts` | modify | prefix-resolution tests |
 | `tests/canary.test.ts` | modify | ratio-tripwire tests |
 | `tests/status.test.ts` | modify | `fallback_ratio_high` passthrough test |
 | `tests/golden-query-data.ts` | **create** | shared query table (35 existing + 9 live-only) |
 | `tests/golden-queries.test.ts` | modify | import shared table, filter `liveOnly` |
-| `tests/golden-queries.live.test.ts` | **create** | live-corpus suite (top-3 assertion + structural checks) |
+| `tests/golden-queries.live.test.ts` | **create** | live-corpus suite (production transform, `CACHE_PATH` + 7-day age guard, top-3 assertion + structural checks) |
 | `CLAUDE.md` (package) | modify | counts, resolver description, canary description, test table |
 | `README.md` (package) | modify | category list, alias list, warning-code list |
+| `AGENTS.md` (package) | modify | full resync — copy of the updated `CLAUDE.md` (stale strictly-older duplicate; no unique content) |
 
 Execution order matters: Tasks 1–2 form one commit (categorization change + version bump must land atomically), then 3, 4, 5 are independent commits, 6 is verification.
 
@@ -497,11 +510,33 @@ In `tests/status.test.ts`, add inside `describe('buildRuntimeStatus', ...)`:
   });
 ```
 
+In `tests/index-cache.test.ts`, extend the existing `'preserves evaluation warnings through round-trip'` test — append a third warning after the `parse_issues` entry in the `warnings` array:
+
+```ts
+          {
+            code: 'fallback_ratio_high',
+            severity: 'warn',
+            details: { fallbackSectionCount: 40, sectionCount: 165, threshold: 0.10 },
+          },
+```
+
+and update its assertions:
+
+```ts
+    expect(parsed!.evaluation.warnings).toHaveLength(3);
+    expect(parsed!.evaluation.warnings[0].code).toBe('fallback_segment_drift');
+    expect(parsed!.evaluation.warnings[1].code).toBe('parse_issues');
+    expect(parsed!.evaluation.warnings[2].code).toBe('fallback_ratio_high');
+```
+
+Why this test exists: `WarningCode` (canary.ts), `WarningSchema` (index-cache.ts), and `StatusWarningCodeSchema` (status.ts) have no compile-time link. A missed or later-regressed `WarningSchema` entry compiles clean; at runtime the server writes the warning, then `parseSerializedIndex` rejects its own index cache on the next startup — rebuild on every start. The round-trip pins the serialization surface the way the status passthrough test pins the status surface.
+
 Run and watch fail:
 
 ```bash
-npx vitest run tests/canary.test.ts tests/status.test.ts
-# expect: FAIL — FALLBACK_RATIO_WARN_THRESHOLD not exported; no fallback_ratio_high warnings
+npx vitest run tests/canary.test.ts tests/status.test.ts tests/index-cache.test.ts
+# expect: FAIL — FALLBACK_RATIO_WARN_THRESHOLD not exported; no fallback_ratio_high warnings;
+#         round-trip rejects the unknown warning code (parsed is null)
 ```
 
 ### 3.2 Implement in `src/canary.ts`
@@ -592,13 +627,78 @@ npm test
 # expect: ALL pass. Existing canary tests use targeted warnings.find/some(code === ...)
 # assertions, so the incidentally-added ratio warning in high-ratio fixtures does not
 # break them (verified by inspection of tests/canary.test.ts before planning).
-git add src/canary.ts src/index-cache.ts src/status.ts tests/canary.test.ts tests/status.test.ts
+git add src/canary.ts src/index-cache.ts src/status.ts tests/canary.test.ts tests/status.test.ts tests/index-cache.test.ts
 git commit -m "feat(claude-code-docs): add absolute fallback-ratio canary warning"
 ```
 
 ---
 
 ## Task 4: Shared golden-query table + live-corpus suite
+
+### 4.0 Extract the production section→file transform (`src/loader.ts`)
+
+The live suite must build its index from exactly the files production indexes. `loadFromOfficial` enriches each section with synthetic frontmatter (`topic`/`id`/`category`) that feeds searchable metadata tokens and the page-title heading boost; a bare `{ path, content }` mapping would calibrate 4.4 against rankings the server never produces. Extract the mapping as a pure exported function. Behavior-preserving refactor — **no version bump** (`INGESTION_VERSION` covers ingestion behavior changes; this changes none).
+
+In `src/loader.ts`, add after `deriveIdFromUrl` (above `loadFromOfficial`):
+
+```ts
+/**
+ * Transform one parsed section into the frontmatter-enriched MarkdownFile the
+ * index is built from. Exported so the live golden-query suite indexes the
+ * cached corpus through the exact production path (golden-queries.live.test.ts)
+ * — keep this the single source of that mapping.
+ */
+export function sectionToMarkdownFile(s: ParsedSection): MarkdownFile {
+  const sourceKey = s.sourceUrl || s.title || '';
+  const topic = s.title?.trim() || undefined;
+  const id = deriveIdFromUrl(s.sourceUrl);
+  const category = deriveCategory(sourceKey);
+
+  // Build synthetic frontmatter to enrich metadata for search
+  const frontmatter = buildSyntheticFrontmatter({ topic, id, category });
+
+  return {
+    path: s.sourceUrl || s.title || 'unknown',
+    content: frontmatter + s.content,
+  };
+}
+```
+
+Replace the entire `files:` mapping at the end of `loadFromOfficial` (the `filtered.map((s) => { ... })` block) with:
+
+```ts
+    files: filtered.map(sectionToMarkdownFile),
+```
+
+Add to `tests/loader.test.ts` as a new top-level describe (dynamic import matches the file's convention):
+
+```ts
+describe('sectionToMarkdownFile', () => {
+  it('builds the frontmatter-enriched file the production index consumes', async () => {
+    const { sectionToMarkdownFile } = await import('../src/loader.js');
+    const file = sectionToMarkdownFile({
+      sourceUrl: 'https://code.claude.com/docs/en/hooks-guide',
+      title: 'Get started with hooks',
+      content: 'Body text.',
+    });
+    expect(file.path).toBe('https://code.claude.com/docs/en/hooks-guide');
+    expect(file.content).toBe(
+      '---\n' +
+        'topic: "Get started with hooks"\n' +
+        'id: "hooks-guide"\n' +
+        'category: "hooks"\n' +
+        '---\n' +
+        'Body text.',
+    );
+  });
+});
+```
+
+This is a refactor, not new behavior — the fail-first pattern does not apply; the test passes immediately:
+
+```bash
+npx vitest run tests/loader.test.ts   # expect: PASS, incl. the new describe
+```
 
 ### 4.1 Create `tests/golden-query-data.ts`
 
@@ -708,9 +808,17 @@ Full file content:
 
 ```ts
 // tests/golden-queries.live.test.ts
-// Runs the shared golden-query table against the REAL cached corpus (the same
-// content the production server indexes), unlike golden-queries.test.ts which
-// runs against a synthetic mock. Skipped when no content cache exists.
+// Runs the shared golden-query table against the REAL cached corpus, indexed
+// through the SAME transform production uses (sectionToMarkdownFile: synthetic
+// topic/id/category frontmatter → metadata tokens + page-title heading boost),
+// unlike golden-queries.test.ts which runs against a synthetic mock.
+//
+// Corpus contract (cached-corpus test, not a network test):
+// - Reads the content cache the production server maintains (24h TTL),
+//   honoring CACHE_PATH like production.
+// - Skips when no cache exists (corpus-validation.test.ts convention).
+// - FAILS when the cache is older than MAX_CACHE_AGE_MS — a stale corpus must
+//   not silently pass as live-search proof.
 //
 // Assertions are deliberately looser than the mocked suite (expected category in
 // the top-3 results rather than top-1): the live corpus changes upstream weekly,
@@ -723,11 +831,17 @@ import { chunkFile } from '../src/chunker.js';
 import { buildBM25Index, search } from '../src/bm25.js';
 import { parseSections } from '../src/parser.js';
 import { readCache, getDefaultCachePath } from '../src/cache.js';
+import { sectionToMarkdownFile } from '../src/loader.js';
 import { deriveCategory } from '../src/frontmatter.js';
 import { GOLDEN_QUERIES } from './golden-query-data.js';
 
-const cachePath = getDefaultCachePath();
+// Mirrors production's CACHE_PATH-first resolution (loader.ts resolveCachePath).
+const cachePath = process.env.CACHE_PATH?.trim() || getDefaultCachePath();
 const cacheExists = existsSync(cachePath);
+
+// Generous bound: the production server refreshes the cache daily (24h TTL), so
+// 7 days means "this machine has not run the server in a week — refresh first".
+const MAX_CACHE_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 if (!cacheExists) {
   console.warn(
@@ -743,14 +857,18 @@ describe.skipIf(!cacheExists)('golden queries (live corpus)', () => {
   beforeAll(async () => {
     const cached = await readCache(cachePath);
     if (!cached) throw new Error(`Cache not readable at ${cachePath}`);
+    if (cached.age > MAX_CACHE_AGE_MS) {
+      const days = (cached.age / 86400000).toFixed(1);
+      throw new Error(
+        `Content cache is ${days} days old (max ${MAX_CACHE_AGE_MS / 86400000}). ` +
+          `Refresh it (start the server or call reload_docs) before trusting live golden queries.`,
+      );
+    }
     const sections = parseSections(cached.content).filter(
       (s) => s.content.trim().length > 0,
     );
     sectionUrls = sections.map((s) => s.sourceUrl).filter((u) => u !== '');
-    const files = sections.map((s) => ({
-      path: s.sourceUrl || s.title || 'unknown',
-      content: s.content,
-    }));
+    const files = sections.map(sectionToMarkdownFile);
     const chunks = files.flatMap((f) => chunkFile(f).chunks);
     index = buildBM25Index(chunks);
   });
@@ -796,8 +914,8 @@ Expected: the 9 live-only queries, the categorization test, and the gateways tes
 ```bash
 npx tsc --noEmit
 npm test    # expect: ALL files pass, including both golden suites and corpus-validation
-git add tests/golden-query-data.ts tests/golden-queries.test.ts tests/golden-queries.live.test.ts
-git commit -m "test(claude-code-docs): run golden queries against the live corpus"
+git add src/loader.ts tests/loader.test.ts tests/golden-query-data.ts tests/golden-queries.test.ts tests/golden-queries.live.test.ts
+git commit -m "test(claude-code-docs): run golden queries against the live corpus via the production transform"
 ```
 
 ---
@@ -813,7 +931,7 @@ All in `packages/mcp-servers/claude-code-docs/`.
    `29 canonical categories, URL-to-category mapping (exact segment match, then longest hyphen-bounded prefix — see \`resolveSegmentCategory\`), 6 aliases (\`subagents\`→\`agents\`, \`sub-agents\`→\`agents\`, \`slash-commands\`→\`commands\`, \`claude-md\`→\`memory\`, \`configuration\`→\`config\`, \`gateway\`→\`gateways\`)`
 3. Testing table, `golden-queries.test.ts` row: replace description with `Mocked-corpus query coverage (35 shared queries, strict top-1) — deterministic search-quality guard`.
 4. Testing table: add a new row directly below it:
-   `| \`golden-queries.live.test.ts\` | Runs all 44 shared queries (incl. 9 live-only) against the real cached corpus, top-3 category assertion (requires content cache) |`
+   `| \`golden-queries.live.test.ts\` | Runs all 44 shared queries (incl. 9 live-only) against the real cached corpus via the production transform, top-3 category assertion (requires content cache ≤ 7 days old; honors \`CACHE_PATH\`) |`
 5. Key Design Patterns, trust-modes bullet: replace `enables full canary evaluation (fallback-segment delta + relative-drift checks)` with `enables full canary evaluation (fallback-segment delta + relative-drift checks + absolute fallback-ratio warn)`.
 
 ### 5.2 `README.md`
@@ -822,10 +940,20 @@ All in `packages/mcp-servers/claude-code-docs/`.
 2. Aliases line (line 80): append ``, `gateway` -> `gateways` ``.
 3. Warning-codes row (line 125): replace the code list with `` `fallback_segment_drift`, `fallback_ratio_high`, `parse_issues`, `section_count_drift`, `stale_corpus` ``.
 
-### 5.3 Commit
+### 5.3 `AGENTS.md` — full resync
+
+`AGENTS.md` is a stale, strictly-older copy of this package's `CLAUDE.md` (verified by diff before planning: every difference is content `CLAUDE.md` gained after 2026-05-30 — trust/canary/status module rows, `DOCS_TRUST_MODE`, the version-bump policy, unsafe-mode and provenance gotchas, Auto-Build; `AGENTS.md` has no unique content). Piecemeal edits would fix this plan's three stale claims but leave that older drift in place, so resync wholesale, AFTER the 5.1 edits:
 
 ```bash
-git add CLAUDE.md README.md
+cp CLAUDE.md AGENTS.md
+```
+
+Charter note (adjudicated 2026-07-11): this is a factual synchronization of an existing first-party contract — not a charter-gated event (nothing is authored or retired); no decision-ledger entry.
+
+### 5.4 Commit
+
+```bash
+git add CLAUDE.md README.md AGENTS.md
 git commit -m "docs(claude-code-docs): document gateways category, prefix resolver, and ratio canary"
 ```
 
@@ -861,5 +989,6 @@ Done means: both commands green, the jq post-rebuild output matches, and all com
 ## Self-review and outside-view notes
 
 - **Coverage:** item 1 → Tasks 1–2; item 2 → Task 3; item 3 → Task 4; version bumps → 2.4 and 3.3; doc claims → Task 5. All 40 uncategorized pages accounted for (30 explicit keys, 10 prefix-resolved).
+- **Review amendments (2026-07-11):** production-transform reuse → 4.0/4.3; `fallback_ratio_high` round-trip → 3.1/3.3; AGENTS.md resync → 5.3; live-suite corpus contract (`CACHE_PATH` + 7-day age guard) → 4.3. Charter check adjudicated: the AGENTS.md factual sync is not a gated contract event.
 - **Collateral audited before planning:** existing `canary.test.ts` assertions are targeted (`warnings.find/some` by code), so the added ratio warning breaks none; `categories.test.ts` pins size 28 (updated in 1.1); no test hardcodes version literals (all import the constants); `schemas.ts`/`server.test.ts`/`dump-index-metadata.ts` derive category lists dynamically from `KNOWN_CATEGORIES`/`CATEGORY_ALIASES`; `error-messages.ts` contains no category text.
 - **Outside view:** reference class is "taxonomy/config change with cache-version bump" in this package (prior art: PR #130 canary replacement, the B12 category expansion). That class reliably requires: the version bump itself, Zod schema sync, status-surface sync, doc-claim updates, and a runtime cache-invalidation proof — each is an explicit task above, because earlier changes of this class in this repo needed exactly those and the spec-level ask ("update categories.ts") names none of them. The class also warns that query-expectation calibration against a live corpus balloons — hence the bounded protocol in 4.4 with a hard stop at 8 failures. This is a debias against the class base rate, not a completeness certificate.
