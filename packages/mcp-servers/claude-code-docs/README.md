@@ -74,10 +74,10 @@ Parameters:
 | `category` | string | no | - | Canonical categories or aliases (see below). |
 
 Canonical categories:
-`hooks`, `skills`, `commands`, `agents`, `plugins`, `plugin-marketplaces`, `mcp`, `channels`, `settings`, `memory`, `overview`, `getting-started`, `cli`, `best-practices`, `interactive`, `security`, `providers`, `ide`, `ci-cd`, `automation`, `agent-sdk`, `desktop`, `integrations`, `config`, `operations`, `troubleshooting`, `changelog`, `uncategorized`
+`hooks`, `skills`, `commands`, `agents`, `plugins`, `plugin-marketplaces`, `mcp`, `channels`, `settings`, `memory`, `overview`, `getting-started`, `cli`, `best-practices`, `interactive`, `security`, `providers`, `gateways`, `ide`, `ci-cd`, `automation`, `agent-sdk`, `desktop`, `integrations`, `config`, `operations`, `troubleshooting`, `changelog`, `uncategorized`
 
 Aliases:
-`subagents` -> `agents`, `sub-agents` -> `agents`, `slash-commands` -> `commands`, `claude-md` -> `memory`, `configuration` -> `config`
+`subagents` -> `agents`, `sub-agents` -> `agents`, `slash-commands` -> `commands`, `claude-md` -> `memory`, `configuration` -> `config`, `gateway` -> `gateways`
 
 Return shape:
 
@@ -122,7 +122,7 @@ Return shape:
 | `corpus_obtained_at` | string or null | ISO timestamp when corpus content was obtained. Null if no corpus loaded. |
 | `last_load_attempt_at` | string or null | ISO timestamp of the most recent load attempt. Null if never attempted. |
 | `last_load_error` | string or null | Error message from the most recent failed load. Null if last load succeeded. |
-| `warning_codes` | string[] | Active warning codes: `fallback_segment_drift`, `parse_issues`, `section_count_drift`, `stale_corpus`. |
+| `warning_codes` | string[] | Active warning codes: `fallback_segment_drift`, `fallback_ratio_high`, `parse_issues`, `section_count_drift`, `stale_corpus`. |
 | `is_loading` | boolean | Whether a load/reload is currently in progress. |
 
 ### `dump_index_metadata`

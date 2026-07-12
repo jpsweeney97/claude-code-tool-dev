@@ -8,7 +8,7 @@ BM25-based search server for Claude Code documentation. Fetches docs from `https
 |-----------|------|----------|---------|-------------|
 | `query` | string | yes | — | Max 500 chars, trimmed |
 | `limit` | integer | no | `5` | 1–20 |
-| `category` | string | no | — | One of 28 categories or 5 aliases (see `categories.ts`); `'uncategorized'` is the fallback for unrecognized URL slugs |
+| `category` | string | no | — | One of 29 categories or 6 aliases (see `categories.ts`); `'uncategorized'` is the fallback for unrecognized URL slugs |
 
 ## Commands
 
@@ -44,7 +44,7 @@ loadFromOfficial (fetch + parse docs)
 | `bm25.ts` | BM25 scoring, heading boost, snippet extraction |
 | `index-cache.ts` | Serialization, version constants, Zod schemas |
 | `tokenizer.ts` | Porter stemmer + CamelCase splitting |
-| `categories.ts` | 28 canonical categories, URL-to-category mapping, 5 aliases (`subagents`→`agents`, `sub-agents`→`agents`, `slash-commands`→`commands`, `claude-md`→`memory`, `configuration`→`config`) |
+| `categories.ts` | 29 canonical categories, URL-to-category mapping (exact segment match, then longest hyphen-bounded prefix — see `resolveSegmentCategory`), 6 aliases (`subagents`→`agents`, `sub-agents`→`agents`, `slash-commands`→`commands`, `claude-md`→`memory`, `configuration`→`config`, `gateway`→`gateways`) |
 | `types.ts` | `Chunk`, `SearchResult`, `MarkdownFile`, `ParsedSection` interfaces |
 | `cache.ts` | Filesystem cache read/write for index persistence |
 | `parser.ts` | Parses `llms-full.txt` into `ParsedSection[]` via Source-line splitting |
@@ -70,7 +70,7 @@ loadFromOfficial (fetch + parse docs)
 - **Chunking hierarchy**: H2 → H3 → paragraph → hard split with overlap. Each level cascades when chunks exceed size limits.
 - **Five-block serialized index structure**: `corpus` (content hash + provenance), `diagnostics` (canary evaluation inputs), `index` (build timestamp + counts), `policyState` (baseline tracking), `evaluation` (canary pass/fail + CANARY_VERSION) + top-level `compatibility` block (all version constants). BM25 data (chunks, docFrequency, invertedIndex) lives at the top level outside the named blocks.
 - **Four cache load paths**: (1) full hit — all versions match and canary passes; (2) canary replay — versions match but canary re-evaluated (threshold changed); (3) rebuild — version mismatch, fetch fresh; (4) provenance refresh — provenance improved (better source kind or newer), re-persist corpus block
-- **Trust modes**: `official` pins the source URL to `code.claude.com` and enables full canary evaluation (fallback-segment delta + relative-drift checks); `unsafe` accepts any HTTPS URL and runs structural canaries only (count + size checks)
+- **Trust modes**: `official` pins the source URL to `code.claude.com` and enables full canary evaluation (fallback-segment delta + relative-drift checks + absolute fallback-ratio warn); `unsafe` accepts any HTTPS URL and runs structural canaries only (count + size checks)
 - **`CANARY_VERSION`** in the evaluation block — bump when changing canary thresholds or adding/removing canary checks. Changing only the diagnostic computation (not thresholds) bumps `INGESTION_VERSION` instead.
 
 ### Cache Paths
@@ -90,7 +90,8 @@ Tests mirror source 1:1 (`src/foo.ts` → `tests/foo.test.ts`). Additional test 
 
 | Test | Purpose |
 |------|---------|
-| `golden-queries.test.ts` | Multi-category query coverage (35 queries, 27 categories) — validates search quality |
+| `golden-queries.test.ts` | Mocked-corpus query coverage (35 shared queries, strict top-1) — deterministic search-quality guard |
+| `golden-queries.live.test.ts` | Runs all 44 shared queries (incl. 9 live-only) against the real cached corpus via the production transform, top-3 category assertion (requires content cache ≤ 7 days old; honors `CACHE_PATH`) |
 | `integration.test.ts` | End-to-end pipeline assessment (skipped by default — run with `INTEGRATION=1`) |
 | `corpus-validation.test.ts` | Validates chunking invariants across full corpus (requires content cache) |
 | `cache.mock.test.ts` | Cache behavior with mocked filesystem |
@@ -113,7 +114,7 @@ Tests mirror source 1:1 (`src/foo.ts` → `tests/foo.test.ts`). Additional test 
 
 - **Working directory**: All commands must run from this package directory, not the monorepo root.
 - **Version bump policy**:
-  - Changing canary thresholds or adding/removing canary checks → bump `CANARY_VERSION` in `canary.ts`
+  - Changing canary thresholds or adding/removing canary checks → bump `CANARY_VERSION` in `index-cache.ts`
   - Changing diagnostic computation (not thresholds) → bump `INGESTION_VERSION` in `index-cache.ts`
   - Adding a required diagnostic field → bump `INGESTION_VERSION` (not the Zod schema alone)
   - Adding an optional diagnostic field → update the Zod schema only, no version bump needed
@@ -132,7 +133,7 @@ The MCP server is registered to start via `scripts/run-mcp.sh`, a wrapper that r
 - Wrapper redirects tsc output to stderr (stdout is reserved for MCP JSON-RPC)
 - `exec` replaces bash with node so signals reach the server process directly
 - Incremental compilation (`incremental: true` in tsconfig) makes no-op builds fast
-- `.tsbuildinfo` lives in `dist/` — `rm -rf dist/` also clears the incremental cache
+- `.tsbuildinfo` lives in `dist/` — `trash dist/` also clears the incremental cache
 
 **If tsc fails:** The server does not start. This is intentional — running stale compiled code is worse than no server. Fix the TypeScript error and restart the session.
 
