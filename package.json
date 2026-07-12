@@ -2,10 +2,6 @@
   "name": "claude-code-tool-dev",
   "private": true,
   "workspaces": [
-    "packages/mcp-servers/*",
     "packages/plugins/*"
-  ],
-  "scripts": {
-    "build": "npm run build --workspaces --if-present"
-  }
+  ]
 }

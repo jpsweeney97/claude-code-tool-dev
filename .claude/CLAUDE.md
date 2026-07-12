@@ -172,11 +172,12 @@ docs/
 | ticket | `packages/plugins/ticket/` | Python | Repo-local ticket lifecycle management |
 | context-metrics | `packages/plugins/context-metrics/` | Python | Context window usage analysis |
 | superspec | `packages/plugins/superspec/` | Shell/Markdown | Spec writing system — write, review, modularize specs with shared contract |
-| claude-code-docs | `packages/mcp-servers/claude-code-docs/` | TypeScript | BM25-indexed Claude Code doc search |
 
-> **codex-collaboration** was extracted to its own repo at `/Users/jp/Projects/active/codex-collaboration/` on 2026-05-11. The standalone repo is the sole authority. See `packages/plugins/codex-collaboration/MIGRATED.md` for the redirect.
+> **codex-collaboration** was extracted to its own repo at `/Users/jp/Projects/active/codex-collaboration/` on 2026-05-11. The standalone repo is the sole authority. See `packages/deprecated/codex-collaboration/MIGRATED.md` for the redirect.
 
-Plugins deploy via `turbo-mode` marketplace. MCP servers and extensions deploy via `uv run scripts/promote`.
+> **claude-code-docs** was extracted to its own repo at `/Users/jp/Projects/active/claude-code-docs-mcp/` on 2026-07-12. The standalone repo is the sole authority. See `packages/deprecated/claude-code-docs/MIGRATED.md` for the redirect.
+
+Plugins deploy via `turbo-mode` marketplace. Extensions deploy via `uv run scripts/promote`.
 
 ## Gotchas
 
