@@ -21,6 +21,7 @@ docs/decisions/*
 !docs/decisions/2026-04-29-codex-collaboration-drift-synthesis-recovery.md
 docs/handoffs/
 .claude/handoffs/
+.agents/
 
 # Node
 node_modules/
