@@ -30,7 +30,7 @@ A second `/review-reviewer` adjudication re-ran the empirical ranking probe thro
 1. **Four pre-adjudicated query replacements:** Task 4.1 replaces the quickstart, permissions, slash-command, and plugin-marketplace phrasings. The resulting table is exactly 35 mocked queries + 9 live-only queries = 44 total. A current-source simulation against both the deterministic mock corpus and the real cached corpus produced zero failures (mock strict top-1; live top-3).
 2. **Bounded green endgame:** Task 4.4 no longer contains an expectation-calibration loop. The executor may inspect top-5 results after a failure but must not edit expectations, toggle `liveOnly`, add replacement queries, or loosen assertions during implementation. Any failure stops before the Task 4 commit and is reported as a proposed plan amendment.
 3. **Complete category-test update:** Task 1.1 now renames the 28-category test, adds `gateways` to its explicit membership list, updates the general-category count, and adds `gateway` to the negative alias invariant.
-4. **Gated `AGENTS.md` admission:** Task 5.3 records an **ADMIT** decision under the behavior-contract charter, requires the canonical ledger entry to be committed before the copy, and treats that ledger commit as a separate `/Users/jp/.agents` repository operation. Task 5.1 also corrects `CANARY_VERSION`'s documented location (`index-cache.ts`, not `canary.ts`) and removes the `rm -rf dist/` conflict before the text can enter `AGENTS.md`.
+4. **Gated `AGENTS.md` admission:** Task 5.3 records an **ADMIT** decision under the behavior-contract charter. The decision is already durable in `/Users/jp/.agents` commit `fe03db35`; implementation verifies that precondition before the copy but performs no new cross-repository mutation. Task 5.1 also corrects `CANARY_VERSION`'s documented location (`index-cache.ts`, not `canary.ts`) and removes the `rm -rf dist/` conflict before the text can enter `AGENTS.md`.
 
 ### Settled design decisions (do not relitigate)
 
@@ -47,7 +47,7 @@ A second `/review-reviewer` adjudication re-ran the empirical ranking probe thro
 
 ## Working conventions
 
-- **All package commands run from `packages/mcp-servers/claude-code-docs/`** (not the monorepo root). The sole exception is Task 5.3's charter-ledger precondition, which runs explicitly in `/Users/jp/.agents`, produces its own Markdown-only commit there, and must never absorb unrelated `.agents` work.
+- **All package commands run from `packages/mcp-servers/claude-code-docs/`** (not the monorepo root). Task 5.3 performs one read-only verification against `/Users/jp/.agents` commit `fe03db35`; the charter-ledger write is already complete and must not be repeated or mixed into package work.
 - Test: `npm test` (vitest run). Typecheck: `npx tsc --noEmit`. Focused test file: `npx vitest run tests/<name>.test.ts`.
 - The machine this runs on has a populated content cache at `~/Library/Caches/claude-code-docs/llms-full.txt` (165 sections), so `corpus-validation.test.ts` and the new live suite will actually execute, not skip.
 - Version-bump policy (from package CLAUDE.md): categories/frontmatter changes → `INGESTION_VERSION`; canary threshold/logic changes → `CANARY_VERSION`. Both bumps are in this plan; without them stale cached indexes would be served.
@@ -74,7 +74,7 @@ A second `/review-reviewer` adjudication re-ran the empirical ranking probe thro
 | `CLAUDE.md` (package) | modify | counts, resolver description, canary description, test table, version-constant path, safe cache-clear wording |
 | `README.md` (package) | modify | category list, alias list, warning-code list |
 | `AGENTS.md` (package) | modify | charter-admitted full resync — copy of the corrected `CLAUDE.md` (stale strictly-older duplicate; no unique content) |
-| `/Users/jp/.agents/docs/agents/contract-decisions.md` | modify in separate repo | append and separately commit the charter admission before changing package `AGENTS.md` |
+| `/Users/jp/.agents/docs/agents/contract-decisions.md` | verify only | charter admission already committed as `fe03db35`; must exist before changing package `AGENTS.md` |
 
 Execution order matters: Tasks 1–2 form one commit (categorization change + version bump must land atomically), then 3, 4, 5 are independent commits, 6 is verification.
 
@@ -1001,12 +1001,15 @@ All in `packages/mcp-servers/claude-code-docs/`.
 - **Observed failure prevented:** the current `AGENTS.md` has already drifted behind the code and `CLAUDE.md`, omitting trust/canary/status behavior and detailed version-bump rules. Always-loaded package context is the lightest surface that reliably prevents a Codex executor from serving a stale index or validating the wrong runtime path; a separate reference would be easier to miss and would duplicate the existing package-contract owner.
 - **House fit:** first-party, package-scoped, evidence-oriented, and explicit about commands and proof. Task 5.1 corrects the wrong `CANARY_VERSION` path and the global no-`rm` conflict before admission. No new workflow or routing lane is introduced.
 
-The decision must be present in the canonical charter ledger **before** `AGENTS.md` changes. This is a separate repository operation:
+The decision is already present in the canonical charter ledger: `/Users/jp/.agents` commit `fe03db35` (`docs(agents): admit claude-code-docs package contract sync`), with amended-plan commit `a6c4d24a` as its durable evidence pointer. Before changing `AGENTS.md`, verify that exact committed entry is available; do not create or edit any `.agents` artifact during package implementation:
 
-1. Inspect `/Users/jp/.agents` branch and dirty state. Do not absorb unrelated work; if there is no clean, user-authorized lane for the ledger-only commit, stop before changing `AGENTS.md` and report that precise blocker.
-2. Append one entry to `/Users/jp/.agents/docs/agents/contract-decisions.md` with date `2026-07-11`, surface `claude-code-docs package AGENTS.md resync`, outcome `ADMIT`, the three admission findings above, and the committed amended-plan SHA as the durable evidence pointer.
-3. Stage only `docs/agents/contract-decisions.md` in `/Users/jp/.agents` and commit it there with message `docs(agents): admit claude-code-docs package contract sync`.
-4. Confirm the ledger commit succeeded, return to this package, then perform the copy:
+```bash
+git -C /Users/jp/.agents show --quiet --oneline fe03db35   # expect: the admission commit
+git -C /Users/jp/.agents show fe03db35:docs/agents/contract-decisions.md \
+  | rg -F 'claude-code-docs` package `AGENTS.md` resync'   # expect: one matching entry
+```
+
+If either check fails, stop before changing `AGENTS.md` and report the missing charter evidence. Once both pass, perform the copy:
 
 ```bash
 cp CLAUDE.md AGENTS.md
@@ -1020,7 +1023,7 @@ git add CLAUDE.md README.md AGENTS.md
 git commit -m "docs(claude-code-docs): document gateways category, prefix resolver, and ratio canary"
 ```
 
-The `/Users/jp/.agents` ledger commit is intentionally separate and must already exist; never stage it from this repository or fold it into the package documentation commit.
+The `/Users/jp/.agents` ledger commit is intentionally separate and already exists as `fe03db35`; never stage `.agents` content from this repository or fold it into the package documentation commit.
 
 ---
 
@@ -1047,7 +1050,7 @@ jq '{ingestion: .compatibility.ingestion, fallback: .diagnostics.fallbackSection
 
 If `fallback` is not 0 after rebuild, list the survivors: the live suite's `< 5% uncategorized` test prints the exact URLs in its failure message — fix mappings and re-run.
 
-Done means: both commands green; the mocked golden suite proves exactly 35 queries at strict top-1; the live suite proves exactly 44 queries at top-3 plus both structural tests; the jq post-rebuild output matches; the charter admission is committed in `/Users/jp/.agents`; and all package commits above exist on `fix/claude-code-docs-corpus-maintenance`. Merging either repository's branch is a separate, user-authorized step.
+Done means: both commands green; the mocked golden suite proves exactly 35 queries at strict top-1; the live suite proves exactly 44 queries at top-3 plus both structural tests; the jq post-rebuild output matches; charter admission commit `fe03db35` is verifiable in `/Users/jp/.agents`; and all package commits above exist on `fix/claude-code-docs-corpus-maintenance`. Merging either repository's branch is a separate, user-authorized step.
 
 ---
 
