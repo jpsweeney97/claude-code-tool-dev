@@ -39,7 +39,7 @@ Environment variables:
 | Variable | Default | Purpose | Constraints / Behavior |
 | --- | --- | --- | --- |
 | `DOCS_URL` | `https://code.claude.com/docs/llms-full.txt` | Source documentation URL. | Validated on startup; must be a valid `https` URL. |
-| `DOCS_TRUST_MODE` | `official` | Trust mode controlling source validation and canary policy. | `official`: pins source to `code.claude.com`, full canary evaluation (fallback-segment delta + relative-drift checks). `unsafe`: accepts any HTTPS URL, structural canaries only (count + size checks). Use `unsafe` only for local testing or private mirrors. |
+| `DOCS_TRUST_MODE` | `official` | Trust mode controlling source validation and canary policy. | `official`: pins source to `code.claude.com`, full canary evaluation (fallback-segment delta + relative-drift checks + absolute fallback-ratio warn). `unsafe`: accepts any HTTPS URL, structural canaries only (count + size checks). Use `unsafe` only for local testing or private mirrors. |
 | `RETRY_INTERVAL_MS` | `60000` | Retry backoff for failed index loads. | Validated on startup; must be an integer between `1000` and `600000`. |
 | `CACHE_TTL_MS` | `86400000` | Content cache freshness window in milliseconds. | Integer >=0. `0` means the cache is never considered fresh (fetch each load); values > 1 year are capped. |
 | `DOCS_CACHE_MAX_STALE_MS` | `0` | Maximum allowed age for stale cache fallback. | Validated on startup; must be an integer >=0. `0` disables the limit. |

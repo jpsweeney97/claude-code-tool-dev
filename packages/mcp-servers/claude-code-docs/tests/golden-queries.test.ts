@@ -7,6 +7,19 @@ import { chunkFile } from '../src/chunker.js';
 import { buildBM25Index, search } from '../src/bm25.js';
 import { GOLDEN_QUERIES } from './golden-query-data.js';
 
+// The query-table contract is fixed (plan 2026-07-11, Task 4.4): 35 mocked +
+// 9 live-only = 44 total. Both suites generate tests by iterating the table,
+// so a deleted entry would otherwise shrink coverage silently — pin the counts
+// (and uniqueness, so count-preserving duplication can't mask a deletion).
+describe('golden-query table contract', () => {
+  it('has exactly 35 mocked + 9 live-only = 44 unique queries', () => {
+    expect(GOLDEN_QUERIES).toHaveLength(44);
+    expect(GOLDEN_QUERIES.filter((q) => !q.liveOnly)).toHaveLength(35);
+    expect(GOLDEN_QUERIES.filter((q) => q.liveOnly)).toHaveLength(9);
+    expect(new Set(GOLDEN_QUERIES.map((q) => q.query)).size).toBe(44);
+  });
+});
+
 // Mock content that simulates the llms-full.txt format from code.claude.com
 // IMPORTANT: This content is used for testing search quality, not loading.
 // Any changes here affect the golden query tests below.

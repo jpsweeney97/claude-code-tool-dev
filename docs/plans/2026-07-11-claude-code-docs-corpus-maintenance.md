@@ -36,6 +36,13 @@ A second `/review-reviewer` adjudication re-ran the empirical ranking probe thro
 
 A claim-by-claim verification of this plan against current source (including an independent re-run of the ranking proof: 35/35 mock top-1, 44/44 live top-3, 0/165 uncategorized) confirmed the plan with one test-strength amendment, folded into Task 3.1: the status-side test must parse the built status through `RuntimeStatusSchema`, not just assert the `buildRuntimeStatus` passthrough. `buildRuntimeStatus` performs no validation, and `npx tsc --noEmit` does not cover `tests/` (tsconfig includes only `src`), so a missed or later-regressed `StatusWarningCodeSchema` entry would keep every test green while `get_status` — which registers `RuntimeStatusSchema` as its MCP `outputSchema` (`index.ts`) — fails at runtime whenever the ratio warning is active. With the schema parse, the Task 3.1 fail-first run fails in all three test files rather than two.
 
+### Amendments from implementation review (2026-07-12, post-execution)
+
+The post-implementation review (`review-family:implementation-review`, verdict Ship, 0 blockers) confirmed all 16 requirements and surfaced two fixes, applied in a follow-up commit:
+
+1. **Query-table cardinality pin (should-fix):** the fixed 35/9/44 contract was enforced only by generated-test counts, so deleting a `GOLDEN_QUERIES` entry would shrink coverage with both suites still green. `tests/golden-queries.test.ts` gains a `golden-query table contract` describe asserting 44 total, 35 non-`liveOnly`, 9 `liveOnly`, and 44 unique query strings.
+2. **README trust-mode row (note):** Task 5.2 omitted the `DOCS_TRUST_MODE` row from its README edits, leaving "full canary evaluation" described without the new absolute fallback-ratio warn. The row now reads `(fallback-segment delta + relative-drift checks + absolute fallback-ratio warn)`, matching `CLAUDE.md`/`AGENTS.md`.
+
 ### Settled design decisions (do not relitigate)
 
 - New category is named **`gateways`** (plural, matching `providers`/`plugins`/`integrations` convention; the overview page slug is literally `gateways`). Alias `gateway` → `gateways`.
