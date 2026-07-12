@@ -2,7 +2,7 @@
 
 /**
  * Canonical list of all documentation categories.
- * These are the 28 categories used for categorizing all Claude Code docs.
+ * These are the 29 categories used for categorizing all Claude Code docs.
  */
 export const KNOWN_CATEGORIES = new Set([
   // Extension categories (10)
@@ -16,7 +16,7 @@ export const KNOWN_CATEGORIES = new Set([
   'channels',
   'settings',
   'memory',
-  // General categories (18)
+  // General categories (19)
   'overview',
   'getting-started',
   'cli',
@@ -24,6 +24,7 @@ export const KNOWN_CATEGORIES = new Set([
   'interactive',
   'security',
   'providers',
+  'gateways',
   'ide',
   'ci-cd',
   'automation',
@@ -91,7 +92,9 @@ export const SECTION_TO_CATEGORY: Record<string, string> = {
   'amazon-bedrock': 'providers',
   'google-vertex-ai': 'providers',
   'microsoft-foundry': 'providers',
-  'llm-gateway': 'providers',
+  'llm-gateway': 'gateways',
+  'gateways': 'gateways',
+  'claude-apps-gateway': 'gateways',
   'vs-code': 'ide',
   'jetbrains': 'ide',
   'devcontainer': 'ide',
@@ -129,7 +132,70 @@ export const SECTION_TO_CATEGORY: Record<string, string> = {
   'troubleshooting': 'troubleshooting',
   'changelog': 'changelog',
   'whats-new': 'changelog',
+  // Standalone pages with no family-prefix parent key. Family sub-pages
+  // (llm-gateway-*, claude-apps-gateway-*, mcp-*, security-*, desktop-*)
+  // resolve via resolveSegmentCategory's longest-prefix rule instead.
+  'agents': 'agents',
+  'agent-view': 'agents',
+  'admin-setup': 'settings',
+  'auto-mode-config': 'security',
+  'sandbox-environments': 'security',
+  'claude-platform-on-aws': 'providers',
+  'managed-mcp': 'mcp',
+  'plugin-dependencies': 'plugins',
+  'plugin-hints': 'plugins',
+  'plugin-relevance': 'plugins',
+  'debug-your-config': 'troubleshooting',
+  'troubleshoot-install': 'troubleshooting',
+  'errors': 'troubleshooting',
+  'ultrareview': 'ci-cd',
+  'feature-availability': 'overview',
+  'glossary': 'overview',
+  'large-codebases': 'best-practices',
+  'prompt-library': 'best-practices',
+  'champion-kit': 'best-practices',
+  'communications-kit': 'best-practices',
+  'sessions': 'interactive',
+  'worktrees': 'interactive',
+  'advisor': 'interactive',
+  'artifacts': 'interactive',
+  'deep-links': 'integrations',
+  'workflows': 'automation',
+  'goal': 'automation',
+  'prompt-caching': 'operations',
 };
+
+/**
+ * Keys of SECTION_TO_CATEGORY sorted longest-first (ties alphabetical) so prefix
+ * resolution deterministically prefers the most specific family key
+ * (e.g. 'desktop-scheduled-tasks' over 'desktop').
+ */
+const SECTION_KEYS_LONGEST_FIRST: readonly string[] = Object.keys(SECTION_TO_CATEGORY)
+  .sort((a, b) => b.length - a.length || a.localeCompare(b));
+
+/**
+ * Resolve one URL path segment to its canonical category.
+ *
+ * Resolution order:
+ * 1. Exact key match in SECTION_TO_CATEGORY.
+ * 2. Longest key K such that the segment starts with `K + '-'` — new sub-pages of a
+ *    known family (e.g. 'llm-gateway-connect', 'claude-apps-gateway-config',
+ *    'mcp-quickstart', 'desktop-linux') resolve without a table edit.
+ *
+ * The '-' boundary prevents bare-prefix false positives ('pluginsomething' must not
+ * match 'plugins'). Returns null when nothing matches.
+ */
+export function resolveSegmentCategory(segment: string): string | null {
+  if (Object.hasOwn(SECTION_TO_CATEGORY, segment)) {
+    return SECTION_TO_CATEGORY[segment];
+  }
+  for (const key of SECTION_KEYS_LONGEST_FIRST) {
+    if (segment.startsWith(key + '-')) {
+      return SECTION_TO_CATEGORY[key];
+    }
+  }
+  return null;
+}
 
 /**
  * Maps category aliases to their canonical category.
@@ -141,4 +207,5 @@ export const CATEGORY_ALIASES: Record<string, string> = {
   'slash-commands': 'commands',
   'claude-md': 'memory',
   'configuration': 'config',
+  'gateway': 'gateways',
 };

@@ -1,6 +1,6 @@
 import { parse as parseYaml } from 'yaml';
 import { isHttpUrl, extractContentPath } from './url-helpers.js';
-import { SECTION_TO_CATEGORY } from './categories.js';
+import { resolveSegmentCategory } from './categories.js';
 
 export interface Frontmatter {
   category?: string;
@@ -188,7 +188,7 @@ export function deriveCategory(path: string): string {
   if (isHttpUrl(path)) {
     const segments = extractContentPath(path);
     for (const seg of segments) {
-      const category = SECTION_TO_CATEGORY[seg];
+      const category = resolveSegmentCategory(seg);
       if (category) return category;
     }
     // Default unmapped URLs to 'uncategorized' — keeps the explicit 'overview' category
@@ -210,12 +210,13 @@ export function deriveCategory(path: string): string {
  * are expected page slugs, not missing categories.
  *
  * Returns non-empty only when NO segment maps, meaning deriveCategory would
- * fall back to 'uncategorized'. Uses Object.hasOwn to avoid prototype-chain
- * false positives. Pure function — no side effects.
+ * fall back to 'uncategorized'. Shares resolveSegmentCategory with deriveCategory
+ * so the loader's fallback diagnostics always agree with actual chunk
+ * categorization. Pure function — no side effects.
  */
 export function getUnmappedSegments(sourceUrl: string): string[] {
   const segments = extractContentPath(sourceUrl);
-  const anyMapped = segments.some(seg => Object.hasOwn(SECTION_TO_CATEGORY, seg));
+  const anyMapped = segments.some(seg => resolveSegmentCategory(seg) !== null);
   if (anyMapped) return [];
   // No segment maps — URL is uncategorizable. Return all for diagnostics.
   return segments;

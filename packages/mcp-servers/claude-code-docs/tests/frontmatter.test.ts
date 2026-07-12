@@ -164,6 +164,19 @@ describe('deriveCategory', () => {
     expect(deriveCategory('https://code.claude.com/docs/en/unknown-page')).toBe('uncategorized');
     expect(deriveCategory('https://code.claude.com/docs/en/some-new-page')).toBe('uncategorized');
   });
+
+  it('resolves family sub-pages via longest-prefix matching', () => {
+    expect(deriveCategory('https://code.claude.com/docs/en/llm-gateway-connect')).toBe('gateways');
+    expect(deriveCategory('https://code.claude.com/docs/en/claude-apps-gateway-spend-limits')).toBe('gateways');
+    expect(deriveCategory('https://code.claude.com/docs/en/mcp-quickstart')).toBe('mcp');
+    expect(deriveCategory('https://code.claude.com/docs/en/security-guidance')).toBe('security');
+    expect(deriveCategory('https://code.claude.com/docs/en/desktop-linux')).toBe('desktop');
+  });
+
+  it('requires a hyphen boundary for prefix matches', () => {
+    expect(deriveCategory('https://code.claude.com/docs/en/pluginsomething')).toBe('uncategorized');
+    expect(deriveCategory('https://code.claude.com/docs/en/hookswild')).toBe('uncategorized');
+  });
 });
 
 describe('parseFrontmatter - requires and related_to', () => {
@@ -272,5 +285,10 @@ describe('getUnmappedSegments', () => {
 
   it('returns empty for invalid URL', () => {
     expect(getUnmappedSegments('not-a-url')).toEqual([]);
+  });
+
+  it('agrees with deriveCategory prefix resolution', () => {
+    expect(getUnmappedSegments('https://code.claude.com/docs/en/llm-gateway-connect')).toEqual([]);
+    expect(getUnmappedSegments('https://code.claude.com/docs/en/mcp-quickstart')).toEqual([]);
   });
 });
