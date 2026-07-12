@@ -1,6 +1,6 @@
 {
   "name": "@claude-tools/claude-code-docs",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "main": "dist/index.js",
   "engines": {
