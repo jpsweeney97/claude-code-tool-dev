@@ -32,6 +32,10 @@ A second `/review-reviewer` adjudication re-ran the empirical ranking probe thro
 3. **Complete category-test update:** Task 1.1 now renames the 28-category test, adds `gateways` to its explicit membership list, updates the general-category count, and adds `gateway` to the negative alias invariant.
 4. **Gated `AGENTS.md` admission:** Task 5.3 records an **ADMIT** decision under the behavior-contract charter. The decision is already durable in `/Users/jp/.agents` commit `fe03db35`; implementation verifies that precondition before the copy but performs no new cross-repository mutation. Task 5.1 also corrects `CANARY_VERSION`'s documented location (`index-cache.ts`, not `canary.ts`) and removes the `rm -rf dist/` conflict before the text can enter `AGENTS.md`.
 
+### Amendment from pre-execution verification (2026-07-12)
+
+A claim-by-claim verification of this plan against current source (including an independent re-run of the ranking proof: 35/35 mock top-1, 44/44 live top-3, 0/165 uncategorized) confirmed the plan with one test-strength amendment, folded into Task 3.1: the status-side test must parse the built status through `RuntimeStatusSchema`, not just assert the `buildRuntimeStatus` passthrough. `buildRuntimeStatus` performs no validation, and `npx tsc --noEmit` does not cover `tests/` (tsconfig includes only `src`), so a missed or later-regressed `StatusWarningCodeSchema` entry would keep every test green while `get_status` — which registers `RuntimeStatusSchema` as its MCP `outputSchema` (`index.ts`) — fails at runtime whenever the ratio warning is active. With the schema parse, the Task 3.1 fail-first run fails in all three test files rather than two.
+
 ### Settled design decisions (do not relitigate)
 
 - New category is named **`gateways`** (plural, matching `providers`/`plugins`/`integrations` convention; the overview page slug is literally `gateways`). Alias `gateway` → `gateways`.
@@ -526,15 +530,21 @@ describe('fallback_ratio_high (absolute ratio tripwire)', () => {
 });
 ```
 
-In `tests/status.test.ts`, add inside `describe('buildRuntimeStatus', ...)`:
+In `tests/status.test.ts`, extend the `../src/status.js` import to include `RuntimeStatusSchema` (it currently imports only `buildRuntimeStatus`, `projectSearchMeta`, and the two types), then add inside `describe('buildRuntimeStatus', ...)`:
 
 ```ts
-  it('passes fallback_ratio_high through warning_codes', () => {
+  it('passes fallback_ratio_high through warning_codes and the status schema', () => {
     const status = buildRuntimeStatus({
       ...BASE_INPUT,
       warningCodes: ['fallback_ratio_high'],
     });
     expect(status.warning_codes).toContain('fallback_ratio_high');
+    // buildRuntimeStatus performs no validation — RuntimeStatusSchema is enforced at
+    // the MCP layer (index.ts registers it as get_status's outputSchema), and tsc
+    // does not cover tests/. Parse here so a missed or regressed
+    // StatusWarningCodeSchema entry fails this test instead of breaking get_status
+    // at runtime whenever the ratio warning is active.
+    expect(() => RuntimeStatusSchema.parse(status)).not.toThrow();
   });
 ```
 
@@ -557,14 +567,15 @@ and update its assertions:
     expect(parsed!.evaluation.warnings[2].code).toBe('fallback_ratio_high');
 ```
 
-Why this test exists: `WarningCode` (canary.ts), `WarningSchema` (index-cache.ts), and `StatusWarningCodeSchema` (status.ts) have no compile-time link. A missed or later-regressed `WarningSchema` entry compiles clean; at runtime the server writes the warning, then `parseSerializedIndex` rejects its own index cache on the next startup — rebuild on every start. The round-trip pins the serialization surface the way the status passthrough test pins the status surface.
+Why this test exists: `WarningCode` (canary.ts), `WarningSchema` (index-cache.ts), and `StatusWarningCodeSchema` (status.ts) have no compile-time link. A missed or later-regressed `WarningSchema` entry compiles clean; at runtime the server writes the warning, then `parseSerializedIndex` rejects its own index cache on the next startup — rebuild on every start. The round-trip pins the serialization surface; the `RuntimeStatusSchema.parse` assertion in the status test above pins the status surface the same way (a bare passthrough assertion would stay green with a stale enum, because `buildRuntimeStatus` never validates).
 
 Run and watch fail:
 
 ```bash
 npx vitest run tests/canary.test.ts tests/status.test.ts tests/index-cache.test.ts
-# expect: FAIL — FALLBACK_RATIO_WARN_THRESHOLD not exported; no fallback_ratio_high warnings;
-#         round-trip rejects the unknown warning code (parsed is null)
+# expect: FAIL in all three files — FALLBACK_RATIO_WARN_THRESHOLD not exported;
+#         no fallback_ratio_high warnings; RuntimeStatusSchema.parse rejects the
+#         unknown code; round-trip rejects the unknown warning code (parsed is null)
 ```
 
 ### 3.2 Implement in `src/canary.ts`
@@ -1058,6 +1069,7 @@ Done means: both commands green; the mocked golden suite proves exactly 35 queri
 
 - **Coverage:** item 1 → Tasks 1–2; item 2 → Task 3; item 3 → Task 4; version bumps → 2.4 and 3.3; doc claims → Task 5. All 40 uncategorized pages accounted for (30 explicit keys, 10 prefix-resolved).
 - **Review amendments (2026-07-11):** production-transform reuse → 4.0/4.3; `fallback_ratio_high` round-trip → 3.1/3.3; AGENTS.md resync → 5.3; live-suite corpus contract (`CACHE_PATH` + 7-day age guard) → 4.3. Re-scrutiny correction: the AGENTS.md resync is a gated **ADMIT**, with a canonical-ledger precondition and wrong-path/no-`rm` corrections before copying.
+- **Verification amendment (2026-07-12):** the Task 3.1 status test parses through `RuntimeStatusSchema` so the status Zod surface is pinned like the serialization surface — a bare passthrough assertion stays green with a stale `StatusWarningCodeSchema` (no runtime validation in `buildRuntimeStatus`, no `tsc` coverage of `tests/`) while `get_status` breaks at runtime.
 - **Query pre-adjudication proof (2026-07-11):** the final 35 mock + 9 live-only table was run through freshly compiled current parser/loader-equivalent/chunker/BM25 code with the plan's mapping applied. Result: zero mock top-1 failures, zero live top-3 failures, zero uncategorized sections; the four replacement queries each ranked their expected category first in both corpora.
 - **Collateral audited before planning:** existing `canary.test.ts` assertions are targeted (`warnings.find/some` by code), so the added ratio warning breaks none; `categories.test.ts` pins size 28 (updated in 1.1); no test hardcodes version literals (all import the constants); `schemas.ts`/`server.test.ts`/`dump-index-metadata.ts` derive category lists dynamically from `KNOWN_CATEGORIES`/`CATEGORY_ALIASES`; `error-messages.ts` contains no category text.
 - **Outside view:** reference class is "taxonomy/config change with cache-version bump" in this package (prior art: PR #130 canary replacement, the B12 category expansion). That class reliably requires: the version bump itself, Zod schema sync, status-surface sync, doc-claim updates, and a runtime cache-invalidation proof — each is an explicit task above, because earlier changes of this class in this repo needed exactly those and the spec-level ask ("update categories.ts") names none of them. The class also warns that query-expectation calibration against a live corpus balloons; the re-scrutiny therefore moved calibration out of implementation, pre-adjudicated the known failures, fixed the 44-query table, and made any later failure an immediate stop-and-report gate. This is a debias against the class base rate, not a completeness certificate.
