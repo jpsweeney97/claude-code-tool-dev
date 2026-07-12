@@ -117,6 +117,27 @@ function deriveIdFromUrl(url: string | undefined): string | undefined {
   return segments.length > 0 ? segments.join('-') : undefined;
 }
 
+/**
+ * Transform one parsed section into the frontmatter-enriched MarkdownFile the
+ * index is built from. Exported so the live golden-query suite indexes the
+ * cached corpus through the exact production path (golden-queries.live.test.ts)
+ * — keep this the single source of that mapping.
+ */
+export function sectionToMarkdownFile(s: ParsedSection): MarkdownFile {
+  const sourceKey = s.sourceUrl || s.title || '';
+  const topic = s.title?.trim() || undefined;
+  const id = deriveIdFromUrl(s.sourceUrl);
+  const category = deriveCategory(sourceKey);
+
+  // Build synthetic frontmatter to enrich metadata for search
+  const frontmatter = buildSyntheticFrontmatter({ topic, id, category });
+
+  return {
+    path: s.sourceUrl || s.title || 'unknown',
+    content: frontmatter + s.content,
+  };
+}
+
 export async function loadFromOfficial(
   url: string,
   cachePath?: string,
@@ -185,20 +206,7 @@ export async function loadFromOfficial(
       fallbackSegmentCount: sortedUnmapped.length,
       unmappedSegments: sortedUnmapped,
     },
-    files: filtered.map((s) => {
-      const sourceKey = s.sourceUrl || s.title || '';
-      const topic = s.title?.trim() || undefined;
-      const id = deriveIdFromUrl(s.sourceUrl);
-      const category = deriveCategory(sourceKey);
-
-      // Build synthetic frontmatter to enrich metadata for search
-      const frontmatter = buildSyntheticFrontmatter({ topic, id, category });
-
-      return {
-        path: s.sourceUrl || s.title || 'unknown',
-        content: frontmatter + s.content,
-      };
-    }),
+    files: filtered.map(sectionToMarkdownFile),
   };
 }
 

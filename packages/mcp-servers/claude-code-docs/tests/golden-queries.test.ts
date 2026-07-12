@@ -5,6 +5,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { chunkFile } from '../src/chunker.js';
 import { buildBM25Index, search } from '../src/bm25.js';
+import { GOLDEN_QUERIES } from './golden-query-data.js';
 
 // Mock content that simulates the llms-full.txt format from code.claude.com
 // IMPORTANT: This content is used for testing search quality, not loading.
@@ -549,51 +550,7 @@ describe('golden queries (URL-based)', () => {
     }
   });
 
-  const goldenQueries = [
-    // Extension categories (existing)
-    { query: 'hook exit codes blocking', expectedTopCategory: 'hooks' },
-    { query: 'PreToolUse JSON output', expectedTopCategory: 'hooks' },
-    { query: 'skill frontmatter', expectedTopCategory: 'skills' },
-    { query: 'MCP server registration', expectedTopCategory: 'mcp' },
-    { query: 'common fields hook input', expectedTopCategory: 'hooks' },
-    { query: 'subagent isolated context delegation', expectedTopCategory: 'agents' },
-    // New categories
-    { query: 'quickstart npm package installation', expectedTopCategory: 'getting-started' },
-    { query: 'bedrock AWS credentials region', expectedTopCategory: 'providers' },
-    { query: 'VS Code keybindings extension', expectedTopCategory: 'ide' },
-    { query: 'GitHub Actions workflow YAML', expectedTopCategory: 'ci-cd' },
-    { query: 'sandbox isolation filesystem', expectedTopCategory: 'security' },
-    { query: 'troubleshooting debug logging', expectedTopCategory: 'troubleshooting' },
-    { query: 'agent teams leader worker coordination', expectedTopCategory: 'agents' },
-    { query: 'authentication login API key', expectedTopCategory: 'security' },
-    { query: 'permission system approval levels', expectedTopCategory: 'security' },
-    // New priority categories (B12)
-    { query: 'slash command definition YAML', expectedTopCategory: 'commands' },
-    { query: 'plugin manifest structure install', expectedTopCategory: 'plugins' },
-    { query: 'settings hierarchy configuration', expectedTopCategory: 'settings' },
-    { query: 'CLAUDE.md memory persistent sessions', expectedTopCategory: 'memory' },
-    { query: 'CLI flags model allowedTools', expectedTopCategory: 'cli' },
-    { query: 'vim mode interactive editing', expectedTopCategory: 'interactive' },
-    { query: 'desktop application native install', expectedTopCategory: 'desktop' },
-    { query: 'overview agentic terminal tool', expectedTopCategory: 'overview' },
-    // New categories (channels, automation, agent-sdk)
-    { query: 'channel push events Telegram Discord', expectedTopCategory: 'channels' },
-    { query: 'sender allowlist channel security', expectedTopCategory: 'channels' },
-    { query: 'Agent SDK agent loop turns messages', expectedTopCategory: 'agent-sdk' },
-    { query: 'scheduled tasks loop recurring prompt', expectedTopCategory: 'automation' },
-    // Remaining categories (full coverage)
-    { query: 'plugin marketplace browse install community', expectedTopCategory: 'plugin-marketplaces' },
-    { query: 'effective prompts iterative workflow tips', expectedTopCategory: 'best-practices' },
-    { query: 'configuration files model settings override', expectedTopCategory: 'config' },
-    { query: 'token usage cost dashboard spending limits', expectedTopCategory: 'operations' },
-    { query: 'Slack app mention channel thread integration', expectedTopCategory: 'integrations' },
-    { query: 'changelog release version history fixes', expectedTopCategory: 'changelog' },
-    // Morphological variant queries (stemming coverage)
-    { query: 'configuring MCP servers', expectedTopCategory: 'mcp' },
-    { query: 'creating custom skills', expectedTopCategory: 'skills' },
-  ];
-
-  for (const { query, expectedTopCategory } of goldenQueries) {
+  for (const { query, expectedTopCategory } of GOLDEN_QUERIES.filter((q) => !q.liveOnly)) {
     it(`"${query}" returns ${expectedTopCategory} category in top result`, () => {
       const results = search(index, query, 5);
 

@@ -864,3 +864,23 @@ describe('LoadResult diagnostics', () => {
     expect(segs[1]).toEqual(['aaa-unknown', 1]); // then name asc
   });
 });
+
+describe('sectionToMarkdownFile', () => {
+  it('builds the frontmatter-enriched file the production index consumes', async () => {
+    const { sectionToMarkdownFile } = await import('../src/loader.js');
+    const file = sectionToMarkdownFile({
+      sourceUrl: 'https://code.claude.com/docs/en/hooks-guide',
+      title: 'Get started with hooks',
+      content: 'Body text.',
+    });
+    expect(file.path).toBe('https://code.claude.com/docs/en/hooks-guide');
+    expect(file.content).toBe(
+      '---\n' +
+        'topic: "Get started with hooks"\n' +
+        'id: "hooks-guide"\n' +
+        'category: "hooks"\n' +
+        '---\n' +
+        'Body text.',
+    );
+  });
+});
